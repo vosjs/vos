@@ -1,0 +1,48 @@
+# @vosjs/elements
+
+> The Vos element system — text / image / SVG / video renderers for Three.js overlays, shipped as both a typed ESM factory and an injectable IIFE bundle.
+
+[![npm](https://img.shields.io/npm/v/@vosjs/elements.svg)](https://www.npmjs.com/package/@vosjs/elements)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/vosjs/vos/blob/main/LICENSE)
+
+Part of [Vos](https://github.com/vosjs/vos). Renders 2D overlay elements (text, images, SVG, video) as Three.js meshes positioned over a scene. `three` is an optional peer dependency and is provided at runtime (never bundled).
+
+## Install
+
+```bash
+pnpm add @vosjs/elements three
+```
+
+## Two entry points
+
+### `@vosjs/elements` — typed ESM factory
+
+For app/build-time use (e.g. client-side export pipelines):
+
+```ts
+import * as THREE from 'three'
+import { createVosElements } from '@vosjs/elements'
+
+const elements = createVosElements(THREE)
+const map = await elements.renderElements(elementsConfig, overlayScenes, resolution)
+// ...
+elements.disposeElements(map)
+```
+
+### `@vosjs/elements/bundle` — injectable IIFE string
+
+For injecting into a sandboxed render context (the iframe/Worker that runs compiled Vos templates). The string defines a global `__vosElementsFactory`:
+
+```ts
+import { generateRenderTemplate } from '@vosjs/core/runtime'
+import { elementsBundleCode } from '@vosjs/elements/bundle'
+
+const html = generateRenderTemplate(compiledCode, {
+  mode: 'playback',
+  elementsBundleCode,
+})
+```
+
+## License
+
+[MIT](https://github.com/vosjs/vos/blob/main/LICENSE) © Hongbin Li
