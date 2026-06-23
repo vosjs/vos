@@ -1,0 +1,1 @@
+export { compileVosConfig } from './compileVosConfig'
