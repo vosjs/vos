@@ -1,6 +1,6 @@
 {
   "name": "@vosjs/elements",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Vos element system — text / image / SVG / video renderers for Three.js overlays, shipped as both a typed ESM factory and an injectable IIFE bundle.",
   "type": "module",
   "license": "MIT",
@@ -23,10 +23,13 @@
     "text",
     "svg"
   ],
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
     "./bundle": {
       "types": "./dist/bundle.d.ts",
       "import": "./dist/bundle.js"
@@ -53,18 +56,6 @@
     "typescript": "^5"
   },
   "publishConfig": {
-    "access": "public",
-    "main": "./dist/index.js",
-    "types": "./dist/index.d.ts",
-    "exports": {
-      ".": {
-        "types": "./dist/index.d.ts",
-        "import": "./dist/index.js"
-      },
-      "./bundle": {
-        "types": "./dist/bundle.d.ts",
-        "import": "./dist/bundle.js"
-      }
-    }
+    "access": "public"
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@vosjs/core",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The Vos engine — a declarative, resolution-independent API for compiling mixed-media (Three.js / GSAP / 2D / HTML / video) animations into executable templates.",
   "type": "module",
   "license": "MIT",
@@ -25,16 +25,37 @@
     "declarative",
     "compiler"
   ],
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./types": "./src/types/index.ts",
-    "./compiler": "./src/compiler/index.ts",
-    "./runtime": "./src/runtime/index.ts",
-    "./addons": "./src/addons/index.ts",
-    "./schema": "./src/schema/index.ts",
-    "./extract": "./src/extract/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/types/index.js"
+    },
+    "./compiler": {
+      "types": "./dist/compiler/index.d.ts",
+      "import": "./dist/compiler/index.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime/index.d.ts",
+      "import": "./dist/runtime/index.js"
+    },
+    "./addons": {
+      "types": "./dist/addons/index.d.ts",
+      "import": "./dist/addons/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema/index.d.ts",
+      "import": "./dist/schema/index.js"
+    },
+    "./extract": {
+      "types": "./dist/extract/index.d.ts",
+      "import": "./dist/extract/index.js"
+    }
   },
   "files": [
     "dist"
@@ -73,38 +94,6 @@
     "vitest": "^3.0.5"
   },
   "publishConfig": {
-    "access": "public",
-    "main": "./dist/index.js",
-    "types": "./dist/index.d.ts",
-    "exports": {
-      ".": {
-        "types": "./dist/index.d.ts",
-        "import": "./dist/index.js"
-      },
-      "./types": {
-        "types": "./dist/types/index.d.ts",
-        "import": "./dist/types/index.js"
-      },
-      "./compiler": {
-        "types": "./dist/compiler/index.d.ts",
-        "import": "./dist/compiler/index.js"
-      },
-      "./runtime": {
-        "types": "./dist/runtime/index.d.ts",
-        "import": "./dist/runtime/index.js"
-      },
-      "./addons": {
-        "types": "./dist/addons/index.d.ts",
-        "import": "./dist/addons/index.js"
-      },
-      "./schema": {
-        "types": "./dist/schema/index.d.ts",
-        "import": "./dist/schema/index.js"
-      },
-      "./extract": {
-        "types": "./dist/extract/index.d.ts",
-        "import": "./dist/extract/index.js"
-      }
-    }
+    "access": "public"
   }
 }
