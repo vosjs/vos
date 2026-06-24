@@ -31,6 +31,7 @@ export function generateElementsSetup(config: any): string {
   // Initialize __vos__ namespace for video sync
   window.__vos__ = window.__vos__ || {};
   window.__vos__.videoCallbacks = window.__vos__.videoCallbacks || new Set();
+  window.__vos__.pendingDecodes = window.__vos__.pendingDecodes || new Set();
   window.__vos__.isPaused = true;
 
   window.__vos__.setGlobalPaused = (paused) => {
@@ -38,9 +39,17 @@ export function generateElementsSetup(config: any): string {
     window.__vos__.videoCallbacks.forEach(cb => cb());
   };
 
+  // Frame-accurate video: elements register their in-flight decode here so the
+  // export/scrub loop can await the exact frame before capturing.
+  window.__vos__.registerDecode = (p) => {
+    const set = window.__vos__.pendingDecodes;
+    set.add(p);
+    Promise.resolve(p).finally(() => set.delete(p));
+  };
+
   window.__vos__.waitForVideosReady = async () => {
-    if (!window.__vos__?.elements) return;
-    // Video readiness is handled by the element system's asset cache
+    const set = window.__vos__?.pendingDecodes;
+    if (set && set.size) await Promise.all([...set]);
   };
 
   // 2D Overlay Layer — build per-zIndex overlay scenes

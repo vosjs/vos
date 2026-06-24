@@ -53,6 +53,7 @@ export function generateCleanup(config: VosConfig): string {
       // Cleanup globals
       if (window.__vos__) {
         window.__vos__.videoCallbacks?.clear();
+        window.__vos__.pendingDecodes?.clear();
         delete window.__vos__;
       }
     }`
