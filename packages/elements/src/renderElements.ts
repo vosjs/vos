@@ -85,6 +85,8 @@ export async function renderElements(
       let segments: any = null
       const segmentMeshes: THREE_NS.Mesh[] = []
       let videoElement: HTMLVideoElement | null = null
+      let videoSource: any = null
+      let videoTexture: THREE_NS.Texture | null = null
 
       if (config.type === 'text' && config.split) {
         const splitResult = renderSplitTextElement(config, resolution, THREE)
@@ -162,7 +164,9 @@ export async function renderElements(
         elementHeight = result.height
         mesh.userData.video = result.video
         videoElement = result.video
-        videoElement.pause()
+        videoSource = result.videoSource
+        videoTexture = result.texture
+        videoElement?.pause() // null on the webcodecs path
       } else {
         mesh = new THREE.Mesh(
           new THREE.PlaneGeometry(100, 100),
@@ -225,6 +229,8 @@ export async function renderElements(
         -mesh.position.y,
         config.opacity ?? 1,
         videoElement,
+        videoSource,
+        videoTexture,
       )
 
       const elementInstance = {
@@ -239,6 +245,7 @@ export async function renderElements(
           }
         },
         destroy: () => {
+          videoSource?.dispose?.()
           const targetScene = getScene(config)
           if (segmentMeshes.length > 0) {
             segmentMeshes.forEach((m) => {

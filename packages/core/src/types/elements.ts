@@ -188,6 +188,14 @@ export interface VideoElement extends BaseElement {
   muted?: boolean
   playbackRate?: number
   startTime?: number
+
+  /**
+   * Decode strategy:
+   *  - 'html5' (default): HTMLVideoElement + VideoTexture (legacy; not frame-accurate)
+   *  - 'webcodecs': frame-accurate WebCodecs decode (deterministic export/scrub)
+   *  - 'auto': webcodecs when available, else html5
+   */
+  frameSource?: 'auto' | 'webcodecs' | 'html5'
 }
 
 // =============================================================================

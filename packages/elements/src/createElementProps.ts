@@ -4,6 +4,10 @@ import type * as THREE_NS from 'three'
  * Create GSAP-animatable props proxy for an element.
  * For video elements, pass the videoElement to enable currentTime animation.
  */
+interface FrameAccurateSource {
+  seekTo: (tSec: number) => Promise<void>
+}
+
 export function createElementProps(
   _THREE: typeof THREE_NS,
   mesh: THREE_NS.Mesh,
@@ -11,6 +15,8 @@ export function createElementProps(
   initialY: number,
   initialOpacity = 1,
   videoElement: HTMLVideoElement | null = null,
+  videoSource: FrameAccurateSource | null = null,
+  videoTexture: THREE_NS.Texture | null = null,
 ) {
   // Capture base scale (set by renderer for resolution scaling)
   const baseScaleX = mesh.scale.x
@@ -93,6 +99,20 @@ export function createElementProps(
   }
 
   const updateVideoCurrentTime = () => {
+    // Frame-accurate path: decode the exact frame and register the decode so
+    // waitForVideosReady() awaits it (deterministic export/scrub).
+    if (videoSource) {
+      const vos = (window as any).__vos__
+      const p = videoSource
+        .seekTo(state.currentTime)
+        .then(() => {
+          if (videoTexture) videoTexture.needsUpdate = true
+        })
+        .catch((e: unknown) => console.error('[vos] frame decode failed', e))
+      vos?.registerDecode?.(p)
+      return
+    }
+    // Legacy HTMLVideoElement path.
     if (!videoElement) return
     const vos = (window as any).__vos__
     if (!state.playing || vos?.isPaused) {
