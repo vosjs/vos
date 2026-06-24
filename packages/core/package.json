@@ -1,6 +1,6 @@
 {
   "name": "@vosjs/core",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "The Vos engine — a declarative, resolution-independent API for compiling mixed-media (Three.js / GSAP / 2D / HTML / video) animations into executable templates.",
   "type": "module",
   "license": "MIT",
