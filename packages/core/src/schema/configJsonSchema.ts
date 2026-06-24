@@ -15,6 +15,8 @@ export const vosConfigJsonSchema = z.object({
   dynamicLayers: z.boolean().optional(),
   // Element validation is complex with many subtypes; start permissive
   elements: z.array(z.record(z.string(), z.any())).optional(),
+  // Arbitrary, app-defined input data exposed as ctx.data (no shape imposed)
+  data: z.record(z.string(), z.unknown()).optional(),
   // Functions as strings
   setup: z.string().optional(),
   createContent: z.string(),

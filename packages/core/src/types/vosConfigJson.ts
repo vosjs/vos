@@ -46,6 +46,15 @@ export interface VosConfigJson {
   elements?: Record<string, unknown>[]
 
   /**
+   * Arbitrary input data made available to functions as `ctx.data`.
+   * The shape is the author's/app's, not vos's — vos passes it through verbatim.
+   * Overridable at runtime via `initVos(container, deps)` `deps.data` (so a live
+   * editor can update data without recompiling); `config.data` is the baked default.
+   * @example { cursor: [{ t: 0, x: 10, y: 20, type: 'down' }] }
+   */
+  data?: Record<string, unknown>
+
+  /**
    * Async setup hook as a string.
    * @example "(ctx) => { const loader = new ctx.loaders.FontLoader(); ... }"
    */

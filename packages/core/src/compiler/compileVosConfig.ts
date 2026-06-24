@@ -95,6 +95,10 @@ export function compileVosConfig(input: VosConfigJson): string {
     : ''
   const setupDataArg = hasSetup ? 'setupData' : 'undefined'
 
+  // Baked default for ctx.data. Runtime deps.data overrides this (so a live editor
+  // can pass fresh data without recompiling). Omitting config.data bakes `{}`.
+  const bakedData = JSON.stringify(config.data ?? {})
+
   // Build loaders and utils registries from detected addons only
   const detectedSet = new Set(detectedAddons)
   const hasDraco = detectedSet.has('DRACOLoader')
@@ -167,6 +171,7 @@ ${utilEntries}
     resolution: { width, height, pixelRatio },
     loaders,
     utils,
+    data,
   };`
     : ''
 
@@ -176,6 +181,9 @@ ${utilEntries}
 export const initVos = async (container, deps) => {
   const VOS_VERSION = ${version};
   const { THREE, gsap, resolution } = deps;
+
+  // Input data exposed as ctx.data (runtime deps.data overrides baked config.data; never undefined)
+  const data = Object.freeze((deps && deps.data) ?? ${bakedData});
 
   // Resolution
   const width = resolution?.width ?? container.clientWidth ?? window.innerWidth;
@@ -210,6 +218,7 @@ export const initVos = async (container, deps) => {
     overlayCamera,
     resolution: { width, height, pixelRatio, drawingBufferWidth, drawingBufferHeight },
     elements,
+    data,
     get time() { return currentTime; },
     get progress() { return currentProgress; },
     ${hasSetup ? 'loaders,' : ''}
