@@ -17,6 +17,7 @@ export default defineConfig({
     'src/addons/index.ts',
     'src/schema/index.ts',
     'src/extract/index.ts',
+    'src/lint/index.ts',
   ],
   format: ['esm'],
   dts: true,
