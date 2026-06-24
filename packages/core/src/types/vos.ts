@@ -46,6 +46,12 @@ export interface SetupContext {
   resolution: Resolution
   loaders: LoadersRegistry
   utils: UtilsRegistry
+  /**
+   * Read-only input data exposed to all functions as `ctx.data`.
+   * Sourced from `config.data`, overridable at runtime by `initVos` `deps.data`.
+   * Always defined (defaults to `{}`). Shape is the author's/app's, not vos's.
+   */
+  data: Readonly<Record<string, unknown>>
 }
 
 /**
@@ -209,6 +215,9 @@ export interface VosConfig {
   dynamicLayers?: boolean
   /** 2D Elements rendered as textured planes */
   elements?: ElementConfig[]
+
+  /** Arbitrary input data exposed as `ctx.data` (overridable by `deps.data` at runtime). */
+  data?: Record<string, unknown>
 
   /**
    * Async setup hook for loading assets before scene creation.
