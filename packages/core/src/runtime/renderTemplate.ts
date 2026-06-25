@@ -185,56 +185,170 @@ ${moduleBody}
 // Mode: playback
 // ---------------------------------------------------------------------------
 
+// The consolidated playback bridge: the single host<->iframe protocol, owned by the
+// engine (previously a host-side script that could drift from the engine). The document
+// boots EMPTY and waits for a LOAD message carrying the user program (+ data). This lets
+// the host edit without reloading the document:
+//   - LOAD     { code | url, data?, autoplay? } -> warm program swap, preserving transport
+//   - SET_DATA { data }                         -> live ctx.data swap (no re-init)
+//   - PLAY / PAUSE / SEEK { value } / PLAY_SPEED { value } -> transport
+// Emitted to the host: BRIDGE_READY, READY { duration }, UPDATE { progress }, ERROR.
+// Backward compatible: if window.USER_CODE_BLOB_URL is baked (legacy), it auto-loads.
 function generatePlaybackBody(elementsBlock: string): string {
   return `${elementsBlock}
 
-        // Helper to load the user module dynamically
-        const loadUserModule = async (blobUrl) => {
-            try {
-                const module = await import(blobUrl);
-                if (!module.initVos) {
-                    throw new Error("User module must export 'initVos' function.");
-                }
-                return module.initVos;
-            } catch (err) {
-                console.error("Failed to load user module:", err);
-                throw err;
-            }
-        };
+        window.$fx_controlled = true;
 
-        const main = async () => {
-            // Create resolution config for playback
+        const __post = (msg) => { try { window.parent.postMessage(msg, '*'); } catch (e) {} };
+
+        const __deps = () => {
             const width = window.innerWidth;
             const height = window.innerHeight;
             // Quality override allows lower resolution for performance
             const pixelRatio = window.__vos__?.qualityOverride ?? Math.min(window.devicePixelRatio ?? 1, 2);
-            const drawingBufferWidth = Math.floor(width * pixelRatio);
-            const drawingBufferHeight = Math.floor(height * pixelRatio);
-
-            const deps = {
+            return {
                 THREE,
                 gsap,
-                resolution: { width, height, pixelRatio, drawingBufferWidth, drawingBufferHeight }
+                resolution: {
+                    width, height, pixelRatio,
+                    drawingBufferWidth: Math.floor(width * pixelRatio),
+                    drawingBufferHeight: Math.floor(height * pixelRatio),
+                },
             };
-
-            try {
-                if (!window.USER_CODE_BLOB_URL) {
-                    throw new Error("USER_CODE_BLOB_URL not defined.");
-                }
-
-                const initVos = await loadUserModule(window.USER_CODE_BLOB_URL);
-                const result = await initVos(document.body, deps);
-
-                window.$fx = result; // Expose to the bridge
-
-                if (!window.$fx_controlled) {
-                     if (result.timeline) result.timeline.play();
-                }
-
-            } catch(e) { console.error(e); }
         };
 
-        main();`
+        const __finiteDuration = (tl) => {
+            if (!tl) return 0;
+            let d = tl.duration();
+            if (!isFinite(d) || d <= 0) d = tl.totalDuration();
+            if (!isFinite(d) || d <= 0) d = 0;
+            return d;
+        };
+
+        // Accept a module given as code string, blob: URL, http(s) URL, or data: URL.
+        const __importModule = async (codeOrUrl) => {
+            let url = codeOrUrl;
+            let revoke = false;
+            if (typeof codeOrUrl === 'string' &&
+                codeOrUrl.indexOf('blob:') !== 0 &&
+                codeOrUrl.indexOf('http') !== 0 &&
+                codeOrUrl.indexOf('data:') !== 0) {
+                url = URL.createObjectURL(new Blob([codeOrUrl], { type: 'text/javascript' }));
+                revoke = true;
+            }
+            try {
+                const mod = await import(url);
+                if (!mod.initVos) throw new Error("User module must export 'initVos' function.");
+                return mod.initVos;
+            } finally {
+                if (revoke) setTimeout(() => { try { URL.revokeObjectURL(url); } catch (e) {} }, 0);
+            }
+        };
+
+        let __epoch = 0;        // guards against stale async work after a newer LOAD
+        let __current = null;   // current VosResult
+        let __data = null;      // last applied ctx.data
+
+        const __attachProgress = (tl, myEpoch) => {
+            if (!tl) return;
+            const existing = tl.eventCallback('onUpdate');
+            tl.eventCallback('onUpdate', () => {
+                if (existing) existing();
+                if (myEpoch !== __epoch) return;
+                __post({ type: 'UPDATE', progress: tl.progress() });
+            });
+        };
+
+        // Warm load / swap. Preserves transport (playhead, playing, rate) across swaps so
+        // editing the program does not flash or replay from 0.
+        const __load = async (payload) => {
+            const myEpoch = ++__epoch;
+
+            // snapshot transport from the outgoing instance
+            let prev = null;
+            if (__current && __current.timeline) {
+                const tl = __current.timeline;
+                prev = { time: tl.time(), paused: tl.paused(), rate: tl.timeScale() };
+            }
+            if (__current && __current.cleanup) { try { __current.cleanup(); } catch (e) {} }
+            __current = null;
+
+            const data = (payload && payload.data != null) ? payload.data : __data;
+            __data = data;
+
+            let initVos;
+            try {
+                initVos = await __importModule(payload.code != null ? payload.code : payload.url);
+            } catch (e) { __post({ type: 'ERROR', error: String((e && e.message) || e) }); return; }
+            if (myEpoch !== __epoch) return;
+
+            const deps = __deps();
+            if (data != null) deps.data = data;
+
+            let result;
+            try {
+                result = await initVos(document.body, deps);
+            } catch (e) { __post({ type: 'ERROR', error: String((e && e.message) || e) }); return; }
+            if (myEpoch !== __epoch) { try { result.cleanup && result.cleanup(); } catch (e) {} return; }
+
+            __current = result;
+            window.$fx = result;
+
+            if (result.assetsReady && typeof result.assetsReady.then === 'function') {
+                try { await result.assetsReady; } catch (e) {}
+                if (myEpoch !== __epoch) return;
+            }
+
+            const tl = result.timeline;
+            if (tl) tl.pause();
+            __attachProgress(tl, myEpoch);
+            __post({ type: 'READY', duration: __finiteDuration(tl) });
+
+            if (tl) {
+                if (prev) {
+                    // warm swap: restore where the user was
+                    tl.timeScale(prev.rate);
+                    const dur = __finiteDuration(tl);
+                    tl.seek(dur > 0 ? Math.min(prev.time, dur) : 0, false);
+                    if (!prev.paused) tl.play();
+                } else if (payload && payload.autoplay) {
+                    tl.play();
+                }
+            }
+        };
+
+        window.addEventListener('message', (e) => {
+            const msg = e.data || {};
+            switch (msg.type) {
+                case 'LOAD': __load(msg); break;
+                case 'SET_DATA':
+                    __data = msg.data;
+                    if (__current && __current.setData) __current.setData(msg.data);
+                    break;
+                case 'PLAY':
+                    if (window.__vos__?.setGlobalPaused) window.__vos__.setGlobalPaused(false);
+                    if (__current && __current.timeline) __current.timeline.play();
+                    break;
+                case 'PAUSE':
+                    if (window.__vos__?.setGlobalPaused) window.__vos__.setGlobalPaused(true);
+                    if (__current && __current.timeline) __current.timeline.pause();
+                    break;
+                case 'SEEK':
+                    if (window.__vos__?.setGlobalPaused) window.__vos__.setGlobalPaused(true);
+                    if (__current && __current.timeline) __current.timeline.progress(msg.value);
+                    break;
+                case 'PLAY_SPEED':
+                    if (__current && __current.timeline) __current.timeline.timeScale(msg.value);
+                    break;
+            }
+        });
+
+        // Legacy boot: code baked via window.USER_CODE_BLOB_URL auto-loads (+autoplays,
+        // matching the previous standalone behavior). New hosts send a LOAD message.
+        if (window.USER_CODE_BLOB_URL) {
+            __load({ url: window.USER_CODE_BLOB_URL, autoplay: true });
+        }
+        __post({ type: 'BRIDGE_READY' });`
 }
 
 // ---------------------------------------------------------------------------

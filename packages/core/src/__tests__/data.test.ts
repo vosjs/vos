@@ -15,9 +15,11 @@ describe('ctx.data', () => {
     const code = compileVosConfig({ ...base, data: { k: 1 } })
     // baked default present
     expect(code).toContain('{"k":1}')
-    // data wired into the context with a runtime override fallback
-    expect(code).toMatch(/const data = Object\.freeze\(\(deps && deps\.data\) \?\? /)
-    expect(code).toContain('data,')
+    // data wired into a mutable internal with a runtime override fallback (live channel)
+    expect(code).toMatch(/let __vosData = Object\.freeze\(\(deps && deps\.data\) \?\? /)
+    // exposed as a getter (so setData can swap it live) and a setData on the instance
+    expect(code).toContain('get data() { return __vosData; }')
+    expect(code).toContain('setData:')
   })
 
   it('bakes {} when config.data is omitted', () => {
@@ -25,11 +27,28 @@ describe('ctx.data', () => {
     expect(code).toMatch(/\?\? \{\}\)/)
   })
 
-  it('exposes data on the runtime context object', () => {
+  it('exposes data as a live getter on the runtime context object', () => {
     const code = compileVosConfig({ ...base, data: { a: true } })
-    // the `data` reference appears inside the `const context = { ... }` block
+    // the `data` getter appears inside the `const context = { ... }` block
     const ctxBlock = code.slice(code.indexOf('const context = {'))
-    expect(ctxBlock).toContain('data,')
+    expect(ctxBlock).toContain('get data() { return __vosData; }')
+  })
+
+  it('setData replaces ctx.data live (frozen snapshot)', () => {
+    // prove the live-swap semantics in isolation: getter reads the mutable internal
+    let __vosData: Readonly<Record<string, unknown>> = Object.freeze({ mode: 'init' })
+    const ctx = {
+      get data() {
+        return __vosData
+      },
+    }
+    const setData = (next: Record<string, unknown>) => {
+      __vosData = Object.freeze(next ?? {})
+    }
+    expect(ctx.data).toEqual({ mode: 'init' })
+    setData({ mode: 'live' })
+    expect(ctx.data).toEqual({ mode: 'live' })
+    expect(Object.isFrozen(ctx.data)).toBe(true)
   })
 
   it('runtime deps.data overrides the baked default', () => {
