@@ -42,6 +42,52 @@ export async function renderVideoElement(
   _resolution: any,
   THREE: typeof THREE_NS,
 ) {
+  const frameSource: string = element.frameSource ?? 'html5'
+  const useWebCodecs =
+    frameSource === 'webcodecs' ||
+    (frameSource === 'auto' && isFrameAccurateSupported())
+
+  // ---- Frame-accurate WebCodecs path ----------------------------------------
+  // On any failure (non-MP4 container, unsupported codec, decode error) we fall
+  // through to the robust HTMLVideoElement path instead of failing the element —
+  // black video is never an acceptable outcome.
+  if (useWebCodecs) {
+    try {
+      return await renderWebCodecsVideo(element, THREE)
+    } catch (err) {
+      console.warn(
+        '[vos] frame-accurate video unavailable; falling back to html5 —',
+        err instanceof Error ? err.message : err,
+      )
+    }
+  }
+
+  return renderHtml5Video(element, THREE)
+}
+
+async function renderWebCodecsVideo(element: any, THREE: typeof THREE_NS) {
+  const { src, size = {} } = element
+  const source = await FrameAccurateVideoSource.create(src)
+  const { width, height } = resolveSize(size, source.codedWidth, source.codedHeight)
+
+  const texture = new THREE.CanvasTexture(source.canvas)
+  applyTextureSettings(texture, THREE)
+
+  const material = new THREE.MeshBasicMaterial({
+    map: texture,
+    transparent: true,
+    depthWrite: false,
+  })
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material)
+  mesh.userData.videoSource = source
+  mesh.userData.texture = texture
+  texture.needsUpdate = true // initial frame drawn at t=0 by create()
+
+  return { mesh, width, height, video: null, videoSource: source, texture }
+}
+
+// ---- Legacy HTMLVideoElement path -------------------------------------------
+async function renderHtml5Video(element: any, THREE: typeof THREE_NS) {
   const {
     src,
     size = {},
@@ -49,37 +95,8 @@ export async function renderVideoElement(
     muted = true,
     playbackRate = 1,
     startTime = 0,
-    frameSource = 'html5',
   } = element
 
-  const useWebCodecs =
-    frameSource === 'webcodecs' ||
-    (frameSource === 'auto' && isFrameAccurateSupported())
-
-  // ---- Frame-accurate WebCodecs path ----------------------------------------
-  if (useWebCodecs) {
-    const source = await FrameAccurateVideoSource.create(src)
-    const { width, height } = resolveSize(size, source.codedWidth, source.codedHeight)
-
-    const texture = new THREE.CanvasTexture(source.canvas)
-    applyTextureSettings(texture, THREE)
-
-    const material = new THREE.MeshBasicMaterial({
-      map: texture,
-      transparent: true,
-      depthWrite: false,
-    })
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material)
-    mesh.userData.videoSource = source
-    mesh.userData.texture = texture
-
-    // initial frame already drawn at t=0 by create()
-    texture.needsUpdate = true
-
-    return { mesh, width, height, video: null, videoSource: source, texture }
-  }
-
-  // ---- Legacy HTMLVideoElement path -----------------------------------------
   let video: HTMLVideoElement
   const cached = AssetCache.getVideo(src)
   if (cached) {
@@ -117,10 +134,7 @@ export async function renderVideoElement(
     transparent: true,
     depthWrite: false,
   })
-
-  const geometry = new THREE.PlaneGeometry(width, height)
-  const mesh = new THREE.Mesh(geometry, material)
-
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material)
   mesh.userData.video = video
   mesh.userData.texture = texture
 

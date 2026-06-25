@@ -77,14 +77,35 @@ export class FrameAccurateVideoSource {
     const MP4Box = await loadMp4Box()
     return new Promise<void>((resolve, reject) => {
       const file = MP4Box.createFile()
-      file.onError = (e: unknown) => reject(new Error(String(e)))
+      let expected = Infinity
+      let settled = false
+      const finish = () => {
+        if (settled) return
+        settled = true
+        if (!this.samples.length) {
+          reject(new Error('[vos] no samples extracted'))
+          return
+        }
+        this.syncIndices = buildSyncIndices(this.samples)
+        resolve()
+      }
+      file.onError = (e: unknown) => {
+        if (settled) return
+        settled = true
+        reject(new Error(String(e)))
+      }
       file.onReady = (info: any) => {
         const track = info.videoTracks?.[0]
-        if (!track) return reject(new Error('[vos] no video track in mp4'))
+        if (!track) {
+          settled = true
+          reject(new Error('[vos] no video track in mp4'))
+          return
+        }
         this.codedWidth = track.video.width
         this.codedHeight = track.video.height
         this.durationSec = info.duration / info.timescale
         this.fps = track.nb_samples / this.durationSec || 30
+        expected = track.nb_samples || Infinity
         this.decoder.configure({
           codec: track.codec,
           description: this.getDescription(MP4Box, file, track.id),
@@ -96,6 +117,7 @@ export class FrameAccurateVideoSource {
       }
       file.onSamples = (_id: number, _user: unknown, arr: any[]) => {
         for (const s of arr) {
+          // DECODE order preserved (do NOT sort by cts) — B-frames need decode order.
           this.samples.push({
             cts: s.cts / s.timescale,
             isSync: !!s.is_sync,
@@ -107,16 +129,16 @@ export class FrameAccurateVideoSource {
             }),
           })
         }
+        if (this.samples.length >= expected) finish()
       }
       ;(data as any).fileStart = 0
       file.appendBuffer(data)
       file.flush()
-      // Keep DECODE order (do NOT sort by cts) — B-frames need decode order.
-      queueMicrotask(() => {
-        if (!this.samples.length) return reject(new Error('[vos] no samples extracted'))
-        this.syncIndices = buildSyncIndices(this.samples)
-        resolve()
-      })
+      // mp4box may deliver samples synchronously (during flush) or across later
+      // tasks. Settle shortly after flush with whatever arrived — resolve if any
+      // samples were extracted, else reject. Avoids both the race (premature
+      // "no samples") and hangs.
+      setTimeout(finish, 2000)
     })
   }
 
