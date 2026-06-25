@@ -171,7 +171,7 @@ ${utilEntries}
     resolution: { width, height, pixelRatio },
     loaders,
     utils,
-    data,
+    get data() { return __vosData; },
   };`
     : ''
 
@@ -182,8 +182,11 @@ export const initVos = async (container, deps) => {
   const VOS_VERSION = ${version};
   const { THREE, gsap, resolution } = deps;
 
-  // Input data exposed as ctx.data (runtime deps.data overrides baked config.data; never undefined)
-  const data = Object.freeze((deps && deps.data) ?? ${bakedData});
+  // Input data exposed as ctx.data (runtime deps.data overrides baked config.data; never undefined).
+  // Mutable internal + getter (like currentTime/currentProgress) so the instance's setData()
+  // can swap inputs live without re-init; onFrame reads ctx.data fresh every frame. Each
+  // snapshot is frozen to preserve determinism (output is a pure fn of program + data + time).
+  let __vosData = Object.freeze((deps && deps.data) ?? ${bakedData});
 
   // Resolution
   const width = resolution?.width ?? container.clientWidth ?? window.innerWidth;
@@ -218,7 +221,7 @@ export const initVos = async (container, deps) => {
     overlayCamera,
     resolution: { width, height, pixelRatio, drawingBufferWidth, drawingBufferHeight },
     elements,
-    data,
+    get data() { return __vosData; },
     get time() { return currentTime; },
     get progress() { return currentProgress; },
     ${hasSetup ? 'loaders,' : ''}
@@ -255,6 +258,11 @@ export const initVos = async (container, deps) => {
     timeline: tl,
     cleanup: ${cleanup},
     assetsReady: content.assetsReady,
+    // Live data channel (T2): swap ctx.data without re-init. onFrame redraws with the
+    // new value next frame. NOTE: values baked into GSAP tweens at createTimeline time
+    // do not retroactively change — that is a program (T3) edit handled by warm LOAD.
+    setData: (next) => { __vosData = Object.freeze(next ?? {}); },
+    getData: () => __vosData,
   };
 };
 `
