@@ -1,10 +1,10 @@
 {
   "name": "@vosjs/elements",
   "version": "0.2.1",
-  "description": "Vos element system — text / image / SVG / video renderers for Three.js overlays, shipped as both a typed ESM factory and an injectable IIFE bundle.",
+  "description": "The vos element system — text / image / SVG / video renderers for Three.js overlays, shipped as both a typed ESM factory and an injectable IIFE bundle.",
   "type": "module",
   "license": "MIT",
-  "author": "Hongbin Li",
+  "author": "vosso",
   "homepage": "https://github.com/vosjs/vos#readme",
   "repository": {
     "type": "git",

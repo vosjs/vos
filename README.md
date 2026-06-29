@@ -1,11 +1,13 @@
-# Vos
+# vos
 
-> The open-source engine behind [vos.so](https://vos.so) — a declarative, resolution-independent API for compiling mixed-media animations (Three.js 3D scenes, 2D overlays, HTML, video) into executable templates.
+> The open visual operating system — turn a function into deterministic, resolution-independent, mixed-media video, and render it anywhere.
 
 [![CI](https://github.com/vosjs/vos/actions/workflows/ci.yml/badge.svg)](https://github.com/vosjs/vos/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
-Vos (Visual Operating System) takes a JSON description of an animation — scenes, cameras, post-processing, GSAP timelines, and overlay elements — and **compiles** it into a self-contained template that runs anywhere a browser can. The engine is pure (no DOM dependencies in the core), so it runs equally well in the browser, in Node, or in a Cloudflare Worker for server-side rendering.
+**A video is just inputs and a function, rendered.** vos takes a JSON description of an animation — scenes, cameras, post-processing, GSAP timelines, and overlay elements — and **compiles** it into a self-contained template that renders identically every time, anywhere a browser can run: the browser, Node, or a Cloudflare Worker. The core is pure (no DOM dependencies), and `three` / `gsap` stay optional peers you bring yourself.
+
+`vos` — short for **V**isual **O**perating **S**ystem, and Latin for _you_ — is the open engine. [vosso](https://vos.so) is the platform built on it: a visual operating system for generated video, where every app is _powered by vos_.
 
 ## Packages
 
@@ -76,4 +78,4 @@ Releases are managed with [Changesets](https://github.com/changesets/changesets)
 
 ## License
 
-[MIT](./LICENSE) © Hongbin Li
+[MIT](./LICENSE) © vosso

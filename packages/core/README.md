@@ -1,13 +1,13 @@
 # @vosjs/core
 
-> The Vos engine — a declarative, resolution-independent API for compiling mixed-media animations (Three.js 3D scenes, 2D overlays, HTML, video) into executable templates.
+> The vos engine — turn a function into deterministic, resolution-independent, mixed-media video. Compiler, schema, runtime, and addon registry.
 
 [![npm](https://img.shields.io/npm/v/@vosjs/core.svg)](https://www.npmjs.com/package/@vosjs/core)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/vosjs/vos/blob/main/LICENSE)
 
-Part of [Vos](https://github.com/vosjs/vos) — the open-source engine behind [vos.so](https://vos.so).
+Part of [vos](https://github.com/vosjs/vos), the open visual operating system that powers [vosso](https://vos.so).
 
-`@vosjs/core` takes a JSON description of an animation — scenes, cameras, post-processing, GSAP timelines, and overlay elements — and **compiles** it into a self-contained template that runs anywhere a browser can. The core is pure (no DOM dependencies), so it runs in the browser, in Node, or in a Cloudflare Worker for server-side rendering.
+**A video is just inputs and a function, rendered.** `@vosjs/core` takes a JSON description of an animation — scenes, cameras, post-processing, GSAP timelines, and overlay elements — and **compiles** it into a self-contained template that renders identically every time. The core is pure (no DOM dependencies), so it runs in the browser, in Node, or in a Cloudflare Worker for server-side rendering.
 
 ## Install
 
@@ -53,4 +53,4 @@ The compiled template is an HTML/JS document you can render in an iframe, captur
 
 ## License
 
-[MIT](https://github.com/vosjs/vos/blob/main/LICENSE) © Hongbin Li
+[MIT](https://github.com/vosjs/vos/blob/main/LICENSE) © vosso
