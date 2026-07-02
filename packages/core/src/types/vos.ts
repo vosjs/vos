@@ -270,7 +270,7 @@ export interface VosResult {
    * Live data channel (T2 edit): replace `ctx.data` on the running instance without
    * re-init. `onFrame` redraws with the new value next frame. Values baked into GSAP
    * tweens at `createTimeline` time do NOT change retroactively (that is a program /
-   * T3 edit — handled by a warm reload). See ENGINE_LIVE_UPDATE_STRATEGY.
+   * T3 edit — handled by a warm reload via the bridge's LOAD command).
    */
   setData?: (next: Readonly<Record<string, unknown>>) => void
   /** Current live `ctx.data` snapshot (frozen). */
