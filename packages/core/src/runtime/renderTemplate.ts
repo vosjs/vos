@@ -6,10 +6,18 @@ import {
   threeUrl,
 } from '../addons/cdn'
 import { ADDON_REGISTRY } from '../addons/registry'
+import { VOS_BRIDGE_PROTOCOL } from './bridge'
 import { transformModuleCode } from './transformModuleCode'
 
 export interface RenderTemplateOptions {
   mode: 'playback' | 'capture-video' | 'capture-thumbnail'
+  /**
+   * Enable the editor-mode bridge extension (playback mode only): element
+   * hit-testing (`HIT_TEST`), bounds queries (`GET_ELEMENT_RECTS`) and ephemeral
+   * property overrides (`SET_ELEMENT_PROPS`). Off by default so the production
+   * player carries none of it. See `runtime/bridge.ts` for the protocol.
+   */
+  editor?: boolean
   /** IIFE string for Elements System (from @vosjs/elements/bundle) */
   elementsBundleCode?: string
   /** Three.js CDN version (default '0.183.0') */
@@ -46,6 +54,7 @@ export function generateRenderTemplate(
 ): string {
   const {
     mode,
+    editor = false,
     elementsBundleCode,
     threeVersion = '0.183.0',
     gsapVersion = '3.12.5',
@@ -106,7 +115,7 @@ export function generateRenderTemplate(
   // Mode-specific module body
   let moduleBody: string
   if (mode === 'playback') {
-    moduleBody = generatePlaybackBody(elementsBlock)
+    moduleBody = generatePlaybackBody(elementsBlock, editor)
   } else if (mode === 'capture-video') {
     moduleBody = generateCaptureVideoBody(
       animationCode,
@@ -188,13 +197,15 @@ ${moduleBody}
 // The consolidated playback bridge: the single host<->iframe protocol, owned by the
 // engine (previously a host-side script that could drift from the engine). The document
 // boots EMPTY and waits for a LOAD message carrying the user program (+ data). This lets
-// the host edit without reloading the document:
+// the host edit without reloading the document. Typed contract: see ./bridge.ts
+// (VosBridgeCommand / VosBridgeEvent, protocol v${VOS_BRIDGE_PROTOCOL}).
 //   - LOAD     { code | url, data?, autoplay? } -> warm program swap, preserving transport
 //   - SET_DATA { data }                         -> live ctx.data swap (no re-init)
-//   - PLAY / PAUSE / SEEK { value } / PLAY_SPEED { value } -> transport
-// Emitted to the host: BRIDGE_READY, READY { duration }, UPDATE { progress }, ERROR.
+//   - PLAY / PAUSE / SEEK { value } / SEEK_TIME { value } / PLAY_SPEED { value }
+//   - SET_DURATION { value }                    -> retime (only if program supports it)
+//   - editor mode: GET_ELEMENT_RECTS / HIT_TEST / SET_ELEMENT_PROPS (ephemeral)
 // Backward compatible: if window.USER_CODE_BLOB_URL is baked (legacy), it auto-loads.
-function generatePlaybackBody(elementsBlock: string): string {
+function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
   return `${elementsBlock}
 
         window.$fx_controlled = true;
@@ -255,7 +266,8 @@ function generatePlaybackBody(elementsBlock: string): string {
             tl.eventCallback('onUpdate', () => {
                 if (existing) existing();
                 if (myEpoch !== __epoch) return;
-                __post({ type: 'UPDATE', progress: tl.progress() });
+                // Seconds are the transport currency; progress kept for legacy hosts.
+                __post({ type: 'UPDATE', progress: tl.progress(), time: tl.time(), duration: __finiteDuration(tl) });
             });
         };
 
@@ -302,7 +314,7 @@ function generatePlaybackBody(elementsBlock: string): string {
             const tl = result.timeline;
             if (tl) tl.pause();
             __attachProgress(tl, myEpoch);
-            __post({ type: 'READY', duration: __finiteDuration(tl) });
+            __post({ type: 'READY', duration: __finiteDuration(tl), canSetDuration: !!result.setDuration });
 
             if (tl) {
                 if (prev) {
@@ -337,18 +349,156 @@ function generatePlaybackBody(elementsBlock: string): string {
                     if (window.__vos__?.setGlobalPaused) window.__vos__.setGlobalPaused(true);
                     if (__current && __current.timeline) __current.timeline.progress(msg.value);
                     break;
+                case 'SEEK_TIME': {
+                    if (window.__vos__?.setGlobalPaused) window.__vos__.setGlobalPaused(true);
+                    const tl = __current && __current.timeline;
+                    if (tl) {
+                        const dur = __finiteDuration(tl);
+                        tl.seek(Math.max(0, Math.min(Number(msg.value) || 0, dur)), false);
+                    }
+                    break;
+                }
                 case 'PLAY_SPEED':
                     if (__current && __current.timeline) __current.timeline.timeScale(msg.value);
                     break;
+                case 'SET_DURATION': {
+                    if (__current && __current.setDuration) {
+                        __current.setDuration(msg.value);
+                        const tl = __current.timeline;
+                        if (tl) __post({ type: 'UPDATE', progress: tl.progress(), time: tl.time(), duration: __finiteDuration(tl) });
+                    }
+                    break;
+                }${editorMessageCases(editor)}
             }
         });
-
+${editorExtension(editor)}
         // Legacy boot: code baked via window.USER_CODE_BLOB_URL auto-loads (+autoplays,
         // matching the previous standalone behavior). New hosts send a LOAD message.
         if (window.USER_CODE_BLOB_URL) {
             __load({ url: window.USER_CODE_BLOB_URL, autoplay: true });
         }
-        __post({ type: 'BRIDGE_READY' });`
+        __post({ type: 'BRIDGE_READY', protocol: ${VOS_BRIDGE_PROTOCOL}, editor: ${editor} });`
+}
+
+// ---------------------------------------------------------------------------
+// Editor-mode bridge extension (playback + { editor: true } only)
+//
+// Element picking and ephemeral property overrides for host-side editors:
+// selection chrome lives in the HOST's DOM (crisper, easier to style); the
+// player only answers geometry questions and previews prop gestures. Durable
+// element edits are config/document patches committed by the host (T3).
+// ---------------------------------------------------------------------------
+
+function editorMessageCases(editor: boolean): string {
+  if (!editor) return ''
+  return `
+                case 'GET_ELEMENT_RECTS':
+                    __post({ type: 'ELEMENT_RECTS', requestId: msg.requestId ?? null, rects: __editorApi.getRects() });
+                    break;
+                case 'HIT_TEST':
+                    __post({ type: 'HIT_RESULT', requestId: msg.requestId ?? null, id: __editorApi.hitTest(msg.x, msg.y) });
+                    break;
+                case 'SET_ELEMENT_PROPS':
+                    __editorApi.setProps(msg.id, msg.props);
+                    break;`
+}
+
+function editorExtension(editor: boolean): string {
+  if (!editor) return ''
+  return `
+        const __editorApi = (() => {
+            const raycaster = new THREE.Raycaster();
+            const ndc = new THREE.Vector2();
+            const v3 = new THREE.Vector3();
+
+            const canvasRect = () => {
+                const canvas = document.querySelector('canvas');
+                return canvas ? canvas.getBoundingClientRect()
+                    : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+            };
+
+            // Element instances of the running program: [{ id, inst, order }] in
+            // config order (Map preserves insertion order).
+            const instances = () => {
+                const out = [];
+                if (__current && __current.elements) {
+                    let order = 0;
+                    __current.elements.forEach((inst, id) => {
+                        if (inst && inst.mesh) out.push({ id, inst, order: order++ });
+                    });
+                }
+                return out;
+            };
+
+            // Project a mesh's local bounding box through the overlay camera into
+            // viewport CSS px. Corner projection is robust to animated transforms
+            // (scale/rotation via the props proxy) — no pixel-space assumptions.
+            const meshRect = (mesh, cam, rect) => {
+                if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+                const bb = mesh.geometry.boundingBox;
+                mesh.updateWorldMatrix(true, false);
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                for (let ci = 0; ci < 8; ci++) {
+                    v3.set(ci & 1 ? bb.max.x : bb.min.x, ci & 2 ? bb.max.y : bb.min.y, ci & 4 ? bb.max.z : bb.min.z);
+                    v3.applyMatrix4(mesh.matrixWorld).project(cam);
+                    const px = rect.left + ((v3.x + 1) / 2) * rect.width;
+                    const py = rect.top + ((1 - v3.y) / 2) * rect.height;
+                    if (px < minX) minX = px; if (px > maxX) maxX = px;
+                    if (py < minY) minY = py; if (py > maxY) maxY = py;
+                }
+                return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+            };
+
+            const getRects = () => {
+                const cam = __current && __current.overlayCamera;
+                if (!cam) return [];
+                cam.updateMatrixWorld();
+                const rect = canvasRect();
+                return instances().map(({ id, inst }) => ({
+                    id,
+                    ...meshRect(inst.mesh, cam, rect),
+                    visible: inst.mesh.visible !== false,
+                }));
+            };
+
+            const hitTest = (x, y) => {
+                const cam = __current && __current.overlayCamera;
+                if (!cam) return null;
+                cam.updateMatrixWorld();
+                const rect = canvasRect();
+                ndc.set(((x - rect.left) / rect.width) * 2 - 1, -(((y - rect.top) / rect.height) * 2 - 1));
+                raycaster.setFromCamera(ndc, cam);
+                const byMesh = new Map();
+                const meshes = [];
+                for (const { id, inst, order } of instances()) {
+                    if (inst.mesh.visible === false) continue;
+                    byMesh.set(inst.mesh, { id, z: (inst.config && inst.config.zIndex) ?? 100, order });
+                    meshes.push(inst.mesh);
+                }
+                // Topmost wins: overlay groups render in ascending zIndex with depth
+                // cleared between groups, so pick by (zIndex, config order) — ray
+                // distance is meaningless across cleared depth.
+                let best = null;
+                for (const hit of raycaster.intersectObjects(meshes, false)) {
+                    const m = byMesh.get(hit.object);
+                    if (m && (!best || m.z > best.z || (m.z === best.z && m.order > best.order))) best = m;
+                }
+                return best ? best.id : null;
+            };
+
+            // Ephemeral gesture preview via the element props proxy. Does NOT
+            // survive a LOAD — the durable edit is the host's config patch.
+            const setProps = (id, props) => {
+                const inst = __current && __current.elements && __current.elements.get(id);
+                if (inst && inst.props && props) Object.assign(inst.props, props);
+            };
+
+            window.addEventListener('resize', () => {
+                __post({ type: 'ELEMENT_RECTS', requestId: null, rects: getRects() });
+            });
+
+            return { getRects, hitTest, setProps };
+        })();`
 }
 
 // ---------------------------------------------------------------------------

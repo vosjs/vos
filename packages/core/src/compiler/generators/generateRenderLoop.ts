@@ -91,7 +91,13 @@ export function generateRenderLoop(config: VosConfig): string {
   ${clockDecl}
   let frameId;
   const animate = () => {
-    frameId = requestAnimationFrame(animate);${onFrameCall}${dynamicRebuild}
+    frameId = requestAnimationFrame(animate);
+
+    // Publish the master clock: ctx.time / ctx.progress track the GSAP timeline
+    // (time within the current cycle). Assigned before onFrame so per-frame code
+    // reads the position being rendered — output stays a pure fn of (data, time).
+    currentTime = tl.time();
+    currentProgress = tl.progress();${onFrameCall}${dynamicRebuild}
 
     renderer.autoClear = false;${globalPre}
     renderer.clear();

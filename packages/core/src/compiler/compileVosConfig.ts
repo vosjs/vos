@@ -245,6 +245,24 @@ export const initVos = async (container, deps) => {
   tl.repeat(-1);
   tl.pause();
 
+  // Duration capability (T2.5): opt-in for "carrier" timelines. Programs whose
+  // timeline exists only to define duration and drive ctx.time (the interpreter
+  // pattern) declare it via timeline.data = { vosCarrier: true }; retiming then
+  // rebuilds the carrier, which is safe by that contract. Freeform timelines get
+  // no setDuration — duration is structural there (tween layout, baked values),
+  // so edits fall back to a warm LOAD. No heuristic: GSAP cannot retime a nested
+  // value-tween without invalidate() re-capturing starts (nondeterministic).
+  let __setDuration;
+  if (tl.data && tl.data.vosCarrier === true) {
+    __setDuration = (seconds) => {
+      const s = Math.max(0.001, Number(seconds) || 0);
+      const t = Math.min(tl.time(), s);
+      tl.clear();
+      tl.to({}, { duration: s, ease: 'none' }, 0);
+      tl.seek(t, false);
+    };
+  }
+
   ${onFrameSetup}
 
   ${resizeHandler}
@@ -263,6 +281,12 @@ export const initVos = async (container, deps) => {
     // do not retroactively change — that is a program (T3) edit handled by warm LOAD.
     setData: (next) => { __vosData = Object.freeze(next ?? {}); },
     getData: () => __vosData,
+    setDuration: __setDuration,
+    // Introspection handles for editor tooling (element picking / bounds projection).
+    // References into the live instance — read-mostly; property writes go through
+    // each element's props proxy.
+    elements,
+    overlayCamera,
   };
 };
 `

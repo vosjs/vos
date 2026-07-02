@@ -275,4 +275,20 @@ export interface VosResult {
   setData?: (next: Readonly<Record<string, unknown>>) => void
   /** Current live `ctx.data` snapshot (frozen). */
   getData?: () => Readonly<Record<string, unknown>>
+  /**
+   * Duration capability (T2.5 edit): retime the master timeline without re-init.
+   * Opt-in: only defined when `createTimeline` returned a pure duration-carrier
+   * timeline and declared it via `timeline.data = { vosCarrier: true }` (the
+   * interpreter-pattern shape — per-frame state derives from ctx.time/ctx.data).
+   * Undefined means duration is structural — hosts fall back to a warm reload (T3).
+   */
+  setDuration?: (seconds: number) => void
+  /**
+   * Element instances of the running program, keyed by element id. Editor tooling
+   * uses these for hit-testing and ephemeral property overrides (via each
+   * instance's `props` proxy); durable element edits are config edits (T3).
+   */
+  elements?: Map<string, ElementInstance>
+  /** The 2D overlay camera (pixel-space orthographic) — for bounds projection. */
+  overlayCamera?: THREE.OrthographicCamera
 }

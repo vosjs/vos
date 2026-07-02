@@ -11,7 +11,7 @@ export default tseslint.config(
       '**/*.config.js',
       '**/*.config.mjs',
       '**/*.config.ts',
-      'packages/elements/bundle.mjs',
+      '**/bundle.mjs',
     ],
   },
   js.configs.recommended,
