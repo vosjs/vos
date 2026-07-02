@@ -100,6 +100,21 @@ describe('editor introspection handles on VosResult', () => {
   })
 })
 
+describe('cleanup is warm-swap safe', () => {
+  it('never deletes the document-scoped __vos__ namespace', () => {
+    // Regression: cleanup used to `delete window.__vos__`, killing the
+    // elements factory installed once by the render template — the SECOND
+    // warm LOAD of an element config then failed at renderElements.
+    const withElements = compileVosConfig({
+      ...base,
+      elements: [{ id: 'title', type: 'text', content: 'Hi', position: 'center' }],
+    })
+    expect(withElements).not.toContain('delete window.__vos__')
+    expect(withElements).toContain('videoCallbacks?.clear()')
+    expect(compileVosConfig(base)).not.toContain('delete window.__vos__')
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Playback bridge: seconds transport + protocol version + editor mode
 // ---------------------------------------------------------------------------

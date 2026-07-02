@@ -50,11 +50,14 @@ export function generateCleanup(config: VosConfig): string {
       if (renderer.domElement.parentNode) {
         renderer.domElement.parentNode.removeChild(renderer.domElement);
       }
-      // Cleanup globals
+      // Clear INSTANCE-scoped globals only. The __vos__ namespace itself is
+      // document-scoped (elements factory installed by the render template at
+      // boot, qualityOverride, video caches) and must survive cleanup — the
+      // boot-empty playback bridge warm-swaps programs within one document,
+      // and the next initVos needs the factory intact.
       if (window.__vos__) {
         window.__vos__.videoCallbacks?.clear();
         window.__vos__.pendingDecodes?.clear();
-        delete window.__vos__;
       }
     }`
 }
