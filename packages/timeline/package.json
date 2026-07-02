@@ -1,6 +1,6 @@
 {
   "name": "@vosjs/timeline",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Deterministic time math for editable vos compositions — keyframe sampling, GSAP-compatible pure easings, and source-time remapping (trim/split), evaluable identically on the host and inside running programs.",
   "type": "module",
   "license": "MIT",
