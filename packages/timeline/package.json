@@ -1,0 +1,59 @@
+{
+  "name": "@vosjs/timeline",
+  "version": "0.0.0",
+  "description": "Deterministic time math for editable vos compositions — keyframe sampling, GSAP-compatible pure easings, and source-time remapping (trim/split), evaluable identically on the host and inside running programs.",
+  "type": "module",
+  "license": "MIT",
+  "author": "vosso",
+  "homepage": "https://github.com/vosjs/vos#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vosjs/vos.git",
+    "directory": "packages/timeline"
+  },
+  "bugs": {
+    "url": "https://github.com/vosjs/vos/issues"
+  },
+  "keywords": [
+    "vos",
+    "timeline",
+    "keyframes",
+    "easing",
+    "deterministic",
+    "video",
+    "editor"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./bundle": {
+      "types": "./dist/bundle.d.ts",
+      "import": "./dist/bundle.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup && node bundle.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "clean": "rm -rf dist node_modules"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.0",
+    "gsap": "^3.14.2",
+    "tsup": "^8.5.0",
+    "typescript": "^5",
+    "vitest": "^3.0.5"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
