@@ -1,6 +1,6 @@
 {
   "name": "@vosjs/editor",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Headless editing infrastructure for vos compositions — a patch-based document store (undo/redo/coalescing), the live-edit tier classifier, the editor-mode bridge client (element picking & drag preview), element-edit commit helpers, and timeline view-model math. Framework-free; UI stays app-side.",
   "type": "module",
   "license": "MIT",
