@@ -37,9 +37,12 @@ export type { EditorBridgeClient, ElementRect } from './editorBridge'
 export {
   DESIGN_HEIGHT,
   cssDeltaToDesign,
+  elementBaseRotation,
   elementConfigId,
   nudgeElementRecipe,
   propsForRectCenter,
+  rotateElementRecipe,
+  scaleElementRecipe,
 } from './elementEdit'
 export { formatTime, rulerTicks, snapTime, toPx, toTime } from './viewModel'
 export type { SnapOptions, Tick, TimelineViewport } from './viewModel'

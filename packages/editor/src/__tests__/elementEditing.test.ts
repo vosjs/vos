@@ -3,9 +3,12 @@ import { produce } from 'immer'
 import { createEditorBridgeClient } from '../editorBridge'
 import {
   cssDeltaToDesign,
+  elementBaseRotation,
   elementConfigId,
   nudgeElementRecipe,
   propsForRectCenter,
+  rotateElementRecipe,
+  scaleElementRecipe,
 } from '../elementEdit'
 
 describe('createEditorBridgeClient', () => {
@@ -107,5 +110,42 @@ describe('element edit commit helpers', () => {
   it('propsForRectCenter maps viewport px to the centered props space', () => {
     expect(propsForRectCenter(600, 400, 1200, 800)).toEqual({ x: 0, y: 0 })
     expect(propsForRectCenter(700, 350, 1200, 800)).toEqual({ x: 100, y: -50 })
+  })
+
+  it('scaleElementRecipe multiplies transform.scale and clamps the floor', () => {
+    const r1 = scaleElementRecipe(config, 'element_1', 1.5)!
+    const next = produce(config, r1)
+    expect(next.elements[1].transform).toEqual({ translateX: 10, scale: 3 })
+
+    // no existing scale → starts from 1
+    const r2 = scaleElementRecipe(config, 'title', 0.5)!
+    expect(produce(config, r2).elements[0].transform).toEqual({ scale: 0.5 })
+
+    // floor: can never scale into oblivion
+    const r3 = scaleElementRecipe(config, 'title', 1e-9)!
+    expect(produce(config, r3).elements[0].transform).toEqual({ scale: 0.05 })
+
+    expect(scaleElementRecipe(config, 'title', 0)).toBeNull()
+    expect(scaleElementRecipe(config, 'nope', 2)).toBeNull()
+  })
+
+  it('rotateElementRecipe accumulates, folds the rotateZ alias, and normalizes', () => {
+    const withRotate = {
+      elements: [{ id: 'a', type: 'text', transform: { rotateZ: 170, scale: 2 } }],
+    }
+    const r1 = rotateElementRecipe(withRotate, 'a', 20)!
+    const next = produce(withRotate, r1)
+    // 170 + 20 = 190 → normalized to -170; rotateZ alias folded away
+    expect(next.elements[0].transform).toEqual({ scale: 2, rotation: -170 })
+
+    const r2 = rotateElementRecipe(config, 'title', -45)!
+    expect(produce(config, r2).elements[0].transform).toEqual({ rotation: -45 })
+  })
+
+  it('elementBaseRotation reads the committed rotation (alias respected)', () => {
+    expect(elementBaseRotation({ elements: [{ transform: { rotateZ: 30 } }] }, 'element_0')).toBe(30)
+    expect(elementBaseRotation({ elements: [{ transform: { rotation: -15 } }] }, 'element_0')).toBe(-15)
+    expect(elementBaseRotation(config, 'title')).toBe(0)
+    expect(elementBaseRotation({}, 'x')).toBe(0)
   })
 })
