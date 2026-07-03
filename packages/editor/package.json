@@ -1,0 +1,61 @@
+{
+  "name": "@vosjs/editor",
+  "version": "0.0.0",
+  "description": "Headless editing infrastructure for vos compositions — a patch-based document store (undo/redo/coalescing), the live-edit tier classifier, the editor-mode bridge client (element picking & drag preview), element-edit commit helpers, and timeline view-model math. Framework-free; UI stays app-side.",
+  "type": "module",
+  "license": "MIT",
+  "author": "vosso",
+  "homepage": "https://github.com/vosjs/vos#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vosjs/vos.git",
+    "directory": "packages/editor"
+  },
+  "bugs": {
+    "url": "https://github.com/vosjs/vos/issues"
+  },
+  "keywords": [
+    "vos",
+    "editor",
+    "undo",
+    "patches",
+    "immer",
+    "timeline",
+    "headless",
+    "video"
+  ],
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "clean": "rm -rf dist node_modules"
+  },
+  "dependencies": {
+    "immer": "^10.1.1"
+  },
+  "peerDependencies": {
+    "@vosjs/core": ">=0.4.1"
+  },
+  "devDependencies": {
+    "@vosjs/core": "workspace:^",
+    "tsup": "^8.5.0",
+    "typescript": "^5",
+    "vitest": "^3.0.5"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
