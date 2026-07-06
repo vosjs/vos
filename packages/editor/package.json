@@ -1,11 +1,11 @@
 {
   "name": "@vosjs/editor",
   "version": "1.0.0",
-  "description": "Headless editing infrastructure for vos compositions — a patch-based document store (undo/redo/coalescing), the live-edit tier classifier, the editor-mode bridge client (element picking & drag preview), element-edit commit helpers, and timeline view-model math. Framework-free; UI stays app-side.",
+  "description": "Headless video-editor infrastructure for the vos programmatic video engine — patch-based document store (undo/redo/coalescing), live-edit classifier, editor-mode bridge client (element picking & drag preview), commit helpers, and timeline view-model math. Framework-free; UI stays app-side.",
   "type": "module",
   "license": "MIT",
   "author": "vosso",
-  "homepage": "https://github.com/vosjs/vos#readme",
+  "homepage": "https://vos.so/engine",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vosjs/vos.git",
@@ -17,7 +17,10 @@
   "keywords": [
     "vos",
     "editor",
+    "video-editor",
+    "video-editing",
     "undo",
+    "undo-redo",
     "patches",
     "immer",
     "timeline",

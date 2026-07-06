@@ -5,16 +5,18 @@
 [![CI](https://github.com/vosjs/vos/actions/workflows/ci.yml/badge.svg)](https://github.com/vosjs/vos/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
-**A video is just inputs and a function, rendered.** vos takes a JSON description of an animation — scenes, cameras, post-processing, GSAP timelines, and overlay elements — and **compiles** it into a self-contained template that renders identically every time, anywhere a browser can run: the browser, Node, or a Cloudflare Worker. The core is pure (no DOM dependencies), and `three` / `gsap` stay optional peers you bring yourself.
+**A video is just inputs and a function, rendered.** vos is a **programmatic video engine** for the web: it takes a JSON description of an animation — scenes, cameras, post-processing, GSAP timelines, and overlay elements — and **compiles** it into a self-contained template that renders identical motion graphics every time, anywhere a browser can run: the browser, Node, or a Cloudflare Worker. The core is pure (no DOM dependencies), and `three` / `gsap` stay optional peers you bring yourself.
 
 `vos` — short for **V**isual **O**perating **S**ystem, and Latin for _you_ — is the open engine. [vosso](https://vos.so) is the platform built on it: a visual operating system for generated video, where every app is _powered by vos_.
 
 ## Packages
 
-| Package                                  | Description                                                                                                                                       |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`@vosjs/core`](./packages/core)         | The engine: config compiler, validation schema (Zod), runtime template generator, addon registry, and types.                                      |
-| [`@vosjs/elements`](./packages/elements) | The element system: text / image / SVG / video / audio renderers for Three.js overlays, shipped as a typed ESM factory **and** an injectable IIFE bundle. |
+| Package                                  | npm                                                                                                       | Description                                                                                                                                               |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`@vosjs/core`](./packages/core)         | [![npm](https://img.shields.io/npm/v/%40vosjs%2Fcore)](https://www.npmjs.com/package/@vosjs/core)         | The engine: config compiler, validation schema (Zod), runtime template generator, addon registry, and types.                                              |
+| [`@vosjs/elements`](./packages/elements) | [![npm](https://img.shields.io/npm/v/%40vosjs%2Felements)](https://www.npmjs.com/package/@vosjs/elements) | The element system: text / image / SVG / video / audio renderers for Three.js overlays, shipped as a typed ESM factory **and** an injectable IIFE bundle. |
+| [`@vosjs/timeline`](./packages/timeline) | [![npm](https://img.shields.io/npm/v/%40vosjs%2Ftimeline)](https://www.npmjs.com/package/@vosjs/timeline) | Deterministic timeline math for video editing: keyframe sampling, GSAP-compatible pure easings, source-time remapping (trim/split).                       |
+| [`@vosjs/editor`](./packages/editor)     | [![npm](https://img.shields.io/npm/v/%40vosjs%2Feditor)](https://www.npmjs.com/package/@vosjs/editor)     | Headless video-editor infrastructure: patch-based document store (undo/redo), live-edit classifier, editor bridge client, timeline view-model math.       |
 
 > `three` and `gsap` are **optional peer dependencies** — you bring your own versions, and the engine never bundles them.
 
