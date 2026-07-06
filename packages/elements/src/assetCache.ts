@@ -1,6 +1,6 @@
 /**
  * Global asset cache - stores preloaded assets by URL.
- * Handles images, videos, and SVGs.
+ * Handles images, videos, audio, and SVGs.
  */
 export const AssetCache = {
   images: new Map<
@@ -17,6 +17,10 @@ export const AssetCache = {
       height: number
     }
   >(),
+  audios: new Map<
+    string,
+    { element: HTMLAudioElement; blobUrl?: string; duration: number }
+  >(),
   svgContents: new Map<string, string>(),
 
   getImage(url: string) {
@@ -24,6 +28,9 @@ export const AssetCache = {
   },
   getVideo(url: string) {
     return this.videos.get(url) || null
+  },
+  getAudio(url: string) {
+    return this.audios.get(url) || null
   },
   getSVG(url: string) {
     return this.svgContents.get(url) || null
@@ -38,8 +45,17 @@ export const AssetCache = {
         URL.revokeObjectURL(cached.blobUrl)
       }
     })
+    this.audios.forEach((cached) => {
+      cached.element.pause()
+      cached.element.src = ''
+      cached.element.load()
+      if (cached.blobUrl) {
+        URL.revokeObjectURL(cached.blobUrl)
+      }
+    })
     this.images.clear()
     this.videos.clear()
+    this.audios.clear()
     this.svgContents.clear()
   },
 }
@@ -47,14 +63,16 @@ export const AssetCache = {
 /**
  * Extract all asset URLs from elements config
  */
-function extractAssetUrls(elementsConfig: any[]) {
+export function extractAssetUrls(elementsConfig: any[]) {
   const assets: {
     images: string[]
     videos: string[]
+    audios: string[]
     svgs: string[]
   } = {
     images: [],
     videos: [],
+    audios: [],
     svgs: [],
   }
 
@@ -63,6 +81,8 @@ function extractAssetUrls(elementsConfig: any[]) {
       assets.images.push(el.src)
     } else if (el.type === 'video' && el.src) {
       assets.videos.push(el.src)
+    } else if (el.type === 'audio' && el.src) {
+      assets.audios.push(el.src)
     } else if (el.type === 'svg' && el.src) {
       assets.svgs.push(el.src)
     }
@@ -70,9 +90,44 @@ function extractAssetUrls(elementsConfig: any[]) {
 
   assets.images = [...new Set(assets.images)]
   assets.videos = [...new Set(assets.videos)]
+  assets.audios = [...new Set(assets.audios)]
   assets.svgs = [...new Set(assets.svgs)]
 
   return assets
+}
+
+async function preloadAudio(url: string) {
+  if (AssetCache.audios.has(url)) return
+
+  try {
+    const response = await fetch(url)
+    if (!response.ok) {
+      throw new Error('Failed to fetch audio: ' + response.status)
+    }
+    const blob = await response.blob()
+    const blobUrl = URL.createObjectURL(blob)
+
+    const audio = new Audio()
+    audio.crossOrigin = 'anonymous'
+    audio.preload = 'auto'
+
+    await new Promise<void>((resolve, reject) => {
+      audio.oncanplaythrough = () => resolve()
+      audio.onerror = reject
+      audio.src = blobUrl
+      audio.load()
+    })
+
+    audio.pause()
+
+    AssetCache.audios.set(url, {
+      element: audio,
+      blobUrl,
+      duration: audio.duration,
+    })
+  } catch (e) {
+    console.warn('Failed to preload audio:', url, e)
+  }
 }
 
 async function preloadImage(url: string) {
@@ -174,7 +229,11 @@ async function preloadSVG(url: string) {
  */
 export async function preloadAssets(elementsConfig: any[]) {
   const assets = extractAssetUrls(elementsConfig)
-  const total = assets.images.length + assets.videos.length + assets.svgs.length
+  const total =
+    assets.images.length +
+    assets.videos.length +
+    assets.audios.length +
+    assets.svgs.length
 
   if (total === 0) return
 
@@ -204,6 +263,7 @@ export async function preloadAssets(elementsConfig: any[]) {
   const promises = [
     ...assets.images.map((url) => preloadWithProgress(preloadImage, url)),
     ...assets.videos.map((url) => preloadWithProgress(preloadVideo, url)),
+    ...assets.audios.map((url) => preloadWithProgress(preloadAudio, url)),
     ...assets.svgs.map((url) => preloadWithProgress(preloadSVG, url)),
   ]
 

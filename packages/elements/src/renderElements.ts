@@ -1,5 +1,6 @@
 import { preloadAssets } from './assetCache'
 import { createElementProps } from './createElementProps'
+import { renderAudioElement } from './renderers/audio'
 import { renderImageElement } from './renderers/image'
 import { renderSVGElement } from './renderers/svg'
 import { renderSplitTextElement, renderTextElement } from './renderers/text'
@@ -84,7 +85,7 @@ export async function renderElements(
       let elementHeight = 0
       let segments: any = null
       const segmentMeshes: THREE_NS.Mesh[] = []
-      let videoElement: HTMLVideoElement | null = null
+      let videoElement: HTMLMediaElement | null = null
       let videoSource: any = null
       let videoTexture: THREE_NS.Texture | null = null
 
@@ -167,6 +168,17 @@ export async function renderElements(
         videoSource = result.videoSource
         videoTexture = result.texture
         videoElement?.pause() // null on the webcodecs path
+      } else if (config.type === 'audio') {
+        // Non-visual: audio ignores position (default it so the shared
+        // positioning below is a harmless no-op on the invisible mesh), and
+        // the media element rides the same props proxy as html5 video.
+        if (!config.position) config.position = 'center'
+        const result = renderAudioElement(config, THREE)
+        mesh = result.mesh
+        elementWidth = result.width
+        elementHeight = result.height
+        videoElement = result.audio
+        videoElement.pause()
       } else {
         mesh = new THREE.Mesh(
           new THREE.PlaneGeometry(100, 100),
