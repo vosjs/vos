@@ -1,5 +1,13 @@
 # @vosjs/editor
 
+## 1.0.1
+
+### Patch Changes
+
+- 0a4a6e4: Improve npm discoverability metadata: query-matched descriptions, expanded keywords, and homepage pointing at vos.so/engine. No code changes.
+- Updated dependencies [0a4a6e4]
+  - @vosjs/core@0.5.1
+
 ## 1.0.0
 
 ### Patch Changes

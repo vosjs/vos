@@ -1,6 +1,6 @@
 {
   "name": "@vosjs/elements",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Text, image, SVG, video, and audio overlay renderers for the vos programmatic video engine (Three.js) — shipped as both a typed ESM factory and an injectable IIFE bundle.",
   "type": "module",
   "license": "MIT",

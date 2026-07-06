@@ -1,6 +1,6 @@
 {
   "name": "@vosjs/editor",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Headless video-editor infrastructure for the vos programmatic video engine — patch-based document store (undo/redo/coalescing), live-edit classifier, editor-mode bridge client (element picking & drag preview), commit helpers, and timeline view-model math. Framework-free; UI stays app-side.",
   "type": "module",
   "license": "MIT",
@@ -50,7 +50,7 @@
     "immer": "^10.1.1"
   },
   "peerDependencies": {
-    "@vosjs/core": ">=0.5.0"
+    "@vosjs/core": ">=0.5.1"
   },
   "devDependencies": {
     "@vosjs/core": "workspace:^",
