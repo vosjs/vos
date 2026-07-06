@@ -1,11 +1,11 @@
 {
   "name": "@vosjs/elements",
   "version": "0.3.0",
-  "description": "The vos element system — text / image / SVG / video / audio renderers for Three.js overlays, shipped as both a typed ESM factory and an injectable IIFE bundle.",
+  "description": "Text, image, SVG, video, and audio overlay renderers for the vos programmatic video engine (Three.js) — shipped as both a typed ESM factory and an injectable IIFE bundle.",
   "type": "module",
   "license": "MIT",
   "author": "vosso",
-  "homepage": "https://github.com/vosjs/vos#readme",
+  "homepage": "https://vos.so/engine",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vosjs/vos.git",
@@ -16,12 +16,16 @@
   },
   "keywords": [
     "vos",
+    "video",
+    "motion-graphics",
     "three",
     "threejs",
     "elements",
     "overlay",
+    "renderer",
     "text",
-    "svg"
+    "svg",
+    "audio"
   ],
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
