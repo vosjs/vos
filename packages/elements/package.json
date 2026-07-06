@@ -1,6 +1,6 @@
 {
   "name": "@vosjs/elements",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "The vos element system — text / image / SVG / video / audio renderers for Three.js overlays, shipped as both a typed ESM factory and an injectable IIFE bundle.",
   "type": "module",
   "license": "MIT",

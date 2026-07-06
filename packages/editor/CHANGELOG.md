@@ -1,5 +1,12 @@
 # @vosjs/editor
 
+## 1.0.0
+
+### Patch Changes
+
+- Updated dependencies [9e2f189]
+  - @vosjs/core@0.5.0
+
 ## 0.2.0
 
 ### Minor Changes
