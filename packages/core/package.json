@@ -1,6 +1,6 @@
 {
   "name": "@vosjs/core",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "The vos engine — the open visual operating system: compile a function into deterministic, resolution-independent, mixed-media (Three.js / GSAP / 2D / HTML / video) video.",
   "type": "module",
   "license": "MIT",
