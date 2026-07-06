@@ -2,7 +2,8 @@
  * Element types for 2D overlays
  *
  * Elements are 2D content (text, images, SVG, video) rendered as textured
- * 3D planes in the WebGL scene.
+ * 3D planes in the WebGL scene — plus non-visual audio elements that play
+ * sound synced to the master clock.
  */
 import type * as THREE from 'three'
 
@@ -68,7 +69,7 @@ export interface Transform {
 export interface BaseElement {
   /** Unique identifier for referencing in createTimeline */
   id?: string
-  type: 'text' | 'image' | 'svg' | 'video'
+  type: 'text' | 'image' | 'svg' | 'video' | 'audio'
 
   /** Position on screen */
   position: ElementPosition
@@ -199,6 +200,30 @@ export interface VideoElement extends BaseElement {
 }
 
 // =============================================================================
+// Audio Element
+// =============================================================================
+
+/**
+ * Non-visual element that plays an audio file synced to the master clock.
+ * Drive it like an html5 video: set `playing` and/or animate `currentTime`
+ * in createTimeline; playback honors the global pause/seek state, and
+ * `props.gain` (0-1) is animatable for fades. Renders no pixels — position,
+ * anchor and transform are accepted for BaseElement compatibility but ignored.
+ */
+export interface AudioElement extends Omit<BaseElement, 'position'> {
+  type: 'audio'
+  /** Audio file URL (anything the browser's media stack decodes) */
+  src: string
+  /** Ignored (audio renders no pixels) */
+  position?: ElementPosition
+  /** Initial volume 0-1 (default: 1); animatable via props.gain */
+  gain?: number
+  loop?: boolean
+  /** Offset into the source when playback begins, seconds (default: 0) */
+  startTime?: number
+}
+
+// =============================================================================
 // Element Config Union
 // =============================================================================
 
@@ -207,6 +232,7 @@ export type ElementConfig =
   | ImageElement
   | SVGElement
   | VideoElement
+  | AudioElement
 
 // =============================================================================
 // Runtime Types
@@ -238,6 +264,8 @@ export interface ElementProps {
   playing?: boolean
   /** Start offset for video playback */
   startOffset?: number
+  /** Volume 0-1 (audio elements; animatable for fades) */
+  gain?: number
 }
 
 /**

@@ -14,7 +14,7 @@
 | Package                                  | Description                                                                                                                                       |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [`@vosjs/core`](./packages/core)         | The engine: config compiler, validation schema (Zod), runtime template generator, addon registry, and types.                                      |
-| [`@vosjs/elements`](./packages/elements) | The element system: text / image / SVG / video renderers for Three.js overlays, shipped as a typed ESM factory **and** an injectable IIFE bundle. |
+| [`@vosjs/elements`](./packages/elements) | The element system: text / image / SVG / video / audio renderers for Three.js overlays, shipped as a typed ESM factory **and** an injectable IIFE bundle. |
 
 > `three` and `gsap` are **optional peer dependencies** — you bring your own versions, and the engine never bundles them.
 

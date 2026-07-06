@@ -2,7 +2,8 @@ import type * as THREE_NS from 'three'
 
 /**
  * Create GSAP-animatable props proxy for an element.
- * For video elements, pass the videoElement to enable currentTime animation.
+ * For video/audio elements, pass the media element to enable currentTime
+ * animation and isPaused-aware native playback (audio adds `gain` → volume).
  */
 interface FrameAccurateSource {
   seekTo: (tSec: number) => Promise<void>
@@ -14,7 +15,7 @@ export function createElementProps(
   initialX: number,
   initialY: number,
   initialOpacity = 1,
-  videoElement: HTMLVideoElement | null = null,
+  videoElement: HTMLMediaElement | null = null,
   videoSource: FrameAccurateSource | null = null,
   videoTexture: THREE_NS.Texture | null = null,
 ) {
@@ -34,10 +35,11 @@ export function createElementProps(
     rotationX: 0,
     rotationY: 0,
     zIndex: mesh.userData.zIndex ?? 0,
-    // Video-specific properties (only meaningful if videoElement is provided)
+    // Media properties (only meaningful if a media element is provided)
     currentTime: videoElement ? videoElement.currentTime : 0,
     playing: false,
     startOffset: 0,
+    gain: videoElement ? videoElement.volume : 1,
   }
 
   const updateMeshPosition = () => {
@@ -150,6 +152,11 @@ export function createElementProps(
         case 'playing':
         case 'startOffset':
           updateVideoPlayback()
+          break
+        case 'gain':
+          if (videoElement) {
+            videoElement.volume = Math.max(0, Math.min(1, Number(value) || 0))
+          }
           break
       }
       return true

@@ -1,11 +1,11 @@
 # @vosjs/elements
 
-> The vos element system — text / image / SVG / video renderers for Three.js overlays, shipped as both a typed ESM factory and an injectable IIFE bundle.
+> The vos element system — text / image / SVG / video / audio renderers for Three.js overlays, shipped as both a typed ESM factory and an injectable IIFE bundle.
 
 [![npm](https://img.shields.io/npm/v/@vosjs/elements.svg)](https://www.npmjs.com/package/@vosjs/elements)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://github.com/vosjs/vos/blob/main/LICENSE)
 
-Part of [vos](https://github.com/vosjs/vos), the open visual operating system behind [vosso](https://vos.so). Renders 2D overlay elements (text, images, SVG, video) as Three.js meshes positioned over a scene. `three` is an optional peer dependency and is provided at runtime (never bundled).
+Part of [vos](https://github.com/vosjs/vos), the open visual operating system behind [vosso](https://vos.so). Renders 2D overlay elements (text, images, SVG, video) as Three.js meshes positioned over a scene, plus non-visual audio elements synced to the master clock. `three` is an optional peer dependency and is provided at runtime (never bundled).
 
 ## Install
 
