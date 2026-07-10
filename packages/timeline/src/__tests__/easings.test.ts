@@ -33,4 +33,50 @@ describe('resolveEase', () => {
     expect(resolveEase('not-an-ease')(0.3)).toBe(0.3)
     expect(resolveEase(undefined)(0.7)).toBe(0.7)
   })
+
+  it('bare family names default to .out, matching gsap.parseEase', () => {
+    for (const fam of ['power1', 'power2', 'sine', 'expo', 'back', 'elastic', 'bounce']) {
+      const ours = resolveEase(fam)
+      const theirs = gsap.parseEase(fam)
+      for (const x of SAMPLES) {
+        expect(ours(x), `${fam}(${x})`).toBeCloseTo(theirs(x), 6)
+      }
+    }
+  })
+})
+
+describe('parameterized eases ↔ gsap.parseEase parity', () => {
+  const CASES = [
+    'back.out(1.7)',
+    'back.in(3)',
+    'back.inOut(2)',
+    'elastic.out(1, 0.3)',
+    'elastic.out(1.2, 0.5)',
+    'elastic.in(1, 0.4)',
+    'elastic.in(1.5, 0.4)',
+    'elastic.inOut(1, 0.3)',
+    'elastic.inOut(1.3, 0.6)',
+    'elastic.inOut(2, 0.4)',
+    'steps(5)',
+    'steps(12)',
+  ]
+  for (const name of CASES) {
+    it(`matches gsap for '${name}'`, () => {
+      const ours = resolveEase(name)
+      const theirs = gsap.parseEase(name)
+      expect(theirs).toBeTruthy()
+      for (const x of SAMPLES) {
+        expect(ours(x), `${name}(${x})`).toBeCloseTo(theirs(x), 6)
+      }
+    })
+  }
+
+  it('caches parsed eases (same fn for same string)', () => {
+    expect(resolveEase('back.out(1.7)')).toBe(resolveEase('back.out(1.7)'))
+  })
+
+  it('malformed parameterized names fall back to linear', () => {
+    expect(resolveEase('back.out(abc)')(0.3)).toBe(0.3)
+    expect(resolveEase('steps()')(0.3)).toBe(0.3)
+  })
 })

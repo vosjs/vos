@@ -31,7 +31,10 @@ Suppress any single line with `// vos-lint-disable-next-line <rule|all>`.
   numeric/`{each, amount, from: <index|'start'|'center'|'end'|'edges'>}` `stagger`,
   and callbacks (`onUpdate`, `onComplete`, …).
 - **Eases (string form):** `none`, `linear`, and `<family>.<in|out|inOut>` for families
-  `power1`–`power4`, `sine`, `expo`, `circ`, `back`.
+  `power1`–`power4`, `sine`, `expo`, `circ`, `back`, `elastic`, `bounce`; parameterized
+  `back(overshoot)`, `elastic(amplitude, period)` and `steps(n)`; a bare family name
+  defaults to `.out` (matching GSAP). All curves are verified for numeric parity with
+  `gsap.parseEase`.
 - **Tweened values:** numbers. (Colors, unit strings, and complex string interpolation
   are outside the numeric core.)
 
@@ -54,6 +57,28 @@ Suppress any single line with `// vos-lint-disable-next-line <rule|all>`.
 `gsap.utils.random()`, **string-form `random()` tween values** (`{ x: 'random(-100,100)' }`),
 `stagger: { from: 'random' }`, wall-clock (`Date.now`, `performance.now`), timers/rAF, and
 network. Randomness must be seeded or precomputed.
+
+## Defined semantics (where the dialect is stricter than GSAP)
+
+An alternate deterministic evaluator of this dialect commits to analytic,
+direction-independent semantics. These match GSAP's observable behavior under
+monotonic frame-stepped playback except for known one-tick transients, which are
+grid-dependent in GSAP (they land on whichever render tick happens next) and
+therefore have no stable value to reproduce:
+
+- **Zero-duration tweens / `.set`** apply for all `t >= startTime`, regardless of
+  seek direction. (GSAP renders them only when the playhead moves onto/past them,
+  so a paused `seek(0)` shows the pre-set value — a footgun removed here.)
+- **Implicit endpoints** (a `.to`'s start, a `.from`'s destination) resolve to the
+  track's evaluated value at the tween's own start time. GSAP captures them lazily
+  at the first render tick at/after the start — within one tick-interval of the
+  analytic value.
+- **Conflicting tweens on one (target, property)**: the tween with the latest
+  last-render time (`min(t, end)`) wins; ties go to insertion order. GSAP
+  additionally shows a completed tween's clamped final render for the single tick
+  that crosses its end before the still-active tween resumes.
+- **Repeat cycle boundaries** hold the finished value through the exact boundary
+  (the restart is exclusive), matching GSAP's hold-through-`repeatDelay`.
 
 ## Cleanroom note
 

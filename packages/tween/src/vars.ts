@@ -54,6 +54,13 @@ export const DEFAULT_EASE = 'power1.out'
 /** GSAP's default tween duration when none is supplied. */
 export const DEFAULT_DURATION = 0.5
 
+/** Per-tween lifecycle callbacks captured for the sampler backend to fire. */
+export interface TweenCallbacks {
+  onStart?: (...args: unknown[]) => void
+  onUpdate?: (...args: unknown[]) => void
+  onComplete?: (...args: unknown[]) => void
+}
+
 export interface ParsedVars {
   props: Record<string, number>
   duration: number
@@ -62,6 +69,10 @@ export interface ParsedVars {
   repeat?: number
   yoyo?: boolean
   repeatDelay?: number
+  /** The raw `stagger` value (expanded by the recorder for array targets). */
+  stagger?: unknown
+  /** Captured callback refs (runtime-only; they also mark the spec opaque). */
+  callbacks?: TweenCallbacks
   /** True if the vars carried callbacks/modifiers/non-numeric animated values. */
   opaque: boolean
   /** Names of dropped keys (unstructurable animated values or effect triggers). */
@@ -118,6 +129,15 @@ export function parseVars(
   const yoyo = typeof v.yoyo === 'boolean' ? v.yoyo : undefined
   const repeatDelay = typeof v.repeatDelay === 'number' ? v.repeatDelay : undefined
 
+  let callbacks: TweenCallbacks | undefined
+  for (const key of ['onStart', 'onUpdate', 'onComplete'] as const) {
+    const fn = v[key]
+    if (typeof fn === 'function') {
+      callbacks ??= {}
+      callbacks[key] = fn as (...args: unknown[]) => void
+    }
+  }
+
   return {
     props,
     duration,
@@ -126,6 +146,8 @@ export function parseVars(
     repeat,
     yoyo,
     repeatDelay,
+    stagger: v.stagger,
+    callbacks,
     opaque,
     opaqueKeys,
   }

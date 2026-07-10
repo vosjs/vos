@@ -16,6 +16,8 @@ type EaseFamily =
   | 'expo'
   | 'circ'
   | 'back'
+  | 'elastic'
+  | 'bounce'
 
 type EaseDirection = 'in' | 'out' | 'inOut'
 
