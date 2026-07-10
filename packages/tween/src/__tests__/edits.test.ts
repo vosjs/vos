@@ -17,7 +17,7 @@ const build = () => {
       t: 1,
       duration: 1,
       ease: 'none',
-      onUpdate: () => calls.push(tl.time()),
+      onUpdate: () => calls.push(tl.time() as number),
     },
     2,
   )
