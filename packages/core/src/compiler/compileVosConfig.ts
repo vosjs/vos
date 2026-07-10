@@ -40,7 +40,24 @@ import type { VosConfigJson } from '../types'
  * })
  * ```
  */
-export function compileVosConfig(input: VosConfigJson): string {
+export interface CompileVosConfigOptions {
+  /**
+   * Which tween backend the compiled module targets (default 'gsap').
+   *
+   * The compiled code is backend-agnostic at runtime — `ctx.gsap` always
+   * comes from `deps.gsap` (the host chooses the backend). This option only
+   * controls whether the module emits `import gsap from 'gsap'`: 'vos' omits
+   * it so no GSAP is fetched from the CDN. Such modules still run in a
+   * gsap-backend host (the import was shadowed anyway); legacy gsap-mode
+   * modules still run in a vos-backend host (the importmap entry remains).
+   */
+  tweenEngine?: 'gsap' | 'vos'
+}
+
+export function compileVosConfig(
+  input: VosConfigJson,
+  options: CompileVosConfigOptions = {},
+): string {
   // Migrate old config versions
   const config = migrateConfig(
     input as unknown as Record<string, unknown>,
@@ -64,7 +81,9 @@ export function compileVosConfig(input: VosConfigJson): string {
   // (they only use non-function properties which are identical)
   const configForGenerators = config as any
 
-  const imports = generateImports(configForGenerators, detectedAddons)
+  const imports = generateImports(configForGenerators, detectedAddons, {
+    includeGsap: options.tweenEngine !== 'vos',
+  })
   const sceneSetup = generateSceneSetup(config.scene)
   const cameraSetup = generateCameraSetup(config.camera)
   const postprocessingSetup = generatePostprocessingSetup(config.postprocessing)

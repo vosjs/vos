@@ -42,6 +42,9 @@ importers:
       '@types/three':
         specifier: ^0.182.0
         version: 0.182.0
+      '@vosjs/tween':
+        specifier: workspace:^
+        version: link:../tween
       gsap:
         specifier: ^3.14.2
         version: 3.15.0
@@ -122,6 +125,9 @@ importers:
         specifier: ^0.2.0
         version: link:../timeline
     devDependencies:
+      esbuild:
+        specifier: ^0.27.0
+        version: 0.27.7
       gsap:
         specifier: ^3.14.2
         version: 3.15.0

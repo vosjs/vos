@@ -39,6 +39,19 @@ export interface RenderTemplateOptions {
   preloadModuleUrls?: string[]
   /** Additional importmap entries (e.g. for external packages) */
   additionalImportmapEntries?: Record<string, string>
+  /**
+   * Which tween backend supplies `deps.gsap` (default 'gsap').
+   *
+   * - `'gsap'`: real GSAP via the CDN importmap — current behavior.
+   * - `'vos'`: the deterministic @vosjs/tween recorder/sampler; requires
+   *   `tweenBundleCode`. No GSAP is imported by the template. The `gsap`
+   *   importmap entry is still emitted so legacy compiled artifacts that
+   *   `import gsap from 'gsap'` keep resolving (their `ctx.gsap` still comes
+   *   from deps, so they run on the vos backend regardless).
+   */
+  tweenEngine?: 'gsap' | 'vos'
+  /** IIFE string for the vos tween runtime (from @vosjs/tween/bundle) */
+  tweenBundleCode?: string
 }
 
 /**
@@ -61,7 +74,15 @@ export function generateRenderTemplate(
     capture,
     preloadModuleUrls = [],
     additionalImportmapEntries = {},
+    tweenEngine = 'gsap',
+    tweenBundleCode,
   } = options
+
+  if (tweenEngine === 'vos' && !tweenBundleCode) {
+    throw new Error(
+      "tweenEngine 'vos' requires tweenBundleCode (import { tweenRuntimeCode } from '@vosjs/tween/bundle')",
+    )
+  }
 
   const isCapture = mode === 'capture-video' || mode === 'capture-thumbnail'
 
@@ -149,11 +170,15 @@ export function generateRenderTemplate(
     </script>`
     : ''
 
-  // Preload hints: preconnect + modulepreload for critical paths
+  // Preload hints: preconnect + modulepreload for critical paths. The gsap
+  // preload is skipped on the vos backend (the importmap entry stays for
+  // legacy artifacts, but nothing fetches it up front).
   const preloadHints = [
     `<link rel="preconnect" href="${CDN_ORIGIN}" crossorigin="anonymous">`,
     `<link rel="modulepreload" href="${threeModuleUrl}">`,
-    `<link rel="modulepreload" href="${gsapModuleUrl}">`,
+    ...(tweenEngine === 'gsap'
+      ? [`<link rel="modulepreload" href="${gsapModuleUrl}">`]
+      : []),
     ...preloadModuleUrls.map(
       (url) => `<link rel="modulepreload" href="${url}">`,
     ),
@@ -182,7 +207,16 @@ ${preloadHints}
 <body>
     <script type="module">
         import * as THREE from 'three';
-        import gsap from 'gsap';
+${
+  tweenEngine === 'gsap'
+    ? `        import gsap from 'gsap';
+        const __gsapDep = () => gsap;`
+    : `        // vos tween backend: deps.gsap is a deterministic recorder facade
+        // (@vosjs/tween) — no GSAP import. Fresh recorder per LOAD.
+        ${tweenBundleCode}
+        const __gsapDep = () => globalThis.__vosTween.createTweenRecorder();
+        const gsap = __gsapDep();`
+}
 
 ${moduleBody}
     </script>
@@ -219,7 +253,7 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
             const pixelRatio = window.__vos__?.qualityOverride ?? Math.min(window.devicePixelRatio ?? 1, 2);
             return {
                 THREE,
-                gsap,
+                gsap: __gsapDep(),
                 resolution: {
                     width, height, pixelRatio,
                     drawingBufferWidth: Math.floor(width * pixelRatio),
