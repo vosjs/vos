@@ -14,6 +14,7 @@ import type { VosConfigJson } from '../types'
 export type DeterminismRule =
   | 'random'
   | 'gsap-random'
+  | 'gsap-string-random'
   | 'wall-clock'
   | 'timer'
   | 'network'
@@ -56,6 +57,23 @@ const RULES: RuleDef[] = [
     message: 'gsap.utils.random() is not seedable — breaks reproducible export.',
   },
   {
+    // GSAP interprets string-form values like { x: 'random(-100, 100)' } or
+    // 'random([1, 2, 3])' as non-seedable randomness. Invisible to gsap-random.
+    rule: 'gsap-string-random',
+    severity: 'error',
+    pattern: /["']random\s*[([]/g,
+    message:
+      "String-form random() tween value is non-seedable — breaks reproducible export. Precompute values instead.",
+  },
+  {
+    // stagger: { from: 'random' } shuffles start order non-deterministically.
+    rule: 'gsap-string-random',
+    severity: 'error',
+    pattern: /\bfrom\s*:\s*["']random["']/g,
+    message:
+      "stagger from:'random' is non-seedable — breaks reproducible export. Use a numeric or index-based stagger.",
+  },
+  {
     rule: 'wall-clock',
     severity: 'error',
     pattern: /\b(?:Date\.now\s*\(|new\s+Date\s*\(|performance\.now\s*\()/g,
@@ -75,16 +93,16 @@ const RULES: RuleDef[] = [
   },
 ]
 
-const FN_KEYS = ['setup', 'createContent', 'createTimeline', 'onFrame'] as const
+export const FN_KEYS = ['setup', 'createContent', 'createTimeline', 'onFrame'] as const
 
-function lineOf(src: string, index: number): number {
+export function lineOf(src: string, index: number): number {
   let line = 1
   for (let i = 0; i < index && i < src.length; i++) if (src[i] === '\n') line++
   return line
 }
 
 /** Lines suppressed by a preceding `// vos-lint-disable-next-line <rule|all>`. */
-function suppressedLines(src: string): Map<number, Set<string>> {
+export function suppressedLines(src: string): Map<number, Set<string>> {
   const out = new Map<number, Set<string>>()
   const lines = src.split('\n')
   const re = /\/\/\s*vos-lint-disable-next-line\s*([\w-]*)/

@@ -76,6 +76,42 @@ export interface VosContext extends SetupContext {
 }
 
 /**
+ * Structural master-clock interface the engine seeks each frame.
+ *
+ * This is the ONLY surface the runtime uses from the timeline object returned by
+ * `createTimeline` (pause/seek/play + transport queries + carrier retiming). It is
+ * satisfied structurally by `gsap.core.Timeline` today, so authoring against real
+ * GSAP is unchanged — but the public API no longer hard-depends on the `gsap` type,
+ * which lets an alternate deterministic backend provide a conformant timeline later
+ * without a breaking change. Method shorthand is intentional (bivariant params) so
+ * GSAP's overloaded signatures remain structurally assignable.
+ */
+export interface VosTimeline {
+  /** Pause playback (frame-stepped export pauses before the first frame). */
+  pause(): unknown
+  /** Resume playback. */
+  play(): unknown
+  /** Seek to `time` seconds. `suppressEvents=false` fires onUpdate callbacks. */
+  seek(time: number, suppressEvents?: boolean): unknown
+  /** Rebuild/clear children (used by the vosCarrier duration-retime path). */
+  clear(): unknown
+  /** Set playback rate. */
+  timeScale(value: number): unknown
+  /** Current playhead in seconds. */
+  time(): number
+  /** Normalized progress 0..1. */
+  progress(): number
+  /** Configured duration in seconds. */
+  duration(): number
+  /** Total duration including repeats (seconds). */
+  totalDuration(): number
+  /** Attach/read a lifecycle callback (engine uses onUpdate). */
+  eventCallback(type: string, callback?: (...args: any[]) => void): unknown
+  /** Opaque author-attached marker (e.g. `{ vosCarrier: true }`). */
+  data?: unknown
+}
+
+/**
  * Result from createContent function
  */
 export interface ContentResult {
@@ -250,7 +286,7 @@ export interface VosConfig {
     ctx: VosContext,
     content: ContentResult,
     duration: number,
-  ) => gsap.core.Timeline
+  ) => VosTimeline
 
   /**
    * Optional per-frame update (for uniforms, custom logic)
@@ -262,7 +298,7 @@ export interface VosConfig {
  * Result returned from animation initialization
  */
 export interface VosResult {
-  timeline: gsap.core.Timeline
+  timeline: VosTimeline
   cleanup: () => void
   /** Resolves when async content assets (e.g. decoded videos) are ready. */
   assetsReady?: Promise<void>

@@ -24,6 +24,7 @@ export type {
   OutputEffect,
   VosConfig,
   VosResult,
+  VosTimeline,
 } from './vos'
 
 // JSON-serializable config type
