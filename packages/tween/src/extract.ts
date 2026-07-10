@@ -86,9 +86,30 @@ export function buildTracks(specs: readonly TweenSpec[]): TargetTrack[] {
       if (spec.opaque) b.hasOpaque = true
     }
 
+    // Relative destinations ('+=x'): resolvable only off a known anchor value.
+    for (const [property, delta] of Object.entries(spec.toRelative ?? {})) {
+      const b = builderFor(spec, property)
+      const explicitFrom = spec.from?.[property]
+      const anchor =
+        explicitFrom ??
+        [...b.keyframes].reverse().find((k) => k.t <= spec.startTime)?.value
+      if (anchor !== undefined) {
+        if (explicitFrom !== undefined) putKeyframe(b.keyframes, spec.startTime, explicitFrom)
+        putKeyframe(b.keyframes, end, anchor + delta, spec.ease)
+      } else {
+        b.unresolved = true // start value resolves at runtime
+      }
+      if (spec.opaque) b.hasOpaque = true
+    }
+
     // A fully-opaque spec (no numeric props at all, e.g. an onUpdate-only tween) still
     // records its span so the inspector can show it.
-    if (!spec.from && Object.keys(spec.to).length === 0 && spec.opaque) {
+    if (
+      !spec.from &&
+      Object.keys(spec.to).length === 0 &&
+      !spec.toRelative &&
+      spec.opaque
+    ) {
       const b = builderFor(spec, '(opaque)')
       b.hasOpaque = true
       putKeyframe(b.keyframes, spec.startTime, 0, 'none')

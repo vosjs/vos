@@ -173,6 +173,7 @@ export class RecordingTimeline {
         opaque: parsed.opaque || stagger.opaque,
       }
       if (from) spec.from = from
+      if (parsed.relative) spec.toRelative = parsed.relative
       if (parsed.repeat !== undefined) spec.repeat = parsed.repeat
       if (parsed.yoyo !== undefined) spec.yoyo = parsed.yoyo
       if (parsed.repeatDelay !== undefined) spec.repeatDelay = parsed.repeatDelay
