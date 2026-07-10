@@ -27,6 +27,24 @@ export interface RuntimeEntry {
   callbacks?: TweenCallbacks
 }
 
+/**
+ * A serializable timing/ease override for one recorded tween, addressed by its
+ * ENTRY INDEX (recording order — stable for a given `createTimeline` source,
+ * including array-target/stagger expansion). This is how an editor retimes a
+ * timeline without regenerating its code: replay the original function through
+ * the recorder, then `applyEdits`. Works for opaque tweens too (an `onUpdate`
+ * shader tween can be moved/stretched without understanding its body).
+ */
+export interface TweenEdit {
+  index: number
+  /** New absolute start on the master timeline (seconds, clamped to >= 0). */
+  startTime?: number
+  /** New tween duration (seconds, clamped to >= 0). */
+  duration?: number
+  /** New ease name (dialect vocabulary). */
+  ease?: string
+}
+
 /** A structural slice of a real gsap timeline the recorder can delegate to. */
 export interface TimelineBackend {
   to(target: unknown, vars: object, position?: number | string): unknown
@@ -195,6 +213,44 @@ export class RecordingTimeline {
   private sampler(): Sampler {
     this._sampler ??= createSampler(this.entries, this._callbacks)
     return this._sampler
+  }
+
+  /**
+   * Apply serializable timing/ease overrides to recorded entries (see
+   * `TweenEdit`) and recompute the master footprint. The sampler recompiles on
+   * the next seek, so implicit endpoints re-resolve against the new layout.
+   *
+   * No-backend (vos sampler) mode only affects playback; with a live gsap
+   * backend the already-built delegated timeline is NOT retimed (specs still
+   * update, so extraction reflects the edits) — editors should run edits on
+   * the vos backend.
+   */
+  applyEdits(edits: readonly TweenEdit[]): this {
+    for (const e of edits) {
+      const entry = this.entries[e.index]
+      if (!entry) continue
+      const spec = entry.spec
+      if (typeof e.startTime === 'number' && Number.isFinite(e.startTime)) {
+        spec.startTime = Math.max(0, e.startTime)
+      }
+      if (typeof e.duration === 'number' && Number.isFinite(e.duration)) {
+        spec.duration = Math.max(0, e.duration)
+      }
+      if (typeof e.ease === 'string') spec.ease = e.ease
+    }
+    // Retimes can extend or shrink the timeline — recompute the end from the
+    // edited entries (same footprint rule the recorder's cursor uses).
+    let end = 0
+    for (const { spec } of this.entries) {
+      end = Math.max(
+        end,
+        spec.startTime +
+          totalWithRepeats(spec.duration, spec.repeat, spec.repeatDelay),
+      )
+    }
+    this.pos.end = end
+    this._sampler = null
+    return this
   }
 
   to(target: unknown, vars: Record<string, unknown>, position?: number | string): this {
