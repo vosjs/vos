@@ -1,6 +1,6 @@
 {
   "name": "@vosjs/tween",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Records a GSAP-dialect timeline into a structured, per-element tween IR (TweenSpec/TimelineDoc) for extraction and editing — a recording facade that delegates 1:1 to a real tween backend while capturing the animation as data. For the vos programmatic video engine.",
   "type": "module",
   "license": "MIT",
