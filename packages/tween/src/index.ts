@@ -14,6 +14,7 @@ export {
   type GsapBackend,
   type TimelineBackend,
   type RuntimeEntry,
+  type TweenEdit,
 } from './recorder'
 export { createSampler, type Sampler } from './sampler'
 export { staggerOffsets, type StaggerResult } from './stagger'
