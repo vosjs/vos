@@ -118,7 +118,7 @@ export class RecordingTimeline {
   private _sampler: Sampler | null = null
   private _time = 0
   private _rate = 1
-  private _raf: ReturnType<typeof setTimeout> | number | null = null
+  private _raf: unknown = null
   /** True when any recorded tween repeats forever — seek must not clamp then. */
   private _hasInfinite = false
 
@@ -270,7 +270,7 @@ export class RecordingTimeline {
     if (this._raf !== null) {
       const g = globalThis as Record<string, unknown>
       const cancel = (
-        typeof g.cancelAnimationFrame === 'function' ? g.cancelAnimationFrame : clearTimeout
+        typeof g.cancelAnimationFrame === 'function' ? g.cancelAnimationFrame : g.clearTimeout
       ) as (id: unknown) => void
       cancel(this._raf)
       this._raf = null
@@ -288,7 +288,7 @@ export class RecordingTimeline {
     const schedule = (
       typeof g.requestAnimationFrame === 'function'
         ? g.requestAnimationFrame
-        : (fn: () => void) => setTimeout(fn, 16)
+        : (fn: () => void) => (g.setTimeout as (f: () => void, ms: number) => unknown)(fn, 16)
     ) as (fn: () => void) => unknown
     let last = Date.now()
     const tick = (): void => {
@@ -299,9 +299,9 @@ export class RecordingTimeline {
       let next = this._time + dt
       if (dur > 0 && next > dur) next %= dur
       this.seek(next)
-      this._raf = schedule(tick) as never
+      this._raf = schedule(tick)
     }
-    this._raf = schedule(tick) as never
+    this._raf = schedule(tick)
   }
 
   pause(): this {
