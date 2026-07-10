@@ -119,6 +119,8 @@ export class RecordingTimeline {
   private _time = 0
   private _rate = 1
   private _raf: unknown = null
+  private _paused = true
+  private _repeat = 0
   /** True when any recorded tween repeats forever — seek must not clamp then. */
   private _hasInfinite = false
 
@@ -298,7 +300,15 @@ export class RecordingTimeline {
       last = now
       const dur = this.recordedDuration
       let next = this._time + dt
-      if (dur > 0 && next > dur) next %= dur
+      if (dur > 0 && next > dur) {
+        if (this._repeat === -1) {
+          next %= dur // master loop (tl.repeat(-1))
+        } else {
+          this.seek(dur)
+          this.pause()
+          return
+        }
+      }
       this.seek(next)
       this._raf = schedule(tick)
     }
@@ -306,13 +316,35 @@ export class RecordingTimeline {
   }
 
   pause(): this {
+    this._paused = true
     if (this.backend) this.backend.pause()
     else this.stopDriver()
     return this
   }
   play(): this {
+    this._paused = false
     if (this.backend) this.backend.play()
     else this.startDriver()
+    return this
+  }
+  /** GSAP-style paused getter/setter. */
+  paused(value?: boolean): boolean | this {
+    if (value === undefined) return this._paused
+    return value ? this.pause() : this.play()
+  }
+  /**
+   * GSAP-style repeat getter/setter for the MASTER timeline (the compiled
+   * program calls `tl.repeat(-1)`). `-1` makes the no-backend play driver loop
+   * (it already wraps at duration); other values stop at the end.
+   */
+  repeat(value?: number): number | this {
+    if (value === undefined) return this._repeat
+    this._repeat = value
+    return this
+  }
+  /** Stop and release (GSAP kill): halt the driver; recorded entries remain. */
+  kill(): this {
+    this.stopDriver()
     return this
   }
   seek(time: number, suppressEvents?: boolean): this {
@@ -333,7 +365,9 @@ export class RecordingTimeline {
     this.backend?.clear()
     return this
   }
-  timeScale(value: number): this {
+  /** GSAP-style timeScale getter/setter. */
+  timeScale(value?: number): number | this {
+    if (value === undefined) return this._rate
     this._rate = value
     this.backend?.timeScale(value)
     return this
@@ -352,8 +386,20 @@ export class RecordingTimeline {
   totalDuration(): number {
     return this.backend ? this.backend.totalDuration() : this.recordedDuration
   }
-  eventCallback(type: string, callback?: (...args: unknown[]) => void): this {
-    if (callback) this._callbacks.set(type, callback)
+  /** GSAP-style eventCallback: getter with one arg, setter with two. */
+  eventCallback(
+    type: string,
+    callback?: (...args: unknown[]) => void,
+  ): ((...args: unknown[]) => void) | null | this {
+    if (callback === undefined) {
+      if (this.backend) {
+        return this.backend.eventCallback(type) as
+          | ((...args: unknown[]) => void)
+          | null
+      }
+      return this._callbacks.get(type) ?? null
+    }
+    this._callbacks.set(type, callback)
     this.backend?.eventCallback(type, callback)
     return this
   }

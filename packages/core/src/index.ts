@@ -12,7 +12,7 @@
  */
 
 // Compiler
-export { compileVosConfig } from './compiler/compileVosConfig'
+export { compileVosConfig, type CompileVosConfigOptions } from './compiler/compileVosConfig'
 
 // Schema & validators
 export { vosConfigSchema } from './schema/configSchema'

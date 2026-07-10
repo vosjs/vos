@@ -33,6 +33,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./bundle": {
+      "types": "./dist/bundle.d.ts",
+      "import": "./dist/bundle.js"
     }
   },
   "files": [
@@ -40,7 +44,7 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node bundle.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
@@ -50,6 +54,7 @@
     "@vosjs/timeline": "^0.2.0"
   },
   "devDependencies": {
+    "esbuild": "^0.27.0",
     "gsap": "^3.14.2",
     "tsup": "^8.5.0",
     "typescript": "^5",
