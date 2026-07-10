@@ -47,7 +47,7 @@
     "clean": "rm -rf dist node_modules"
   },
   "dependencies": {
-    "@vosjs/timeline": "workspace:^"
+    "@vosjs/timeline": "^0.1.1"
   },
   "devDependencies": {
     "gsap": "^3.14.2",
