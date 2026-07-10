@@ -67,6 +67,45 @@ describe('RecordingTimeline — recording & targets', () => {
   })
 })
 
+describe('transport setters (the playback bridge surface)', () => {
+  const build = () => {
+    const rec = createTweenRecorder()
+    const o = { x: 0 }
+    const tl = rec.timeline({ paused: true })
+    tl.set(o, { x: 0 }, 0)
+    tl.to(o, { x: 100, duration: 4, ease: 'none' }, 0)
+    return { tl, o }
+  }
+
+  it('progress(value) scrubs — the bridge SEEK command (snap-back regression)', () => {
+    const { tl, o } = build()
+    // The template's SEEK case: __current.timeline.progress(msg.value)
+    tl.progress(0.5)
+    expect(o.x).toBeCloseTo(50, 6)
+    expect(tl.progress()).toBeCloseTo(0.5, 6)
+    expect(tl.time()).toBeCloseTo(2, 6)
+    // Scrub again — must move, not snap back.
+    tl.progress(0.25)
+    expect(o.x).toBeCloseTo(25, 6)
+    expect(tl.progress()).toBeCloseTo(0.25, 6)
+  })
+
+  it('progress setter clamps to [0, 1]', () => {
+    const { tl, o } = build()
+    tl.progress(1.5)
+    expect(o.x).toBeCloseTo(100, 6)
+    tl.progress(-1)
+    expect(o.x).toBeCloseTo(0, 6)
+  })
+
+  it('time(value) seeks', () => {
+    const { tl, o } = build()
+    tl.time(3)
+    expect(o.x).toBeCloseTo(75, 6)
+    expect(tl.time()).toBeCloseTo(3, 6)
+  })
+})
+
 describe('position resolution', () => {
   it('handles default-append, <, >, += and labels', () => {
     const rec = createTweenRecorder()
