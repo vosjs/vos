@@ -23,7 +23,9 @@ jobs:
           cache: pnpm
           registry-url: 'https://registry.npmjs.org'
       # Trusted Publishing (OIDC) needs npm >= 11.5; the runner ships an older one.
-      - run: npm install -g npm@latest
+      # Pin to a known-good release — npm@latest currently resolves to a build whose
+      # bundled sigstore module is missing, breaking provenance signing (npm/cli#9722).
+      - run: npm install -g npm@11.5.1
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - name: Create release PR or publish
