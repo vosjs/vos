@@ -116,6 +116,25 @@ importers:
         specifier: ^3.0.5
         version: 3.2.6(@types/node@22.20.0)
 
+  packages/tween:
+    dependencies:
+      '@vosjs/timeline':
+        specifier: ^0.1.1
+        version: 0.1.1
+    devDependencies:
+      gsap:
+        specifier: ^3.14.2
+        version: 3.15.0
+      tsup:
+        specifier: ^8.5.0
+        version: 8.5.1(postcss@8.5.15)(typescript@5.9.3)
+      typescript:
+        specifier: ^5
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.6(@types/node@22.20.0)
+
 packages:
 
   '@babel/runtime@7.29.7':
@@ -706,6 +725,9 @@ packages:
 
   '@vitest/utils@3.2.6':
     resolution: {integrity: sha512-lI23nIs4bnT3T8NIoh+vFaz5s2/DdP0Jgt2jxwgWljvwn82cLJtyi/If+fjFyoLMGIOz0U/fKvWE0d4jsNQEfg==}
+
+  '@vosjs/timeline@0.1.1':
+    resolution: {integrity: sha512-sm931soCrhRkvvzskvpTx1IvxN6kBojjFllgBPY8HSr066UPGxKYx2+UsGRcviyusraJkWImfF/OKpEZj0u0FA==}
 
   '@webgpu/types@0.1.70':
     resolution: {integrity: sha512-LFiNHHKMvmAEvwVew3JLJmTdShhbdwRFSImUshGhE2mGE8ybQzIo63l5uRp+YKnNx+8Qno8Kf6gN+DKMreIJCA==}
@@ -2207,6 +2229,8 @@ snapshots:
       '@vitest/pretty-format': 3.2.6
       loupe: 3.2.1
       tinyrainbow: 2.0.0
+
+  '@vosjs/timeline@0.1.1': {}
 
   '@webgpu/types@0.1.70': {}
 

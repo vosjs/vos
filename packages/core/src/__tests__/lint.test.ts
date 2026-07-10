@@ -26,6 +26,37 @@ describe('lintVosConfig', () => {
     expect(issues.map((i) => i.rule)).toContain('gsap-random')
   })
 
+  it('flags string-form random() tween values', () => {
+    const between = lintVosConfig({
+      ...base,
+      createTimeline: "(ctx) => { ctx.gsap.to(o, { x: 'random(-100, 100)' }) }",
+    })
+    expect(between.map((i) => i.rule)).toContain('gsap-string-random')
+    const fromArray = lintVosConfig({
+      ...base,
+      createTimeline: '(ctx) => { ctx.gsap.to(o, { x: "random([1, 2, 3])" }) }',
+    })
+    expect(fromArray.map((i) => i.rule)).toContain('gsap-string-random')
+  })
+
+  it("flags stagger from:'random'", () => {
+    const issues = lintVosConfig({
+      ...base,
+      createTimeline: "(ctx) => { ctx.gsap.to(all, { y: 10, stagger: { from: 'random', each: 0.1 } }) }",
+    })
+    expect(issues.map((i) => i.rule)).toContain('gsap-string-random')
+  })
+
+  it('does not flag GLSL random( or numeric stagger', () => {
+    const issues = lintVosConfig({
+      ...base,
+      // GLSL random( has no preceding JS quote; numeric stagger is deterministic
+      createContent: '() => { const s = `float r = random(uv);`; return { objects: [] } }',
+      createTimeline: '(ctx) => { ctx.gsap.to(all, { y: 10, stagger: 0.1 }) }',
+    })
+    expect(issues.map((i) => i.rule)).not.toContain('gsap-string-random')
+  })
+
   it('flags wall-clock: Date.now, new Date, performance.now', () => {
     const rules = lintVosConfig({
       ...base,

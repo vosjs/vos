@@ -56,6 +56,7 @@ export type {
   VosConfig,
   VosConfigJson,
   VosResult,
+  VosTimeline,
   // Elements
   ElementPosition,
   PositionPreset,
