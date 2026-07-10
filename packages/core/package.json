@@ -1,6 +1,6 @@
 {
   "name": "@vosjs/core",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Programmatic video engine for the web — compile a declarative config into deterministic, resolution-independent motion graphics and video (Three.js, GSAP, 2D, HTML, video). The open engine behind vos.so.",
   "type": "module",
   "license": "MIT",
