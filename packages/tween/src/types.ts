@@ -55,6 +55,11 @@ export interface TweenSpec {
   from?: Record<string, number>
   /** Destination values, numeric only. */
   to: Record<string, number>
+  /**
+   * Relative destinations (`'+=0.5'` / `'-=10'`): per-property deltas applied
+   * to the tween's start value (`destination = start + delta`).
+   */
+  toRelative?: Record<string, number>
   /** Absolute start on the master timeline (seconds), after position resolution. */
   startTime: number
   /** Tween duration (seconds); 0 for `.set`. */

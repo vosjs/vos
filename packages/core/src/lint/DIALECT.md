@@ -35,8 +35,9 @@ Suppress any single line with `// vos-lint-disable-next-line <rule|all>`.
   `back(overshoot)`, `elastic(amplitude, period)` and `steps(n)`; a bare family name
   defaults to `.out` (matching GSAP). All curves are verified for numeric parity with
   `gsap.parseEase`.
-- **Tweened values:** numbers. (Colors, unit strings, and complex string interpolation
-  are outside the numeric core.)
+- **Tweened values:** numbers, plus relative numeric strings (`'+=0.5'` / `'-=10'` —
+  destination = start value ± delta). (Colors, unit strings, and complex string
+  interpolation are outside the numeric core.)
 
 ## Not in the dialect (and why)
 

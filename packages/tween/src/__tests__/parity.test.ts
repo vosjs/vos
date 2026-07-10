@@ -180,6 +180,17 @@ const CASES: Case[] = [
     skip: [{ from: 2.0, to: 2.11 }],
   },
   {
+    name: "relative values ('+=' / '-=') incl. yoyo float (real-config pattern)",
+    targets: () => ({ a: { y: 0.5, opacity: 1, scale: 1 }, b: { x: 10 } }),
+    build: (tl, o) => {
+      // The "Elements Test" official-example shape: .from intro, then a
+      // relative yoyo float chained on the same property.
+      tl.from(o.a, { opacity: 0, scale: 0.8, y: 1, duration: 1, ease: 'power2.out' }, 0.5)
+      tl.to(o.a, { y: '-=0.1', duration: 2, yoyo: true, repeat: 1, ease: 'sine.inOut' }, 1.5)
+      tl.to(o.b, { x: '+=5', duration: 1, ease: 'none' }, 0)
+    },
+  },
+  {
     name: 'default duration and default ease',
     targets: () => ({ a: { x: 0 } }),
     build: (tl, o) => {

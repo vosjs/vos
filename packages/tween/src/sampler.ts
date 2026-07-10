@@ -149,6 +149,7 @@ export function createSampler(
     const props = new Set([
       ...Object.keys(spec.from ?? {}),
       ...Object.keys(spec.to),
+      ...Object.keys(spec.toRelative ?? {}),
     ])
     if (!props.size && !entry.callbacks) continue
 
@@ -181,12 +182,16 @@ export function createSampler(
 
       const explicitFrom = spec.from?.[property]
       const explicitTo = spec.to[property]
+      const relative = spec.toRelative?.[property]
       // Implicit endpoints = the track's evaluated value at this tween's own
       // start time over the previously-authored tweens (GSAP's lazy capture
       // under monotonic playback, resolved analytically).
       const atStart = () => trackValueAt(track, spec.startTime)
       c.from[property] = explicitFrom ?? atStart()
-      c.to[property] = explicitTo ?? atStart()
+      c.to[property] =
+        relative !== undefined
+          ? c.from[property] + relative // '+=x' / '-=x' off the start value
+          : (explicitTo ?? atStart())
       track.tweens.push(c)
     }
   }

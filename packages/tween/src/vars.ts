@@ -63,6 +63,8 @@ export interface TweenCallbacks {
 
 export interface ParsedVars {
   props: Record<string, number>
+  /** Relative numeric values (`'+=0.5'`): per-property deltas off the start value. */
+  relative?: Record<string, number>
   duration: number
   delay: number
   ease: string
@@ -91,14 +93,19 @@ function easeToString(ease: unknown): string {
  * Parse a vars object. `defaultDuration`/`defaultEase` let `.set()` pass 0 duration and
  * callers override the tween defaults if needed.
  */
+/** Relative numeric value strings: `'+=0.5'` / `'-=10'` (delta off the start value). */
+const RELATIVE_RE = /^([+-])=\s*([\d.]+)\s*$/
+
 export function parseVars(
   vars: Record<string, unknown> | undefined,
   opts: { defaultDuration?: number } = {},
 ): ParsedVars {
   const v = vars ?? {}
   const props: Record<string, number> = {}
+  const relative: Record<string, number> = {}
   const opaqueKeys: string[] = []
   let opaque = false
+  let hasRelative = false
 
   for (const key of Object.keys(v)) {
     if (OPAQUE_TRIGGERS.has(key)) {
@@ -110,6 +117,17 @@ export function parseVars(
     const val = v[key]
     if (typeof val === 'number' && Number.isFinite(val)) {
       props[key] = val
+    } else if (typeof val === 'string' && RELATIVE_RE.test(val)) {
+      // Relative numeric value: destination = start value ± delta.
+      const m = RELATIVE_RE.exec(val)!
+      const delta = Number(m[2]) * (m[1] === '-' ? -1 : 1)
+      if (Number.isFinite(delta)) {
+        relative[key] = delta
+        hasRelative = true
+      } else {
+        opaque = true
+        opaqueKeys.push(key)
+      }
     } else {
       // Non-numeric animated value (color/unit string, function value, nested object).
       opaque = true
@@ -140,6 +158,7 @@ export function parseVars(
 
   return {
     props,
+    relative: hasRelative ? relative : undefined,
     duration,
     delay,
     ease: easeToString(v.ease),
