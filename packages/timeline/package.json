@@ -1,6 +1,6 @@
 {
   "name": "@vosjs/timeline",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Deterministic timeline math for video editing — keyframe sampling, GSAP-compatible pure easings, and source-time remapping (trim/split) for the vos programmatic video engine, evaluable identically on the host and inside running programs.",
   "type": "module",
   "license": "MIT",
