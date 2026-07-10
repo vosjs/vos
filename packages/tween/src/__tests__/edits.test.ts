@@ -76,6 +76,32 @@ describe('applyEdits', () => {
     expect(tl.duration()).toBe(3)
   })
 
+  it('value overrides: destination, explicit-from, and pinning an implicit start', () => {
+    const { tl, o } = build()
+    tl.applyEdits([
+      { index: 1, to: { x: 200 } }, // x: 0→200 instead of 0→100
+      { index: 2, from: { y: 10 } }, // pin the .to's implicit start (was chained 0)
+    ])
+    tl.seek(0.5, true)
+    expect(o.x).toBeCloseTo(100, 6) // midpoint of 0→200
+    tl.seek(1.5, true)
+    expect(o.y).toBeCloseTo(30, 6) // midpoint of pinned 10→50
+  })
+
+  it('value override on a relative prop replaces the delta with an absolute', () => {
+    const rec = createTweenRecorder()
+    const o = { y: 2 }
+    const tl = rec.timeline({ paused: true })
+    tl.set(o, { y: 2 }, 0)
+    tl.to(o, { y: '+=1', duration: 1, ease: 'none' }, 0)
+    tl.seek(1, true)
+    expect(o.y).toBeCloseTo(3, 6) // relative: 2 + 1
+    tl.applyEdits([{ index: 1, to: { y: 10 } }])
+    tl.seek(1, true)
+    expect(o.y).toBeCloseTo(10, 6) // absolute override wins
+    expect(tl.specs[1].toRelative).toBeUndefined()
+  })
+
   it('edits are idempotent re-application (editor re-applies full overlay)', () => {
     const { tl, o } = build()
     const overlay = [{ index: 2, startTime: 2 }]

@@ -28,12 +28,16 @@ export interface RuntimeEntry {
 }
 
 /**
- * A serializable timing/ease override for one recorded tween, addressed by its
- * ENTRY INDEX (recording order — stable for a given `createTimeline` source,
- * including array-target/stagger expansion). This is how an editor retimes a
- * timeline without regenerating its code: replay the original function through
- * the recorder, then `applyEdits`. Works for opaque tweens too (an `onUpdate`
- * shader tween can be moved/stretched without understanding its body).
+ * A serializable timing/ease/value override for one recorded tween, addressed
+ * by its ENTRY INDEX (recording order — stable for a given `createTimeline`
+ * source, including array-target/stagger expansion). This is how an editor
+ * edits a timeline without regenerating its code: replay the original function
+ * through the recorder, then `applyEdits`. Timing/ease edits work for opaque
+ * tweens too (an `onUpdate` shader tween can be moved/stretched without
+ * understanding its body); value overrides apply to the recorded numeric props.
+ *
+ * Overrides MERGE into the freshly-recorded spec, so re-applying a full
+ * overlay onto a fresh recording (the editor pattern) is idempotent.
  */
 export interface TweenEdit {
   index: number
@@ -43,6 +47,17 @@ export interface TweenEdit {
   duration?: number
   /** New ease name (dialect vocabulary). */
   ease?: string
+  /**
+   * Destination value overrides, merged per property into the recorded `to`
+   * (an override on a relative-value prop replaces the delta with an absolute
+   * destination).
+   */
+  to?: Record<string, number>
+  /**
+   * Start-value overrides, merged per property into `from`. Overriding a prop
+   * without an explicit start CREATES one (pinning a `.to`'s implicit start).
+   */
+  from?: Record<string, number>
 }
 
 /** A structural slice of a real gsap timeline the recorder can delegate to. */
@@ -226,6 +241,13 @@ export class RecordingTimeline {
    * the vos backend.
    */
   applyEdits(edits: readonly TweenEdit[]): this {
+    const finite = (
+      values: Record<string, number> | undefined,
+    ): [string, number][] =>
+      Object.entries(values ?? {}).filter(
+        ([, v]) => typeof v === 'number' && Number.isFinite(v),
+      )
+
     for (const e of edits) {
       const entry = this.entries[e.index]
       if (!entry) continue
@@ -237,6 +259,17 @@ export class RecordingTimeline {
         spec.duration = Math.max(0, e.duration)
       }
       if (typeof e.ease === 'string') spec.ease = e.ease
+      for (const [prop, value] of finite(e.to)) {
+        spec.to = { ...spec.to, [prop]: value }
+        // An absolute destination supersedes a relative ('+=x') one.
+        if (spec.toRelative && prop in spec.toRelative) {
+          const { [prop]: _dropped, ...rest } = spec.toRelative
+          spec.toRelative = Object.keys(rest).length ? rest : undefined
+        }
+      }
+      for (const [prop, value] of finite(e.from)) {
+        spec.from = { ...spec.from, [prop]: value }
+      }
     }
     // Retimes can extend or shrink the timeline — recompute the end from the
     // edited entries (same footprint rule the recorder's cursor uses).
