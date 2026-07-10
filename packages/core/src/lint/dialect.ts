@@ -143,10 +143,11 @@ const RULES: RuleDef[] = [
 ]
 
 /**
- * Ease families the vendored evaluator (`@vosjs/timeline` EASINGS) supports today.
- * Parameterized eases (`back.out(1.7)`, `elastic.out(1, 0.3)`), `steps()`, and
- * families like `elastic`/`bounce`/`rough`/`slow` are NOT yet implemented — flag
- * so silent linear fallback never ships.
+ * Ease families the vendored evaluator (`@vosjs/timeline` EASINGS) implements
+ * with verified GSAP curve parity. Parameterized forms are supported for
+ * `back(overshoot)`, `elastic(amplitude, period)` and `steps(n)`; anything
+ * else (`rough`, `slow`, `expoScale`, CustomEase, …) would silently fall back
+ * to linear — flag it so that never ships.
  */
 const SUPPORTED_EASE_FAMILIES = new Set([
   'none',
@@ -159,10 +160,30 @@ const SUPPORTED_EASE_FAMILIES = new Set([
   'expo',
   'circ',
   'back',
+  'elastic',
+  'bounce',
 ])
+
+/** Families whose parameterized form the evaluator implements. */
+const PARAMETERIZABLE = new Set(['back', 'elastic', 'steps'])
 
 // Capture the string value of `ease: '<name>'` (single or double quoted).
 const EASE_RE = /\bease\s*:\s*['"]([^'"]+)['"]/g
+// `family[.direction][(args)]` — mirrors @vosjs/timeline's resolveEase grammar.
+const EASE_EXPR = /^([a-zA-Z0-9]+)(?:\.(in|out|inOut))?(?:\(([^)]*)\))?$/
+
+function easeSupported(raw: string): boolean {
+  const m = EASE_EXPR.exec(raw)
+  if (!m) return false
+  const [, family, , argsRaw] = m
+  if (argsRaw !== undefined) {
+    if (!PARAMETERIZABLE.has(family)) return false
+    const args = argsRaw.split(',').map((s) => Number(s.trim()))
+    return args.length > 0 && args.every((a) => Number.isFinite(a))
+  }
+  if (family === 'steps') return false // steps requires (n)
+  return SUPPORTED_EASE_FAMILIES.has(family)
+}
 
 function lintEases(
   fn: (typeof FN_KEYS)[number],
@@ -174,11 +195,7 @@ function lintEases(
   let m: RegExpExecArray | null
   while ((m = EASE_RE.exec(src)) !== null) {
     const raw = m[1].trim()
-    const parameterized = raw.includes('(')
-    // family = token before the first '.' or '(' (e.g. 'power2.out' → 'power2')
-    const family = raw.split(/[.(]/)[0]
-    const ok = !parameterized && SUPPORTED_EASE_FAMILIES.has(family)
-    if (ok) continue
+    if (easeSupported(raw)) continue
     const line = lineOf(src, m.index)
     const sup = suppressed.get(line)
     if (sup && (sup.has('unknown-ease') || sup.has('all'))) continue
@@ -189,9 +206,7 @@ function lintEases(
       match: m[0],
       index: m.index,
       line,
-      message: parameterized
-        ? `Parameterized ease "${raw}" is not yet implemented by the vos evaluator (would fall back to linear).`
-        : `Ease "${raw}" is outside the supported families (${[...SUPPORTED_EASE_FAMILIES].join(', ')}) — would fall back to linear.`,
+      message: `Ease "${raw}" is outside the supported set (families: ${[...SUPPORTED_EASE_FAMILIES].join(', ')}; parameterized: back/elastic/steps) — would fall back to linear.`,
     })
   }
   return issues

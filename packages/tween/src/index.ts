@@ -13,7 +13,11 @@ export {
   type TweenRecorder,
   type GsapBackend,
   type TimelineBackend,
+  type RuntimeEntry,
 } from './recorder'
+export { createSampler, type Sampler } from './sampler'
+export { staggerOffsets, type StaggerResult } from './stagger'
+export { type TweenCallbacks } from './vars'
 export { buildTracks, extractTimeline } from './extract'
 export { tagTarget, readTag, TargetResolver } from './target'
 export {

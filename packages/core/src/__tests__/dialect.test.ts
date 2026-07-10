@@ -55,18 +55,27 @@ describe('lintVosDialect', () => {
 
   it('warns (not errors) on immediateRender and unsupported eases', () => {
     const issues = lintVosDialect(
-      ct("(ctx) => { tl.to(p, { x: 1, ease: 'elastic.out', immediateRender: false }) }"),
+      ct("(ctx) => { tl.to(p, { x: 1, ease: 'rough', immediateRender: false }) }"),
     )
     expect(issues.every((i) => i.severity === 'warn')).toBe(true)
     expect(hasDialectErrors(issues)).toBe(false)
     expect(issues.map((i) => i.rule).sort()).toEqual(['immediate-render', 'unknown-ease'])
   })
 
-  it('flags parameterized eases but accepts supported families', () => {
-    const param = lintVosDialect(ct("(ctx) => { tl.to(p, { x: 1, ease: 'back.out(1.7)' }) }"))
-    expect(param.map((i) => i.rule)).toContain('unknown-ease')
-    const ok = lintVosDialect(ct("(ctx) => { tl.to(p, { x: 1, ease: 'sine.inOut' }); tl.to(p, { y: 1, ease: 'none' }) }"))
+  it('accepts implemented eases incl. parameterized/extended, flags the rest', () => {
+    const ok = lintVosDialect(
+      ct(
+        "(ctx) => { tl.to(p, { x: 1, ease: 'sine.inOut' }); tl.to(p, { y: 1, ease: 'back.out(1.7)' }); tl.to(p, { z: 1, ease: 'elastic.out(1, 0.3)' }); tl.to(p, { w: 1, ease: 'bounce.out' }); tl.to(p, { v: 1, ease: 'steps(5)' }); tl.to(p, { u: 1, ease: 'power2' }) }",
+      ),
+    )
     expect(ok.map((i) => i.rule)).not.toContain('unknown-ease')
+
+    const bad = lintVosDialect(
+      ct(
+        "(ctx) => { tl.to(p, { x: 1, ease: 'slow(0.7, 0.7)' }); tl.to(p, { y: 1, ease: 'steps' }); tl.to(p, { z: 1, ease: 'back.out(abc)' }) }",
+      ),
+    )
+    expect(bad.filter((i) => i.rule === 'unknown-ease')).toHaveLength(3)
   })
 
   it('respects vos-lint-disable-next-line', () => {

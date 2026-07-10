@@ -10,7 +10,22 @@
  */
 import { TargetResolver } from './target'
 import { parseVars } from './vars'
-import type { TweenSpec, TweenTarget } from './types'
+import { staggerOffsets } from './stagger'
+import { createSampler } from './sampler'
+import type { Sampler } from './sampler'
+import type { ParsedVars, TweenCallbacks } from './vars'
+import type { TweenSpec } from './types'
+
+/**
+ * One recorded tween bound to its concrete runtime object. `spec` is the
+ * serializable IR; `raw` and `callbacks` are runtime-only (they let the vos
+ * sampler backend write values and fire lifecycle callbacks).
+ */
+export interface RuntimeEntry {
+  spec: TweenSpec
+  raw: unknown
+  callbacks?: TweenCallbacks
+}
 
 /** A structural slice of a real gsap timeline the recorder can delegate to. */
 export interface TimelineBackend {
@@ -93,19 +108,42 @@ function totalWithRepeats(duration: number, repeat?: number, repeatDelay?: numbe
 }
 
 export class RecordingTimeline {
-  readonly specs: TweenSpec[] = []
+  /** Recorded tweens with their runtime bindings (source of truth). */
+  readonly entries: RuntimeEntry[] = []
   private pos = new PositionState()
   private _data: unknown
-  private _callbacks = new Map<string, (...args: unknown[]) => void>()
+  protected _callbacks = new Map<string, (...args: unknown[]) => void>()
+
+  // ---- sampler-backed transport state (used when there is no live backend) ----
+  private _sampler: Sampler | null = null
+  private _time = 0
+  private _rate = 1
+  private _raf: ReturnType<typeof setTimeout> | number | null = null
+  /** True when any recorded tween repeats forever — seek must not clamp then. */
+  private _hasInfinite = false
 
   constructor(
     private resolver: TargetResolver,
-    private backend?: TimelineBackend,
+    protected backend?: TimelineBackend,
     vars?: object,
   ) {
     if (vars && typeof (vars as { data?: unknown }).data !== 'undefined') {
       this._data = (vars as { data?: unknown }).data
     }
+    // Timeline-level lifecycle callbacks may come in via vars.
+    if (vars) {
+      for (const key of ['onStart', 'onUpdate', 'onComplete'] as const) {
+        const fn = (vars as Record<string, unknown>)[key]
+        if (typeof fn === 'function') {
+          this._callbacks.set(key, fn as (...args: unknown[]) => void)
+        }
+      }
+    }
+  }
+
+  /** The serializable IR (derived view over `entries`). */
+  get specs(): TweenSpec[] {
+    return this.entries.map((e) => e.spec)
   }
 
   /** Master duration in seconds (max child end). */
@@ -114,31 +152,50 @@ export class RecordingTimeline {
   }
 
   private record(
-    target: TweenTarget,
+    rawTarget: unknown,
     from: Record<string, number> | undefined,
-    parsed: ReturnType<typeof parseVars>,
+    parsed: ParsedVars,
     position: number | string | undefined,
   ): void {
-    const start = this.pos.resolve(position) + parsed.delay
-    const spec: TweenSpec = {
-      target,
-      to: parsed.props,
-      startTime: start,
-      duration: parsed.duration,
-      ease: parsed.ease,
-      opaque: parsed.opaque,
+    const base = this.pos.resolve(position) + parsed.delay
+    // Array targets expand into one spec per element with stagger offsets.
+    const targets = Array.isArray(rawTarget) ? rawTarget : [rawTarget]
+    const stagger = staggerOffsets(targets.length, parsed.stagger)
+
+    for (let i = 0; i < targets.length; i++) {
+      const start = base + stagger.offsets[i]
+      const spec: TweenSpec = {
+        target: this.resolver.resolve(targets[i]),
+        to: parsed.props,
+        startTime: start,
+        duration: parsed.duration,
+        ease: parsed.ease,
+        opaque: parsed.opaque || stagger.opaque,
+      }
+      if (from) spec.from = from
+      if (parsed.repeat !== undefined) spec.repeat = parsed.repeat
+      if (parsed.yoyo !== undefined) spec.yoyo = parsed.yoyo
+      if (parsed.repeatDelay !== undefined) spec.repeatDelay = parsed.repeatDelay
+      if (parsed.opaqueKeys.length) spec.opaqueKeys = parsed.opaqueKeys
+      this.entries.push({ spec, raw: targets[i], callbacks: parsed.callbacks })
     }
-    if (from) spec.from = from
-    if (parsed.repeat !== undefined) spec.repeat = parsed.repeat
-    if (parsed.yoyo !== undefined) spec.yoyo = parsed.yoyo
-    if (parsed.repeatDelay !== undefined) spec.repeatDelay = parsed.repeatDelay
-    if (parsed.opaqueKeys.length) spec.opaqueKeys = parsed.opaqueKeys
-    this.specs.push(spec)
-    this.pos.advance(start, totalWithRepeats(parsed.duration, parsed.repeat, parsed.repeatDelay))
+
+    if (parsed.repeat === -1) this._hasInfinite = true
+    this._sampler = null // recompile implicit values on next transport use
+    this.pos.advance(
+      base,
+      stagger.max + totalWithRepeats(parsed.duration, parsed.repeat, parsed.repeatDelay),
+    )
+  }
+
+  /** Lazily compile the sampler (no-backend mode). */
+  private sampler(): Sampler {
+    this._sampler ??= createSampler(this.entries, this._callbacks)
+    return this._sampler
   }
 
   to(target: unknown, vars: Record<string, unknown>, position?: number | string): this {
-    this.record(this.resolver.resolve(target), undefined, parseVars(vars), position)
+    this.record(target, undefined, parseVars(vars), position)
     this.backend?.to(target, vars, position)
     return this
   }
@@ -147,7 +204,7 @@ export class RecordingTimeline {
     // `.from` animates FROM these values TO the target's current state; we record the
     // explicit values as `from` and leave `to` empty (destination resolved at extract).
     const parsed = parseVars(vars)
-    this.record(this.resolver.resolve(target), parsed.props, { ...parsed, props: {} }, position)
+    this.record(target, parsed.props, { ...parsed, props: {} }, position)
     this.backend?.from(target, vars, position)
     return this
   }
@@ -159,13 +216,13 @@ export class RecordingTimeline {
     position?: number | string,
   ): this {
     const from = parseVars(fromVars).props
-    this.record(this.resolver.resolve(target), from, parseVars(toVars), position)
+    this.record(target, from, parseVars(toVars), position)
     this.backend?.fromTo(target, fromVars, toVars, position)
     return this
   }
 
   set(target: unknown, vars: Record<string, unknown>, position?: number | string): this {
-    this.record(this.resolver.resolve(target), undefined, parseVars(vars, { defaultDuration: 0 }), position)
+    this.record(target, undefined, parseVars(vars, { defaultDuration: 0 }), position)
     this.backend?.set(target, vars, position)
     return this
   }
@@ -173,23 +230,30 @@ export class RecordingTimeline {
   add(child: unknown, position?: number | string): this {
     if (child instanceof RecordingTimeline) {
       const base = this.pos.resolve(position)
-      for (const s of child.specs) {
-        this.specs.push({ ...s, startTime: s.startTime + base })
+      for (const e of child.entries) {
+        this.entries.push({
+          ...e,
+          spec: { ...e.spec, startTime: e.spec.startTime + base },
+        })
       }
       this.pos.advance(base, child.recordedDuration)
     } else {
       // Unknown child (raw tween/label array) — record an opaque zero-span marker.
       const base = this.pos.resolve(position)
-      this.specs.push({
-        target: { kind: 'opaque', label: 'add' },
-        to: {},
-        startTime: base,
-        duration: 0,
-        ease: 'none',
-        opaque: true,
+      this.entries.push({
+        raw: child,
+        spec: {
+          target: { kind: 'opaque', label: 'add' },
+          to: {},
+          startTime: base,
+          duration: 0,
+          ease: 'none',
+          opaque: true,
+        },
       })
       this.pos.advance(base, 0)
     }
+    this._sampler = null
     this.backend?.add(child instanceof RecordingTimeline ? undefined : child, position)
     return this
   }
@@ -200,36 +264,86 @@ export class RecordingTimeline {
     return this
   }
 
-  // ---- transport passthrough (delegates when live; computes from record otherwise) ----
+  // ---- transport: delegates when a live backend exists; sampler-driven otherwise ----
+
+  private stopDriver(): void {
+    if (this._raf !== null) {
+      const g = globalThis as Record<string, unknown>
+      const cancel = (
+        typeof g.cancelAnimationFrame === 'function' ? g.cancelAnimationFrame : clearTimeout
+      ) as (id: unknown) => void
+      cancel(this._raf)
+      this._raf = null
+    }
+  }
+
+  /**
+   * Wall-clock play driver for PREVIEW in no-backend mode (looping, like the
+   * engine's master playback). Export/scrub determinism comes from `seek()`,
+   * which stays pure — this driver only advances the playhead between frames.
+   */
+  private startDriver(): void {
+    if (this._raf !== null) return
+    const g = globalThis as Record<string, unknown>
+    const schedule = (
+      typeof g.requestAnimationFrame === 'function'
+        ? g.requestAnimationFrame
+        : (fn: () => void) => setTimeout(fn, 16)
+    ) as (fn: () => void) => unknown
+    let last = Date.now()
+    const tick = (): void => {
+      const now = Date.now()
+      const dt = ((now - last) / 1000) * this._rate
+      last = now
+      const dur = this.recordedDuration
+      let next = this._time + dt
+      if (dur > 0 && next > dur) next %= dur
+      this.seek(next)
+      this._raf = schedule(tick) as never
+    }
+    this._raf = schedule(tick) as never
+  }
 
   pause(): this {
-    this.backend?.pause()
+    if (this.backend) this.backend.pause()
+    else this.stopDriver()
     return this
   }
   play(): this {
-    this.backend?.play()
+    if (this.backend) this.backend.play()
+    else this.startDriver()
     return this
   }
   seek(time: number, suppressEvents?: boolean): this {
-    this.backend?.seek(time, suppressEvents)
+    if (this.backend) {
+      this.backend.seek(time, suppressEvents)
+    } else {
+      const dur = this._hasInfinite ? Infinity : this.recordedDuration
+      this._time = Math.max(0, dur > 0 ? Math.min(time, dur) : time)
+      this.sampler().seek(this._time, suppressEvents)
+    }
     return this
   }
   clear(): this {
-    this.specs.length = 0
+    this.entries.length = 0
     this.pos = new PositionState()
+    this._sampler = null
+    this._hasInfinite = false
     this.backend?.clear()
     return this
   }
   timeScale(value: number): this {
+    this._rate = value
     this.backend?.timeScale(value)
     return this
   }
   time(): number {
-    return this.backend ? this.backend.time() : 0
+    return this.backend ? this.backend.time() : this._time
   }
   progress(): number {
     if (this.backend) return this.backend.progress()
-    return 0
+    const dur = this.recordedDuration
+    return dur > 0 ? this._time / dur : 0
   }
   duration(): number {
     return this.backend ? this.backend.duration() : this.recordedDuration
