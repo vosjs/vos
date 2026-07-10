@@ -81,8 +81,14 @@ export interface TargetTrack {
   /** The animated property, e.g. 'opacity', 'x', 'rotationX', 'value' (uniform). */
   property: string
   track: KeyframeTrack
-  /** True if any contributing spec was opaque, or an implicit start was unknown. */
+  /** True if a contributing spec carried opaque effects (callbacks/modifiers/non-numeric). */
   hasOpaque: boolean
+  /**
+   * True if an endpoint value could not be resolved host-side — a leading `.to` (unknown
+   * implicit start) or a `.from` (unknown destination). The tween is still structured
+   * (target + timing + one endpoint known); the missing value resolves at runtime.
+   */
+  unresolved?: boolean
 }
 
 /**

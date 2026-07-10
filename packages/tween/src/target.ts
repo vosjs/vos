@@ -13,15 +13,20 @@ import type { TweenTarget } from './types'
 /** Global identity map: concrete object → its declared target. */
 const TAGS = new WeakMap<object, TweenTarget>()
 
+/** WeakMap-keyable: objects and functions (function-backed proxies are common ref stubs). */
+function keyable(obj: unknown): obj is object {
+  return obj != null && (typeof obj === 'object' || typeof obj === 'function')
+}
+
 /** Tag a concrete object with its target identity (idempotent; last write wins). */
 export function tagTarget<T extends object>(obj: T, target: TweenTarget): T {
-  if (obj && typeof obj === 'object') TAGS.set(obj, target)
+  if (keyable(obj)) TAGS.set(obj, target)
   return obj
 }
 
 /** Read a previously-set tag, if any. */
 export function readTag(obj: unknown): TweenTarget | undefined {
-  return obj && typeof obj === 'object' ? TAGS.get(obj as object) : undefined
+  return keyable(obj) ? TAGS.get(obj) : undefined
 }
 
 /**
@@ -36,11 +41,11 @@ export class TargetResolver {
   resolve(obj: unknown): TweenTarget {
     const tagged = readTag(obj)
     if (tagged) return tagged
-    if (obj && typeof obj === 'object') {
-      const existing = this.opaque.get(obj as object)
+    if (keyable(obj)) {
+      const existing = this.opaque.get(obj)
       if (existing) return existing
       const target: TweenTarget = { kind: 'opaque', label: `#${this.counter++}` }
-      this.opaque.set(obj as object, target)
+      this.opaque.set(obj, target)
       return target
     }
     // Primitives / null: a fresh opaque handle (cannot be re-identified).

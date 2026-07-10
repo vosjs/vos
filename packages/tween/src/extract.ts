@@ -16,6 +16,7 @@ interface TrackBuilder {
   property: string
   keyframes: Keyframe[]
   hasOpaque: boolean
+  unresolved: boolean
 }
 
 function keyFor(spec: TweenSpec, property: string): string {
@@ -45,7 +46,7 @@ export function buildTracks(specs: readonly TweenSpec[]): TargetTrack[] {
     const k = keyFor(spec, property)
     let b = builders.get(k)
     if (!b) {
-      b = { target: spec.target, property, keyframes: [], hasOpaque: false }
+      b = { target: spec.target, property, keyframes: [], hasOpaque: false, unresolved: false }
       builders.set(k, b)
     }
     return b
@@ -64,7 +65,7 @@ export function buildTracks(specs: readonly TweenSpec[]): TargetTrack[] {
           putKeyframe(b.keyframes, end, to, spec.ease)
         } else {
           // .from: destination is the object's pre-existing value — unknown host-side.
-          b.hasOpaque = true
+          b.unresolved = true
         }
         if (spec.opaque) b.hasOpaque = true
       }
@@ -79,7 +80,7 @@ export function buildTracks(specs: readonly TweenSpec[]): TargetTrack[] {
         putKeyframe(b.keyframes, spec.startTime, value, 'none')
       } else {
         const hasAnchor = b.keyframes.some((k) => k.t <= spec.startTime)
-        if (!hasAnchor) b.hasOpaque = true // leading .to: implicit start unknown
+        if (!hasAnchor) b.unresolved = true // leading .to: implicit start unknown
         putKeyframe(b.keyframes, end, value, spec.ease)
       }
       if (spec.opaque) b.hasOpaque = true
@@ -99,6 +100,7 @@ export function buildTracks(specs: readonly TweenSpec[]): TargetTrack[] {
     target: b.target,
     property: b.property,
     hasOpaque: b.hasOpaque,
+    ...(b.unresolved ? { unresolved: true } : {}),
     track: { keyframes: b.keyframes.sort((a, z) => a.t - z.t) },
   }))
 }

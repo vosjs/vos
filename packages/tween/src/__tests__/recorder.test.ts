@@ -121,12 +121,15 @@ describe('extraction — specs → tracks', () => {
       [2, 200],
     ])
 
-    // Without the anchoring .set, a leading .to has an unknown implicit start.
+    // Without the anchoring .set, a leading .to has an unknown implicit start — the track
+    // is still structured (not opaque), just flagged `unresolved`.
     const rec2 = createTweenRecorder()
     const el2 = tagTarget({} as Record<string, number>, { kind: 'element', id: 'c', scope: 'props' })
     const tl2 = rec2.timeline()
     tl2.to(el2, { x: 100, duration: 1 }, 0)
-    expect(extractTimeline(tl2).tracks.find((t) => t.property === 'x')!.hasOpaque).toBe(true)
+    const leadTrack = extractTimeline(tl2).tracks.find((t) => t.property === 'x')!
+    expect(leadTrack.hasOpaque).toBe(false)
+    expect(leadTrack.unresolved).toBe(true)
   })
 })
 
