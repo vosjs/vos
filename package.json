@@ -16,7 +16,7 @@
     "format": "prettier --write .",
     "check": "prettier --check .",
     "changeset": "changeset",
-    "version-packages": "changeset version",
+    "version-packages": "changeset version && pnpm install --no-frozen-lockfile",
     "release": "turbo run build && changeset publish"
   },
   "devDependencies": {
