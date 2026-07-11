@@ -17,6 +17,12 @@ export {
   type TweenEdit,
 } from './recorder'
 export { createSampler, type Sampler } from './sampler'
+export {
+  createSpecPlayer,
+  contextResolver,
+  type SpecPlayer,
+  type ResolveTarget,
+} from './specPlayer'
 export { staggerOffsets, type StaggerResult } from './stagger'
 export { type TweenCallbacks } from './vars'
 export { buildTracks, extractTimeline } from './extract'
