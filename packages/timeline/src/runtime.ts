@@ -9,4 +9,4 @@
  */
 export { EASINGS, resolveEase } from './easings'
 export { lerpArray, sample } from './sample'
-export { mapTime, sourceToTimeline, totalDuration } from './mapTime'
+export { mapTime, rateAt, sourceToTimeline, totalDuration } from './mapTime'

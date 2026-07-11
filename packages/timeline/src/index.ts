@@ -8,10 +8,25 @@
  * `@vosjs/timeline/bundle` inside the program). No DOM, no engine coupling,
  * no RNG/wall-clock — everything is a pure function of its arguments.
  */
-export type { EaseFn, EaseName, Keyframe, KeyframeTrack, Lerp, Segment } from './types'
+export type {
+  EaseFn,
+  EaseName,
+  Keyframe,
+  KeyframeTrack,
+  Lerp,
+  Segment,
+  SpeedSpan,
+} from './types'
 export { EASINGS, resolveEase } from './easings'
 export { lerpArray, sample, sortKeyframes } from './sample'
-export { mapTime, sourceToTimeline, totalDuration } from './mapTime'
+export {
+  mapTime,
+  rateAt,
+  segmentRate,
+  sourceToTimeline,
+  splitBySpeed,
+  totalDuration,
+} from './mapTime'
 export {
   MIN_SEGMENT_LENGTH,
   normalizeSegments,

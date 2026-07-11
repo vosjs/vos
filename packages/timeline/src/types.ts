@@ -63,4 +63,23 @@ export interface KeyframeTrack<V = number> {
 export interface Segment {
   in: number
   out: number
+  /**
+   * Playback rate for this span: SOURCE seconds consumed per OUTPUT second
+   * (2 = twice as fast, 0.5 = half speed). Omitted or invalid (≤ 0) means 1.
+   * The segment occupies `(out - in) / rate` seconds of output time.
+   */
+  rate?: number
+}
+
+/**
+ * A speed override over a SOURCE-time span (seconds). Spans are
+ * footage-anchored — they follow their content through trims — and become
+ * effective by intersecting them with a segment list via `splitBySpeed`,
+ * which yields rated segments that `mapTime`/`totalDuration` evaluate.
+ */
+export interface SpeedSpan {
+  in: number
+  out: number
+  /** Playback rate inside the span (> 0): 2 = twice as fast, 0.5 = half speed. */
+  rate: number
 }
