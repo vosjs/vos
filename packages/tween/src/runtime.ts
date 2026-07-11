@@ -8,5 +8,6 @@
  */
 export { createTweenRecorder, RecordingTimeline } from './recorder'
 export { extractTimeline, buildTracks } from './extract'
+export { createSpecPlayer, contextResolver } from './specPlayer'
 export { tagTarget, readTag } from './target'
 export { targetKey } from './types'
