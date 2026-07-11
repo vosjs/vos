@@ -1,5 +1,13 @@
 # @vosjs/tween
 
+## 0.7.1
+
+### Patch Changes
+
+- 526aed5: Overload signatures for the recorder's GSAP-style getter/setters (`time()`, `progress()`, `timeScale()`): the no-arg getter form now types as `number` instead of `number | RecordingTimeline`, so call sites like `Math.min(tl.time(), s)` typecheck. Types-only — no runtime change.
+- Updated dependencies [dbb1250]
+  - @vosjs/timeline@0.3.0
+
 ## 0.7.0
 
 ### Minor Changes
