@@ -78,6 +78,46 @@ const bounceOut: EaseFn = (x) => {
 const bounceIn: EaseFn = (x) => 1 - bounceOut(1 - x)
 
 /**
+ * CSS cubic-bezier(x1, y1, x2, y2) timing function — the same curve family
+ * every CSS `transition-timing-function` speaks. Solved the standard way:
+ * Newton–Raphson on the x-polynomial (the curve is parameterized by t, not x)
+ * with a bisection fallback, then the y-polynomial at the solved t. The x
+ * control points are clamped to [0, 1] (the CSS invariant that keeps x(t)
+ * monotonic); y control points may exceed [0, 1] for overshoot curves.
+ * Deterministic and stateless like every other ease here.
+ */
+const cubicBezier = (x1: number, y1: number, x2: number, y2: number): EaseFn => {
+  const cx1 = Math.min(1, Math.max(0, x1))
+  const cx2 = Math.min(1, Math.max(0, x2))
+  const coefA = (a1: number, a2: number) => 1 - 3 * a2 + 3 * a1
+  const coefB = (a1: number, a2: number) => 3 * a2 - 6 * a1
+  const coefC = (a1: number) => 3 * a1
+  const bez = (t: number, a1: number, a2: number) =>
+    ((coefA(a1, a2) * t + coefB(a1, a2)) * t + coefC(a1)) * t
+  const slope = (t: number, a1: number, a2: number) =>
+    3 * coefA(a1, a2) * t * t + 2 * coefB(a1, a2) * t + coefC(a1)
+  const solveX = (x: number): number => {
+    let t = x
+    for (let i = 0; i < 8; i++) {
+      const s = slope(t, cx1, cx2)
+      if (Math.abs(s) < 1e-6) break
+      t -= (bez(t, cx1, cx2) - x) / s
+    }
+    if (t >= 0 && t <= 1 && Math.abs(bez(t, cx1, cx2) - x) < 1e-6) return t
+    let lo = 0
+    let hi = 1
+    t = x
+    while (hi - lo > 1e-7) {
+      if (bez(t, cx1, cx2) < x) lo = t
+      else hi = t
+      t = (lo + hi) / 2
+    }
+    return t
+  }
+  return (x) => (x <= 0 ? 0 : x >= 1 ? 1 : bez(solveX(x), y1, y2))
+}
+
+/**
  * steps(n): n equal output jumps. GSAP divides the input domain into n+1
  * intervals (verified black-box: steps(5) jumps at 1/6, 2/6, …), so the value
  * reaches 1 on the final interval, not only at x === 1.
@@ -139,9 +179,25 @@ const CONFIGURABLE: Record<string, (...args: number[]) => EaseTriple> = {
  */
 const EASE_EXPR = /^([a-zA-Z0-9]+)(?:\.(in|out|inOut))?(?:\(([^)]*)\))?$/
 
+/**
+ * `css-bezier(x1, y1, x2, y2)` — a DIALECT-ONLY name (deliberately not a GSAP
+ * name, so it can never shadow one): the CSS cubic-bezier timing function.
+ * Lets authoring layers use design-tool curves like the Screen-Studio-style
+ * `css-bezier(0.16, 1, 0.3, 1)` in keyframe tracks.
+ */
+const CSS_BEZIER_EXPR =
+  /^css-bezier\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)$/
+
 const parsedCache = new Map<string, EaseFn>()
 
 function parse(name: string): EaseFn | undefined {
+  const cb = CSS_BEZIER_EXPR.exec(name)
+  if (cb) {
+    const [x1, y1, x2, y2] = cb.slice(1).map(Number)
+    return [x1, y1, x2, y2].every(Number.isFinite)
+      ? cubicBezier(x1, y1, x2, y2)
+      : undefined
+  }
   const m = EASE_EXPR.exec(name)
   if (!m) return undefined
   const [, fam, dir, argsRaw] = m

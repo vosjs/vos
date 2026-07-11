@@ -80,3 +80,52 @@ describe('parameterized eases ↔ gsap.parseEase parity', () => {
     expect(resolveEase('steps()')(0.3)).toBe(0.3)
   })
 })
+
+describe('css-bezier (dialect-only: the CSS cubic-bezier timing function)', () => {
+  it('css-bezier(0, 0, 1, 1) is linear', () => {
+    const ease = resolveEase('css-bezier(0, 0, 1, 1)')
+    for (const x of SAMPLES) {
+      expect(ease(x), `linear-bezier(${x})`).toBeCloseTo(x, 5)
+    }
+  })
+
+  it('matches the CSS "ease" preset curve at reference points', () => {
+    // cubic-bezier(0.25, 0.1, 0.25, 1): reference values computed independently
+    // from the parametric curve definition (dense bisection, no solver).
+    const ease = resolveEase('css-bezier(0.25, 0.1, 0.25, 1)')
+    expect(ease(0.25)).toBeCloseTo(0.408511, 4)
+    expect(ease(0.5)).toBeCloseTo(0.802403, 4)
+    expect(ease(0.75)).toBeCloseTo(0.960459, 4)
+  })
+
+  it('is monotonic, hits the endpoints exactly, and clamps outside [0,1]', () => {
+    const ease = resolveEase('css-bezier(0.16, 1, 0.3, 1)') // the Screen-Studio zoom curve
+    expect(ease(0)).toBe(0)
+    expect(ease(1)).toBe(1)
+    expect(ease(-0.5)).toBe(0)
+    expect(ease(1.5)).toBe(1)
+    let prev = 0
+    for (const x of SAMPLES) {
+      const y = ease(x)
+      expect(y, `monotonic at ${x}`).toBeGreaterThanOrEqual(prev - 1e-9)
+      prev = y
+    }
+    // strong ease-out: the midpoint is already close to the target
+    expect(ease(0.5)).toBeGreaterThan(0.85)
+  })
+
+  it('supports overshoot via out-of-range y control points', () => {
+    const ease = resolveEase('css-bezier(0.34, 1.56, 0.64, 1)') // "easeOutBack"-ish
+    const peak = Math.max(...SAMPLES.map((x) => ease(x)))
+    expect(peak).toBeGreaterThan(1.01)
+    expect(ease(1)).toBe(1)
+  })
+
+  it('is cached, and malformed forms fall back to linear', () => {
+    expect(resolveEase('css-bezier(0.16, 1, 0.3, 1)')).toBe(
+      resolveEase('css-bezier(0.16, 1, 0.3, 1)'),
+    )
+    expect(resolveEase('css-bezier(0.16, 1, 0.3)')(0.3)).toBe(0.3) // arity
+    expect(resolveEase('css-bezier(a, b, c, d)')(0.3)).toBe(0.3)
+  })
+})
