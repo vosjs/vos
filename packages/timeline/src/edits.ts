@@ -1,4 +1,4 @@
-import { mapTime } from './mapTime'
+import { mapTime, segmentRate } from './mapTime'
 import type { Segment } from './types'
 
 /**
@@ -27,7 +27,7 @@ export function splitSegments(segments: readonly Segment[], t: number): Segment[
   let acc = 0
   for (let i = 0; i < segments.length; i++) {
     const s = segments[i]
-    const len = Math.max(0, s.out - s.in)
+    const len = Math.max(0, s.out - s.in) / segmentRate(s)
     if (t < acc + len) {
       if (
         sourceT - s.in < MIN_SEGMENT_LENGTH ||
@@ -37,8 +37,8 @@ export function splitSegments(segments: readonly Segment[], t: number): Segment[
       }
       return [
         ...segments.slice(0, i),
-        { in: s.in, out: sourceT },
-        { in: sourceT, out: s.out },
+        { ...s, in: s.in, out: sourceT },
+        { ...s, in: sourceT, out: s.out },
         ...segments.slice(i + 1),
       ]
     }
@@ -64,8 +64,8 @@ export function trimSegment(
   if (!s) return [...segments]
   const next =
     edge === 'in'
-      ? { in: clamp(sourceT, 0, s.out - MIN_SEGMENT_LENGTH), out: s.out }
-      : { in: s.in, out: clamp(sourceT, s.in + MIN_SEGMENT_LENGTH, maxOut) }
+      ? { ...s, in: clamp(sourceT, 0, s.out - MIN_SEGMENT_LENGTH) }
+      : { ...s, out: clamp(sourceT, s.in + MIN_SEGMENT_LENGTH, maxOut) }
   return segments.map((seg, i) => (i === index ? next : seg))
 }
 
