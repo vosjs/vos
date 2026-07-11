@@ -455,6 +455,8 @@ export class RecordingTimeline {
     return this
   }
   /** GSAP-style timeScale getter/setter. */
+  timeScale(): number
+  timeScale(value: number): this
   timeScale(value?: number): number | this {
     if (value === undefined) return this._rate
     this._rate = value
@@ -462,6 +464,8 @@ export class RecordingTimeline {
     return this
   }
   /** GSAP-style time getter/setter (setter = seek). */
+  time(): number
+  time(value: number): this
   time(value?: number): number | this {
     if (value === undefined) {
       return this.backend ? this.backend.time() : this._time
@@ -472,6 +476,8 @@ export class RecordingTimeline {
    * GSAP-style progress getter/setter. The setter is how hosts scrub
    * (the playback bridge's SEEK command calls `tl.progress(value)`).
    */
+  progress(): number
+  progress(value: number): this
   progress(value?: number): number | this {
     if (value === undefined) {
       if (this.backend) return this.backend.progress()
