@@ -1,5 +1,12 @@
 # @vosjs/tween
 
+## 0.7.2
+
+### Patch Changes
+
+- Updated dependencies [0bf39b1]
+  - @vosjs/timeline@0.4.0
+
 ## 0.7.1
 
 ### Patch Changes
