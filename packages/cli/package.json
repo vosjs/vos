@@ -1,0 +1,65 @@
+{
+  "name": "@vosjs/cli",
+  "version": "0.1.0",
+  "description": "Command line for the vos programmatic video engine — render deterministic videos and stills from vos configs, headlessly, from your terminal or an AI agent.",
+  "type": "module",
+  "license": "MIT",
+  "author": "vosso",
+  "homepage": "https://vos.so/engine",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vosjs/vos.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/vosjs/vos/issues"
+  },
+  "keywords": [
+    "vos",
+    "cli",
+    "video",
+    "render",
+    "deterministic",
+    "headless",
+    "agent",
+    "animation",
+    "three"
+  ],
+  "bin": {
+    "vos": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "clean": "rm -rf dist node_modules"
+  },
+  "dependencies": {
+    "@vosjs/core": "workspace:^",
+    "@vosjs/elements": "workspace:^",
+    "@vosjs/tween": "workspace:^",
+    "playwright": "^1.49.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "tsup": "^8.5.0",
+    "typescript": "^5",
+    "vitest": "^3.0.5"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
