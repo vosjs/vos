@@ -105,6 +105,20 @@ describe('generateRenderTemplate', () => {
         '<link rel="modulepreload" href="https://esm.sh/@sparkjsdev/spark?external=three&target=es2022">',
       )
     })
+
+    it('emits every modulepreload after the importmap script', () => {
+      // A modulepreload before the importmap counts as module activity and
+      // makes Chromium <133 reject the map — every bare import then fails
+      // with "Failed to resolve module specifier".
+      const html = generateRenderTemplate(sampleCode, {
+        mode: 'playback',
+        preloadModuleUrls: ['https://esm.sh/extra-module'],
+      })
+      const mapIndex = html.indexOf('<script type="importmap">')
+      expect(mapIndex).toBeGreaterThan(-1)
+      const firstPreload = html.indexOf('<link rel="modulepreload"')
+      expect(firstPreload).toBeGreaterThan(mapIndex)
+    })
   })
 
   describe('mode-specific output', () => {

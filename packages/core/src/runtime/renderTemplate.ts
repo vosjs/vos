@@ -173,8 +173,12 @@ export function generateRenderTemplate(
   // Preload hints: preconnect + modulepreload for critical paths. The gsap
   // preload is skipped on the vos backend (the importmap entry stays for
   // legacy artifacts, but nothing fetches it up front).
+  // modulepreload MUST come after the importmap script: a modulepreload seen
+  // first counts as module activity and makes Chromium <133 reject the map
+  // ("Failed to resolve module specifier" on every bare import). Only the
+  // preconnect may precede the map.
+  const preconnectHint = `    <link rel="preconnect" href="${CDN_ORIGIN}" crossorigin="anonymous">`
   const preloadHints = [
-    `<link rel="preconnect" href="${CDN_ORIGIN}" crossorigin="anonymous">`,
     `<link rel="modulepreload" href="${threeModuleUrl}">`,
     ...(tweenEngine === 'gsap'
       ? [`<link rel="modulepreload" href="${gsapModuleUrl}">`]
@@ -196,10 +200,11 @@ export function generateRenderTemplate(
     <style>
         ${styles}
     </style>
-${preloadHints}
+${preconnectHint}
     <script type="importmap">
       ${importmap}
     </script>
+${preloadHints}
     <script>
         window.__THREE_DRACO_PATH__ = '${dracoPath}';
     </script>${globalErrorHandler}
