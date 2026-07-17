@@ -263,3 +263,75 @@ describe('generateRenderTemplate', () => {
     })
   })
 })
+
+describe('capture-video: data injection and audio producer', () => {
+  const capture = { width: 640, height: 360, duration: 5, fps: 30 }
+
+  it('injects capture.data as deps.data (video and thumbnail modes)', () => {
+    const video = generateRenderTemplate(sampleCode, {
+      mode: 'capture-video',
+      capture: { ...capture, data: { videoSrc: 'x.webm', micGain: 0.8 } },
+    })
+    expect(video).toContain('"videoSrc":"x.webm"')
+    expect(video).toContain('if (__captureData != null) deps.data = __captureData;')
+
+    const thumb = generateRenderTemplate(sampleCode, {
+      mode: 'capture-thumbnail',
+      capture: { ...capture, data: { videoSrc: 'x.webm' } },
+    })
+    expect(thumb).toContain('"videoSrc":"x.webm"')
+    expect(thumb).toContain('deps.data = __captureData')
+  })
+
+  it('defaults to null data (compositions fall back to baked config data)', () => {
+    const html = generateRenderTemplate(sampleCode, {
+      mode: 'capture-video',
+      capture,
+    })
+    expect(html).toContain('const __captureData = null;')
+  })
+
+  it('embeds the audio producer and muxes its buffer when provided', () => {
+    const html = generateRenderTemplate(sampleCode, {
+      mode: 'capture-video',
+      capture: {
+        ...capture,
+        audioProducerCode:
+          'window.__vosAudioProducer__ = async () => null // host mixer',
+      },
+    })
+    expect(html).toContain('window.__vosAudioProducer__ = async () => null')
+    expect(html).toContain('AudioBufferSource')
+    expect(html).toContain('addAudioTrack')
+  })
+
+  it('prefers AAC for mp4 with an Opus fallback, Opus for webm', () => {
+    const mp4 = generateRenderTemplate(sampleCode, {
+      mode: 'capture-video',
+      capture: {
+        ...capture,
+        format: 'mp4' as const,
+        audioProducerCode: 'window.__vosAudioProducer__ = async () => null',
+      },
+    })
+    expect(mp4).toContain('const preferred = "aac"')
+    expect(mp4).toContain('canEncodeAudio')
+    const webm = generateRenderTemplate(sampleCode, {
+      mode: 'capture-video',
+      capture: {
+        ...capture,
+        audioProducerCode: 'window.__vosAudioProducer__ = async () => null',
+      },
+    })
+    expect(webm).toContain('const preferred = "opus"')
+  })
+
+  it('emits no audio plumbing without a producer', () => {
+    const html = generateRenderTemplate(sampleCode, {
+      mode: 'capture-video',
+      capture,
+    })
+    expect(html).not.toContain('__vosAudioProducer__')
+    expect(html).not.toContain('addAudioTrack')
+  })
+})
