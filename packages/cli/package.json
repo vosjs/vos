@@ -1,6 +1,6 @@
 {
   "name": "@vosjs/cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Command line for the vos programmatic video engine — render deterministic videos and stills from vos configs, headlessly, from your terminal or an AI agent.",
   "type": "module",
   "license": "MIT",
