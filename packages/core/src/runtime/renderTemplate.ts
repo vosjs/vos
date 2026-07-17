@@ -34,6 +34,36 @@ export interface RenderTemplateOptions {
     thumbnailTime?: number
     /** Output format for capture-video mode (default 'webm') */
     format?: 'webm' | 'mp4'
+    /**
+     * Capture only frames `[startFrame, endFrame)` of the composition
+     * (capture-video mode). The output file is an independent segment: it
+     * starts on a keyframe and its timestamps begin at 0, so a host can
+     * render disjoint ranges (distributed or resumable rendering) and
+     * concatenate the segments externally. Defaults to the full
+     * `[0, ceil(duration * fps))`. Frames are still *evaluated* at their
+     * global composition time — only the output timestamps are local.
+     */
+    range?: { startFrame: number; endFrame: number }
+    /**
+     * Explicit encoder settings (capture-video mode). When omitted, the
+     * format defaults apply (`avc` for mp4, `vp9` for webm, QUALITY_HIGH
+     * bitrate). Range-based workflows should pin these so every segment of
+     * one render shares a single encoder configuration.
+     */
+    encoder?: {
+      codec?: 'avc' | 'hevc' | 'vp8' | 'vp9' | 'av1'
+      /** Bits per second (default: mediabunny's QUALITY_HIGH). */
+      bitrate?: number
+    }
+    /**
+     * PUT the finished capture bytes to this URL instead of embedding them
+     * as base64 in `__renderComplete.data` (capture-video mode). On success
+     * `__renderComplete` is `{ success: true, uploaded: true, size }`; if
+     * the upload fails the bytes are embedded as usual with an `uploadError`
+     * field, so the render is never lost. Avoids marshalling large outputs
+     * through strings.
+     */
+    uploadUrl?: string
   }
   /** URLs to generate <link rel="modulepreload"> hints for */
   preloadModuleUrls?: string[]
@@ -556,26 +586,40 @@ function generateCaptureVideoBody(
   const { width, height, duration, fps, format = 'webm' } = capture
   const transformedCode = transformModuleCode(animationCode, 'server')
 
-  // Format-specific configuration
+  const totalFrames = Math.ceil(duration * fps)
+  const startFrame = capture.range?.startFrame ?? 0
+  const endFrame = capture.range?.endFrame ?? totalFrames
+  if (capture.range) {
+    if (
+      !Number.isInteger(startFrame) ||
+      !Number.isInteger(endFrame) ||
+      startFrame < 0 ||
+      endFrame <= startFrame ||
+      endFrame > totalFrames
+    ) {
+      throw new Error(
+        `capture.range must satisfy 0 <= startFrame < endFrame <= ${totalFrames} ` +
+          `(ceil(duration * fps)); got [${startFrame}, ${endFrame})`,
+      )
+    }
+  }
+
+  // Format-specific configuration. Encoder settings may be pinned explicitly
+  // so multi-segment renders share one configuration.
   const isMp4 = format === 'mp4'
-  const formatSetup = isMp4
-    ? `const { Output, CanvasSource, BufferTarget, Mp4OutputFormat, QUALITY_HIGH } = await import('mediabunny');
+  const codec = capture.encoder?.codec ?? (isMp4 ? 'avc' : 'vp9')
+  const bitrate =
+    capture.encoder?.bitrate !== undefined
+      ? String(capture.encoder.bitrate)
+      : 'QUALITY_HIGH'
+  const formatSetup = `const { Output, CanvasSource, BufferTarget, ${isMp4 ? 'Mp4OutputFormat' : 'WebMOutputFormat'}, QUALITY_HIGH } = await import('mediabunny');
             const output = new Output({
-              format: new Mp4OutputFormat(),
+              format: new ${isMp4 ? 'Mp4OutputFormat' : 'WebMOutputFormat'}(),
               target: new BufferTarget(),
             });
             const videoSource = new CanvasSource(canvas, {
-              codec: 'avc',
-              bitrate: QUALITY_HIGH,
-            });`
-    : `const { Output, CanvasSource, BufferTarget, WebMOutputFormat, QUALITY_HIGH } = await import('mediabunny');
-            const output = new Output({
-              format: new WebMOutputFormat(),
-              target: new BufferTarget(),
-            });
-            const videoSource = new CanvasSource(canvas, {
-              codec: 'vp9',
-              bitrate: QUALITY_HIGH,
+              codec: ${JSON.stringify(codec)},
+              bitrate: ${bitrate},
             });`
   const mimeType = isMp4 ? 'video/mp4' : 'video/webm'
 
@@ -585,6 +629,10 @@ function generateCaptureVideoBody(
         window.gsap = gsap;
 
 ${elementsBlock}
+
+        // Deterministic capture: compositions must SEEK their videos, never
+        // play them (same contract as the client-side exporter).
+        window.__vos__.isPaused = true;
 
         // Override window dimensions
         Object.defineProperty(window, 'innerWidth', { value: ${width}, configurable: true });
@@ -647,15 +695,30 @@ ${elementsBlock}
             output.addVideoTrack(videoSource, { frameRate: ${fps} });
             await output.start();
 
-            const totalFrames = Math.ceil(${duration} * ${fps});
+            // Frames [startFrame, endFrame) — evaluated at global composition
+            // time, captured with segment-local timestamps (the file starts
+            // at t=0 regardless of where the range sits on the timeline).
+            const startFrame = ${startFrame};
+            const endFrame = ${endFrame};
+            const wvr = () => (window.__vos__.waitForVideosReady ? window.__vos__.waitForVideosReady() : null);
+            const pendingDecodes = () => (window.__vos__.pendingDecodes ? window.__vos__.pendingDecodes.size : 0);
 
-            for (let frame = 0; frame < totalFrames; frame++) {
+            for (let frame = startFrame; frame < endFrame; frame++) {
               const time = frame / ${fps};
               timeline.seek(time, false);
+              // Two-phase video settle (same as the client exporter): wait for
+              // seeked decodes, render, then re-check decodes the render
+              // itself triggered.
+              await wvr();
               await new Promise(r => requestAnimationFrame(r));
+              if (pendingDecodes() > 0) {
+                await wvr();
+                await new Promise(r => requestAnimationFrame(r));
+              }
               if (gl) gl.finish();
 
-              await videoSource.add(time, 1 / ${fps});
+              await videoSource.add((frame - startFrame) / ${fps}, 1 / ${fps});
+              window.__renderProgress = { framesDone: frame - startFrame + 1, totalFrames: endFrame - startFrame };
             }
 
             await output.finalize();
@@ -663,6 +726,28 @@ ${elementsBlock}
             const buffer = output.target.buffer;
             if (!buffer) {
               throw new Error('Export failed: output buffer is null');
+            }
+
+            // Cleanup before the (potentially slow) result handoff
+            if (cleanup) cleanup();
+
+            const uploadUrl = ${JSON.stringify(capture.uploadUrl ?? null)};
+            let uploadError = null;
+            if (uploadUrl) {
+              try {
+                const res = await fetch(uploadUrl, {
+                  method: 'PUT',
+                  headers: { 'Content-Type': '${mimeType}' },
+                  body: buffer,
+                });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                window.__renderComplete = { success: true, uploaded: true, size: buffer.byteLength };
+                return;
+              } catch (e) {
+                // Fall back to embedding so the render is never lost; the
+                // host reads uploadError and decides.
+                uploadError = String((e && e.message) || e);
+              }
             }
 
             // Convert to base64
@@ -673,15 +758,15 @@ ${elementsBlock}
             }
             const base64Data = 'data:${mimeType};base64,' + btoa(binary);
 
-            // Cleanup
-            if (cleanup) cleanup();
-
-            // Signal completion
-            window.__renderComplete = {
+            // Signal completion (built fully before assignment — hosts poll
+            // __renderComplete and must never observe a half-written result)
+            const complete = {
               success: true,
               data: base64Data,
               size: bytes.length
             };
+            if (uploadError) complete.uploadError = uploadError;
+            window.__renderComplete = complete;
 
           } catch (error) {
             console.error('Render error:', error);

@@ -150,6 +150,101 @@ describe('generateRenderTemplate', () => {
     })
   })
 
+  describe('capture-video: range, encoder, upload, progress', () => {
+    const capture = { width: 640, height: 360, duration: 5, fps: 30 }
+
+    it('defaults to the full frame range with local == global timestamps', () => {
+      const html = generateRenderTemplate(sampleCode, {
+        mode: 'capture-video',
+        capture,
+      })
+      expect(html).toContain('const startFrame = 0;')
+      expect(html).toContain('const endFrame = 150;')
+      // Segment-local capture timestamps (identical to global when start=0).
+      expect(html).toContain('videoSource.add((frame - startFrame) / 30, 1 / 30)')
+    })
+
+    it('captures a sub-range as an independent segment', () => {
+      const html = generateRenderTemplate(sampleCode, {
+        mode: 'capture-video',
+        capture: { ...capture, range: { startFrame: 30, endFrame: 60 } },
+      })
+      expect(html).toContain('const startFrame = 30;')
+      expect(html).toContain('const endFrame = 60;')
+      // Frames are still evaluated at global composition time.
+      expect(html).toContain('const time = frame / 30;')
+    })
+
+    it.each([
+      [{ startFrame: -1, endFrame: 10 }],
+      [{ startFrame: 10, endFrame: 10 }],
+      [{ startFrame: 20, endFrame: 10 }],
+      [{ startFrame: 0, endFrame: 151 }],
+      [{ startFrame: 0.5, endFrame: 10 }],
+    ])('rejects invalid range %j', (range) => {
+      expect(() =>
+        generateRenderTemplate(sampleCode, {
+          mode: 'capture-video',
+          capture: { ...capture, range },
+        }),
+      ).toThrow(/capture\.range/)
+    })
+
+    it('uses format-default encoder settings when not pinned', () => {
+      const webm = generateRenderTemplate(sampleCode, {
+        mode: 'capture-video',
+        capture,
+      })
+      expect(webm).toContain('codec: "vp9"')
+      expect(webm).toContain('bitrate: QUALITY_HIGH')
+      const mp4 = generateRenderTemplate(sampleCode, {
+        mode: 'capture-video',
+        capture: { ...capture, format: 'mp4' as const },
+      })
+      expect(mp4).toContain('codec: "avc"')
+    })
+
+    it('pins explicit encoder settings verbatim', () => {
+      const html = generateRenderTemplate(sampleCode, {
+        mode: 'capture-video',
+        capture: {
+          ...capture,
+          encoder: { codec: 'vp8' as const, bitrate: 5_000_000 },
+        },
+      })
+      expect(html).toContain('codec: "vp8"')
+      expect(html).toContain('bitrate: 5000000')
+      expect(html).not.toContain('bitrate: QUALITY_HIGH')
+    })
+
+    it('PUTs to uploadUrl when provided, embeds base64 otherwise', () => {
+      const withUpload = generateRenderTemplate(sampleCode, {
+        mode: 'capture-video',
+        capture: { ...capture, uploadUrl: 'https://example.com/put-here' },
+      })
+      expect(withUpload).toContain('"https://example.com/put-here"')
+      expect(withUpload).toContain("method: 'PUT'")
+      expect(withUpload).toContain('uploaded: true')
+
+      const without = generateRenderTemplate(sampleCode, {
+        mode: 'capture-video',
+        capture,
+      })
+      expect(without).toContain('const uploadUrl = null;')
+      expect(without).toContain('base64Data')
+    })
+
+    it('reports structured progress and settles videos deterministically', () => {
+      const html = generateRenderTemplate(sampleCode, {
+        mode: 'capture-video',
+        capture,
+      })
+      expect(html).toContain('window.__renderProgress')
+      expect(html).toContain('waitForVideosReady')
+      expect(html).toContain('window.__vos__.isPaused = true')
+    })
+  })
+
   describe('Three.js version customization', () => {
     it('uses custom three version in importmap', () => {
       const html = generateRenderTemplate(sampleCode, {
