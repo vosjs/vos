@@ -64,6 +64,26 @@ export interface RenderTemplateOptions {
      * through strings.
      */
     uploadUrl?: string
+    /**
+     * Passed to `initVos(container, deps)` as `deps.data` (JSON-serialized
+     * into the page). Compositions that read `ctx.data` at runtime — the
+     * interpreter pattern, where the program is constant and inputs travel
+     * as data — need this to render correctly in capture modes; without it
+     * they fall back to the config's baked `data` (often empty).
+     */
+    data?: Record<string, unknown>
+    /**
+     * Host-supplied audio producer (capture-video mode): JavaScript source
+     * evaluated in the page that must define
+     * `window.__vosAudioProducer__ = async ({ data, duration, sampleRate })
+     * => AudioBuffer | null`. When set, the template calls it and muxes the
+     * returned buffer as the output's audio track (AAC for mp4 with an
+     * Opus fallback — AAC encode is unavailable on some platforms — and
+     * Opus for webm). Returning null (or omitting the option) captures
+     * video-only. The engine imposes no audio schema — how the producer
+     * interprets `data` is entirely the host's concern.
+     */
+    audioProducerCode?: string
   }
   /** URLs to generate <link rel="modulepreload"> hints for */
   preloadModuleUrls?: string[]
@@ -623,16 +643,62 @@ function generateCaptureVideoBody(
             });`
   const mimeType = isMp4 ? 'video/mp4' : 'video/webm'
 
+  const dataJson = capture.data ? JSON.stringify(capture.data) : 'null'
+  const audioProducerBlock = capture.audioProducerCode
+    ? `
+        // Host-supplied audio producer (defines window.__vosAudioProducer__)
+        ${capture.audioProducerCode}`
+    : ''
+
+  // Audio plumbing is emitted only when a producer is supplied — pages
+  // without one carry zero audio code.
+  const audioSetup = capture.audioProducerCode
+    ? `
+            // Host audio (before the frame loop so a producer failure aborts
+            // early instead of wasting the render). Null buffer = video-only.
+            const audioBuffer = window.__vosAudioProducer__
+              ? await window.__vosAudioProducer__({
+                  data: __captureData,
+                  duration: ${duration},
+                  sampleRate: 48000,
+                })
+              : null;
+            let audioSource = null;
+            if (audioBuffer) {
+              const { AudioBufferSource, canEncodeAudio } = await import('mediabunny');
+              // AAC first for mp4 (compatibility), Opus fallback — AAC
+              // encode is unavailable on some platforms (e.g. Linux).
+              const preferred = ${JSON.stringify(isMp4 ? 'aac' : 'opus')};
+              const audioCodec =
+                preferred === 'aac' && !(await canEncodeAudio('aac')) ? 'opus' : preferred;
+              audioSource = new AudioBufferSource({ codec: audioCodec, bitrate: QUALITY_HIGH });
+              output.addAudioTrack(audioSource);
+            }
+`
+    : ''
+  const audioFeed = capture.audioProducerCode
+    ? `
+            if (audioSource && audioBuffer) {
+              await audioSource.add(audioBuffer);
+              audioSource.close();
+            }
+`
+    : ''
+
   return `
         // Make THREE and gsap available globally for animation code
         window.THREE = THREE;
         window.gsap = gsap;
 
 ${elementsBlock}
+${audioProducerBlock}
 
         // Deterministic capture: compositions must SEEK their videos, never
         // play them (same contract as the client-side exporter).
         window.__vos__.isPaused = true;
+
+        // Runtime inputs for data-dependent compositions (ctx.data).
+        const __captureData = ${dataJson};
 
         // Override window dimensions
         Object.defineProperty(window, 'innerWidth', { value: ${width}, configurable: true });
@@ -660,6 +726,7 @@ ${elementsBlock}
                 drawingBufferHeight: ${height}
               }
             };
+            if (__captureData != null) deps.data = __captureData;
 
             // Initialize animation
             const initFn = window.initVos || window.initAnimation;
@@ -693,7 +760,9 @@ ${elementsBlock}
             ${formatSetup}
 
             output.addVideoTrack(videoSource, { frameRate: ${fps} });
+${audioSetup}
             await output.start();
+${audioFeed}
 
             // Frames [startFrame, endFrame) — evaluated at global composition
             // time, captured with segment-local timestamps (the file starts
@@ -792,6 +861,7 @@ function generateCaptureThumbnailBody(
 ): string {
   const { width, height } = capture
   const thumbnailTime = capture.thumbnailTime ?? 0.5
+  const dataJson = capture.data ? JSON.stringify(capture.data) : 'null'
   const transformedCode = transformModuleCode(animationCode, 'server')
 
   return `
@@ -827,6 +897,8 @@ ${elementsBlock}
                 drawingBufferHeight: ${height}
               }
             };
+            const __captureData = ${dataJson};
+            if (__captureData != null) deps.data = __captureData;
 
             // Initialize animation
             const initFn = window.initVos || window.initAnimation;
