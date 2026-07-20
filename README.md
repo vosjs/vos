@@ -36,7 +36,7 @@ import { compileVosConfig, vosConfigJsonSchema } from '@vosjs/core'
 const config = {
   version: 2,
   scene: { background: '#000' },
-  camera: { type: 'perspective', position: [0, 0, 5] },
+  camera: { preset: 'perspective', position: [0, 0, 5] },
   // functions are authored as strings, compiled into executable code
   createContent: '(ctx) => { /* build your Three.js scene with ctx.THREE */ }',
 }
@@ -58,6 +58,7 @@ The compiled template is an HTML/JS document you can render in an iframe, captur
 | `@vosjs/core/schema`   | Zod schemas, validators, config migrations                     |
 | `@vosjs/core/addons`   | Three.js addon / post-processing registry                      |
 | `@vosjs/core/extract`  | Config extraction from LLM/text output                         |
+| `@vosjs/core/lint`     | Determinism + GSAP-dialect linters for configs                 |
 | `@vosjs/core/types`    | Pure type definitions                                          |
 
 ## Development
