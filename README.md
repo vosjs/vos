@@ -16,7 +16,9 @@
 | [`@vosjs/core`](./packages/core)         | [![npm](https://img.shields.io/npm/v/%40vosjs%2Fcore)](https://www.npmjs.com/package/@vosjs/core)         | The engine: config compiler, validation schema (Zod), runtime template generator, addon registry, and types.                                              |
 | [`@vosjs/elements`](./packages/elements) | [![npm](https://img.shields.io/npm/v/%40vosjs%2Felements)](https://www.npmjs.com/package/@vosjs/elements) | The element system: text / image / SVG / video / audio renderers for Three.js overlays, shipped as a typed ESM factory **and** an injectable IIFE bundle. |
 | [`@vosjs/timeline`](./packages/timeline) | [![npm](https://img.shields.io/npm/v/%40vosjs%2Ftimeline)](https://www.npmjs.com/package/@vosjs/timeline) | Deterministic timeline math for video editing: keyframe sampling, GSAP-compatible pure easings, source-time remapping (trim/split).                       |
+| [`@vosjs/tween`](./packages/tween)       | [![npm](https://img.shields.io/npm/v/%40vosjs%2Ftween)](https://www.npmjs.com/package/@vosjs/tween)       | Records a GSAP-dialect timeline into a per-element tween IR (extract / edit / deterministically sample), delegating 1:1 to a real backend for live playback. |
 | [`@vosjs/editor`](./packages/editor)     | [![npm](https://img.shields.io/npm/v/%40vosjs%2Feditor)](https://www.npmjs.com/package/@vosjs/editor)     | Headless video-editor infrastructure: patch-based document store (undo/redo), live-edit classifier, editor bridge client, timeline view-model math.       |
+| [`@vosjs/cli`](./packages/cli)           | [![npm](https://img.shields.io/npm/v/%40vosjs%2Fcli)](https://www.npmjs.com/package/@vosjs/cli)           | Command line: render deterministic videos and stills from vos configs, headlessly — for your terminal, CI, or an AI agent.                                |
 
 > `three` and `gsap` are **optional peer dependencies** — you bring your own versions, and the engine never bundles them.
 
@@ -34,7 +36,7 @@ import { compileVosConfig, vosConfigJsonSchema } from '@vosjs/core'
 const config = {
   version: 2,
   scene: { background: '#000' },
-  camera: { type: 'perspective', position: [0, 0, 5] },
+  camera: { preset: 'perspective', position: [0, 0, 5] },
   // functions are authored as strings, compiled into executable code
   createContent: '(ctx) => { /* build your Three.js scene with ctx.THREE */ }',
 }
@@ -56,6 +58,7 @@ The compiled template is an HTML/JS document you can render in an iframe, captur
 | `@vosjs/core/schema`   | Zod schemas, validators, config migrations                     |
 | `@vosjs/core/addons`   | Three.js addon / post-processing registry                      |
 | `@vosjs/core/extract`  | Config extraction from LLM/text output                         |
+| `@vosjs/core/lint`     | Determinism + GSAP-dialect linters for configs                 |
 | `@vosjs/core/types`    | Pure type definitions                                          |
 
 ## Development
@@ -76,7 +79,7 @@ Releases are managed with [Changesets](https://github.com/changesets/changesets)
 
 - **Plugin SDK** (`@vosjs/plugin-sdk`) — a unified `definePlugin()` contract so addons, element renderers, schema extensions, and codegen hooks can be contributed by third-party packages.
 - **Browser adapter** (`@vosjs/web`) — a Vite-friendly dynamic addon loader whose import map is plugin-contributed.
-- **CLI & scaffolding** (`@vosjs/cli`, `create-vos`).
+- **Scaffolding** (`create-vos`) — one-command project starters on top of [`@vosjs/cli`](./packages/cli).
 
 ## License
 

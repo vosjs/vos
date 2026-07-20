@@ -37,7 +37,20 @@ vosConfigJsonSchema.parse(config) // validate
 const template = compileVosConfig(config) // → runnable template string
 ```
 
-The compiled template is an HTML/JS document you can render in an iframe, capture to video, or snapshot to an image.
+The compiled template is a single HTML/JS document. One template powers all three modes — `generateRenderTemplate({ mode })` builds it for `playback` (interactive iframe), `capture-video` (frame-by-frame WebCodecs encode), or `capture-thumbnail` (single-frame snapshot) — so what you preview is exactly what you export.
+
+## Determinism & linting
+
+The engine owns a single master clock and every render is a pure function of time, so the same config produces the same frames anywhere. `@vosjs/core/lint` guards that contract before you render:
+
+```ts
+import { lintVosConfig, hasDeterminismErrors } from '@vosjs/core/lint'
+
+const issues = lintVosConfig(config)
+if (hasDeterminismErrors(issues)) throw new Error('non-deterministic config')
+```
+
+`lintVosConfig` flags non-deterministic patterns (`Date.now()`, `Math.random()`, wall-clock reads), and `lintVosDialect` checks the GSAP authoring dialect.
 
 ## Subpath exports
 
@@ -49,6 +62,7 @@ The compiled template is an HTML/JS document you can render in an iframe, captur
 | `@vosjs/core/schema` | Zod schemas, validators, config migrations |
 | `@vosjs/core/addons` | Three.js addon / post-processing registry |
 | `@vosjs/core/extract` | Config extraction from LLM/text output |
+| `@vosjs/core/lint` | Determinism + GSAP-dialect linters for configs |
 | `@vosjs/core/types` | Pure type definitions |
 
 ## License

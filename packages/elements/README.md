@@ -13,6 +13,16 @@ Part of [vos](https://github.com/vosjs/vos), the open visual operating system be
 pnpm add @vosjs/elements three
 ```
 
+## Element types
+
+| Type | Renders as |
+| --- | --- |
+| `text` | A text mesh, with optional per-character `split` for staggered animation |
+| `image` | An image plane (`src` loaded through the shared asset cache) |
+| `svg` | A rasterized SVG plane |
+| `video` | A video plane driven by the master clock |
+| `audio` | A non-visual audio element, synced to the master clock (no mesh) |
+
 ## Two entry points
 
 ### `@vosjs/elements` — typed ESM factory
