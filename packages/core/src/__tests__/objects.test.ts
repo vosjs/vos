@@ -45,6 +45,9 @@ describe('objects[] codegen', () => {
     // exposed to createContent/onFrame and on the result for the bridge
     expect(code).toMatch(/objects,\s*\n\s*get data\(\)/)
     expect(code).toContain('__syncObjects,')
+    // the MAIN camera must ride the result — OBJECT_HIT_TEST raycasts with it
+    // (caught by real-browser verification: without this every hit was null)
+    expect(code).toMatch(/__syncObjects,\s*\n\s*camera,/)
   })
 
   it('unlit primitives use a basic material (no lights required)', () => {

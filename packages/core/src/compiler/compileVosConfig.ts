@@ -321,6 +321,7 @@ export const initVos = async (container, deps) => {
     elements,
     objects,
     __syncObjects,
+    camera,
     overlayCamera,
   };
 };
