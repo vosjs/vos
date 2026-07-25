@@ -4,6 +4,7 @@
 import type * as THREE from 'three'
 import type gsap from 'gsap'
 import type { ElementConfig, ElementInstance } from './elements'
+import type { ObjectConfig, ObjectInstance } from './objects'
 
 /**
  * Resolution configuration passed to animations
@@ -252,6 +253,9 @@ export interface VosConfig {
   /** 2D Elements rendered as textured planes */
   elements?: ElementConfig[]
 
+  /** Declarative world-space 3D objects (primitives / GLB) in the main scene */
+  objects?: ObjectConfig[]
+
   /** Arbitrary input data exposed as `ctx.data` (overridable by `deps.data` at runtime). */
   data?: Record<string, unknown>
 
@@ -325,6 +329,8 @@ export interface VosResult {
    * instance's `props` proxy); durable element edits are config edits (T3).
    */
   elements?: Map<string, ElementInstance>
+  /** Engine-managed world-space objects by id (present when config.objects is set). */
+  objects?: Map<string, ObjectInstance>
   /** The 2D overlay camera (pixel-space orthographic) — for bounds projection. */
   overlayCamera?: THREE.OrthographicCamera
 }

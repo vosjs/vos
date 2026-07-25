@@ -44,6 +44,8 @@ export interface VosConfigJson {
 
   /** 2D Elements rendered as textured planes (loosely typed for JSON transport) */
   elements?: Record<string, unknown>[]
+  /** Declarative world-space 3D objects (primitives / GLB). */
+  objects?: Record<string, unknown>[]
 
   /**
    * Arbitrary input data made available to functions as `ctx.data`.

@@ -21,6 +21,7 @@ export const vosConfigSchema = z.object({
   dynamicLayers: z.boolean().optional(),
   // Element validation is complex with many subtypes; start permissive
   elements: z.array(z.record(z.string(), z.any())).optional(),
+  objects: z.array(z.record(z.string(), z.any())).optional(),
   setup: fnSchema.optional(),
   createContent: fnSchema,
   createTimeline: fnSchema,

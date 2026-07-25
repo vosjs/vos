@@ -16,7 +16,7 @@
  */
 
 /** Bumped whenever the message set changes. Advertised in `BRIDGE_READY`. */
-export const VOS_BRIDGE_PROTOCOL = 2
+export const VOS_BRIDGE_PROTOCOL = 3
 
 /** Element bounds in CSS pixels, relative to the player document's viewport. */
 export interface ElementRect {
@@ -62,6 +62,14 @@ export type VosBridgeCommand =
       id: string
       props: Record<string, number | boolean>
     }
+  /** Editor mode: ephemeral world-space object prop override (protocol 3). */
+  | {
+      type: 'SET_OBJECT_PROPS'
+      id: string
+      props: Record<string, number | boolean>
+    }
+  /** Editor mode: raycast declarative objects at viewport CSS px (response: OBJECT_HIT_RESULT). */
+  | { type: 'OBJECT_HIT_TEST'; x: number; y: number; requestId: number }
 
 /** Events the player document posts OUT to the host. */
 export type VosBridgeEvent =
@@ -75,5 +83,7 @@ export type VosBridgeEvent =
   /** Asset preload progress (posted by the element system during LOAD). */
   | { type: 'PRELOAD_PROGRESS'; loaded: number; total: number }
   | { type: 'HIT_RESULT'; requestId: number; id: string | null }
+  /** Response to OBJECT_HIT_TEST — nearest declarative object along the ray. */
+  | { type: 'OBJECT_HIT_RESULT'; requestId: number; id: string | null }
   /** Response to GET_ELEMENT_RECTS; also pushed with `requestId: null` on resize. */
   | { type: 'ELEMENT_RECTS'; requestId: number | null; rects: ElementRect[] }
