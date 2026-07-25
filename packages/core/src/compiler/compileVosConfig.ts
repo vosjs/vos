@@ -11,6 +11,7 @@ import {
   generateCleanup,
   generateDynamicLayerRebuild,
   generateElementsSetup,
+  generateObjectsSetup,
   generateGlobalComposerSetup,
   generateImports,
   generateLayerAssignment,
@@ -76,6 +77,16 @@ export function compileVosConfig(
 
   // Detect which addons are actually needed by scanning function strings
   const detectedAddons = detectRequiredAddons(config)
+  // Declarative gltf objects need the loader even though no function string
+  // mentions it — objects are data, not code.
+  if (
+    config.objects?.some(
+      (o) => (o as { asset?: { kind?: string } }).asset?.kind === 'gltf',
+    ) &&
+    !detectedAddons.includes('GLTFLoader')
+  ) {
+    detectedAddons.push('GLTFLoader')
+  }
 
   // Cast to any for generators that expect VosConfig
   // (they only use non-function properties which are identical)
@@ -100,6 +111,7 @@ export function compileVosConfig(
   const resizeHandler = generateResizeHandler(configForGenerators)
   const cleanup = generateCleanup(configForGenerators)
   const elementsSetup = generateElementsSetup(configForGenerators)
+  const objectsSetup = generateObjectsSetup(configForGenerators)
   const layerAssignment = generateLayerAssignment()
   const perLayerComposerSetup =
     generatePerLayerComposerSetup(configForGenerators)
@@ -224,6 +236,7 @@ export const initVos = async (container, deps) => {
   ${cameraSetup}
   ${postprocessingSetup}
   ${elementsSetup}
+  ${objectsSetup}
 
   // Playback state
   let currentTime = 0;
@@ -240,6 +253,7 @@ export const initVos = async (container, deps) => {
     overlayCamera,
     resolution: { width, height, pixelRatio, drawingBufferWidth, drawingBufferHeight },
     elements,
+    objects,
     get data() { return __vosData; },
     get time() { return currentTime; },
     get progress() { return currentProgress; },
@@ -305,6 +319,8 @@ export const initVos = async (container, deps) => {
     // References into the live instance — read-mostly; property writes go through
     // each element's props proxy.
     elements,
+    objects,
+    __syncObjects,
     overlayCamera,
   };
 };

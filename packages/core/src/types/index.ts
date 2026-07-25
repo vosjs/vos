@@ -45,6 +45,14 @@ export type {
   ElementProps,
   ElementInstance,
 } from './elements'
+export type {
+  ObjectAssetConfig,
+  ObjectConfig,
+  ObjectInstance,
+  ObjectPrimitiveShape,
+  ObjectProps,
+  ObjectTransformConfig,
+} from './objects'
 
 // Export types
 export type {

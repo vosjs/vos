@@ -92,6 +92,7 @@ export function generateRenderLoop(config: VosConfig): string {
   let frameId;
   const animate = () => {
     frameId = requestAnimationFrame(animate);
+    __syncObjects();
 
     // Publish the master clock: ctx.time / ctx.progress track the GSAP timeline
     // (time within the current cycle). Assigned before onFrame so per-frame code

@@ -489,6 +489,12 @@ function editorMessageCases(editor: boolean): string {
                     break;
                 case 'SET_ELEMENT_PROPS':
                     __editorApi.setProps(msg.id, msg.props);
+                    break;
+                case 'SET_OBJECT_PROPS':
+                    __editorApi.setObjectProps(msg.id, msg.props);
+                    break;
+                case 'OBJECT_HIT_TEST':
+                    __post({ type: 'OBJECT_HIT_RESULT', requestId: msg.requestId ?? null, id: __editorApi.objectHitTest(msg.x, msg.y) });
                     break;`
 }
 
@@ -582,11 +588,50 @@ function editorExtension(editor: boolean): string {
                 if (inst && inst.props && props) Object.assign(inst.props, props);
             };
 
+            // World-space objects (protocol 3): raycast against the MAIN camera
+            // — objects live in the 3D scene with real depth, so nearest hit
+            // wins (unlike overlay elements, whose depth is cleared per group).
+            const objectHitTest = (x, y) => {
+                const cam = __current && __current.camera;
+                const objs = __current && __current.objects;
+                if (!cam || !objs || objs.size === 0) return null;
+                cam.updateMatrixWorld();
+                const rect = canvasRect();
+                ndc.set(((x - rect.left) / rect.width) * 2 - 1, -(((y - rect.top) / rect.height) * 2 - 1));
+                raycaster.setFromCamera(ndc, cam);
+                const roots = [];
+                const byRoot = new Map();
+                objs.forEach((inst, id) => {
+                    if (inst && inst.root && inst.root.visible !== false) {
+                        roots.push(inst.root);
+                        byRoot.set(inst.root, id);
+                    }
+                });
+                const hits = raycaster.intersectObjects(roots, true);
+                for (const hit of hits) {
+                    // Walk up to the registered root (GLB hits land on child meshes).
+                    let node = hit.object;
+                    while (node && !byRoot.has(node)) node = node.parent;
+                    if (node) return byRoot.get(node);
+                }
+                return null;
+            };
+
+            // Ephemeral object prop override — mirrored onto the mesh by the
+            // render loop's __syncObjects pass. Cleared by LOAD like element props.
+            const setObjectProps = (id, props) => {
+                const inst = __current && __current.objects && __current.objects.get(id);
+                if (inst && inst.props && props) {
+                    Object.assign(inst.props, props);
+                    if (__current.__syncObjects) __current.__syncObjects();
+                }
+            };
+
             window.addEventListener('resize', () => {
                 __post({ type: 'ELEMENT_RECTS', requestId: null, rects: getRects() });
             });
 
-            return { getRects, hitTest, setProps };
+            return { getRects, hitTest, setProps, objectHitTest, setObjectProps };
         })();`
 }
 
