@@ -18,7 +18,10 @@ vos still  <config.json|url> [out]   # config → single frame (WebP)
 vos info   <config.json|url>         # inspect a config
 vos preview <config.json|url>        # serve a local playback page
 vos versions                         # installed @vosjs/* versions
+vos voila <subcommand> …             # product-video pipeline (npm i -D @vosso/voila-cli)
 ```
+
+The `vos` namespace routes product verbs: `vos voila …` delegates to the separately installed product-video pipeline, and `vos riff` / `vos orbit` are reserved for the other vosso products — today they print exactly what works instead (riff's remix contract lives at [vos.so/llms-remix.txt](https://vos.so/llms-remix.txt)) and exit non-zero, so scripts never mistake a stub for a run.
 
 `vos render` accepts `--width` / `--height` / `--fps` / `--duration` / `--format webm|mp4`; `vos still` accepts `--time` / `--width` / `--height`. Configs can be local files or URLs, and API `{ "config": … }` envelopes are unwrapped automatically. Old config versions are migrated before rendering.
 

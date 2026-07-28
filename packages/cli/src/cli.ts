@@ -28,6 +28,8 @@ Usage
   vos preview <config.json|url> [--port 0]
   vos versions [--json]
   vos voila <subcommand> …     (product-video pipeline — separate install)
+  vos riff …                   (remix vos programs — CLI verb planned; contract: vos.so/llms-remix.txt)
+  vos orbit …                  (3D asset → product video — not released yet)
 
 Conventions
   Results go to stdout; logs go to stderr. --json switches stdout to NDJSON
@@ -252,6 +254,31 @@ async function cmdVoila(argv: string[]): Promise<number> {
   }
 }
 
+// Product namespaces that are reserved but not yet shipped. Honest stubs:
+// they say exactly what works today and exit non-zero so scripts and agents
+// never mistake them for a successful run.
+function cmdRiff(): number {
+  process.stderr.write(
+    'vos riff — remix vos programs (the animation product at https://vos.so/riff).\n' +
+      'The CLI verb is planned and not yet shipped. What works today:\n' +
+      '  - the agent remix contract: https://vos.so/llms-remix.txt\n' +
+      '    (fetch a program config, edit it, push a private remix back over HTTP)\n' +
+      '  - the browser editor: https://vos.so/stage\n' +
+      '  - render any vos config locally: vos render <config.json>\n',
+  )
+  return EXIT_ERROR
+}
+
+function cmdOrbit(): number {
+  process.stderr.write(
+    'vos orbit — 3D assets to product videos (https://vos.so/orbit).\n' +
+      'orbit is not released yet. Today the engine renders 3D vos configs\n' +
+      'directly (GLTF and friends via the addon loaders):\n' +
+      '  vos render <config.json>\n',
+  )
+  return EXIT_ERROR
+}
+
 async function main(): Promise<number> {
   const [cmd, ...rest] = process.argv.slice(2)
   if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') {
@@ -272,6 +299,10 @@ async function main(): Promise<number> {
       return cmdPreview(rest)
     case 'voila':
       return cmdVoila(rest)
+    case 'riff':
+      return cmdRiff()
+    case 'orbit':
+      return cmdOrbit()
     default:
       throw new UsageError(`unknown command "${cmd}" — run vos help`)
   }
