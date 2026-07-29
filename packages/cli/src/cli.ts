@@ -272,9 +272,13 @@ function cmdRiff(): number {
 function cmdOrbit(): number {
   process.stderr.write(
     'vos orbit — 3D assets to product videos (https://vos.so/orbit).\n' +
-      'orbit is not released yet. Today the engine renders 3D vos configs\n' +
-      'directly (GLTF and friends via the addon loaders):\n' +
-      '  vos render <config.json>\n',
+      'The dedicated orbit app is not released. What works today:\n' +
+      '  - 3D showcase programs (turntable, dolly reveal) in the vos.so\n' +
+      '    catalog: https://vos.so/gallery?tag=3d — each declares its knobs\n' +
+      '    as params, and buildProduct() in the config is the documented\n' +
+      '    swap point for your own model (GLTF via the addon loaders)\n' +
+      '  - remix one over HTTP: https://vos.so/llms-remix.txt\n' +
+      '  - render any 3D vos config locally: vos render <config.json>\n',
   )
   return EXIT_ERROR
 }
