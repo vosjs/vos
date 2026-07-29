@@ -29,7 +29,6 @@ Usage
   vos versions [--json]
   vos voila <subcommand> …     (product-video pipeline — separate install)
   vos riff …                   (remix vos programs — CLI verb planned; contract: vos.so/llms-remix.txt)
-  vos orbit …                  (3D asset → product video — not released yet)
 
 Conventions
   Results go to stdout; logs go to stderr. --json switches stdout to NDJSON
@@ -254,9 +253,10 @@ async function cmdVoila(argv: string[]): Promise<number> {
   }
 }
 
-// Product namespaces that are reserved but not yet shipped. Honest stubs:
-// they say exactly what works today and exit non-zero so scripts and agents
-// never mistake them for a successful run.
+// A product namespace that is reserved but not yet shipped. An honest stub:
+// it says exactly what works today and exits non-zero so scripts and agents
+// never mistake it for a successful run. (3D showcase belongs to riff — a
+// showcase program is a plain riff program, so there is no separate verb.)
 function cmdRiff(): number {
   process.stderr.write(
     'vos riff — remix vos programs (the animation product at https://vos.so/riff).\n' +
@@ -264,21 +264,10 @@ function cmdRiff(): number {
       '  - the agent remix contract: https://vos.so/llms-remix.txt\n' +
       '    (fetch a program config, edit it, push a private remix back over HTTP)\n' +
       '  - the browser editor: https://vos.so/stage\n' +
+      '  - 3D showcase: drop a GLB at https://vos.so/riff, or remix a program\n' +
+      '    from https://vos.so/gallery?tag=3d — buildProduct() in each config\n' +
+      '    is the documented swap point for your own model\n' +
       '  - render any vos config locally: vos render <config.json>\n',
-  )
-  return EXIT_ERROR
-}
-
-function cmdOrbit(): number {
-  process.stderr.write(
-    'vos orbit — 3D assets to product videos (https://vos.so/orbit).\n' +
-      'The dedicated orbit app is not released. What works today:\n' +
-      '  - 3D showcase programs (turntable, dolly reveal) in the vos.so\n' +
-      '    catalog: https://vos.so/gallery?tag=3d — each declares its knobs\n' +
-      '    as params, and buildProduct() in the config is the documented\n' +
-      '    swap point for your own model (GLTF via the addon loaders)\n' +
-      '  - remix one over HTTP: https://vos.so/llms-remix.txt\n' +
-      '  - render any 3D vos config locally: vos render <config.json>\n',
   )
   return EXIT_ERROR
 }
@@ -305,8 +294,6 @@ async function main(): Promise<number> {
       return cmdVoila(rest)
     case 'riff':
       return cmdRiff()
-    case 'orbit':
-      return cmdOrbit()
     default:
       throw new UsageError(`unknown command "${cmd}" — run vos help`)
   }
