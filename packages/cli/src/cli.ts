@@ -1,5 +1,5 @@
 import { writeFile } from 'node:fs/promises'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
@@ -21,14 +21,22 @@ const BOOLEAN_FLAGS = new Set(['json', 'help', 'version'])
 const HELP = `vos — command line for the vos programmatic video engine (https://vos.so)
 
 Usage
-  vos render <config.json|url> [out] [--width 1920] [--height 1080] [--fps 30]
+  vos render <config.json|url|take> [out] [--width 1920] [--height 1080] [--fps 30]
                                [--duration <s>] [--format webm|mp4] [--json]
   vos still  <config.json|url> [out.webp] [--time 0] [--width] [--height] [--json]
   vos info   <config.json|url> [--json]
   vos preview <config.json|url> [--port 0]
   vos versions [--json]
-  vos voila <subcommand> …     (product-video pipeline — separate install)
-  vos riff …                   (remix vos programs — CLI verb planned; contract: vos.so/llms-remix.txt)
+
+Take pipeline — screen recordings in, polished product video out
+(ships separately: npm i -D @vosso/cli)
+  vos create   --actions actions.json [out.webm] [--strict]   (record + plan + render, one shot)
+  vos record   --actions actions.json [--out take] [--strict]
+  vos plan     <take> [--fresh]
+  vos frames   <take> [--at-zooms | --frame <t> --size WxH]
+  vos open     <take>            (serve the take into the studio at vos.so)
+  vos validate <actions.json|take>
+  vos render   <take> [out]      (a take directory is detected by its doc.json)
 
 Conventions
   Results go to stdout; logs go to stderr. --json switches stdout to NDJSON
@@ -42,9 +50,16 @@ function outName(source: string, ext: string): string {
 }
 
 async function cmdRender(argv: string[]): Promise<number> {
+  // Polymorphic render: a take DIRECTORY (detected by its doc.json — the take
+  // pipeline's editable document) renders through the take pipeline; anything
+  // else is an engine config render. A deterministic sniff, never a flag.
+  const first = argv.find((a) => !a.startsWith('-'))
+  if (first && existsSync(join(first, 'doc.json'))) {
+    return delegateTake(['render', ...argv])
+  }
   const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
   const source = positionals[0]
-  if (!source) throw new UsageError('vos render <config.json|url> [out]')
+  if (!source) throw new UsageError('vos render <config.json|url|take> [out]')
   const r = createReporter(flags.json === true)
   const format = (flags.format as string) ?? 'webm'
   if (format !== 'webm' && format !== 'mp4') throw new UsageError('--format must be webm or mp4')
@@ -235,39 +250,29 @@ async function cmdPreview(argv: string[]): Promise<number> {
   return EXIT_OK
 }
 
-async function cmdVoila(argv: string[]): Promise<number> {
-  try {
-    const mod = (await import('@vosso/voila-cli' as string)) as {
-      run?: (argv: string[]) => Promise<number>
-    }
-    if (typeof mod.run === 'function') return await mod.run(argv)
-    process.stderr.write('@vosso/voila-cli is installed but exposes no run() — update it.\n')
-    return EXIT_ERROR
-  } catch {
-    process.stderr.write(
-      'The Voila product-video pipeline ships separately.\n' +
-        '  npm i -D @vosso/voila-cli\n' +
-        'then re-run: vos voila …\n',
-    )
-    return EXIT_ERROR
-  }
-}
+// The take pipeline's verbs live in @vosso/cli (published; previously
+// @vosso/voila-cli, kept as an install fallback during the transition).
+// The delegation contract is its `run(argv)` export.
+const TAKE_VERBS = new Set(['create', 'record', 'plan', 'frames', 'open', 'validate'])
 
-// A product namespace that is reserved but not yet shipped. An honest stub:
-// it says exactly what works today and exits non-zero so scripts and agents
-// never mistake it for a successful run. (3D showcase belongs to riff — a
-// showcase program is a plain riff program, so there is no separate verb.)
-function cmdRiff(): number {
+async function delegateTake(argv: string[], viaAlias = false): Promise<number> {
+  for (const name of ['@vosso/cli', '@vosso/voila-cli']) {
+    let mod: { run?: (argv: string[]) => Promise<number> }
+    try {
+      mod = (await import(name as string)) as typeof mod
+    } catch {
+      continue
+    }
+    if (typeof mod.run !== 'function') continue
+    if (viaAlias && argv[0]) {
+      process.stderr.write(`note: "vos voila ${argv[0]}" is now "vos ${argv[0]}".\n`)
+    }
+    return await mod.run(argv)
+  }
   process.stderr.write(
-    'vos riff — remix vos programs (the animation product at https://vos.so/riff).\n' +
-      'The CLI verb is planned and not yet shipped. What works today:\n' +
-      '  - the agent remix contract: https://vos.so/llms-remix.txt\n' +
-      '    (fetch a program config, edit it, push a private remix back over HTTP)\n' +
-      '  - the browser editor: https://vos.so/stage\n' +
-      '  - 3D showcase: drop a GLB at https://vos.so/riff, or remix a program\n' +
-      '    from https://vos.so/gallery?tag=3d — buildProduct() in each config\n' +
-      '    is the documented swap point for your own model\n' +
-      '  - render any vos config locally: vos render <config.json>\n',
+    'The take pipeline (screen recordings in, product video out) ships separately.\n' +
+      '  npm i -D @vosso/cli\n' +
+      `then re-run: vos ${argv.join(' ')}\n`,
   )
   return EXIT_ERROR
 }
@@ -279,6 +284,7 @@ async function main(): Promise<number> {
     return cmd ? EXIT_OK : EXIT_USAGE
   }
   if (cmd === '--version') return cmdVersions(['--json'])
+  if (TAKE_VERBS.has(cmd)) return delegateTake([cmd, ...rest])
   switch (cmd) {
     case 'render':
       return cmdRender(rest)
@@ -290,10 +296,10 @@ async function main(): Promise<number> {
       return cmdVersions(rest)
     case 'preview':
       return cmdPreview(rest)
+    // Hidden alias for existing scripts; not in HELP. Same code path as the
+    // promoted verbs, plus a one-line pointer at the new spelling.
     case 'voila':
-      return cmdVoila(rest)
-    case 'riff':
-      return cmdRiff()
+      return delegateTake(rest, true)
     default:
       throw new UsageError(`unknown command "${cmd}" — run vos help`)
   }
