@@ -13,15 +13,22 @@ npx vos render animation.json out.webm
 ## Commands
 
 ```bash
-vos render <config.json|url> [out]   # config → video (WebM/MP4)
+vos render <config.json|url|take> [out]  # config → video; a take directory renders via the take pipeline
 vos still  <config.json|url> [out]   # config → single frame (WebP)
 vos info   <config.json|url>         # inspect a config
 vos preview <config.json|url>        # serve a local playback page
 vos versions                         # installed @vosjs/* versions
-vos voila <subcommand> …             # product-video pipeline (npm i -D @vosso/voila-cli)
+
+# Take pipeline — screen recordings in, product video out (npm i -D @vosso/cli)
+vos create   --actions actions.json [out.webm] [--strict]   # record + plan + render, one shot
+vos record   --actions actions.json [--out take] [--strict]
+vos plan     <take> [--fresh]
+vos frames   <take> [--at-zooms | --frame <t> --size WxH]
+vos open     <take>
+vos validate <actions.json|take>
 ```
 
-The `vos` namespace routes product verbs: `vos voila …` delegates to the separately installed product-video pipeline, and `vos riff` is reserved for the animation product — today it prints exactly what works instead (riff's remix contract lives at [vos.so/llms-remix.txt](https://vos.so/llms-remix.txt), and 3D showcase is part of riff) and exits non-zero, so scripts never mistake a stub for a run.
+The take verbs delegate to the separately installed [`@vosso/cli`](https://www.npmjs.com/package/@vosso/cli) (its `run(argv)` export is the contract; `@vosso/voila-cli` remains an install fallback, and `vos voila <verb>` keeps working as a hidden alias for existing scripts). `vos render` is polymorphic by a deterministic sniff, never a flag: a take directory is recognized by its `doc.json`; anything else renders as an engine config.
 
 `vos render` accepts `--width` / `--height` / `--fps` / `--duration` / `--format webm|mp4`; `vos still` accepts `--time` / `--width` / `--height`. Configs can be local files or URLs, and API `{ "config": … }` envelopes are unwrapped automatically. Old config versions are migrated before rendering.
 
