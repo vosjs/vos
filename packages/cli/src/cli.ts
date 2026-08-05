@@ -21,11 +21,15 @@ import {
   apiError,
   apiJson,
   deriveSlug,
+  formatChanges,
   parseVosId,
+  readMeta,
   resolveCredential,
+  writeMeta,
+  type VersionChange,
 } from './platform'
 
-const BOOLEAN_FLAGS = new Set(['json', 'help', 'version'])
+const BOOLEAN_FLAGS = new Set(['json', 'help', 'version', 'check'])
 
 const HELP = `vos — command line for the vos programmatic video engine (https://vos.so)
 
@@ -37,16 +41,24 @@ Usage
   vos preview <config.json|url> [--port 0]
   vos versions [--json]
 
-Platform (vos.so) — fetch a program, validate locally, push a private remix
+Platform (vos.so) — the iteration loop: fetch, edit, push, pull, repeat
   vos fetch <vosId|watch-url> [--out dir] [--json]
             writes config.json + meta.json (no auth needed for public programs)
   vos check <config.json> [--json]
             migrate → schema → compile → determinism/dialect lints, all local
-  vos push  <config.json> [--vos id] [--title t] [--slug s] [--remix-of id]
-            [--note n] [--base versionId] [--json]
+  vos push  <config.json|take> [--vos id] [--title t] [--slug s] [--remix-of id]
+            [--note n] [--label l] [--base versionId] [--overrides id,id] [--json]
             no --vos: create a PRIVATE vos (lineage from meta.json / --remix-of)
-            with --vos: add a version to it; --base = the version you edited
-            from, --note = what changed (recorded where the platform supports it)
+            with --vos: add a version; the base defaults to the tracked one in
+            meta.json, so a stale push 409s WITH the changes made on the platform.
+            --overrides consents to touching protected (human-edited) nodes —
+            only when the user asked for that change. Take DIRECTORIES push
+            through the take pipeline (@vosso/cli) automatically.
+  vos pull  [dir|take] [--vos id] [--since versionId] [--check] [--json]
+            what changed on vos.so since your base: attributed versions with
+            typed summaries + the protected node set. Syncs config.json to the
+            head (previous copy kept as config.backup.json) and repoints the
+            base — re-apply your edit on top, then push. --check reports only.
             auth: VOS_API_KEY or ~/.config/vos/credentials — mint at vos.so/app/api;
             keys can never publish (visibility stays private; humans publish on vos.so)
 
@@ -355,14 +367,21 @@ async function cmdCheck(argv: string[]): Promise<number> {
 }
 
 async function cmdPush(argv: string[]): Promise<number> {
+  // Polymorphic like `render`: a take DIRECTORY (doc.json) pushes through
+  // the take pipeline in @vosso/cli — recording upload + doc persistence.
+  const firstArg = argv.find((a) => !a.startsWith('-'))
+  if (firstArg && existsSync(join(firstArg, 'doc.json'))) {
+    return delegateTake(['push', ...argv])
+  }
   const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
   const source = positionals[0]
   if (!source) {
     throw new UsageError(
-      'vos push <config.json> [--vos id] [--title t] [--slug s] [--remix-of id] [--note n] [--base versionId]',
+      'vos push <config.json|take> [--vos id] [--title t] [--slug s] [--remix-of id] [--note n] [--label l] [--base versionId] [--overrides id,id]',
     )
   }
   const r = createReporter(flags.json === true)
+  const dir = dirname(source)
 
   const parsed = JSON.parse(await readFile(source, 'utf8')) as unknown
   const check = runCheck(parsed)
@@ -384,32 +403,62 @@ async function cmdPush(argv: string[]): Promise<number> {
 
   if (flags.vos) {
     // Iterate an existing vos: add a version. --base names the version this
-    // edit was made FROM and --note says what changed — both are forwarded
-    // and recorded where the platform supports them.
+    // edit was made FROM (defaulting to the tracked base in meta.json, so a
+    // fetch→edit→push loop gets stale detection for free), --note/--label
+    // say what changed, and --overrides consents to touching protected
+    // (human-edited) nodes — ONLY when the user asked for that change.
     const vosId = parseVosId(String(flags.vos))
+    const meta = readMeta(dir)
+    const trackedBase =
+      meta && meta.id === vosId && typeof meta.currentVersionId === 'string'
+        ? meta.currentVersionId
+        : undefined
     const body: Record<string, unknown> = { config }
-    if (flags.base) body.baseVersionId = String(flags.base)
+    const base = flags.base ? String(flags.base) : trackedBase
+    if (base) body.baseVersionId = base
     if (flags.note) body.note = String(flags.note)
+    if (flags.label) body.label = String(flags.label)
+    if (flags.overrides) {
+      body.overrides = String(flags.overrides)
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+    }
     const res = await apiJson(`/api/vos/${vosId}/versions`, { method: 'POST', key, body })
     if (res.status === 409) {
-      // The platform copy moved since --base: it answers with the changes made
-      // there. Surface them — the correction path is the data path.
-      const changes = Array.isArray(res.body.changes) ? res.body.changes : []
-      for (const ch of changes) {
-        const summary =
-          typeof ch === 'object' && ch !== null && 'summary' in ch
-            ? String((ch as Record<string, unknown>).summary)
-            : JSON.stringify(ch)
-        r.log(`platform change: ${summary}`)
+      // The correction path is the data path: both 409 shapes carry what to
+      // read. stale_base embeds the changes made on the platform since your
+      // base; protected_conflict lists the human-touched nodes you'd clobber.
+      const changes = Array.isArray(res.body.changes)
+        ? (res.body.changes as VersionChange[])
+        : []
+      for (const line of formatChanges(changes)) r.log(`platform: ${line}`)
+      const protectedIds = Array.isArray(res.body.protected) ? res.body.protected : []
+      const nodes = Array.isArray(res.body.nodes) ? res.body.nodes : []
+      r.event({
+        event: 'conflict',
+        reason: res.body.error ?? 'conflict',
+        changes,
+        protected: protectedIds,
+        nodes,
+      })
+      if (res.body.error === 'protected_conflict') {
+        throw new Error(
+          `push touches human-edited nodes: ${nodes.join(', ')} — keep the human's values, ` +
+            `or re-push with --overrides ${nodes.join(',')} ONLY if the user asked for this change`,
+        )
       }
-      r.event({ event: 'conflict', reason: res.body.error ?? 'conflict', changes })
       throw new Error(
         `version base is stale — the platform copy changed (${changes.length} edit${changes.length === 1 ? 's' : ''} above). ` +
-          `Fetch, rebase your edit, and push again: vos fetch ${vosId}`,
+          `Run: vos pull ${dir} — then re-apply your edit and push again`,
       )
     }
     if (res.status !== 201) throw new Error(apiError(`push version to ${vosId}`, res))
     const version = (res.body.version ?? {}) as Record<string, unknown>
+    // Track what we just made: the new version is the next push's base.
+    if (typeof version.id === 'string') {
+      writeMeta(dir, { id: vosId, currentVersionId: version.id })
+    }
     const watchUrl = `${PLATFORM_ORIGIN}/vos/${vosId}`
     const studioUrl = `${PLATFORM_ORIGIN}/studio?vos=${vosId}`
     r.done(
@@ -417,6 +466,7 @@ async function cmdPush(argv: string[]): Promise<number> {
         id: vosId,
         versionId: version.id ?? null,
         versionNumber: version.versionNumber ?? null,
+        base: base ?? null,
         watchUrl,
         studioUrl,
       },
@@ -467,6 +517,15 @@ async function cmdPush(argv: string[]): Promise<number> {
     if (res.status !== 201) throw new Error(apiError('push vos', res))
     const created = (res.body.vos ?? {}) as Record<string, unknown>
     const id = String(created.id ?? '')
+    // The directory now TRACKS the created vos (its source stays as
+    // remixOfId) — the next push/pull needs no flags.
+    writeMeta(dir, {
+      id,
+      currentVersionId: created.currentVersionId ?? null,
+      title,
+      slug: created.slug ?? slug,
+      ...(remixOfId ? { remixOfId } : {}),
+    })
     const watchUrl = `${PLATFORM_ORIGIN}/vos/${id}`
     const studioUrl = `${PLATFORM_ORIGIN}/studio?vos=${id}`
     r.done(
@@ -486,6 +545,130 @@ async function cmdPush(argv: string[]): Promise<number> {
     )
     return EXIT_OK
   }
+}
+
+async function cmdPull(argv: string[]): Promise<number> {
+  // Take directories pull through @vosso/cli (doc.json comes back into the
+  // take); a tracked config directory pulls the program path below.
+  const firstPos = argv.find((a) => !a.startsWith('-'))
+  if (
+    (firstPos && existsSync(join(firstPos, 'doc.json'))) ||
+    (!firstPos && existsSync('doc.json'))
+  ) {
+    return delegateTake(['pull', ...argv])
+  }
+  const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
+  // Positional: the tracked directory or its config.json (default cwd).
+  const target = positionals[0] ?? '.'
+  const dir = target.endsWith('.json') ? dirname(target) : target
+  const r = createReporter(flags.json === true)
+
+  const meta = readMeta(dir)
+  const vosId = flags.vos
+    ? parseVosId(String(flags.vos))
+    : typeof meta?.id === 'string'
+      ? (meta.id as string)
+      : null
+  if (!vosId) {
+    throw new UsageError(
+      `no tracked vos in ${dir}/meta.json — pass --vos <id>, or fetch/push first`,
+    )
+  }
+  const since = flags.since
+    ? String(flags.since)
+    : typeof meta?.currentVersionId === 'string'
+      ? (meta.currentVersionId as string)
+      : null
+  if (!since) {
+    throw new UsageError(
+      `no base version in ${dir}/meta.json — pass --since <versionId>`,
+    )
+  }
+  // The changelog walk is owner-only (edits on private work).
+  const key = resolveCredential()
+  if (!key) {
+    throw new Error(
+      'no credential found — set VOS_API_KEY or write the key as the first line of ' +
+        '~/.config/vos/credentials (mint one at https://vos.so/app/api)',
+    )
+  }
+
+  const res = await apiJson(`/api/vos/${vosId}/changes?since=${encodeURIComponent(since)}`, {
+    key,
+  })
+  if (res.status !== 200) throw new Error(apiError(`pull changes for ${vosId}`, res))
+
+  const head = (res.body.head ?? {}) as Record<string, unknown>
+  const changes = Array.isArray(res.body.changes)
+    ? (res.body.changes as VersionChange[])
+    : []
+  const protectedIds = Array.isArray(res.body.protected)
+    ? (res.body.protected as string[])
+    : []
+
+  if (changes.length === 0) {
+    r.done(
+      { id: vosId, upToDate: true, head: head.id ?? since },
+      `${vosId}: up to date (base ${since.slice(0, 8)}… is the head)`,
+    )
+    return EXIT_OK
+  }
+
+  for (const line of formatChanges(changes)) r.log(line)
+  if (protectedIds.length) {
+    r.log(
+      `protected (human-edited — keep their values unless asked): ${protectedIds.join(', ')}`,
+    )
+  }
+  if (res.body.truncated === true) {
+    r.log('walk truncated — more versions exist; pull again after syncing')
+  }
+
+  if (flags.check === true) {
+    r.done(
+      {
+        id: vosId,
+        upToDate: false,
+        versions: changes.length,
+        head: head.id ?? null,
+        protected: protectedIds,
+        changes,
+      },
+      `${changes.length} version${changes.length === 1 ? '' : 's'} behind — run without --check to sync`,
+    )
+    return EXIT_OK
+  }
+
+  // Sync: the head config replaces config.json (the old file is kept as
+  // config.backup.json), and meta repoints so the next push has the fresh
+  // base. Your uncommitted local edits live in the backup — re-apply on top.
+  const cfg = await apiJson(`/api/vos/${vosId}/config`, { key })
+  if (cfg.status !== 200) throw new Error(apiError(`fetch head config for ${vosId}`, cfg))
+  const configPath = join(dir, 'config.json')
+  let backedUp = false
+  if (existsSync(configPath)) {
+    await writeFile(join(dir, 'config.backup.json'), await readFile(configPath))
+    backedUp = true
+  }
+  await writeFile(configPath, JSON.stringify(cfg.body.config, null, 2))
+  writeMeta(dir, { id: vosId, currentVersionId: head.id ?? since })
+
+  r.done(
+    {
+      id: vosId,
+      upToDate: false,
+      versions: changes.length,
+      head: head.id ?? null,
+      protected: protectedIds,
+      changes,
+      out: configPath,
+      backup: backedUp ? join(dir, 'config.backup.json') : null,
+    },
+    `Pulled ${changes.length} version${changes.length === 1 ? '' : 's'} → ${configPath}` +
+      (backedUp ? ` (previous copy: config.backup.json)` : '') +
+      `\nRe-apply your edit on the new head, then: vos push ${configPath} --vos ${vosId}`,
+  )
+  return EXIT_OK
 }
 
 // The take pipeline's verbs live in @vosso/cli (published; previously
@@ -540,6 +723,8 @@ async function main(): Promise<number> {
       return cmdCheck(rest)
     case 'push':
       return cmdPush(rest)
+    case 'pull':
+      return cmdPull(rest)
     // Hidden alias for existing scripts; not in HELP. Same code path as the
     // promoted verbs, plus a one-line pointer at the new spelling.
     case 'voila':

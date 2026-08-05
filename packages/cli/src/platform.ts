@@ -8,7 +8,7 @@
  * - pushed configs travel as the RAW object (params/presets preserved);
  *   the platform validates and compiles server-side
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { UsageError } from './args'
@@ -105,4 +105,52 @@ export function apiError(what: string, r: ApiResult): string {
       ? ' (set VOS_API_KEY or write ~/.config/vos/credentials — mint a key at https://vos.so/app/api)'
       : ''
   return `${what} → ${r.status}${detail ? `: ${detail}` : ''}${hint}`
+}
+
+// ---------------------------------------------------------------------------
+// Local tracking state (meta.json) + the pull-contract payload
+// ---------------------------------------------------------------------------
+
+/**
+ * meta.json beside a config.json makes the directory TRACK a vos, like a
+ * remote: `id` + `currentVersionId` are the pull/push base. `vos fetch`
+ * seeds it from the source; `vos push` repoints it at what it created.
+ */
+export function readMeta(dir: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8')) as Record<
+      string,
+      unknown
+    >
+  } catch {
+    return null
+  }
+}
+
+export function writeMeta(dir: string, patch: Record<string, unknown>): void {
+  const merged = { ...(readMeta(dir) ?? {}), ...patch }
+  writeFileSync(join(dir, 'meta.json'), JSON.stringify(merged, null, 2))
+}
+
+/** One version of the /changes walk (shape mirrored from the platform). */
+export interface VersionChange {
+  versionId?: string
+  versionNumber?: number
+  origin?: string
+  label?: string | null
+  note?: string | null
+  summary?: string
+}
+
+/** Human lines for a changes walk — origin/label attributed, note indented. */
+export function formatChanges(changes: readonly VersionChange[]): string[] {
+  const lines: string[] = []
+  for (const ch of changes) {
+    const label = ch.label ? ` · ${ch.label}` : ''
+    lines.push(
+      `v${String(ch.versionNumber ?? '?')} (${ch.origin ?? 'unknown'}${label}): ${ch.summary ?? ''}`,
+    )
+    if (ch.note) lines.push(`    note: ${ch.note}`)
+  }
+  return lines
 }
