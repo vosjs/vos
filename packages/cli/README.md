@@ -26,9 +26,16 @@ vos plan     <take> [--fresh]
 vos frames   <take> [--at-zooms | --frame <t> --size WxH]
 vos open     <take>
 vos validate <actions.json|take>
+
+# Platform (vos.so) — fetch a program, validate locally, push a private remix
+vos fetch <vosId|watch-url> [--out dir]   # writes config.json + meta.json (no auth for public programs)
+vos check <config.json>                   # migrate → schema → syntax → compile → determinism/dialect lints, all local
+vos push  <config.json> [--vos id] [--title t] [--slug s] [--remix-of id] [--note n] [--base versionId]
 ```
 
 The take verbs delegate to the separately installed [`@vosso/cli`](https://www.npmjs.com/package/@vosso/cli) (its `run(argv)` export is the contract; `@vosso/voila-cli` remains an install fallback, and `vos voila <verb>` keeps working as a hidden alias for existing scripts). `vos render` is polymorphic by a deterministic sniff, never a flag: a take directory is recognized by its `doc.json`; anything else renders as an engine config.
+
+The platform verbs implement the remix contract at [vos.so/llms-remix.txt](https://vos.so/llms-remix.txt): `fetch` a public program's config (params and presets preserved), edit it, `check` it locally (the same compiler the platform runs), and `push` it back as a **private** vos with lineage — or iterate an existing one with `--vos`. Auth resolves from `VOS_API_KEY`, then the first line of `~/.config/vos/credentials` (mint a key at [vos.so/app/api](https://vos.so/app/api); an ephemeral `vos_rg_` remix grant works too). Keys can never publish — the pushed vos stays private until a human publishes it on vos.so. `--base` names the version an edit was made from and `--note` describes it; both are forwarded and recorded where the platform supports them. `VOS_ORIGIN` overrides the platform origin for self-hosted or local development.
 
 `vos render` accepts `--width` / `--height` / `--fps` / `--duration` / `--format webm|mp4`; `vos still` accepts `--time` / `--width` / `--height`. Configs can be local files or URLs, and API `{ "config": … }` envelopes are unwrapped automatically. Old config versions are migrated before rendering.
 
