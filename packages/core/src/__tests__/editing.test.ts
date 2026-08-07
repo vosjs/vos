@@ -22,12 +22,15 @@ describe('master clock feed (ctx.time / ctx.progress)', () => {
     // getters exist (pre-existing) …
     expect(code).toContain('get time() { return currentTime; }')
     expect(code).toContain('get progress() { return currentProgress; }')
-    // … and are now actually fed by the render loop, before onFrame runs
+    // … and are now actually fed by the per-frame tick (renderFrame — the
+    // body the rAF loop calls, also exposed for capture harnesses)
     expect(code).toContain('currentTime = tl.time();')
     expect(code).toContain('currentProgress = tl.progress();')
-    const loop = code.slice(code.indexOf('const animate = () => {'))
+    const loop = code.slice(code.indexOf('const renderFrame = () => {'))
     const feed = loop.indexOf('currentTime = tl.time()')
     expect(feed).toBeGreaterThan(-1)
+    // The tick is exposed on the result for capture harnesses
+    expect(code).toContain('renderFrame,')
   })
 
   it('feeds the clock before onFrame so per-frame code reads the rendered position', () => {
@@ -35,7 +38,7 @@ describe('master clock feed (ctx.time / ctx.progress)', () => {
       ...base,
       onFrame: '(ctx, content, dt) => {}',
     })
-    const loop = code.slice(code.indexOf('const animate = () => {'))
+    const loop = code.slice(code.indexOf('const renderFrame = () => {'))
     expect(loop.indexOf('currentTime = tl.time()')).toBeLessThan(
       loop.indexOf('onFrame(context, content, deltaTime)'),
     )

@@ -335,3 +335,16 @@ describe('capture-video: data injection and audio producer', () => {
     expect(html).not.toContain('addAudioTrack')
   })
 })
+
+describe('capture fast path (renderFrame)', () => {
+  const capture = { width: 100, height: 100, duration: 1, fps: 30 }
+
+  it('drives frames via result.renderFrame with an rAF fallback for old artifacts', () => {
+    const html = generateRenderTemplate(sampleCode, {
+      mode: 'capture-video',
+      capture,
+    })
+    expect(html).toContain('result.renderFrame')
+    expect(html).toContain('requestAnimationFrame')
+  })
+})

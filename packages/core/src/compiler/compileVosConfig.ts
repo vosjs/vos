@@ -315,6 +315,10 @@ export const initVos = async (container, deps) => {
     setData: (next) => { __vosData = Object.freeze(next ?? {}); },
     getData: () => __vosData,
     setDuration: __setDuration,
+    // One synchronous engine tick (seek → renderFrame() → capture): lets
+    // capture harnesses render without waiting for vsync-locked rAF. The
+    // capture template falls back to rAF when absent (older artifacts).
+    renderFrame,
     // Introspection handles for editor tooling (element picking / bounds projection).
     // References into the live instance — read-mostly; property writes go through
     // each element's props proxy.
