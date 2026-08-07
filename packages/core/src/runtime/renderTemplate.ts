@@ -816,6 +816,18 @@ ${audioFeed}
             const endFrame = ${endFrame};
             const wvr = () => (window.__vos__.waitForVideosReady ? window.__vos__.waitForVideosReady() : null);
             const pendingDecodes = () => (window.__vos__.pendingDecodes ? window.__vos__.pendingDecodes.size : 0);
+            // Fast path (engine >=0.11): drive the engine tick directly
+            // instead of waiting for the compositor's vsync-locked rAF —
+            // removes a 1-2 frame-interval floor per captured frame. Older
+            // compiled artifacts (no renderFrame) keep the rAF path.
+            if (result.renderFrame && result.stopRenderLoop) {
+              // Driving frames directly — stop the internal rAF loop or
+              // every captured frame renders twice.
+              result.stopRenderLoop();
+            }
+            const runFrame = result.renderFrame
+              ? () => { result.renderFrame(); return Promise.resolve(); }
+              : () => new Promise(r => requestAnimationFrame(r));
 
             for (let frame = startFrame; frame < endFrame; frame++) {
               const time = frame / ${fps};
@@ -824,10 +836,10 @@ ${audioFeed}
               // seeked decodes, render, then re-check decodes the render
               // itself triggered.
               await wvr();
-              await new Promise(r => requestAnimationFrame(r));
+              await runFrame();
               if (pendingDecodes() > 0) {
                 await wvr();
-                await new Promise(r => requestAnimationFrame(r));
+                await runFrame();
               }
               if (gl) gl.finish();
 
@@ -864,11 +876,12 @@ ${audioFeed}
               }
             }
 
-            // Convert to base64
+            // Convert to base64 in 32K slices — per-byte string concat is
+            // quadratic-ish and made large fallbacks slower than the render.
             const bytes = new Uint8Array(buffer);
             let binary = '';
-            for (let i = 0; i < bytes.length; i++) {
-              binary += String.fromCharCode(bytes[i]);
+            for (let i = 0; i < bytes.length; i += 0x8000) {
+              binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
             }
             const base64Data = 'data:${mimeType};base64,' + btoa(binary);
 

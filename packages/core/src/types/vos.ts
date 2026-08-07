@@ -324,6 +324,18 @@ export interface VosResult {
    */
   setDuration?: (seconds: number) => void
   /**
+   * One synchronous engine tick: sync objects, publish the clock, run
+   * per-frame code, draw every render group — exactly what the internal rAF
+   * loop does per frame, callable directly. Capture harnesses use it to
+   * drive frames without waiting for the compositor's vsync (seek →
+   * renderFrame() → capture); evaluation stays a pure function of the
+   * timeline position. Absent on artifacts compiled before 0.11.
+   */
+  renderFrame?: () => void
+  /** Stops the internal rAF loop. Call before driving renderFrame directly,
+   * or every captured frame is rendered twice (the loop keeps ticking). */
+  stopRenderLoop?: () => void
+  /**
    * Element instances of the running program, keyed by element id. Editor tooling
    * uses these for hit-testing and ephemeral property overrides (via each
    * instance's `props` proxy); durable element edits are config edits (T3).

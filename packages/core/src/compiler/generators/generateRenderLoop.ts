@@ -90,8 +90,12 @@ export function generateRenderLoop(config: VosConfig): string {
   return `
   ${clockDecl}
   let frameId;
-  const animate = () => {
-    frameId = requestAnimationFrame(animate);
+  // One synchronous engine tick: sync objects, publish the clock, run
+  // per-frame code, draw every render group. Exposed on the result as
+  // renderFrame so capture harnesses can drive frames directly instead of
+  // waiting for the compositor's vsync-locked rAF — evaluation stays a pure
+  // function of the timeline position either way.
+  const renderFrame = () => {
     __syncObjects();
 
     // Publish the master clock: ctx.time / ctx.progress track the GSAP timeline
@@ -115,6 +119,10 @@ export function generateRenderLoop(config: VosConfig): string {
     }
 ${globalPost}
     renderer.autoClear = true;
+  };
+  const animate = () => {
+    frameId = requestAnimationFrame(animate);
+    renderFrame();
   };
   animate();`
 }
