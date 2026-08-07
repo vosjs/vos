@@ -332,6 +332,9 @@ export interface VosResult {
    * timeline position. Absent on artifacts compiled before 0.11.
    */
   renderFrame?: () => void
+  /** Stops the internal rAF loop. Call before driving renderFrame directly,
+   * or every captured frame is rendered twice (the loop keeps ticking). */
+  stopRenderLoop?: () => void
   /**
    * Element instances of the running program, keyed by element id. Editor tooling
    * uses these for hit-testing and ephemeral property overrides (via each

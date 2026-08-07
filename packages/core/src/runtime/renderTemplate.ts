@@ -820,6 +820,11 @@ ${audioFeed}
             // instead of waiting for the compositor's vsync-locked rAF —
             // removes a 1-2 frame-interval floor per captured frame. Older
             // compiled artifacts (no renderFrame) keep the rAF path.
+            if (result.renderFrame && result.stopRenderLoop) {
+              // Driving frames directly — stop the internal rAF loop or
+              // every captured frame renders twice.
+              result.stopRenderLoop();
+            }
             const runFrame = result.renderFrame
               ? () => { result.renderFrame(); return Promise.resolve(); }
               : () => new Promise(r => requestAnimationFrame(r));

@@ -319,6 +319,10 @@ export const initVos = async (container, deps) => {
     // capture harnesses render without waiting for vsync-locked rAF. The
     // capture template falls back to rAF when absent (older artifacts).
     renderFrame,
+    // Capture harnesses that drive renderFrame directly MUST stop the
+    // internal rAF loop first, or every captured frame renders twice —
+    // measured ~20% slower than the rAF path on CPU rasterizers.
+    stopRenderLoop: () => { if (frameId !== undefined) cancelAnimationFrame(frameId); },
     // Introspection handles for editor tooling (element picking / bounds projection).
     // References into the live instance — read-mostly; property writes go through
     // each element's props proxy.
