@@ -11,6 +11,7 @@ import {
   generateCleanup,
   generateDynamicLayerRebuild,
   generateElementsSetup,
+  generateFontsSetup,
   generateObjectsSetup,
   generateGlobalComposerSetup,
   generateImports,
@@ -111,6 +112,7 @@ export function compileVosConfig(
   const resizeHandler = generateResizeHandler(configForGenerators)
   const cleanup = generateCleanup(configForGenerators)
   const elementsSetup = generateElementsSetup(configForGenerators)
+  const fontsSetup = generateFontsSetup(configForGenerators)
   const objectsSetup = generateObjectsSetup(configForGenerators)
   const layerAssignment = generateLayerAssignment()
   const perLayerComposerSetup =
@@ -228,6 +230,7 @@ export const initVos = async (container, deps) => {
   const drawingBufferWidth = resolution?.drawingBufferWidth ?? Math.floor(width * pixelRatio);
   const drawingBufferHeight = resolution?.drawingBufferHeight ?? Math.floor(height * pixelRatio);
   ${rendererSetup}
+  ${fontsSetup}
   ${loadersRegistry}
   ${setupContextDef}
   ${setupFn}

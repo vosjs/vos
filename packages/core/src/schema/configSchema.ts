@@ -22,6 +22,18 @@ export const vosConfigSchema = z.object({
   // Element validation is complex with many subtypes; start permissive
   elements: z.array(z.record(z.string(), z.any())).optional(),
   objects: z.array(z.record(z.string(), z.any())).optional(),
+  fonts: z
+    .array(
+      z
+        .object({
+          family: z.string().min(1),
+          url: z.string().min(1),
+          weight: z.union([z.number(), z.string()]).optional(),
+          style: z.enum(['normal', 'italic']).optional(),
+        })
+        .passthrough(),
+    )
+    .optional(),
   setup: fnSchema.optional(),
   createContent: fnSchema,
   createTimeline: fnSchema,

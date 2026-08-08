@@ -256,6 +256,9 @@ export interface VosConfig {
   /** Declarative world-space 3D objects (primitives / GLB) in the main scene */
   objects?: ObjectConfig[]
 
+  /** Webfont faces registered + awaited before first render (fail-open). */
+  fonts?: import('./vosConfigJson').FontFaceDecl[]
+
   /** Arbitrary input data exposed as `ctx.data` (overridable by `deps.data` at runtime). */
   data?: Record<string, unknown>
 

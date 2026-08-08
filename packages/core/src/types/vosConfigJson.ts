@@ -8,6 +8,17 @@
 
 import type { CameraConfig, PostprocessingEffect, SceneConfig } from './vos'
 
+/** A webfont face declaration: registered via the FontFace API at boot. */
+export interface FontFaceDecl {
+  /** Family name as used in `font.family` / canvas font strings. */
+  family: string
+  /** Font file URL (woff2/woff/ttf). Must be reachable from render pages. */
+  url: string
+  /** CSS weight the file carries (default 'normal'). One decl per weight. */
+  weight?: number | string
+  style?: 'normal' | 'italic'
+}
+
 /**
  * JSON-serializable version of VosConfig.
  * Functions are stored as strings that can be embedded in the compiled template.
@@ -46,6 +57,16 @@ export interface VosConfigJson {
   elements?: Record<string, unknown>[]
   /** Declarative world-space 3D objects (primitives / GLB). */
   objects?: Record<string, unknown>[]
+
+  /**
+   * Webfont faces to register and load BEFORE anything rasterizes text.
+   * Canvas text silently falls back to a default font when a family isn't
+   * loaded — headless render environments have near-zero system fonts, so any
+   * non-generic family used by text elements (or setup-drawn canvases) should
+   * be declared here with a self-hosted URL. Loading is awaited capped and
+   * fail-open: a dead URL degrades to fallback stacks, never a hung page.
+   */
+  fonts?: FontFaceDecl[]
 
   /**
    * Arbitrary input data made available to functions as `ctx.data`.
