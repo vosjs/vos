@@ -84,6 +84,8 @@ export function generateElementsSetup(config: any): string {
       pixelRatio,
       drawingBufferWidth,
       drawingBufferHeight,
+      maxAnisotropy: renderer.capabilities.getMaxAnisotropy(),
+      maxTextureSize: renderer.capabilities.maxTextureSize,
     }, THREE
   );
 `

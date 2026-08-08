@@ -9,6 +9,12 @@ export interface VosElements {
     THREE: typeof THREE_NS,
   ) => Promise<Map<string, any>>
   disposeElements: (elementMap: Map<string, any>) => void
+  /**
+   * Re-rasterize canvas-backed element textures (text, SVG) for a new output
+   * resolution — the host's resize path calls this so quality tracks the
+   * drawing buffer. Returns true when any texture was rebuilt.
+   */
+  updateResolution: (elementMap: Map<string, any>, resolution: any) => boolean
 }
 
 /**
@@ -25,7 +31,24 @@ export function createVosElements(THREE: typeof THREE_NS): VosElements {
       elementMap.forEach((instance) => instance.destroy?.())
       elementMap.clear()
     },
+    updateResolution: (elementMap: Map<string, any>, resolution: any) => {
+      let changed = false
+      elementMap.forEach((instance) => {
+        if (instance.updateResolution?.(resolution)) changed = true
+      })
+      return changed
+    },
   }
 }
 
 export { renderElements } from './renderElements'
+export {
+  clampRasterScale,
+  graphemes,
+  layoutSplitUnits,
+  lineMetricsFrom,
+  lineWidthWithSpacing,
+  rasterScaleFor,
+  segmentText,
+  DESIGN_HEIGHT,
+} from './textLayout'

@@ -1,12 +1,17 @@
 import { AssetCache } from '../assetCache'
+import { clampRasterScale, rasterScaleFor } from '../textLayout'
 import type * as THREE_NS from 'three'
 
 /**
- * Load and render an SVG element
+ * Load and render an SVG element.
+ *
+ * SVG is vector input: rasterize it at the drawing-buffer texel density
+ * (design-px geometry, buffer-density canvas) so it stays resolution
+ * independent instead of being magnified from its viewBox size.
  */
 export async function renderSVGElement(
   element: any,
-  _resolution: any,
+  resolution: any,
   THREE: typeof THREE_NS,
 ) {
   const { src, size = {}, colors = {} } = element
@@ -49,6 +54,11 @@ export async function renderSVGElement(
     height = (svgHeight / svgWidth) * size.width
   }
 
+  // Raster the SVG oversized so the browser scales the VECTOR, not pixels.
+  const scaleFor = (res: any) =>
+    clampRasterScale(rasterScaleFor(res), width, height, res?.maxTextureSize)
+  let rasterScale = scaleFor(resolution)
+
   svgElement.setAttribute('width', String(width))
   svgElement.setAttribute('height', String(height))
   const updatedSvg = new XMLSerializer().serializeToString(svgElement)
@@ -64,26 +74,45 @@ export async function renderSVGElement(
   })
 
   const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
   const ctx = canvas.getContext('2d')!
-  ctx.drawImage(img, 0, 0, width, height)
+  const draw = (rs: number) => {
+    canvas.width = Math.max(1, Math.round(width * rs))
+    canvas.height = Math.max(1, Math.round(height * rs))
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+  }
+  draw(rasterScale)
 
-  URL.revokeObjectURL(url)
-
-  const texture = new THREE.CanvasTexture(canvas)
-  texture.minFilter = THREE.LinearFilter
-  texture.magFilter = THREE.LinearFilter
-  texture.needsUpdate = true
+  const makeTexture = (res: any) => {
+    const texture = new THREE.CanvasTexture(canvas)
+    texture.generateMipmaps = true
+    texture.minFilter = THREE.LinearMipmapLinearFilter
+    texture.magFilter = THREE.LinearFilter
+    texture.anisotropy = Math.min(8, res?.maxAnisotropy ?? 1)
+    texture.needsUpdate = true
+    return texture
+  }
 
   const material = new THREE.MeshBasicMaterial({
-    map: texture,
+    map: makeTexture(resolution),
     transparent: true,
     depthWrite: false,
   })
 
+  // Geometry stays in DESIGN units; only texture density tracks resolution.
   const geometry = new THREE.PlaneGeometry(width, height)
   const mesh = new THREE.Mesh(geometry, material)
 
-  return { mesh, width, height }
+  const rerasterize = (res: any) => {
+    const next = scaleFor(res)
+    if (Math.abs(next - rasterScale) / rasterScale < 0.05) return false
+    rasterScale = next
+    draw(next)
+    const old = material.map
+    material.map = makeTexture(res)
+    old?.dispose()
+    return true
+  }
+
+  return { mesh, width, height, rerasterize }
 }
