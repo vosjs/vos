@@ -64,7 +64,7 @@ export function generateObjectsSetup(config: any): string {
       const geo = new TextGeometry(a.text, {
         font,
         size: 1,
-        height: a.depth == null ? 0.25 : a.depth,
+        depth: a.depth == null ? 0.25 : a.depth,
         curveSegments: 8,
         bevelEnabled: a.bevel !== false,
         bevelThickness: 0.02,
