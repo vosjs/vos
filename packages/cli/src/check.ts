@@ -10,11 +10,18 @@ import {
   migrateConfig,
   vosConfigJsonSchema,
 } from '@vosjs/core'
-import { lintVosConfig, lintVosDialect } from '@vosjs/core/lint'
+import { lintVosConfig, lintVosDialect, lintVosFonts } from '@vosjs/core/lint'
 
 export interface CheckIssue {
   level: 'error' | 'warn'
-  source: 'schema' | 'syntax' | 'compile' | 'determinism' | 'dialect' | 'shape'
+  source:
+    | 'schema'
+    | 'syntax'
+    | 'compile'
+    | 'determinism'
+    | 'dialect'
+    | 'shape'
+    | 'fonts'
   message: string
 }
 
@@ -44,13 +51,21 @@ export function runCheck(parsed: unknown): CheckResult {
   }
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    issues.push({ level: 'error', source: 'shape', message: 'not a JSON object' })
+    issues.push({
+      level: 'error',
+      source: 'shape',
+      message: 'not a JSON object',
+    })
     return finish(null)
   }
 
   // API endpoints wrap the config: { config: {...} } — accept both shapes.
   let obj = parsed as Record<string, unknown>
-  if (typeof obj.config === 'object' && obj.config !== null && !('createTimeline' in obj)) {
+  if (
+    typeof obj.config === 'object' &&
+    obj.config !== null &&
+    !('createTimeline' in obj)
+  ) {
     obj = obj.config as Record<string, unknown>
   }
 
@@ -88,7 +103,10 @@ export function runCheck(parsed: unknown): CheckResult {
 
   // Keys the platform's schema will silently drop on push (params/presets
   // excepted — those are re-attached by contract).
-  const known = new Set([...Object.keys(vosConfigJsonSchema.shape), ...PLATFORM_EXTRA_KEYS])
+  const known = new Set([
+    ...Object.keys(vosConfigJsonSchema.shape),
+    ...PLATFORM_EXTRA_KEYS,
+  ])
   for (const key of Object.keys(migrated)) {
     if (!known.has(key)) {
       issues.push({
@@ -103,7 +121,12 @@ export function runCheck(parsed: unknown): CheckResult {
   // cannot see a syntax error — parse each one here (construction only,
   // nothing executes).
   let syntaxErrors = 0
-  for (const key of ['setup', 'createContent', 'createTimeline', 'onFrame'] as const) {
+  for (const key of [
+    'setup',
+    'createContent',
+    'createTimeline',
+    'onFrame',
+  ] as const) {
     const src = migrated[key]
     if (typeof src !== 'string' || !src.length) continue
     try {
@@ -144,6 +167,13 @@ export function runCheck(parsed: unknown): CheckResult {
       level: i.severity === 'error' ? 'error' : 'warn',
       source: 'dialect',
       message: `${i.fn}:${i.line} [${i.rule}] ${i.message}`,
+    })
+  }
+  for (const i of lintVosFonts(migrated as never)) {
+    issues.push({
+      level: 'warn',
+      source: 'fonts',
+      message: `[${i.rule}] ${i.message}`,
     })
   }
 

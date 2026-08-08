@@ -12,3 +12,9 @@ export {
   type DialectRule,
   type DialectSeverity,
 } from './dialect'
+export {
+  lintVosFonts,
+  type FontIssue,
+  type FontRule,
+  type FontSeverity,
+} from './fonts'

@@ -52,6 +52,15 @@ const elementSchema = z.union([
   z.record(z.string(), z.any()),
 ])
 
+export const fontFaceDeclSchema = z
+  .object({
+    family: z.string().min(1),
+    url: z.string().min(1),
+    weight: z.union([z.number(), z.string()]).optional(),
+    style: z.enum(['normal', 'italic']).optional(),
+  })
+  .passthrough()
+
 // ---------------------------------------------------------------------------
 // VosConfigJson - functions stored as strings
 // ---------------------------------------------------------------------------
@@ -68,6 +77,8 @@ export const vosConfigJsonSchema = z.object({
   // subtypes stay permissive until they earn schemas.
   elements: z.array(elementSchema).optional(),
   objects: z.array(z.record(z.string(), z.any())).optional(),
+  // Webfont faces registered + awaited before first render (fail-open).
+  fonts: z.array(fontFaceDeclSchema).optional(),
   // Arbitrary, app-defined input data exposed as ctx.data (no shape imposed)
   data: z.record(z.string(), z.unknown()).optional(),
   // Functions as strings
