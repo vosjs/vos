@@ -300,6 +300,11 @@ export interface ElementInstance {
    * compiled module's setData). Returns true when a change was picked up.
    */
   updateData?: (data: Record<string, unknown> | null | undefined) => boolean
+  /**
+   * Re-raster with unchanged values — the late-webfont hook (a data-carried
+   * face landing after first paint re-draws over the fallback stack).
+   */
+  refreshRaster?: () => boolean
   /** Re-rasterize canvas-backed textures for a new output resolution */
   updateResolution?: (resolution: unknown) => boolean
   /** Remove element from scene */

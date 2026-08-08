@@ -25,6 +25,12 @@ export interface VosElements {
     elementMap: Map<string, any>,
     data: Record<string, unknown> | null | undefined,
   ) => boolean
+  /**
+   * Re-raster every canvas-backed text element with UNCHANGED values — the
+   * late-webfont hook: a face registered after first paint (data.fonts via
+   * setData) re-draws over the fallback stack once it lands.
+   */
+  rerasterAll: (elementMap: Map<string, any>) => boolean
 }
 
 /**
@@ -59,6 +65,13 @@ export function createVosElements(THREE: typeof THREE_NS): VosElements {
       let changed = false
       elementMap.forEach((instance) => {
         if (instance.updateData?.(data)) changed = true
+      })
+      return changed
+    },
+    rerasterAll: (elementMap: Map<string, any>) => {
+      let changed = false
+      elementMap.forEach((instance) => {
+        if (instance.refreshRaster?.()) changed = true
       })
       return changed
     },

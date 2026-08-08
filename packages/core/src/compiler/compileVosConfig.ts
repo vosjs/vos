@@ -327,6 +327,14 @@ export const initVos = async (container, deps) => {
     // do not retroactively change — that is a program (T3) edit handled by warm LOAD.
     setData: (next) => {
       __vosData = Object.freeze(next ?? {});
+      // Data-carried webfonts (font knobs): register new faces lazily; when
+      // one lands, re-raster text elements so the real face replaces the
+      // fallback that painted in the meantime.
+      __vosRegisterFonts(__vosData.fonts, () => {
+        if (window.__vos__ && window.__vos__.elements && window.__vos__.elements.rerasterAll) {
+          window.__vos__.elements.rerasterAll(elements);
+        }
+      });
       // Re-resolve {$data}-bound element props (re-raster in place, no re-init).
       if (window.__vos__ && window.__vos__.elements && window.__vos__.elements.updateData) {
         window.__vos__.elements.updateData(elements, __vosData);
