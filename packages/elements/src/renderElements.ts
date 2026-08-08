@@ -88,6 +88,8 @@ export async function renderElements(
       let videoElement: HTMLMediaElement | null = null
       let videoSource: any = null
       let videoTexture: THREE_NS.Texture | null = null
+      let rerasterize: ((res: any) => boolean) | null = null
+      const segmentRerasters: Array<(res: any) => boolean> = []
 
       if (config.type === 'text' && config.split) {
         const splitResult = renderSplitTextElement(config, resolution, THREE)
@@ -117,6 +119,7 @@ export async function renderElements(
 
         segments = splitResult.meshes.map((item: any, si: number) => {
           const segMesh = item.mesh
+          if (item.rerasterize) segmentRerasters.push(item.rerasterize)
           segMesh.scale.set(resolutionScale, resolutionScale, 1)
           segMesh.position.x =
             basePosX + item.offsetX * resolutionScale + transformX
@@ -148,6 +151,7 @@ export async function renderElements(
         canvas = result.canvas
         elementWidth = result.width
         elementHeight = result.height
+        rerasterize = result.rerasterize
       } else if (config.type === 'image') {
         const result = await renderImageElement(config, resolution, THREE)
         mesh = result.mesh
@@ -158,6 +162,7 @@ export async function renderElements(
         mesh = result.mesh
         elementWidth = result.width
         elementHeight = result.height
+        rerasterize = result.rerasterize ?? null
       } else if (config.type === 'video') {
         const result = await renderVideoElement(config, resolution, THREE)
         mesh = result.mesh
@@ -256,6 +261,16 @@ export async function renderElements(
             console.warn('setContent not fully implemented in inline renderer')
           }
         },
+        // Re-rasterize canvas-backed textures for a new output resolution
+        // (called by the host's resize path; geometry stays in design units).
+        updateResolution: (res: any) => {
+          let changed = false
+          for (const fn of segmentRerasters) {
+            if (fn(res)) changed = true
+          }
+          if (rerasterize && rerasterize(res)) changed = true
+          return changed
+        },
         destroy: () => {
           videoSource?.dispose?.()
           const targetScene = getScene(config)
@@ -297,6 +312,7 @@ export async function renderElements(
         props,
         segments: null,
         setContent: () => {},
+        updateResolution: () => false,
         destroy: () => {
           getScene(config).remove(fallbackMesh)
           fallbackMesh.geometry.dispose()
