@@ -87,17 +87,25 @@ export interface BaseElement {
 // Text Element
 // =============================================================================
 
+/**
+ * `{$data: key}` binding — the value resolves from the host's data object at
+ * render time and re-resolves on setData (a pure data edit, no recompile).
+ */
+export interface DataRef {
+  $data: string
+}
+
 export interface TextElement extends BaseElement {
   type: 'text'
-  /** Text content (supports \n for multiline) */
-  content: string
+  /** Text content (supports \n for multiline), or a `{$data}` binding */
+  content: string | DataRef
 
   font?: {
-    family?: string
+    family?: string | DataRef
     size?: number
     weight?: number | string
     style?: 'normal' | 'italic'
-    color?: string
+    color?: string | DataRef
     letterSpacing?: number
     lineHeight?: number
     align?: 'left' | 'center' | 'right'
@@ -287,6 +295,13 @@ export interface ElementInstance {
   segments?: ElementProps[]
   /** Update element content (text or image src) */
   setContent: (content: string) => void
+  /**
+   * Re-resolve `{$data}`-bound props against fresh data (called by the
+   * compiled module's setData). Returns true when a change was picked up.
+   */
+  updateData?: (data: Record<string, unknown> | null | undefined) => boolean
+  /** Re-rasterize canvas-backed textures for a new output resolution */
+  updateResolution?: (resolution: unknown) => boolean
   /** Remove element from scene */
   destroy: () => void
 }

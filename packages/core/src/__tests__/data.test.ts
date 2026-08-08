@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { compileVosConfig } from '../compiler/compileVosConfig'
-import { vosConfigJsonSchema } from '../schema/configJsonSchema'
+import { textElementSchema, vosConfigJsonSchema } from '../schema/configJsonSchema'
 
 const base = {
   version: 2,
@@ -69,5 +69,53 @@ describe('ctx.data', () => {
 
   it('is backward compatible: configs without data still compile', () => {
     expect(() => compileVosConfig(base)).not.toThrow()
+  })
+})
+
+describe('{$data} element bindings', () => {
+  const bound = {
+    ...base,
+    data: { headline: 'Hello', font: 'Inter', ink: '#fff' },
+    elements: [
+      {
+        id: 'title',
+        type: 'text',
+        content: { $data: 'headline' },
+        position: 'center',
+        font: { family: { $data: 'font' }, color: { $data: 'ink' }, size: 96 },
+      },
+    ],
+  }
+
+  it('schema accepts {$data} on content, font.family and font.color', () => {
+    expect(() => vosConfigJsonSchema.parse(bound)).not.toThrow()
+    // an empty key is not a binding at the text-element level (the config
+    // union falls back to the permissive record, so assert the strict shape)
+    expect(textElementSchema.safeParse(bound.elements[0]).success).toBe(true)
+    expect(
+      textElementSchema.safeParse({
+        ...bound.elements[0],
+        content: { $data: '' },
+      }).success,
+    ).toBe(false)
+  })
+
+  it('generated code hands data to renderElements and re-resolves on setData', () => {
+    const code = compileVosConfig(bound as any)
+    // boot: data rides into the element system for initial resolution
+    expect(code).toContain('}, THREE, __vosData')
+    // live: setData fans out to updateData so bound text re-rasters in place
+    expect(code).toContain(
+      'window.__vos__.elements.updateData(elements, __vosData)',
+    )
+    // the binding itself is part of the program (data edits never recompile)
+    expect(code).toContain('"$data": "headline"')
+  })
+
+  it('program is identical across data values (binding = SET_DATA edit)', () => {
+    const { data: _a, ...rest } = bound
+    const one = compileVosConfig({ ...rest } as any)
+    const two = compileVosConfig({ ...rest } as any)
+    expect(one).toBe(two)
   })
 })

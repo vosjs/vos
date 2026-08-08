@@ -6,7 +6,8 @@ export interface VosElements {
     elementsConfig: any[],
     overlayScenes: Record<number, THREE_NS.Scene>,
     resolution: any,
-    THREE: typeof THREE_NS,
+    THREE?: typeof THREE_NS,
+    data?: Record<string, unknown> | null,
   ) => Promise<Map<string, any>>
   disposeElements: (elementMap: Map<string, any>) => void
   /**
@@ -15,6 +16,15 @@ export interface VosElements {
    * drawing buffer. Returns true when any texture was rebuilt.
    */
   updateResolution: (elementMap: Map<string, any>, resolution: any) => boolean
+  /**
+   * Re-resolve `{$data: key}`-bound element props against fresh data — the
+   * compiled module's setData calls this so bound text re-rasters in place.
+   * Returns true when any element picked up a change.
+   */
+  updateData: (
+    elementMap: Map<string, any>,
+    data: Record<string, unknown> | null | undefined,
+  ) => boolean
 }
 
 /**
@@ -22,11 +32,15 @@ export interface VosElements {
  */
 export function createVosElements(THREE: typeof THREE_NS): VosElements {
   return {
+    // Position 4 is the legacy THREE slot (older compiled artifacts still
+    // pass it; the factory's binding wins) — data rides position 5.
     renderElements: (
       elementsConfig: any[],
       overlayScenes: Record<number, THREE_NS.Scene>,
       resolution: any,
-    ) => renderElements(elementsConfig, overlayScenes, resolution, THREE),
+      _THREE?: typeof THREE_NS,
+      data?: Record<string, unknown> | null,
+    ) => renderElements(elementsConfig, overlayScenes, resolution, THREE, data),
     disposeElements: (elementMap: Map<string, any>) => {
       elementMap.forEach((instance) => instance.destroy?.())
       elementMap.clear()
@@ -38,10 +52,26 @@ export function createVosElements(THREE: typeof THREE_NS): VosElements {
       })
       return changed
     },
+    updateData: (
+      elementMap: Map<string, any>,
+      data: Record<string, unknown> | null | undefined,
+    ) => {
+      let changed = false
+      elementMap.forEach((instance) => {
+        if (instance.updateData?.(data)) changed = true
+      })
+      return changed
+    },
   }
 }
 
 export { renderElements } from './renderElements'
+export {
+  extractTextBindings,
+  isDataRef,
+  resolveTextElement,
+} from './dataBinding'
+export type { DataRef, TextBindings } from './dataBinding'
 export {
   clampRasterScale,
   graphemes,

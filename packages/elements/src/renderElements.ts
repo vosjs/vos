@@ -1,5 +1,6 @@
 import { preloadAssets } from './assetCache'
 import { createElementProps } from './createElementProps'
+import { extractTextBindings, resolveTextElement } from './dataBinding'
 import { renderAudioElement } from './renderers/audio'
 import { renderImageElement } from './renderers/image'
 import { renderSVGElement } from './renderers/svg'
@@ -72,6 +73,7 @@ export async function renderElements(
   overlayScenes: Record<number, THREE_NS.Scene>,
   resolution: any,
   THREE: typeof THREE_NS,
+  data?: Record<string, unknown> | null,
 ) {
   const getScene = (config: any) => overlayScenes[config.zIndex ?? 100]
   await preloadAssets(elementsConfig)
@@ -80,7 +82,13 @@ export async function renderElements(
   const resolutionScale = resolution.height / DESIGN_HEIGHT
 
   for (let i = 0; i < elementsConfig.length; i++) {
-    const config = elementsConfig[i]
+    // {$data} bindings resolve into a working copy; the raw config keeps the
+    // refs so the instance can re-resolve against fresh data on setData.
+    const rawConfig = elementsConfig[i]
+    const bindings = extractTextBindings(rawConfig)
+    const config = bindings
+      ? resolveTextElement(rawConfig, bindings, data)
+      : rawConfig
     const id = config.id ?? `element_${i}`
 
     try {
@@ -318,6 +326,35 @@ export async function renderElements(
             // Split text: one mesh per unit — content changes are structural.
             console.warn('[vos] setContent on split text requires a reload')
           }
+        },
+        // Re-resolve {$data}-bound props against fresh data (host setData).
+        // Routed through the raster queue so bursts coalesce with prop
+        // writes; split text is boot-only (per-unit meshes are structural).
+        updateData: (next: Record<string, unknown> | null | undefined) => {
+          if (!bindings || !textRerender) return false
+          let changed = false
+          if (bindings.content) {
+            const v = String(next?.[bindings.content] ?? '')
+            if (v !== config.content) {
+              queueRaster('content', v)
+              changed = true
+            }
+          }
+          if (bindings.family) {
+            const v = next?.[bindings.family]
+            if (typeof v === 'string' && v && v !== config.font?.family) {
+              queueRaster('fontFamily', v)
+              changed = true
+            }
+          }
+          if (bindings.color) {
+            const v = next?.[bindings.color]
+            if (typeof v === 'string' && v && v !== config.font?.color) {
+              queueRaster('color', v)
+              changed = true
+            }
+          }
+          return changed
         },
         // Re-rasterize canvas-backed textures for a new output resolution
         // (called by the host's resize path; geometry stays in design units).

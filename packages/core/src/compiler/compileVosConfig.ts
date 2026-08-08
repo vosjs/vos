@@ -315,7 +315,13 @@ export const initVos = async (container, deps) => {
     // Live data channel (T2): swap ctx.data without re-init. onFrame redraws with the
     // new value next frame. NOTE: values baked into GSAP tweens at createTimeline time
     // do not retroactively change — that is a program (T3) edit handled by warm LOAD.
-    setData: (next) => { __vosData = Object.freeze(next ?? {}); },
+    setData: (next) => {
+      __vosData = Object.freeze(next ?? {});
+      // Re-resolve {$data}-bound element props (re-raster in place, no re-init).
+      if (window.__vos__ && window.__vos__.elements && window.__vos__.elements.updateData) {
+        window.__vos__.elements.updateData(elements, __vosData);
+      }
+    },
     getData: () => __vosData,
     setDuration: __setDuration,
     // One synchronous engine tick (seek → renderFrame() → capture): lets
