@@ -1,5 +1,13 @@
 # @vosjs/cli
 
+## 0.6.4
+
+### Patch Changes
+
+- Updated dependencies [beb07a0]
+  - @vosjs/core@0.17.0
+  - @vosjs/elements@0.7.0
+
 ## 0.6.3
 
 ### Patch Changes
