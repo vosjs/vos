@@ -22,7 +22,9 @@ const MP4BOX_URL = 'https://esm.sh/mp4box@0.5.2'
 let mp4boxPromise: Promise<any> | null = null
 function loadMp4Box(): Promise<any> {
   if (!mp4boxPromise) {
-    mp4boxPromise = import(/* @vite-ignore */ MP4BOX_URL).then((m) => m.default ?? m)
+    mp4boxPromise = import(/* @vite-ignore */ MP4BOX_URL).then(
+      (m) => m.default ?? m,
+    )
   }
   return mp4boxPromise
 }
@@ -32,7 +34,10 @@ interface DecodeSample extends SampleMeta {
 }
 
 export function isFrameAccurateSupported(): boolean {
-  return typeof VideoDecoder !== 'undefined' && typeof EncodedVideoChunk !== 'undefined'
+  return (
+    typeof VideoDecoder !== 'undefined' &&
+    typeof EncodedVideoChunk !== 'undefined'
+  )
 }
 
 export class FrameAccurateVideoSource {
@@ -63,7 +68,8 @@ export class FrameAccurateVideoSource {
       },
     })
     const buf = await fetch(src).then((r) => {
-      if (!r.ok) throw new Error(`[vos] failed to fetch video: ${src} (${r.status})`)
+      if (!r.ok)
+        throw new Error(`[vos] failed to fetch video: ${src} (${r.status})`)
       return r.arrayBuffer()
     })
     await self.demux(buf)
@@ -147,7 +153,11 @@ export class FrameAccurateVideoSource {
     for (const entry of trak.mdia.minf.stbl.stsd.entries) {
       const box = entry.avcC ?? entry.hvcC ?? entry.vpcC ?? entry.av1C
       if (box) {
-        const stream = new MP4Box.DataStream(undefined, 0, MP4Box.DataStream.BIG_ENDIAN)
+        const stream = new MP4Box.DataStream(
+          undefined,
+          0,
+          MP4Box.DataStream.BIG_ENDIAN,
+        )
         box.write(stream)
         return new Uint8Array(stream.buffer, 8) // strip 8-byte box header
       }

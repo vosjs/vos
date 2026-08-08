@@ -10,7 +10,8 @@ function resolveSize(size: any, intrinsicW: number, intrinsicH: number) {
   let width = size.width ?? intrinsicW
   let height = size.height ?? intrinsicH
   if (size.width === 'auto' && size.height !== 'auto' && size.height) {
-    const targetHeight = typeof size.height === 'number' ? size.height : intrinsicH
+    const targetHeight =
+      typeof size.height === 'number' ? size.height : intrinsicH
     width = (intrinsicW / intrinsicH) * targetHeight
     height = targetHeight
   } else if (size.height === 'auto' && size.width !== 'auto' && size.width) {
@@ -21,7 +22,10 @@ function resolveSize(size: any, intrinsicW: number, intrinsicH: number) {
   return { width, height }
 }
 
-function applyTextureSettings(texture: THREE_NS.Texture, THREE: typeof THREE_NS) {
+function applyTextureSettings(
+  texture: THREE_NS.Texture,
+  THREE: typeof THREE_NS,
+) {
   texture.minFilter = THREE.LinearFilter
   texture.magFilter = THREE.LinearFilter
   texture.format = THREE.RGBAFormat
@@ -68,7 +72,11 @@ export async function renderVideoElement(
 async function renderWebCodecsVideo(element: any, THREE: typeof THREE_NS) {
   const { src, size = {} } = element
   const source = await FrameAccurateVideoSource.create(src)
-  const { width, height } = resolveSize(size, source.codedWidth, source.codedHeight)
+  const { width, height } = resolveSize(
+    size,
+    source.codedWidth,
+    source.codedHeight,
+  )
 
   const texture = new THREE.CanvasTexture(source.canvas)
   applyTextureSettings(texture, THREE)
@@ -124,7 +132,11 @@ async function renderHtml5Video(element: any, THREE: typeof THREE_NS) {
   video.currentTime = startTime
   video.pause()
 
-  const { width, height } = resolveSize(size, video.videoWidth, video.videoHeight)
+  const { width, height } = resolveSize(
+    size,
+    video.videoWidth,
+    video.videoHeight,
+  )
 
   const texture = new THREE.VideoTexture(video)
   applyTextureSettings(texture, THREE)

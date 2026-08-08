@@ -16,7 +16,7 @@
  */
 
 /** Bumped whenever the message set changes. Advertised in `BRIDGE_READY`. */
-export const VOS_BRIDGE_PROTOCOL = 3
+export const VOS_BRIDGE_PROTOCOL = 4
 
 /** Element bounds in CSS pixels, relative to the player document's viewport. */
 export interface ElementRect {
@@ -56,11 +56,15 @@ export type VosBridgeCommand =
   | { type: 'GET_ELEMENT_RECTS'; requestId: number }
   /** Editor mode: pick the topmost element at viewport CSS px (response: HIT_RESULT). */
   | { type: 'HIT_TEST'; x: number; y: number; requestId: number }
-  /** Editor mode: ephemeral element property override (via the props proxy). */
+  /**
+   * Editor mode: ephemeral element property override (via the props proxy).
+   * Protocol 4: values may be strings — text raster props (content, font
+   * family/style, colors) re-render the element's canvas in place.
+   */
   | {
       type: 'SET_ELEMENT_PROPS'
       id: string
-      props: Record<string, number | boolean>
+      props: Record<string, number | boolean | string>
     }
   /** Editor mode: ephemeral world-space object prop override (protocol 3). */
   | {

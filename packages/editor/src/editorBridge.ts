@@ -24,7 +24,10 @@ export interface EditorBridgeClient {
    * the running instance; does NOT survive a LOAD. The durable edit is a
    * config patch committed by the host.
    */
-  setElementProps: (id: string, props: Record<string, number | boolean>) => void
+  setElementProps: (
+    id: string,
+    props: Record<string, number | boolean | string>,
+  ) => void
   /** Rect pushes (the player posts them on resize) + rect responses. */
   onRects: (fn: (rects: ElementRect[]) => void) => () => void
   /** Reject-all outstanding requests (e.g. the iframe document reloaded). */
@@ -46,11 +49,16 @@ export function createEditorBridgeClient(
   let nextRequestId = 1
   const pending = new Map<
     number,
-    { settle: (msg: BridgeMessage | null) => void; timer: ReturnType<typeof setTimeout> }
+    {
+      settle: (msg: BridgeMessage | null) => void
+      timer: ReturnType<typeof setTimeout>
+    }
   >()
   const rectSubs = new Set<(rects: ElementRect[]) => void>()
 
-  const request = (msg: Record<string, unknown>): Promise<BridgeMessage | null> =>
+  const request = (
+    msg: Record<string, unknown>,
+  ): Promise<BridgeMessage | null> =>
     new Promise((resolve) => {
       const requestId = nextRequestId++
       const timer = setTimeout(() => {
@@ -73,11 +81,13 @@ export function createEditorBridgeClient(
       if (typeof raw !== 'object' || raw === null) return false
       const msg = raw as BridgeMessage
       if (msg.type === 'HIT_RESULT') {
-        if (typeof msg.requestId === 'number') pending.get(msg.requestId)?.settle(msg)
+        if (typeof msg.requestId === 'number')
+          pending.get(msg.requestId)?.settle(msg)
         return true
       }
       if (msg.type === 'ELEMENT_RECTS') {
-        if (typeof msg.requestId === 'number') pending.get(msg.requestId)?.settle(msg)
+        if (typeof msg.requestId === 'number')
+          pending.get(msg.requestId)?.settle(msg)
         // pushes (requestId null) and responses both refresh subscribers
         if (msg.rects) rectSubs.forEach((fn) => fn(msg.rects!))
         return true

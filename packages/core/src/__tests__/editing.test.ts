@@ -126,7 +126,7 @@ describe('playback bridge v2', () => {
   const html = generateRenderTemplate('', { mode: 'playback' })
 
   it('advertises the protocol version and editor flag in BRIDGE_READY', () => {
-    expect(VOS_BRIDGE_PROTOCOL).toBe(3)
+    expect(VOS_BRIDGE_PROTOCOL).toBe(4)
     expect(html).toContain(
       `{ type: 'BRIDGE_READY', protocol: ${VOS_BRIDGE_PROTOCOL}, editor: false }`,
     )

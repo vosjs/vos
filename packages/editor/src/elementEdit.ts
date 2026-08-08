@@ -27,7 +27,10 @@ export function cssDeltaToDesign(
  * The id an element answers to on the editor bridge: its config `id`, or the
  * renderer's positional fallback (`element_{index}`).
  */
-export function elementConfigId(entry: Record<string, unknown>, index: number): string {
+export function elementConfigId(
+  entry: Record<string, unknown>,
+  index: number,
+): string {
   return typeof entry.id === 'string' ? entry.id : `element_${index}`
 }
 
@@ -47,14 +50,18 @@ export function nudgeElementRecipe(
 ): Recipe<ConfigWithElements> | null {
   const elements = config.elements
   if (!Array.isArray(elements)) return null
-  const index = elements.findIndex((e, i) => elementConfigId(e, i) === elementId)
+  const index = elements.findIndex(
+    (e, i) => elementConfigId(e, i) === elementId,
+  )
   if (index < 0) return null
 
   return (draft) => {
     const el = draft.elements![index]
     const transform = (el.transform ?? {}) as Record<string, unknown>
-    const tx = typeof transform.translateX === 'number' ? transform.translateX : 0
-    const ty = typeof transform.translateY === 'number' ? transform.translateY : 0
+    const tx =
+      typeof transform.translateX === 'number' ? transform.translateX : 0
+    const ty =
+      typeof transform.translateY === 'number' ? transform.translateY : 0
     el.transform = {
       ...transform,
       translateX: round(tx + deltaDesign.dx),
@@ -77,8 +84,11 @@ export function scaleElementRecipe(
   factor: number,
 ): Recipe<ConfigWithElements> | null {
   const elements = config.elements
-  if (!Array.isArray(elements) || !Number.isFinite(factor) || factor <= 0) return null
-  const index = elements.findIndex((e, i) => elementConfigId(e, i) === elementId)
+  if (!Array.isArray(elements) || !Number.isFinite(factor) || factor <= 0)
+    return null
+  const index = elements.findIndex(
+    (e, i) => elementConfigId(e, i) === elementId,
+  )
   if (index < 0) return null
 
   return (draft) => {
@@ -104,14 +114,23 @@ export function rotateElementRecipe(
 ): Recipe<ConfigWithElements> | null {
   const elements = config.elements
   if (!Array.isArray(elements) || !Number.isFinite(deltaDeg)) return null
-  const index = elements.findIndex((e, i) => elementConfigId(e, i) === elementId)
+  const index = elements.findIndex(
+    (e, i) => elementConfigId(e, i) === elementId,
+  )
   if (index < 0) return null
 
   return (draft) => {
     const el = draft.elements![index]
-    const { rotateZ, rotation, ...rest } = (el.transform ?? {}) as Record<string, unknown>
+    const { rotateZ, rotation, ...rest } = (el.transform ?? {}) as Record<
+      string,
+      unknown
+    >
     const base =
-      typeof rotateZ === 'number' ? rotateZ : typeof rotation === 'number' ? rotation : 0
+      typeof rotateZ === 'number'
+        ? rotateZ
+        : typeof rotation === 'number'
+          ? rotation
+          : 0
     el.transform = { ...rest, rotation: round(normalizeDeg(base + deltaDeg)) }
   }
 }
@@ -128,7 +147,9 @@ export function elementBaseRotation(
 ): number {
   const elements = config.elements
   if (!Array.isArray(elements)) return 0
-  const index = elements.findIndex((e, i) => elementConfigId(e, i) === elementId)
+  const index = elements.findIndex(
+    (e, i) => elementConfigId(e, i) === elementId,
+  )
   if (index < 0) return 0
   const transform = (elements[index].transform ?? {}) as Record<string, unknown>
   const rz = transform.rotateZ
@@ -155,6 +176,79 @@ export function propsForRectCenter(
   viewportH: number,
 ): { x: number; y: number } {
   return { x: round(cx - viewportW / 2), y: round(cy - viewportH / 2) }
+}
+
+/** Style fields a text recipe accepts — the TextElement font/stroke surface. */
+export interface TextStylePatch {
+  size?: number
+  family?: string
+  weight?: number | string
+  style?: 'normal' | 'italic'
+  color?: string
+  letterSpacing?: number
+  lineHeight?: number
+  align?: 'left' | 'center' | 'right'
+  /** null removes the stroke. */
+  stroke?: { color: string; width: number } | null
+}
+
+/**
+ * Recipe: set a text element's content (the durable commit behind a typing
+ * gesture — the ephemeral preview is `setElementProps(id, { content })`,
+ * protocol 4). Returns null when the id doesn't resolve to a text element.
+ */
+export function setTextContentRecipe(
+  config: ConfigWithElements,
+  elementId: string,
+  content: string,
+): Recipe<ConfigWithElements> | null {
+  const elements = config.elements
+  if (!Array.isArray(elements)) return null
+  const index = elements.findIndex(
+    (e, i) => elementConfigId(e, i) === elementId,
+  )
+  if (index < 0 || (elements[index] as { type?: unknown }).type !== 'text') {
+    return null
+  }
+
+  return (draft) => {
+    ;(draft.elements![index] as { content?: string }).content = content
+  }
+}
+
+/**
+ * Recipe: merge style overrides into a text element (`font.*` fields plus
+ * `stroke`, null stroke removes it). The ephemeral previews are the raster
+ * props (`fontSize`, `color`, `strokeWidth`, …); this is the matching commit.
+ */
+export function setTextStyleRecipe(
+  config: ConfigWithElements,
+  elementId: string,
+  patch: TextStylePatch,
+): Recipe<ConfigWithElements> | null {
+  const elements = config.elements
+  if (!Array.isArray(elements)) return null
+  const index = elements.findIndex(
+    (e, i) => elementConfigId(e, i) === elementId,
+  )
+  if (index < 0 || (elements[index] as { type?: unknown }).type !== 'text') {
+    return null
+  }
+  const { stroke, ...font } = patch
+  const fontKeys = Object.keys(font)
+  if (fontKeys.length === 0 && stroke === undefined) return null
+
+  return (draft) => {
+    const el = draft.elements![index] as Record<string, unknown>
+    if (fontKeys.length) {
+      const current = (el.font ?? {}) as Record<string, unknown>
+      el.font = { ...current, ...font }
+    }
+    if (stroke !== undefined) {
+      if (stroke === null) delete el.stroke
+      else el.stroke = { ...stroke }
+    }
+  }
 }
 
 function round(v: number): number {

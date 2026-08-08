@@ -25,9 +25,15 @@ describe('createEditorBridgeClient', () => {
 
     // answer out of order
     expect(
-      client.handleEvent({ type: 'ELEMENT_RECTS', requestId: 2, rects: [{ id: 'a', x: 0, y: 0, width: 10, height: 10, visible: true }] }),
+      client.handleEvent({
+        type: 'ELEMENT_RECTS',
+        requestId: 2,
+        rects: [{ id: 'a', x: 0, y: 0, width: 10, height: 10, visible: true }],
+      }),
     ).toBe(true)
-    expect(client.handleEvent({ type: 'HIT_RESULT', requestId: 1, id: 'title' })).toBe(true)
+    expect(
+      client.handleEvent({ type: 'HIT_RESULT', requestId: 1, id: 'title' }),
+    ).toBe(true)
 
     expect(await hit).toBe('title')
     expect((await rects).map((r) => r.id)).toEqual(['a'])
@@ -55,7 +61,9 @@ describe('createEditorBridgeClient', () => {
     const client = createEditorBridgeClient(() => {})
     const seen: unknown[] = []
     const unsub = client.onRects((r) => seen.push(r))
-    expect(client.handleEvent({ type: 'ELEMENT_RECTS', requestId: null, rects: [] })).toBe(true)
+    expect(
+      client.handleEvent({ type: 'ELEMENT_RECTS', requestId: null, rects: [] }),
+    ).toBe(true)
     expect(client.handleEvent({ type: 'UPDATE', progress: 0.5 })).toBe(false)
     expect(client.handleEvent({ type: 'READY', duration: 3 })).toBe(false)
     expect(seen).toHaveLength(1)
@@ -66,7 +74,9 @@ describe('createEditorBridgeClient', () => {
     const posted: any[] = []
     const client = createEditorBridgeClient((m) => posted.push(m))
     client.setElementProps('title', { x: 12, y: -4 })
-    expect(posted).toEqual([{ type: 'SET_ELEMENT_PROPS', id: 'title', props: { x: 12, y: -4 } }])
+    expect(posted).toEqual([
+      { type: 'SET_ELEMENT_PROPS', id: 'title', props: { x: 12, y: -4 } },
+    ])
   })
 })
 
@@ -75,7 +85,12 @@ describe('element edit commit helpers', () => {
     version: 2,
     elements: [
       { id: 'title', type: 'text', content: 'Hi', position: 'center' },
-      { type: 'image', src: 'x.png', position: 'top-left', transform: { translateX: 10, scale: 2 } },
+      {
+        type: 'image',
+        src: 'x.png',
+        position: 'top-left',
+        transform: { translateX: 10, scale: 2 },
+      },
     ],
   }
 
@@ -93,13 +108,20 @@ describe('element edit commit helpers', () => {
   it('nudgeElementRecipe accumulates translate and preserves other transform keys', () => {
     const r1 = nudgeElementRecipe(config, 'element_1', { dx: 5, dy: 7 })!
     const next = produce(config, r1)
-    expect(next.elements[1].transform).toEqual({ translateX: 15, translateY: 7, scale: 2 })
+    expect(next.elements[1].transform).toEqual({
+      translateX: 15,
+      translateY: 7,
+      scale: 2,
+    })
     // original untouched (immer draft semantics)
     expect(config.elements[1].transform).toEqual({ translateX: 10, scale: 2 })
 
     const r2 = nudgeElementRecipe(next, 'title', { dx: -3, dy: 0 })!
     const next2 = produce(next, r2)
-    expect(next2.elements[0].transform).toEqual({ translateX: -3, translateY: 0 })
+    expect(next2.elements[0].transform).toEqual({
+      translateX: -3,
+      translateY: 0,
+    })
   })
 
   it('returns null when there is nothing to commit', () => {
@@ -131,7 +153,9 @@ describe('element edit commit helpers', () => {
 
   it('rotateElementRecipe accumulates, folds the rotateZ alias, and normalizes', () => {
     const withRotate = {
-      elements: [{ id: 'a', type: 'text', transform: { rotateZ: 170, scale: 2 } }],
+      elements: [
+        { id: 'a', type: 'text', transform: { rotateZ: 170, scale: 2 } },
+      ],
     }
     const r1 = rotateElementRecipe(withRotate, 'a', 20)!
     const next = produce(withRotate, r1)
@@ -143,8 +167,18 @@ describe('element edit commit helpers', () => {
   })
 
   it('elementBaseRotation reads the committed rotation (alias respected)', () => {
-    expect(elementBaseRotation({ elements: [{ transform: { rotateZ: 30 } }] }, 'element_0')).toBe(30)
-    expect(elementBaseRotation({ elements: [{ transform: { rotation: -15 } }] }, 'element_0')).toBe(-15)
+    expect(
+      elementBaseRotation(
+        { elements: [{ transform: { rotateZ: 30 } }] },
+        'element_0',
+      ),
+    ).toBe(30)
+    expect(
+      elementBaseRotation(
+        { elements: [{ transform: { rotation: -15 } }] },
+        'element_0',
+      ),
+    ).toBe(-15)
     expect(elementBaseRotation(config, 'title')).toBe(0)
     expect(elementBaseRotation({}, 'x')).toBe(0)
   })

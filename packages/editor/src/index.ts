@@ -43,7 +43,10 @@ export {
   propsForRectCenter,
   rotateElementRecipe,
   scaleElementRecipe,
+  setTextContentRecipe,
+  setTextStyleRecipe,
 } from './elementEdit'
+export type { TextStylePatch } from './elementEdit'
 export { formatTime, rulerTicks, snapTime, toPx, toTime } from './viewModel'
 export type { SnapOptions, Tick, TimelineViewport } from './viewModel'
 export type { LaneAdapter, LaneGesture, LaneItem } from './lanes'

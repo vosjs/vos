@@ -3,7 +3,12 @@ import { createElementProps } from './createElementProps'
 import { renderAudioElement } from './renderers/audio'
 import { renderImageElement } from './renderers/image'
 import { renderSVGElement } from './renderers/svg'
-import { renderSplitTextElement, renderTextElement } from './renderers/text'
+import {
+  mergeQueuedPatches,
+  rasterPropPatch,
+  renderSplitTextElement,
+  renderTextElement,
+} from './renderers/text'
 import { renderVideoElement } from './renderers/video'
 import type * as THREE_NS from 'three'
 
@@ -80,7 +85,6 @@ export async function renderElements(
 
     try {
       let mesh: THREE_NS.Mesh
-      let canvas: HTMLCanvasElement | null = null
       let elementWidth = 0
       let elementHeight = 0
       let segments: any = null
@@ -90,6 +94,9 @@ export async function renderElements(
       let videoTexture: THREE_NS.Texture | null = null
       let rerasterize: ((res: any) => boolean) | null = null
       const segmentRerasters: Array<(res: any) => boolean> = []
+      let textRerender:
+        | ((patch: any) => { width: number; height: number })
+        | null = null
 
       if (config.type === 'text' && config.split) {
         const splitResult = renderSplitTextElement(config, resolution, THREE)
@@ -148,10 +155,10 @@ export async function renderElements(
       } else if (config.type === 'text') {
         const result = renderTextElement(config, resolution, THREE)
         mesh = result.mesh
-        canvas = result.canvas
         elementWidth = result.width
         elementHeight = result.height
         rerasterize = result.rerasterize
+        textRerender = result.rerender
       } else if (config.type === 'image') {
         const result = await renderImageElement(config, resolution, THREE)
         mesh = result.mesh
@@ -239,6 +246,53 @@ export async function renderElements(
         getScene(config).add(mesh)
       }
 
+      // Live text editing: raster-prop writes (content, font*, letterSpacing,
+      // color, stroke*) coalesce on a microtask and re-render IN PLACE — the
+      // mesh keeps its identity (scene, render order, timeline bindings), the
+      // element re-measures, and the mesh repositions to config truth. Split
+      // text has one mesh per unit and stays structural (commit = recompile).
+      let pendingRaster: any = null
+      let rasterScheduled = false
+      const flushRaster = () => {
+        rasterScheduled = false
+        const patch = pendingRaster
+        pendingRaster = null
+        if (!patch || !textRerender) return
+        const dims = textRerender(patch)
+        elementWidth = dims.width
+        elementHeight = dims.height
+        const scaledWidth = dims.width * resolutionScale
+        const scaledHeight = dims.height * resolutionScale
+        const { x, y } = calculatePosition(
+          config.position,
+          resolution,
+          scaledWidth,
+          scaledHeight,
+        )
+        let posX = x - resolution.width / 2 + scaledWidth / 2
+        let posY = -(y - resolution.height / 2 + scaledHeight / 2)
+        if (config.transform) {
+          posX += (config.transform.translateX ?? 0) * resolutionScale
+          posY -= (config.transform.translateY ?? 0) * resolutionScale
+        }
+        // Write through the proxy (y sign per its convention) so ephemeral
+        // transform state stays coherent with the new geometry.
+        ;(props as any).x = posX
+        ;(props as any).y = -posY
+      }
+      const queueRaster = (prop: string, value: unknown) => {
+        if (!textRerender) return
+        const patch = rasterPropPatch(prop, value, config)
+        if (!patch) return
+        pendingRaster = pendingRaster
+          ? mergeQueuedPatches(pendingRaster, patch)
+          : patch
+        if (!rasterScheduled) {
+          rasterScheduled = true
+          void Promise.resolve().then(flushRaster)
+        }
+      }
+
       const props = createElementProps(
         THREE,
         mesh,
@@ -248,6 +302,7 @@ export async function renderElements(
         videoElement,
         videoSource,
         videoTexture,
+        textRerender ? queueRaster : null,
       )
 
       const elementInstance = {
@@ -256,9 +311,12 @@ export async function renderElements(
         node: null,
         props,
         segments,
-        setContent: (_content: string) => {
-          if (config.type === 'text' && canvas) {
-            console.warn('setContent not fully implemented in inline renderer')
+        setContent: (content: string) => {
+          if (config.type === 'text' && textRerender) {
+            queueRaster('content', content)
+          } else if (config.type === 'text') {
+            // Split text: one mesh per unit — content changes are structural.
+            console.warn('[vos] setContent on split text requires a reload')
           }
         },
         // Re-rasterize canvas-backed textures for a new output resolution

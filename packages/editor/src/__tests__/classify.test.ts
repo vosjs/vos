@@ -18,7 +18,11 @@ describe('classifyEdit', () => {
   })
 
   it('program change is a warm LOAD (T3), regardless of data/duration', () => {
-    const next = lowered({ program: 'PROGRAM_B', data: { padding: 99 }, duration: 9 })
+    const next = lowered({
+      program: 'PROGRAM_B',
+      data: { padding: 99 },
+      duration: 9,
+    })
     expect(classifyEdit(lowered(), next, true)).toEqual([
       { type: 'LOAD', code: 'PROGRAM_B', data: next.data },
     ])
