@@ -1,5 +1,11 @@
 # @vosjs/core
 
+## 0.17.1
+
+### Patch Changes
+
+- bdb6a0a: Fix text3d extrusion depth: TextGeometry's option is `depth` on current three (the legacy `height` alias is ignored and the extrusion fell back to the default 50, collapsing normalized text to a sliver).
+
 ## 0.17.0
 
 ### Minor Changes
