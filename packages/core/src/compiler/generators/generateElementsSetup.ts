@@ -86,7 +86,7 @@ export function generateElementsSetup(config: any): string {
       drawingBufferHeight,
       maxAnisotropy: renderer.capabilities.getMaxAnisotropy(),
       maxTextureSize: renderer.capabilities.maxTextureSize,
-    }, THREE
+    }, THREE, __vosData
   );
 `
 }

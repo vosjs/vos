@@ -8,13 +8,23 @@ import { cameraSchema, postprocessingSchema, sceneSchema } from './shared'
 // schema documents and type-checks the well-formed shape without rejecting.
 // ---------------------------------------------------------------------------
 
+/**
+ * `{$data: key}` — the value resolves from the host's data object at render
+ * time and re-resolves on setData. Allowed on `content`, `font.family` and
+ * `font.color`; because the binding lives in the program, remixing the bound
+ * value is a pure data edit (no recompile).
+ */
+export const dataRefSchema = z
+  .object({ $data: z.string().min(1) })
+  .passthrough()
+
 const textFontSchema = z
   .object({
-    family: z.string().optional(),
+    family: z.union([z.string(), dataRefSchema]).optional(),
     size: z.number().positive().optional(),
     weight: z.union([z.number(), z.string()]).optional(),
     style: z.enum(['normal', 'italic']).optional(),
-    color: z.string().optional(),
+    color: z.union([z.string(), dataRefSchema]).optional(),
     letterSpacing: z.number().optional(),
     lineHeight: z.number().positive().optional(),
     align: z.enum(['left', 'center', 'right']).optional(),
@@ -24,7 +34,7 @@ const textFontSchema = z
 export const textElementSchema = z
   .object({
     type: z.literal('text'),
-    content: z.string(),
+    content: z.union([z.string(), dataRefSchema]),
     font: textFontSchema.optional(),
     stroke: z
       .object({ color: z.string(), width: z.number().nonnegative() })
