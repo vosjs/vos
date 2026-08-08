@@ -75,6 +75,36 @@ describe('objects[] codegen', () => {
     )
     expect(code).not.toMatch(/import .*GLTFLoader.* from/)
   })
+
+  it('a text3d object auto-detects FontLoader + TextGeometry and normalizes', () => {
+    const code = compileVosConfig(
+      withObjects([
+        {
+          id: 't0',
+          asset: {
+            kind: 'text3d',
+            text: 'Vos',
+            typeface: 'https://x/lexend.typeface.json',
+          },
+        },
+      ]),
+    )
+    expect(code).toMatch(/import .*FontLoader.* from/)
+    expect(code).toMatch(/import .*TextGeometry.* from/)
+    // centered + bbox-normalized like GLB, so scale is asset-independent
+    expect(code).toContain('geo.center()')
+    expect(code).toContain('__objNorm')
+    // defaults resolve in the generated builder
+    expect(code).toContain('a.depth == null ? 0.25 : a.depth')
+    expect(code).toContain('bevelEnabled: a.bevel !== false')
+  })
+
+  it('primitive-only configs do not import FontLoader', () => {
+    const code = compileVosConfig(
+      withObjects([{ id: 'p0', asset: { kind: 'primitive', shape: 'sphere' } }]),
+    )
+    expect(code).not.toMatch(/import .*FontLoader.* from/)
+  })
 })
 
 describe('objects bridge (protocol 3)', () => {

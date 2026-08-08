@@ -54,6 +54,38 @@ export function generateObjectsSetup(config: any): string {
         if (n.geometry && n.geometry.dispose) n.geometry.dispose();
         if (n.material && n.material.dispose) n.material.dispose();
       });
+    } else if (cfg.asset.kind === 'text3d') {
+      // Extruded text from a typeface JSON (FontLoader format). Centered and
+      // bbox-normalized like GLB, so props.scale is asset-independent.
+      const a = cfg.asset;
+      const font = await new Promise((res, rej) =>
+        new FontLoader().load(a.typeface, res, undefined, rej)
+      );
+      const geo = new TextGeometry(a.text, {
+        font,
+        size: 1,
+        height: a.depth == null ? 0.25 : a.depth,
+        curveSegments: 8,
+        bevelEnabled: a.bevel !== false,
+        bevelThickness: 0.02,
+        bevelSize: 0.015,
+        bevelSegments: 2,
+      });
+      geo.computeBoundingBox();
+      geo.center();
+      const bb = geo.boundingBox;
+      const dim = Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z);
+      const mat = a.unlit
+        ? new THREE.MeshBasicMaterial({ color: a.color || '#e4e4e7', transparent: true })
+        : new THREE.MeshStandardMaterial({
+            color: a.color || '#e4e4e7',
+            metalness: a.metalness == null ? 0.5 : a.metalness,
+            roughness: a.roughness == null ? 0.4 : a.roughness,
+            transparent: true,
+          });
+      root = new THREE.Mesh(geo, mat);
+      root.userData.__objNorm = 1 / (dim || 1);
+      dispose = () => { geo.dispose(); mat.dispose(); };
     } else {
       const a = cfg.asset;
       const geo = a.shape === 'sphere' ? new THREE.SphereGeometry(0.5, 32, 20)

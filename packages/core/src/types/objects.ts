@@ -34,6 +34,28 @@ export type ObjectAssetConfig =
       kind: 'gltf'
       key: string
     }
+  | {
+      /**
+       * Extruded 3D text from a three.js typeface JSON (FontLoader format).
+       * Geometry is centered and bbox-NORMALIZED like GLB (largest dimension
+       * = 1 world unit), so `scale` means the same thing for every asset.
+       */
+      kind: 'text3d'
+      text: string
+      /** Typeface JSON URL. */
+      typeface: string
+      /** Extrusion depth in glyph-height units (default 0.25). */
+      depth?: number
+      /** Beveled edges (default true). */
+      bevel?: boolean
+      /** CSS color (default '#e4e4e7'). */
+      color?: string
+      /** Standard-material params (ignored when unlit). */
+      metalness?: number
+      roughness?: number
+      /** Use an unlit basic material (no lights required). */
+      unlit?: boolean
+    }
 
 export interface ObjectTransformConfig {
   /** World units. */
