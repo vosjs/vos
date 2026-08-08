@@ -88,6 +88,16 @@ export function compileVosConfig(
   ) {
     detectedAddons.push('GLTFLoader')
   }
+  // Declarative text3d objects likewise need the font loader + geometry util.
+  if (
+    config.objects?.some(
+      (o) => (o as { asset?: { kind?: string } }).asset?.kind === 'text3d',
+    )
+  ) {
+    if (!detectedAddons.includes('FontLoader')) detectedAddons.push('FontLoader')
+    if (!detectedAddons.includes('TextGeometry'))
+      detectedAddons.push('TextGeometry')
+  }
 
   // Cast to any for generators that expect VosConfig
   // (they only use non-function properties which are identical)
