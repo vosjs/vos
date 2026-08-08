@@ -327,6 +327,19 @@ export async function renderElements(
             console.warn('[vos] setContent on split text requires a reload')
           }
         },
+        // Force a re-raster with UNCHANGED values — the hook for late-landing
+        // webfonts (a face registered after this element painted with the
+        // fallback stack). Rides the same coalescing queue; split text skips
+        // (per-unit meshes re-raster only on resolution/structure changes).
+        refreshRaster: () => {
+          if (!textRerender) return false
+          pendingRaster = pendingRaster || {}
+          if (!rasterScheduled) {
+            rasterScheduled = true
+            void Promise.resolve().then(flushRaster)
+          }
+          return true
+        },
         // Re-resolve {$data}-bound props against fresh data (host setData).
         // Routed through the raster queue so bursts coalesce with prop
         // writes; split text is boot-only (per-unit meshes are structural).

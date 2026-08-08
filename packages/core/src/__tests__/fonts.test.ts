@@ -45,9 +45,23 @@ describe('config.fonts compilation', () => {
     )
   })
 
-  it('emits nothing without a fonts block', () => {
+  it('emits the registrar even without a fonts block (data.fonts must work)', () => {
     const output = compileVosConfig(base)
-    expect(output).not.toContain('FontFace')
+    expect(output).toContain('const fontFaceDecls = []')
+    expect(output).toContain('__vosRegisterFonts(__vosData.fonts)')
+  })
+
+  it('boot awaits BOTH config and data faces; setData re-registers + re-rasters', () => {
+    const output = compileVosConfig({ ...base, fonts: [LEXEND] })
+    // one dedup'd registrar feeds both sources at boot
+    expect(output).toContain('__vosRegisterFonts(fontFaceDecls)')
+    expect(output).toContain('__vosRegisterFonts(__vosData.fonts)')
+    expect(output).toContain('__vosFontSeen')
+    // setData: lazy registration whose completion re-rasters text elements,
+    // so a late-landing face replaces the fallback that painted first
+    const setDataBlock = output.slice(output.indexOf('setData:'))
+    expect(setDataBlock).toContain('__vosRegisterFonts(__vosData.fonts')
+    expect(setDataBlock).toContain('rerasterAll(elements)')
   })
 
   it('schema keeps the fonts block (nothing stripped)', () => {

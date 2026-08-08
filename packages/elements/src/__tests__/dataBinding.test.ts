@@ -142,6 +142,24 @@ describe('bound elements through renderElements', () => {
     expect(inst.updateData({ headline: 'Hello!', ink: '#ff0000' })).toBe(false)
   })
 
+  it('refreshRaster re-draws with unchanged values (the late-webfont hook)', async () => {
+    const elements = await renderElements(
+      [{ id: 't', type: 'text', content: 'Hi', position: 'center' }],
+      scenes(),
+      RESOLUTION,
+      THREE,
+    )
+    const inst = elements.get('t')!
+    const mesh = inst.mesh as THREE.Mesh
+    const mapBefore = (mesh.material as THREE.MeshBasicMaterial).map
+    expect(inst.refreshRaster()).toBe(true)
+    await flushMicrotasks()
+    // same values, fresh raster: texture swapped, mesh identity stable
+    expect(inst.mesh).toBe(mesh)
+    expect((mesh.material as THREE.MeshBasicMaterial).map).not.toBe(mapBefore)
+    expect(inst.config.content).toBe('Hi')
+  })
+
   it('unbound elements ignore updateData', async () => {
     const elements = await renderElements(
       [{ id: 't', type: 'text', content: 'Static', position: 'center' }],
