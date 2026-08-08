@@ -18,12 +18,20 @@ export interface Tick {
   label?: string
 }
 
-export function toPx(t: number, viewport: TimelineViewport, widthPx: number): number {
+export function toPx(
+  t: number,
+  viewport: TimelineViewport,
+  widthPx: number,
+): number {
   const span = viewport.t1 - viewport.t0
   return span > 0 ? ((t - viewport.t0) / span) * widthPx : 0
 }
 
-export function toTime(px: number, viewport: TimelineViewport, widthPx: number): number {
+export function toTime(
+  px: number,
+  viewport: TimelineViewport,
+  widthPx: number,
+): number {
   const span = viewport.t1 - viewport.t0
   return widthPx > 0 ? viewport.t0 + (px / widthPx) * span : viewport.t0
 }

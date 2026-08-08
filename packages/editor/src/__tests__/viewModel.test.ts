@@ -18,7 +18,9 @@ describe('viewModel math', () => {
     expect(ticks.length).toBeGreaterThan(4)
     const majors = ticks.filter((t) => t.major)
     expect(majors.every((t) => t.label !== undefined)).toBe(true)
-    expect(ticks.filter((t) => !t.major).every((t) => t.label === undefined)).toBe(true)
+    expect(
+      ticks.filter((t) => !t.major).every((t) => t.label === undefined),
+    ).toBe(true)
     // majors land on the step grid
     const step = majors[1].t - majors[0].t
     for (let i = 1; i < majors.length; i++) {

@@ -9,6 +9,22 @@ interface FrameAccurateSource {
   seekTo: (tSec: number) => Promise<void>
 }
 
+/**
+ * Props that require re-rasterizing a canvas-backed element (text). Writes
+ * route through the instance's raster handler instead of touching the mesh.
+ */
+const RASTER_PROPS = new Set([
+  'content',
+  'fontSize',
+  'fontFamily',
+  'fontWeight',
+  'fontStyle',
+  'letterSpacing',
+  'color',
+  'strokeColor',
+  'strokeWidth',
+])
+
 export function createElementProps(
   _THREE: typeof THREE_NS,
   mesh: THREE_NS.Mesh,
@@ -18,6 +34,7 @@ export function createElementProps(
   videoElement: HTMLMediaElement | null = null,
   videoSource: FrameAccurateSource | null = null,
   videoTexture: THREE_NS.Texture | null = null,
+  onRasterProp: ((prop: string, value: unknown) => void) | null = null,
 ) {
   // Capture base scale (set by renderer for resolution scaling)
   const baseScaleX = mesh.scale.x
@@ -156,6 +173,13 @@ export function createElementProps(
         case 'gain':
           if (videoElement) {
             videoElement.volume = Math.max(0, Math.min(1, Number(value) || 0))
+          }
+          break
+        default:
+          // Raster props (text content/style) re-draw the element's canvas —
+          // routed to the instance, which coalesces and re-rasters.
+          if (onRasterProp && RASTER_PROPS.has(prop as string)) {
+            onRasterProp(prop as string, value)
           }
           break
       }
