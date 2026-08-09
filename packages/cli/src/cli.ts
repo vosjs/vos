@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { existsSync, readFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { createServer } from 'node:http'
@@ -16,62 +16,30 @@ import { loadVosConfig, configDuration } from './loadConfig'
 import { launchBrowser, BrowserUnavailableError } from './browser'
 import { renderVideo, renderStill, previewPages } from './render'
 import { runCheck } from './check'
-import {
-  PLATFORM_ORIGIN,
-  apiError,
-  apiJson,
-  deriveSlug,
-  formatChanges,
-  parseVosId,
-  readMeta,
-  resolveCredential,
-  writeMeta,
-  type VersionChange,
-} from './platform'
 
-const BOOLEAN_FLAGS = new Set(['json', 'help', 'version', 'check'])
+const BOOLEAN_FLAGS = new Set(['json', 'help', 'version'])
 
-const HELP = `vos — command line for the vos programmatic video engine (https://vos.so)
+const HELP_ENGINE = `vos — command line for the vos programmatic video engine (https://vos.so/engine)
 
-Usage
+Engine verbs (local, no account, no network beyond the render page's CDN deps)
   vos render <config.json|url|take> [out] [--width 1920] [--height 1080] [--fps 30]
                                [--duration <s>] [--format webm|mp4] [--json]
   vos still  <config.json|url> [out.webp] [--time 0] [--width] [--height] [--json]
   vos info   <config.json|url> [--json]
+  vos check  <config.json|url> [--json]
+             migrate → schema → syntax → compile → determinism/dialect lints, all local
   vos preview <config.json|url> [--port 0]
   vos versions [--json]
+`
 
-Platform (vos.so) — the iteration loop: fetch, edit, push, pull, repeat
-  vos fetch <vosId|watch-url> [--out dir] [--json]
-            writes config.json + meta.json (no auth needed for public programs)
-  vos check <config.json> [--json]
-            migrate → schema → compile → determinism/dialect lints, all local
-  vos push  <config.json|take> [--vos id] [--title t] [--slug s] [--remix-of id]
-            [--note n] [--label l] [--base versionId] [--overrides id,id] [--json]
-            no --vos: create a PRIVATE vos (lineage from meta.json / --remix-of)
-            with --vos: add a version; the base defaults to the tracked one in
-            meta.json, so a stale push 409s WITH the changes made on the platform.
-            --overrides consents to touching protected (human-edited) nodes —
-            only when the user asked for that change. Take DIRECTORIES push
-            through the take pipeline (@vosso/cli) automatically.
-  vos pull  [dir|take] [--vos id] [--since versionId] [--check] [--json]
-            what changed on vos.so since your base: attributed versions with
-            typed summaries + the protected node set. Syncs config.json to the
-            head (previous copy kept as config.backup.json) and repoints the
-            base — re-apply your edit on top, then push. --check reports only.
-            auth: VOS_API_KEY or ~/.config/vos/credentials — mint at vos.so/app/api;
-            keys can never publish (visibility stays private; humans publish on vos.so)
+const HELP_PLUGIN_HINT = `
+Everything else — the take pipeline (screen recordings in, product video out)
+and the vos.so platform verbs (fetch/push/pull/login) — ships as a plugin:
+  npm i -D @vosso/vos-plugin
+Installed plugin verbs appear here and run as plain \`vos <verb>\`.
+`
 
-Take pipeline — screen recordings in, polished product video out
-(ships separately: npm i -D @vosso/cli)
-  vos create   --actions actions.json [out.webm] [--strict]   (record + plan + render, one shot)
-  vos record   --actions actions.json [--out take] [--strict]
-  vos plan     <take> [--fresh]
-  vos frames   <take> [--at-zooms | --frame <t> --size WxH]
-  vos open     <take>            (serve the take into the studio at vos.so)
-  vos validate <actions.json|take>
-  vos render   <take> [out]      (a take directory is detected by its doc.json)
-
+const HELP_CONVENTIONS = `
 Conventions
   Results go to stdout; logs go to stderr. --json switches stdout to NDJSON
   events ending with {"event":"done",…}. Exit codes: 0 ok, 1 error, 2 usage,
@@ -85,11 +53,11 @@ function outName(source: string, ext: string): string {
 
 async function cmdRender(argv: string[]): Promise<number> {
   // Polymorphic render: a take DIRECTORY (detected by its doc.json — the take
-  // pipeline's editable document) renders through the take pipeline; anything
-  // else is an engine config render. A deterministic sniff, never a flag.
+  // pipeline's editable document) renders through the plugin; anything else
+  // is an engine config render. A deterministic sniff, never a flag.
   const first = argv.find((a) => !a.startsWith('-'))
   if (first && existsSync(join(first, 'doc.json'))) {
-    return delegateTake(['render', ...argv])
+    return delegate(['render', ...argv])
   }
   const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
   const source = positionals[0]
@@ -240,21 +208,32 @@ function packageVersion(name: string): string | null {
   return null
 }
 
-async function cmdVersions(argv: string[]): Promise<number> {
-  const { flags } = parseArgs(argv, BOOLEAN_FLAGS)
-  const r = createReporter(flags.json === true)
-  const versions: Record<string, string> = {}
-  // Own version: read relative to dist (self-require is blocked by `exports`).
+function ownVersion(): string {
   try {
     const own = JSON.parse(
       readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
     ) as { version: string }
-    versions['@vosjs/cli'] = own.version
+    return own.version
   } catch {
-    versions['@vosjs/cli'] = '(unknown)'
+    return '(unknown)'
   }
+}
+
+async function cmdVersions(argv: string[]): Promise<number> {
+  const { flags } = parseArgs(argv, BOOLEAN_FLAGS)
+  const r = createReporter(flags.json === true)
+  const versions: Record<string, string> = {}
+  versions['@vosjs/cli'] = ownVersion()
   for (const name of ['@vosjs/core', '@vosjs/elements', '@vosjs/tween', 'playwright']) {
     versions[name] = packageVersion(name) ?? '(not found)'
+  }
+  // The plugin, under whichever of its names is installed (the doctor's row).
+  for (const name of PLUGIN_PACKAGES) {
+    const v = packageVersion(name)
+    if (v) {
+      versions[name] = v
+      break
+    }
   }
   if (r.json) r.done({ versions }, '')
   else for (const [k, v] of Object.entries(versions)) process.stdout.write(`${k} ${v}\n`)
@@ -281,45 +260,6 @@ async function cmdPreview(argv: string[]): Promise<number> {
   process.stdout.write(`${url}\n`)
   r.log('Serving playback preview — Ctrl-C to stop.')
   await new Promise(() => {}) // keep alive until interrupted
-  return EXIT_OK
-}
-
-async function cmdFetch(argv: string[]): Promise<number> {
-  const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
-  const source = positionals[0]
-  if (!source) throw new UsageError('vos fetch <vosId|watch-url> [--out dir]')
-  const r = createReporter(flags.json === true)
-  const id = parseVosId(source)
-  // Attached when present so your own private programs fetch too; public and
-  // unlisted programs need no credential at all.
-  const key = resolveCredential()
-
-  const meta = await apiJson(`/api/vos/${id}`, { key })
-  if (meta.status !== 200) throw new Error(apiError(`fetch vos ${id}`, meta))
-  const cfg = await apiJson(`/api/vos/${id}/config`, { key })
-  if (cfg.status !== 200) throw new Error(apiError(`fetch config for ${id}`, cfg))
-
-  const vosMeta = (meta.body.vos ?? {}) as Record<string, unknown>
-  const slug = typeof vosMeta.slug === 'string' && vosMeta.slug ? vosMeta.slug : id
-  const out = (flags.out as string) ?? slug
-  await mkdir(out, { recursive: true })
-  // The config is written EXACTLY as stored (params/presets included) — this
-  // file round-trips back through `vos push`.
-  await writeFile(join(out, 'config.json'), JSON.stringify(cfg.body.config, null, 2))
-  await writeFile(join(out, 'meta.json'), JSON.stringify(vosMeta, null, 2))
-
-  const title = typeof vosMeta.title === 'string' ? vosMeta.title : ''
-  r.done(
-    {
-      out,
-      id,
-      slug,
-      title,
-      currentVersionId: vosMeta.currentVersionId ?? null,
-    },
-    `Wrote ${out}/config.json + meta.json (${title || id})\n` +
-      `Edit config.json, then: vos check ${out}/config.json && vos push ${out}/config.json`,
-  )
   return EXIT_OK
 }
 
@@ -366,346 +306,104 @@ async function cmdCheck(argv: string[]): Promise<number> {
   return result.ok ? EXIT_OK : EXIT_ERROR
 }
 
-async function cmdPush(argv: string[]): Promise<number> {
-  // Polymorphic like `render`: a take DIRECTORY (doc.json) pushes through
-  // the take pipeline in @vosso/cli — recording upload + doc persistence.
-  const firstArg = argv.find((a) => !a.startsWith('-'))
-  if (firstArg && existsSync(join(firstArg, 'doc.json'))) {
-    return delegateTake(['push', ...argv])
-  }
-  const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
-  const source = positionals[0]
-  if (!source) {
-    throw new UsageError(
-      'vos push <config.json|take> [--vos id] [--title t] [--slug s] [--remix-of id] [--note n] [--label l] [--base versionId] [--overrides id,id]',
-    )
-  }
-  const r = createReporter(flags.json === true)
-  const dir = dirname(source)
+// ---------------------------------------------------------------------------
+// The extension seam: every verb this CLI does not own delegates to the vos
+// plugin (the vosso platform layer — take pipeline + vos.so verbs). The
+// contract is the plugin's `run(argv)` export; its optional `manifest`
+// (verb list + supported host range) feeds `vos help` and the doctor, so a
+// new plugin verb never needs a release of this package.
+// ---------------------------------------------------------------------------
 
-  const parsed = JSON.parse(await readFile(source, 'utf8')) as unknown
-  const check = runCheck(parsed)
-  if (!check.ok || !check.config) {
-    for (const i of check.issues) {
-      if (i.level === 'error') r.log(`error [${i.source}] ${i.message}`)
-    }
-    throw new Error(`config does not validate — run: vos check ${source}`)
-  }
-  const config = check.config
+const PLUGIN_PACKAGES = ['@vosso/vos-plugin', '@vosso/cli', '@vosso/voila-cli']
 
-  const key = resolveCredential()
-  if (!key) {
-    throw new Error(
-      'no credential found — set VOS_API_KEY or write the key as the first line of ' +
-        '~/.config/vos/credentials (mint one at https://vos.so/app/api; a vos_rg_ remix grant works too)',
-    )
-  }
-
-  if (flags.vos) {
-    // Iterate an existing vos: add a version. --base names the version this
-    // edit was made FROM (defaulting to the tracked base in meta.json, so a
-    // fetch→edit→push loop gets stale detection for free), --note/--label
-    // say what changed, and --overrides consents to touching protected
-    // (human-edited) nodes — ONLY when the user asked for that change.
-    const vosId = parseVosId(String(flags.vos))
-    const meta = readMeta(dir)
-    const trackedBase =
-      meta && meta.id === vosId && typeof meta.currentVersionId === 'string'
-        ? meta.currentVersionId
-        : undefined
-    const body: Record<string, unknown> = { config }
-    const base = flags.base ? String(flags.base) : trackedBase
-    if (base) body.baseVersionId = base
-    if (flags.note) body.note = String(flags.note)
-    if (flags.label) body.label = String(flags.label)
-    if (flags.overrides) {
-      body.overrides = String(flags.overrides)
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean)
-    }
-    const res = await apiJson(`/api/vos/${vosId}/versions`, { method: 'POST', key, body })
-    if (res.status === 409) {
-      // The correction path is the data path: both 409 shapes carry what to
-      // read. stale_base embeds the changes made on the platform since your
-      // base; protected_conflict lists the human-touched nodes you'd clobber.
-      const changes = Array.isArray(res.body.changes)
-        ? (res.body.changes as VersionChange[])
-        : []
-      for (const line of formatChanges(changes)) r.log(`platform: ${line}`)
-      const protectedIds = Array.isArray(res.body.protected) ? res.body.protected : []
-      const nodes = Array.isArray(res.body.nodes) ? res.body.nodes : []
-      r.event({
-        event: 'conflict',
-        reason: res.body.error ?? 'conflict',
-        changes,
-        protected: protectedIds,
-        nodes,
-      })
-      if (res.body.error === 'protected_conflict') {
-        throw new Error(
-          `push touches human-edited nodes: ${nodes.join(', ')} — keep the human's values, ` +
-            `or re-push with --overrides ${nodes.join(',')} ONLY if the user asked for this change`,
-        )
-      }
-      throw new Error(
-        `version base is stale — the platform copy changed (${changes.length} edit${changes.length === 1 ? 's' : ''} above). ` +
-          `Run: vos pull ${dir} — then re-apply your edit and push again`,
-      )
-    }
-    if (res.status !== 201) throw new Error(apiError(`push version to ${vosId}`, res))
-    const version = (res.body.version ?? {}) as Record<string, unknown>
-    // Track what we just made: the new version is the next push's base.
-    if (typeof version.id === 'string') {
-      writeMeta(dir, { id: vosId, currentVersionId: version.id })
-    }
-    const watchUrl = `${PLATFORM_ORIGIN}/vos/${vosId}`
-    const studioUrl = `${PLATFORM_ORIGIN}/studio?vos=${vosId}`
-    r.done(
-      {
-        id: vosId,
-        versionId: version.id ?? null,
-        versionNumber: version.versionNumber ?? null,
-        base: base ?? null,
-        watchUrl,
-        studioUrl,
-      },
-      `Pushed version ${String(version.versionNumber ?? '?')} of ${vosId}\n` +
-        `  watch:  ${watchUrl}\n  studio: ${studioUrl}`,
-    )
-    return EXIT_OK
-  }
-
-  // Create a new PRIVATE vos. Lineage comes from meta.json (written by
-  // `vos fetch` beside the config) or --remix-of; the platform validates it.
-  let meta: Record<string, unknown> = {}
-  try {
-    meta = JSON.parse(await readFile(join(dirname(source), 'meta.json'), 'utf8')) as Record<
-      string,
-      unknown
-    >
-  } catch {
-    // no meta.json — fine, push without lineage
-  }
-  const remixOfId = flags['remix-of']
-    ? String(flags['remix-of'])
-    : typeof meta.id === 'string'
-      ? meta.id
-      : undefined
-  const fallbackTitle =
-    typeof meta.title === 'string' && meta.title
-      ? `${meta.title} remix`
-      : basename(source).replace(/\.json$/i, '') || 'vos remix'
-  const title = ((flags.title as string) ?? fallbackTitle).slice(0, 100)
-  const slugGiven = typeof flags.slug === 'string'
-  const baseSlug = slugGiven ? (flags.slug as string) : deriveSlug(title)
-
-  for (let attempt = 0; ; attempt++) {
-    const slug = attempt === 0 ? baseSlug : `${baseSlug}-${attempt + 1}`.slice(0, 50)
-    const body: Record<string, unknown> = {
-      title,
-      slug,
-      visibility: 'private',
-      config,
-    }
-    if (remixOfId) body.remixOfId = remixOfId
-    const res = await apiJson('/api/vos', { method: 'POST', key, body })
-    if (res.status === 409 && !slugGiven && attempt < 3) {
-      r.log(`slug "${slug}" is taken — retrying`)
-      continue
-    }
-    if (res.status !== 201) throw new Error(apiError('push vos', res))
-    const created = (res.body.vos ?? {}) as Record<string, unknown>
-    const id = String(created.id ?? '')
-    // The directory now TRACKS the created vos (its source stays as
-    // remixOfId) — the next push/pull needs no flags.
-    writeMeta(dir, {
-      id,
-      currentVersionId: created.currentVersionId ?? null,
-      title,
-      slug: created.slug ?? slug,
-      ...(remixOfId ? { remixOfId } : {}),
-    })
-    const watchUrl = `${PLATFORM_ORIGIN}/vos/${id}`
-    const studioUrl = `${PLATFORM_ORIGIN}/studio?vos=${id}`
-    r.done(
-      {
-        id,
-        slug: created.slug ?? slug,
-        title,
-        visibility: created.visibility ?? 'private',
-        remixOfId: remixOfId ?? null,
-        currentVersionId: created.currentVersionId ?? null,
-        watchUrl,
-        studioUrl,
-      },
-      `Created private vos ${id} (${title})\n` +
-        `  watch:  ${watchUrl}\n  studio: ${studioUrl}\n` +
-        `Iterate with: vos push ${source} --vos ${id}`,
-    )
-    return EXIT_OK
-  }
+interface PluginManifest {
+  name?: string
+  hostRange?: string
+  verbs?: { name: string; summary: string }[]
 }
 
-async function cmdPull(argv: string[]): Promise<number> {
-  // Take directories pull through @vosso/cli (doc.json comes back into the
-  // take); a tracked config directory pulls the program path below.
-  const firstPos = argv.find((a) => !a.startsWith('-'))
-  if (
-    (firstPos && existsSync(join(firstPos, 'doc.json'))) ||
-    (!firstPos && existsSync('doc.json'))
-  ) {
-    return delegateTake(['pull', ...argv])
-  }
-  const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
-  // Positional: the tracked directory or its config.json (default cwd).
-  const target = positionals[0] ?? '.'
-  const dir = target.endsWith('.json') ? dirname(target) : target
-  const r = createReporter(flags.json === true)
-
-  const meta = readMeta(dir)
-  const vosId = flags.vos
-    ? parseVosId(String(flags.vos))
-    : typeof meta?.id === 'string'
-      ? (meta.id as string)
-      : null
-  if (!vosId) {
-    throw new UsageError(
-      `no tracked vos in ${dir}/meta.json — pass --vos <id>, or fetch/push first`,
-    )
-  }
-  const since = flags.since
-    ? String(flags.since)
-    : typeof meta?.currentVersionId === 'string'
-      ? (meta.currentVersionId as string)
-      : null
-  if (!since) {
-    throw new UsageError(
-      `no base version in ${dir}/meta.json — pass --since <versionId>`,
-    )
-  }
-  // The changelog walk is owner-only (edits on private work).
-  const key = resolveCredential()
-  if (!key) {
-    throw new Error(
-      'no credential found — set VOS_API_KEY or write the key as the first line of ' +
-        '~/.config/vos/credentials (mint one at https://vos.so/app/api)',
-    )
-  }
-
-  const res = await apiJson(`/api/vos/${vosId}/changes?since=${encodeURIComponent(since)}`, {
-    key,
-  })
-  if (res.status !== 200) throw new Error(apiError(`pull changes for ${vosId}`, res))
-
-  const head = (res.body.head ?? {}) as Record<string, unknown>
-  const changes = Array.isArray(res.body.changes)
-    ? (res.body.changes as VersionChange[])
-    : []
-  const protectedIds = Array.isArray(res.body.protected)
-    ? (res.body.protected as string[])
-    : []
-
-  if (changes.length === 0) {
-    r.done(
-      { id: vosId, upToDate: true, head: head.id ?? since },
-      `${vosId}: up to date (base ${since.slice(0, 8)}… is the head)`,
-    )
-    return EXIT_OK
-  }
-
-  for (const line of formatChanges(changes)) r.log(line)
-  if (protectedIds.length) {
-    r.log(
-      `protected (human-edited — keep their values unless asked): ${protectedIds.join(', ')}`,
-    )
-  }
-  if (res.body.truncated === true) {
-    r.log('walk truncated — more versions exist; pull again after syncing')
-  }
-
-  if (flags.check === true) {
-    r.done(
-      {
-        id: vosId,
-        upToDate: false,
-        versions: changes.length,
-        head: head.id ?? null,
-        protected: protectedIds,
-        changes,
-      },
-      `${changes.length} version${changes.length === 1 ? '' : 's'} behind — run without --check to sync`,
-    )
-    return EXIT_OK
-  }
-
-  // Sync: the head config replaces config.json (the old file is kept as
-  // config.backup.json), and meta repoints so the next push has the fresh
-  // base. Your uncommitted local edits live in the backup — re-apply on top.
-  const cfg = await apiJson(`/api/vos/${vosId}/config`, { key })
-  if (cfg.status !== 200) throw new Error(apiError(`fetch head config for ${vosId}`, cfg))
-  const configPath = join(dir, 'config.json')
-  let backedUp = false
-  if (existsSync(configPath)) {
-    await writeFile(join(dir, 'config.backup.json'), await readFile(configPath))
-    backedUp = true
-  }
-  await writeFile(configPath, JSON.stringify(cfg.body.config, null, 2))
-  writeMeta(dir, { id: vosId, currentVersionId: head.id ?? since })
-
-  r.done(
-    {
-      id: vosId,
-      upToDate: false,
-      versions: changes.length,
-      head: head.id ?? null,
-      protected: protectedIds,
-      changes,
-      out: configPath,
-      backup: backedUp ? join(dir, 'config.backup.json') : null,
-    },
-    `Pulled ${changes.length} version${changes.length === 1 ? '' : 's'} → ${configPath}` +
-      (backedUp ? ` (previous copy: config.backup.json)` : '') +
-      `\nRe-apply your edit on the new head, then: vos push ${configPath} --vos ${vosId}`,
-  )
-  return EXIT_OK
+interface PluginModule {
+  run?: (argv: string[]) => Promise<number>
+  manifest?: PluginManifest
 }
 
-// The take pipeline's verbs live in @vosso/cli (published; previously
-// @vosso/voila-cli, kept as an install fallback during the transition).
-// The delegation contract is its `run(argv)` export.
-const TAKE_VERBS = new Set(['create', 'record', 'plan', 'frames', 'open', 'validate'])
-
-async function delegateTake(argv: string[], viaAlias = false): Promise<number> {
-  for (const name of ['@vosso/cli', '@vosso/voila-cli']) {
-    let mod: { run?: (argv: string[]) => Promise<number> }
+async function loadPlugin(): Promise<PluginModule | null> {
+  for (const name of PLUGIN_PACKAGES) {
+    let mod: PluginModule
     try {
-      mod = (await import(name as string)) as typeof mod
+      mod = (await import(name as string)) as PluginModule
     } catch {
       continue
     }
-    if (typeof mod.run !== 'function') continue
-    if (viaAlias && argv[0]) {
-      process.stderr.write(`note: "vos voila ${argv[0]}" is now "vos ${argv[0]}".\n`)
-    }
-    return await mod.run(argv)
+    if (typeof mod.run === 'function') return mod
   }
-  process.stderr.write(
-    'The take pipeline (screen recordings in, product video out) ships separately.\n' +
-      '  npm i -D @vosso/cli\n' +
-      `then re-run: vos ${argv.join(' ')}\n`,
-  )
-  return EXIT_ERROR
+  return null
 }
+
+function versionAtLeast(version: string, min: string): boolean {
+  const pa = version.split('.').map((n) => Number.parseInt(n, 10))
+  const pb = min.split('.').map((n) => Number.parseInt(n, 10))
+  for (let i = 0; i < 3; i++) {
+    const a = pa[i] ?? 0
+    const b = pb[i] ?? 0
+    if (a !== b) return a > b
+  }
+  return true
+}
+
+async function delegate(argv: string[], viaAlias = false): Promise<number> {
+  const plugin = await loadPlugin()
+  if (!plugin?.run) {
+    process.stderr.write(
+      `vos ${argv[0] ?? ''}: not an engine verb.\n` +
+        'The take pipeline and the vos.so platform verbs (create, record, plan,\n' +
+        'frames, open, validate, fetch, push, pull, login) ship as a plugin:\n' +
+        '  npm i -D @vosso/vos-plugin\n' +
+        `then re-run: vos ${argv.join(' ')}\n` +
+        '(If this was a typo, run: vos help)\n',
+    )
+    return EXIT_ERROR
+  }
+  const range = plugin.manifest?.hostRange
+  const min = range ? /^>=\s*(\d+\.\d+\.\d+)/.exec(range)?.[1] : undefined
+  if (min && !versionAtLeast(ownVersion(), min)) {
+    process.stderr.write(
+      `note: the installed plugin expects @vosjs/cli ${range} (this is ${ownVersion()}) — upgrade with: npm i -D @vosjs/cli@latest\n`,
+    )
+  }
+  if (viaAlias && argv[0]) {
+    process.stderr.write(`note: "vos voila ${argv[0]}" is now "vos ${argv[0]}".\n`)
+  }
+  return await plugin.run(argv)
+}
+
+async function printHelp(): Promise<void> {
+  process.stdout.write(HELP_ENGINE)
+  const plugin = await loadPlugin()
+  const verbs = plugin?.manifest?.verbs
+  if (verbs?.length) {
+    const label = plugin?.manifest?.name ?? 'vos plugin'
+    process.stdout.write(`\nPlatform + take pipeline (via ${label})\n`)
+    for (const v of verbs) {
+      if (v.name === 'render') continue // polymorphic — already listed above
+      process.stdout.write(`  vos ${v.name.padEnd(8)} ${v.summary}\n`)
+    }
+  } else {
+    process.stdout.write(HELP_PLUGIN_HINT)
+  }
+  process.stdout.write(HELP_CONVENTIONS)
+}
+
+const ENGINE_VERBS = new Set(['render', 'still', 'info', 'versions', 'preview', 'check'])
 
 async function main(): Promise<number> {
   const [cmd, ...rest] = process.argv.slice(2)
   if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') {
-    process.stdout.write(HELP)
+    await printHelp()
     return cmd ? EXIT_OK : EXIT_USAGE
   }
   if (cmd === '--version') return cmdVersions(['--json'])
-  if (TAKE_VERBS.has(cmd)) return delegateTake([cmd, ...rest])
+  if (!ENGINE_VERBS.has(cmd) && cmd !== 'voila') return delegate([cmd, ...rest])
   switch (cmd) {
     case 'render':
       return cmdRender(rest)
@@ -717,18 +415,12 @@ async function main(): Promise<number> {
       return cmdVersions(rest)
     case 'preview':
       return cmdPreview(rest)
-    case 'fetch':
-      return cmdFetch(rest)
     case 'check':
       return cmdCheck(rest)
-    case 'push':
-      return cmdPush(rest)
-    case 'pull':
-      return cmdPull(rest)
     // Hidden alias for existing scripts; not in HELP. Same code path as the
     // promoted verbs, plus a one-line pointer at the new spelling.
     case 'voila':
-      return delegateTake(rest, true)
+      return delegate(rest, true)
     default:
       throw new UsageError(`unknown command "${cmd}" — run vos help`)
   }
