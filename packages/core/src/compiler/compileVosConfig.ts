@@ -74,8 +74,6 @@ export function compileVosConfig(
     throw new Error(`Invalid VosConfigJson:\n${issues}`)
   }
 
-  const version = result.data.version
-
   // Detect which addons are actually needed by scanning function strings
   const detectedAddons = detectRequiredAddons(config)
   // Declarative gltf objects need the loader even though no function string
@@ -222,7 +220,6 @@ ${utilEntries}
 
 
 export const initVos = async (container, deps) => {
-  const VOS_VERSION = ${version};
   const { THREE, gsap, resolution } = deps;
 
   // Input data exposed as ctx.data (runtime deps.data overrides baked config.data; never undefined).
