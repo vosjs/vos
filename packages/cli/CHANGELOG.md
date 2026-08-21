@@ -1,5 +1,12 @@
 # @vosjs/cli
 
+## 0.7.1
+
+### Patch Changes
+
+- Updated dependencies [26e8d41]
+  - @vosjs/core@0.18.0
+
 ## 0.7.0
 
 ### Minor Changes
