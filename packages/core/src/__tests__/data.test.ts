@@ -72,6 +72,86 @@ describe('ctx.data', () => {
   })
 })
 
+describe('setData keeps every program live', () => {
+  const onFrame = '(ctx, content) => { content.uniforms.uHue.value = ctx.data.hue }'
+
+  it('rebuilds content in place when the program declares no onFrame', () => {
+    const code = compileVosConfig({ ...base, data: { hue: 0.2 } })
+    // the rebuild exists and setData calls it after swapping ctx.data
+    expect(code).toContain('const __rebuildContent = () => {')
+    const setDataBlock = code.slice(code.indexOf('setData: (next) => {'))
+    expect(setDataBlock).toContain('__rebuildContent();')
+    // content and timeline are rebindable, and the timeline is read live
+    expect(code).toContain('let content = createContent(context,')
+    expect(code).toContain('let tl = createTimeline(context, content, DURATION);')
+    expect(code).toContain('get timeline() { return tl; }')
+    expect(code).not.toContain('timeline: tl,')
+  })
+
+  it('keeps the swap-only path when the program reads ctx.data in onFrame', () => {
+    const code = compileVosConfig({ ...base, data: { hue: 0.2 }, onFrame })
+    const setDataBlock = code.slice(code.indexOf('setData: (next) => {'))
+    expect(setDataBlock).not.toContain('__rebuildContent();')
+    // the rebuild still exists for the onData/no-onFrame contract, just unused here
+    expect(code).toContain('const __rebuildContent = () => {')
+  })
+
+  it('calls content.onData first, on every program', () => {
+    for (const cfg of [{ ...base }, { ...base, onFrame }]) {
+      const code = compileVosConfig(cfg)
+      const setDataBlock = code.slice(code.indexOf('setData: (next) => {'))
+      expect(setDataBlock).toContain(
+        "if (content && typeof content.onData === 'function') { content.onData(__vosData); return; }",
+      )
+    }
+  })
+
+  it('strips what the old content added and restores the baseline layers', () => {
+    const code = compileVosConfig(base)
+    expect(code).toContain('const __baseChildren = new Set(scene.children);')
+    const rebuild = code.slice(
+      code.indexOf('const __rebuildContent = () => {'),
+      code.indexOf('return {'),
+    )
+    expect(rebuild).toContain('if (content && content.dispose) content.dispose();')
+    expect(rebuild).toContain('if (obj && obj.parent) obj.parent.remove(obj);')
+    expect(rebuild).toContain('if (!__baseChildren.has(child)) scene.remove(child);')
+    expect(rebuild).toContain('__resetLayers();')
+    expect(rebuild).toContain('__assignLayers();')
+    // layer assignment is emitted as re-runnable functions
+    expect(code).toContain('function __resetLayers() {')
+    expect(code).toContain('function __assignLayers() {')
+  })
+
+  it('carries the transport and the host progress callback to the new timeline', () => {
+    const code = compileVosConfig(base)
+    const rebuild = code.slice(
+      code.indexOf('const __rebuildContent = () => {'),
+      code.indexOf('return {'),
+    )
+    expect(rebuild).toContain("const prevOnUpdate = prev.eventCallback('onUpdate');")
+    expect(rebuild).toContain("if (prevOnUpdate) tl.eventCallback('onUpdate', prevOnUpdate);")
+    expect(rebuild).toContain('tl.timeScale(prevRate);')
+    expect(rebuild).toContain('if (!prevPaused) tl.play();')
+    expect(rebuild).toContain('prev.kill();')
+  })
+
+  it('rebuilds per-layer composers only when the config has per-layer effects', () => {
+    const withLayers = compileVosConfig({
+      ...base,
+      perLayerEffects: [{ type: 'bloom', strength: 1, radius: 0.5, threshold: 0 }, { type: 'output' }],
+    } as never)
+    expect(withLayers).toContain('function __buildLayerComposers() {')
+    const rebuild = withLayers.slice(
+      withLayers.indexOf('const __rebuildContent = () => {'),
+      withLayers.indexOf('return {'),
+    )
+    expect(rebuild).toContain('__buildLayerComposers();')
+    const without = compileVosConfig(base)
+    expect(without).not.toContain('__buildLayerComposers')
+  })
+})
+
 describe('{$data} element bindings', () => {
   const bound = {
     ...base,
