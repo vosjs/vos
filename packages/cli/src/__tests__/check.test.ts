@@ -24,13 +24,20 @@ describe('runCheck', () => {
     expect(r.ok).toBe(true)
   })
 
-  it('migrates v1 configs with a warning and keeps ok', () => {
+  it('fails a v1 config: version 2 is the floor', () => {
     const { version: _v, ...rest } = VALID
     const r = runCheck({ ...rest, version: 1, repeat: 3 })
+    expect(r.ok).toBe(false)
+    expect(r.issues.some((i) => i.level === 'error' && /version 1/.test(i.message))).toBe(true)
+  })
+
+  it('warns that a version-less config plays but will not push', () => {
+    const { version: _v, ...rest } = VALID
+    const r = runCheck(rest)
     expect(r.ok).toBe(true)
-    expect(r.issues.some((i) => i.level === 'warn' && /migrated/.test(i.message))).toBe(true)
-    expect(r.config?.version).toBe(2)
-    expect(r.config).not.toHaveProperty('repeat')
+    expect(
+      r.issues.some((i) => i.level === 'warn' && /Add "version": 2/.test(i.message)),
+    ).toBe(true)
   })
 
   it('preserves params/presets through the pipeline without warnings', () => {

@@ -43,7 +43,9 @@ describe('extractConfigFromFunctionCall', () => {
     expect(result).toBeNull()
   })
 
-  it('migrates v1 config to v2', () => {
+  it('refuses a v1 config out loud', () => {
+    // A structured caller handed us a config object, so an unsupported schema
+    // era is worth a reason. `null` here would read as "no config found".
     const v1Config = {
       version: 1,
       duration: 5,
@@ -53,13 +55,9 @@ describe('extractConfigFromFunctionCall', () => {
       createTimeline:
         '(ctx, content, duration) => { return ctx.gsap.timeline(); }',
     }
-    const result = extractConfigFromFunctionCall({
-      config: v1Config,
-      title: 'V1 Test',
-    })
-    expect(result).not.toBeNull()
-    expect(result!.config.version).toBe(2)
-    expect((result!.config as any).repeat).toBeUndefined()
+    expect(() =>
+      extractConfigFromFunctionCall({ config: v1Config, title: 'V1 Test' }),
+    ).toThrow(/No migration from config version 1/)
   })
 })
 
@@ -112,7 +110,9 @@ ${JSON.stringify(validConfig, null, 2)}
     expect(result!.config.duration).toBe(5)
   })
 
-  it('migrates v1 config from text extraction', () => {
+  it('skips a v1 config rather than throwing at a text scan', () => {
+    // Scanning prose is best-effort: an unreadable block is "no config here",
+    // and the next block still gets its chance.
     const v1Config = {
       version: 1,
       duration: 5,
@@ -125,9 +125,6 @@ ${JSON.stringify(validConfig, null, 2)}
     const text = `\`\`\`json
 ${JSON.stringify(v1Config, null, 2)}
 \`\`\``
-    const result = extractConfigFromText(text)
-    expect(result).not.toBeNull()
-    expect(result!.config.version).toBe(2)
-    expect((result!.config as any).repeat).toBeUndefined()
+    expect(extractConfigFromText(text)).toBeNull()
   })
 })

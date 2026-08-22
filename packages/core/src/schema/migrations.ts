@@ -20,16 +20,17 @@ export const CURRENT_CONFIG_VERSION = 2
 type Migration = (config: Record<string, unknown>) => Record<string, unknown>
 
 /**
- * v1 → v2: Remove `repeat` field (now always hardcoded to -1).
+ * Version 2 is the FLOOR: the engine has never been public at v1, so no
+ * config outside vos.so was ever authored against it, and the last v1
+ * artifact there has been carried forward. A v1 config is therefore refused
+ * rather than migrated, which is the honest answer for a schema era this
+ * engine no longer knows how to read.
+ *
+ * A future v2 → v3 registers here as `{ 2: migrateV2toV3 }` and the loop
+ * below runs it. The map is empty, not absent, because the machinery is
+ * what makes the version number worth stamping.
  */
-const migrateV1toV2: Migration = (config) => {
-  const { repeat: _repeat, ...rest } = config
-  return { ...rest, version: 2 }
-}
-
-const migrations: Record<number, Migration> = {
-  1: migrateV1toV2,
-}
+const migrations: Record<number, Migration> = {}
 
 /**
  * Migrate a config object to the current schema version, stamping
@@ -78,7 +79,9 @@ export function migrateConfig(
   while (version < CURRENT_CONFIG_VERSION) {
     const migrate = migrations[version] as Migration | undefined
     if (!migrate) {
-      throw new Error(`No migration for config version ${version}`)
+      throw new Error(
+        `No migration from config version ${version} to ${CURRENT_CONFIG_VERSION}.`,
+      )
     }
     current = migrate(current)
     version = current.version as number
