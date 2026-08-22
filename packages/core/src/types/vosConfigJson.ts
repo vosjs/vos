@@ -29,9 +29,10 @@ export interface FontFaceDecl {
  */
 export interface VosConfigJson {
   /**
-   * Schema version for forward compatibility.
+   * Schema version, stamped by `migrateConfig` when a config is read.
+   * Authors leave it out; state it only to mean an OLDER version.
    */
-  version: number
+  version?: number
 
   /**
    * Total duration of one animation cycle in seconds.

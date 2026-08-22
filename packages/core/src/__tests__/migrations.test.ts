@@ -33,17 +33,38 @@ describe('migrateConfig', () => {
     expect(result).toEqual(v2)
   })
 
-  it('treats missing version as v1', () => {
+  it('stamps the current version on an authored config that omits one', () => {
+    // Absent means "just authored", not "ancient": every config this engine
+    // has ever STORED carries a version, so a missing one can only have been
+    // written against today's documentation.
     const noVersion = {
       duration: 8,
-      repeat: -1,
       camera: { preset: 'perspective' },
       createContent: '() => ({})',
       createTimeline: '() => gsap.timeline()',
     }
     const result = migrateConfig(noVersion)
-    expect(result.version).toBe(2)
-    expect(result).not.toHaveProperty('repeat')
+    expect(result.version).toBe(CURRENT_CONFIG_VERSION)
+    expect(result.duration).toBe(8)
+  })
+
+  it('refuses a config from a newer engine instead of waving it through', () => {
+    const future = {
+      version: CURRENT_CONFIG_VERSION + 1,
+      duration: 5,
+      camera: { preset: 'perspective' },
+      createContent: '() => ({})',
+      createTimeline: '() => gsap.timeline()',
+    }
+    expect(() => migrateConfig(future)).toThrow(/newer vos/)
+  })
+
+  it('refuses a version that is not a positive integer', () => {
+    for (const version of ['2', 0, -1, 1.5, null]) {
+      expect(() => migrateConfig({ version, duration: 5 })).toThrow(
+        /Invalid config version/,
+      )
+    }
   })
 
   it('strips repeat even with non-default value', () => {
