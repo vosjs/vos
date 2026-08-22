@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { CURRENT_CONFIG_VERSION, migrateConfig } from '../schema/migrations'
+import { vosConfigJsonSchema } from '../schema/configJsonSchema'
 
 describe('migrateConfig', () => {
   it('exports CURRENT_CONFIG_VERSION as 2', () => {
     expect(CURRENT_CONFIG_VERSION).toBe(2)
   })
 
-  it('migrates v1 to v2 by stripping repeat', () => {
+  it('refuses v1: version 2 is the floor, not a migration target', () => {
     const v1 = {
       version: 1,
       duration: 8,
@@ -15,10 +16,7 @@ describe('migrateConfig', () => {
       createContent: '() => ({})',
       createTimeline: '() => gsap.timeline()',
     }
-    const result = migrateConfig(v1)
-    expect(result.version).toBe(2)
-    expect(result).not.toHaveProperty('repeat')
-    expect(result.duration).toBe(8)
+    expect(() => migrateConfig(v1)).toThrow(/No migration from config version 1/)
   })
 
   it('passes through v2 config unchanged', () => {
@@ -34,9 +32,9 @@ describe('migrateConfig', () => {
   })
 
   it('stamps the current version on an authored config that omits one', () => {
-    // Absent means "just authored", not "ancient": every config this engine
-    // has ever STORED carries a version, so a missing one can only have been
-    // written against today's documentation.
+    // A convenience for TRANSIENT work: a scribbled config still compiles.
+    // It is not a claim about when the config was written, which is why a
+    // host that STORES configs requires the field at that boundary.
     const noVersion = {
       duration: 8,
       camera: { preset: 'perspective' },
@@ -67,17 +65,18 @@ describe('migrateConfig', () => {
     }
   })
 
-  it('strips repeat even with non-default value', () => {
-    const v1 = {
-      version: 1,
+  it('leaves a stray `repeat` to the schema, which strips unknown keys', () => {
+    // The v1 migration existed to drop `repeat`, and the schema does that on
+    // its own — which is why removing the migration costs nothing here.
+    const v2 = {
+      version: 2,
       duration: 5,
       repeat: 3,
       camera: { preset: 'fullscreen' },
       createContent: '() => ({})',
       createTimeline: '() => gsap.timeline()',
     }
-    const result = migrateConfig(v1)
-    expect(result.version).toBe(2)
-    expect(result).not.toHaveProperty('repeat')
+    expect(migrateConfig(v2)).toHaveProperty('repeat')
+    expect(vosConfigJsonSchema.parse(v2)).not.toHaveProperty('repeat')
   })
 })

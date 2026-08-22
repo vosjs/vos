@@ -81,11 +81,20 @@ export function runCheck(parsed: unknown): CheckResult {
     })
     return finish(null)
   }
-  if (version !== CURRENT_CONFIG_VERSION) {
+  if (version === undefined) {
+    // It compiles (the engine reads an absent version as the current one),
+    // but a push is refused: a stored config must say which schema era it was
+    // written against, and nobody can tell that from the file later.
     issues.push({
       level: 'warn',
       source: 'shape',
-      message: `config is v${String(version ?? 1)} — migrated to v${CURRENT_CONFIG_VERSION}; save the migrated form`,
+      message: `config declares no "version". It plays here, but a push is refused without one. Add "version": ${CURRENT_CONFIG_VERSION}.`,
+    })
+  } else if (version !== CURRENT_CONFIG_VERSION) {
+    issues.push({
+      level: 'warn',
+      source: 'shape',
+      message: `config is v${String(version)}, migrated to v${CURRENT_CONFIG_VERSION}. Save the migrated form.`,
     })
   }
 
