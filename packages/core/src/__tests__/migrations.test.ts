@@ -32,9 +32,9 @@ describe('migrateConfig', () => {
   })
 
   it('stamps the current version on an authored config that omits one', () => {
-    // Absent means "just authored", not "ancient": every config this engine
-    // has ever STORED carries a version, so a missing one can only have been
-    // written against today's documentation.
+    // A convenience for TRANSIENT work: a scribbled config still compiles.
+    // It is not a claim about when the config was written, which is why a
+    // host that STORES configs requires the field at that boundary.
     const noVersion = {
       duration: 8,
       camera: { preset: 'perspective' },

@@ -128,6 +128,11 @@ export function compileVosConfig(
   const globalComposerSetup = generateGlobalComposerSetup(configForGenerators)
   const dynamicLayerRebuild = generateDynamicLayerRebuild(configForGenerators)
 
+  // A program with onFrame reads ctx.data per frame, so setData can stay a swap;
+  // without one, setData rebuilds the content (see __rebuildContent).
+  const hasOnFrame = !!config.onFrame
+  const hasPerLayer = !!config.perLayerEffects?.length
+
   // Generate setup hook if present
   const hasSetup = !!config.setup
   const setupFn = hasSetup ? `const setup = ${config.setup};` : ''
@@ -275,7 +280,10 @@ export const initVos = async (container, deps) => {
   const DURATION = ${config.duration};
 
   const createContent = ${contentCreation};
-  const content = createContent(context, ${setupDataArg});
+  // What the scene held before the program added anything: the live rebuild
+  // (setData without onFrame) strips everything the content put there.
+  const __baseChildren = new Set(scene.children);
+  let content = createContent(context, ${setupDataArg});
 
   ${layerAssignment}
 
@@ -284,7 +292,7 @@ export const initVos = async (container, deps) => {
   ${globalComposerSetup}
 
   const createTimeline = ${timelineCreation};
-  const tl = createTimeline(context, content, DURATION);
+  let tl = createTimeline(context, content, DURATION);
   tl.repeat(-1);
   tl.pause();
 
@@ -315,13 +323,54 @@ export const initVos = async (container, deps) => {
 
   ${renderLoop}
 
+  // Live content rebuild: re-run createContent against the new ctx.data inside
+  // the running instance — same renderer, scene, camera, elements and objects;
+  // no module re-import, so nothing blanks. The transport (playhead, play
+  // state, rate) and the host's progress callback carry over to the new
+  // timeline. Used by setData when a program declares no onFrame — such a
+  // program can only have read ctx.data at creation, so a swap alone would
+  // never reach the screen.
+  const __rebuildContent = () => {
+    const prev = tl;
+    const prevTime = prev.time();
+    const prevPaused = prev.paused();
+    const prevRate = prev.timeScale();
+    const prevOnUpdate = prev.eventCallback('onUpdate');
+    prev.kill();
+    try { if (content && content.dispose) content.dispose(); } catch (e) {}
+    const listed = content && Array.isArray(content.objects) ? content.objects : [];
+    for (const obj of listed) { if (obj && obj.parent) obj.parent.remove(obj); }
+    for (let ci = scene.children.length - 1; ci >= 0; ci--) {
+      const child = scene.children[ci];
+      if (!__baseChildren.has(child)) scene.remove(child);
+    }
+    __resetLayers();
+    content = createContent(context, ${setupDataArg});
+    __assignLayers();${hasPerLayer ? '\n    __buildLayerComposers();' : ''}
+    tl = createTimeline(context, content, DURATION);
+    tl.repeat(-1);
+    tl.pause();
+    if (prevOnUpdate) tl.eventCallback('onUpdate', prevOnUpdate);
+    tl.timeScale(prevRate);
+    const dur = tl.duration();
+    tl.seek(isFinite(dur) && dur > 0 ? Math.min(prevTime, dur) : prevTime, false);
+    if (!prevPaused) tl.play();
+  };
+
   return {
-    timeline: tl,
+    // A getter: a live rebuild replaces the timeline, and hosts read this
+    // property per command rather than caching it.
+    get timeline() { return tl; },
     cleanup: ${cleanup},
     assetsReady: content.assetsReady,
-    // Live data channel (T2): swap ctx.data without re-init. onFrame redraws with the
-    // new value next frame. NOTE: values baked into GSAP tweens at createTimeline time
-    // do not retroactively change — that is a program (T3) edit handled by warm LOAD.
+    // Live data channel (T2): swap ctx.data without re-init. Three rungs, cheapest
+    // first: content.onData(data) when the program returned one; otherwise a program
+    // with onFrame reads ctx.data on the next frame; otherwise the content is rebuilt
+    // in place (__rebuildContent) — a program without onFrame can only have read
+    // ctx.data at creation, so the swap alone would never show. NOTE: values baked
+    // into GSAP tweens at createTimeline time survive only through the rebuild or
+    // onData rungs; for an onFrame program that is a program (T3) edit handled by
+    // warm LOAD.
     setData: (next) => {
       __vosData = Object.freeze(next ?? {});
       // Data-carried webfonts (font knobs): register new faces lazily; when
@@ -335,6 +384,9 @@ export const initVos = async (container, deps) => {
       // Re-resolve {$data}-bound element props (re-raster in place, no re-init).
       if (window.__vos__ && window.__vos__.elements && window.__vos__.elements.updateData) {
         window.__vos__.elements.updateData(elements, __vosData);
+      }
+      if (content && typeof content.onData === 'function') { content.onData(__vosData); return; }${
+        hasOnFrame ? '' : '\n      __rebuildContent();'
       }
     },
     getData: () => __vosData,
