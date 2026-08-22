@@ -4,12 +4,15 @@
  * Applies sequential migrations (v1 → v2 → ... → current) to bring
  * old VosConfigJson objects up to the latest schema version.
  *
- * `version` is a property of a STORED config, not an authored one. Nothing
- * in the compiler or the runtime reads it: it exists so a config whose
- * MEANING changed while its SHAPE did not (a unit, a default, a
- * reinterpreted field) can still be read correctly years later, which no
- * amount of structural sniffing can recover after the fact. So authors —
- * people, agents, the editor — leave it out, and this function stamps it.
+ * `version` says which schema era a config was written against. Nothing in
+ * the compiler or the runtime reads it: it exists so a config whose MEANING
+ * changed while its SHAPE did not (a unit, a default, a reinterpreted
+ * field) can still be read correctly years later, which no amount of
+ * structural sniffing can recover after the fact.
+ *
+ * It is therefore required to STORE a config and optional to compile one.
+ * The schema leaves it optional so playing a config costs no ceremony; a
+ * host that persists configs enforces it at that boundary.
  */
 
 export const CURRENT_CONFIG_VERSION = 2
@@ -32,11 +35,16 @@ const migrations: Record<number, Migration> = {
  * Migrate a config object to the current schema version, stamping
  * `version` on the way out.
  *
- * An ABSENT version means the config was just authored, so it is read as
- * the current version. Every config this engine has ever stored carries
- * one (the schema required it from v1), so a missing version can only come
- * from a hand-written or generated config — which was written against
- * today's documentation. Say a version only to mean an OLDER one.
+ * An ABSENT version is read as the CURRENT one so that a config scribbled
+ * by hand still compiles and plays without ceremony. That is a convenience
+ * for TRANSIENT work, not a claim about when the config was written:
+ * nothing in a config says that, and a file can sit in a repository for
+ * years before anyone runs it.
+ *
+ * So anything that makes a config DURABLE must require a version of its
+ * own accord rather than lean on this default. A wrong reading of a config
+ * you are watching corrects itself; a wrong reading of one you stored does
+ * not, and that is the whole reason the number exists.
  *
  * A version NEWER than this engine understands throws instead of being
  * waved through: the fields it is about to ignore are the whole reason the
