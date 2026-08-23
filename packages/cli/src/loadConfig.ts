@@ -45,8 +45,15 @@ export async function loadVosConfig(source: string): Promise<LoadedConfig> {
 
   const version = obj.version
   const migrated = migrateConfig(obj)
-  if (version !== CURRENT_CONFIG_VERSION) {
-    warnings.push(`migrated config v${String(version ?? 1)} → v${CURRENT_CONFIG_VERSION}`)
+  if (version === undefined) {
+    // Plays fine (the stamp happens above), but a storer refuses it.
+    warnings.push(
+      `config declares no "version". Add "version": ${CURRENT_CONFIG_VERSION} before pushing it.`,
+    )
+  } else if (version !== CURRENT_CONFIG_VERSION) {
+    warnings.push(
+      `migrated config v${String(version)} to v${CURRENT_CONFIG_VERSION}`,
+    )
   }
 
   const check = vosConfigJsonSchema.safeParse(migrated)

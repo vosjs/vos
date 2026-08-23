@@ -29,10 +29,14 @@ export interface FontFaceDecl {
  */
 export interface VosConfigJson {
   /**
-   * Schema version, stamped by `migrateConfig` when a config is read.
-   * Authors leave it out; state it only to mean an OLDER version.
+   * Which schema era this config was written against.
+   *
+   * Required, because this is the CANONICAL shape: what is stored, served
+   * and read back later, when nobody can tell the era from the file itself.
+   * `migrateConfig` stamps it, so the type you hand a storer always has one.
+   * The authoring shape that may omit it is `AuthoredVosConfigJson`.
    */
-  version?: number
+  version: number
 
   /**
    * Total duration of one animation cycle in seconds.
@@ -101,4 +105,20 @@ export interface VosConfigJson {
    * @example "(ctx, content, deltaTime) => { content.refs.uniforms.iTime.value += deltaTime; }"
    */
   onFrame?: string
+}
+
+/**
+ * A config as AUTHORED: the canonical shape with `version` optional.
+ *
+ * This is the narrow allowance, and it exists for exactly one situation: a
+ * config being written and played right now, where the era is not in doubt
+ * because you are watching the result. `compileVosConfig` takes this, and
+ * `migrateConfig` turns it into the canonical shape by stamping the field.
+ *
+ * Anything DURABLE takes `VosConfigJson` instead. A stored config that
+ * cannot say which schema it was written against is unreadable later, and
+ * that is unrecoverable rather than merely inconvenient.
+ */
+export type AuthoredVosConfigJson = Omit<VosConfigJson, 'version'> & {
+  version?: number
 }

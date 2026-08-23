@@ -10,7 +10,7 @@ export function isValidVosConfigJson(config: unknown): config is VosConfigJson {
   const c = config as Record<string, unknown>
 
   return (
-    (c.version === undefined || typeof c.version === 'number') &&
+    typeof c.version === 'number' &&
     typeof c.duration === 'number' &&
     typeof c.camera === 'object' &&
     typeof c.createContent === 'string' &&

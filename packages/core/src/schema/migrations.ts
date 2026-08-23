@@ -15,6 +15,11 @@
  * host that persists configs enforces it at that boundary.
  */
 
+import type {
+  AuthoredVosConfigJson,
+  VosConfigJson,
+} from '../types/vosConfigJson'
+
 export const CURRENT_CONFIG_VERSION = 2
 
 type Migration = (config: Record<string, unknown>) => Record<string, unknown>
@@ -50,11 +55,22 @@ const migrations: Record<number, Migration> = {}
  * A version NEWER than this engine understands throws instead of being
  * waved through: the fields it is about to ignore are the whole reason the
  * number exists.
+ *
+ * The overloads carry that rule in the type system: hand it an AUTHORED
+ * config and you get the canonical one back, version guaranteed. Hand it
+ * untrusted JSON and you get untrusted JSON back, with the same guarantee
+ * about that one field and no claim about the rest, which the schema
+ * validates next.
  */
+export function migrateConfig(config: AuthoredVosConfigJson): VosConfigJson
 export function migrateConfig(
   config: Record<string, unknown>,
-): Record<string, unknown> {
-  const declared = config.version
+): Record<string, unknown> & { version: number }
+// The implementation signature is deliberately loose: an interface is not
+// assignable to an index-signature type in TypeScript, so the two public
+// overloads above cannot share one concrete signature.
+export function migrateConfig(config: any): any {
+  const declared = (config as Record<string, unknown>).version
 
   if (declared !== undefined) {
     if (
@@ -74,7 +90,10 @@ export function migrateConfig(
   }
 
   let version = typeof declared === 'number' ? declared : CURRENT_CONFIG_VERSION
-  let current: Record<string, unknown> = { ...config, version }
+  let current: Record<string, unknown> & { version: number } = {
+    ...(config as Record<string, unknown>),
+    version,
+  }
 
   while (version < CURRENT_CONFIG_VERSION) {
     const migrate = migrations[version] as Migration | undefined
@@ -83,8 +102,8 @@ export function migrateConfig(
         `No migration from config version ${version} to ${CURRENT_CONFIG_VERSION}.`,
       )
     }
-    current = migrate(current)
-    version = current.version as number
+    current = migrate(current) as Record<string, unknown> & { version: number }
+    version = current.version
   }
 
   return current

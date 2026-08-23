@@ -28,7 +28,10 @@ export type {
 } from './vos'
 
 // JSON-serializable config type
-export type { VosConfigJson } from './vosConfigJson'
+export type {
+  AuthoredVosConfigJson,
+  VosConfigJson,
+} from './vosConfigJson'
 
 // Element types
 export type {

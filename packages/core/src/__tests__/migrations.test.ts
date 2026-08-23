@@ -57,6 +57,24 @@ describe('migrateConfig', () => {
     expect(() => migrateConfig(future)).toThrow(/newer vos/)
   })
 
+  it('is the only tolerant door: the schema itself requires a version', () => {
+    // These two must hold TOGETHER. The schema describes the canonical shape
+    // and every caller migrates before parsing, so an authored config reaches
+    // it already stamped. Loosen the schema and the requirement stops being
+    // enforced anywhere; tighten migrateConfig and playing a config gains
+    // ceremony it never needed.
+    const authored = {
+      duration: 5,
+      camera: { preset: 'fullscreen' },
+      createContent: '() => ({})',
+      createTimeline: '() => gsap.timeline()',
+    }
+    expect(vosConfigJsonSchema.safeParse(authored).success).toBe(false)
+    expect(vosConfigJsonSchema.safeParse(migrateConfig(authored)).success).toBe(
+      true,
+    )
+  })
+
   it('refuses a version that is not a positive integer', () => {
     for (const version of ['2', 0, -1, 1.5, null]) {
       expect(() => migrateConfig({ version, duration: 5 })).toThrow(
