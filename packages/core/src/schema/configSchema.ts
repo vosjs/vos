@@ -12,8 +12,8 @@ const fnSchema = z.custom<(...args: any[]) => any>(
 )
 
 export const vosConfigSchema = z.object({
-  // Optional — stamped by `migrateConfig`, never written by an author.
-  version: z.number().int().positive().optional(),
+  // Required — the post-migrate shape always carries one.
+  version: z.number().int().positive(),
   duration: z.number().positive(),
   scene: sceneSchema,
   camera: cameraSchema,

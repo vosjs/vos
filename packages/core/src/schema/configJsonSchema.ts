@@ -76,9 +76,9 @@ export const fontFaceDeclSchema = z
 // ---------------------------------------------------------------------------
 
 export const vosConfigJsonSchema = z.object({
-  // Optional: a stored config carries one, an authored config does not.
-  // `migrateConfig` stamps it — see schema/migrations.ts.
-  version: z.number().int().positive().optional(),
+  // Required: this schema describes the CANONICAL shape, and every caller
+  // migrates before parsing (that is where an absent version is stamped).
+  version: z.number().int().positive(),
   duration: z.number().positive(),
   scene: sceneSchema,
   camera: cameraSchema,

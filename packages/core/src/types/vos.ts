@@ -229,10 +229,10 @@ export interface OutputEffect {
  */
 export interface VosConfig {
   /**
-   * Schema version, stamped by `migrateConfig` when a config is read.
-   * Authors leave it out; state it only to mean an OLDER version.
+   * Which schema era this config was written against. Required: this is the
+   * shape a config has once it has been read, which is always stamped.
    */
-  version?: number
+  version: number
 
   /**
    * Total duration of one animation cycle in seconds.

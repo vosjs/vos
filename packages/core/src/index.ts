@@ -55,6 +55,7 @@ export type {
   OutputEffect,
   VosConfig,
   VosConfigJson,
+  AuthoredVosConfigJson,
   VosResult,
   VosTimeline,
   // Elements

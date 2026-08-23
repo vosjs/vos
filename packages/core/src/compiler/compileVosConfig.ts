@@ -23,7 +23,7 @@ import {
   generateResizeHandler,
   generateSceneSetup,
 } from './generators'
-import type { VosConfigJson } from '../types'
+import type { AuthoredVosConfigJson, VosConfigJson } from '../types'
 
 /**
  * Compiles a VosConfigJson (with function strings) into an executable template.
@@ -57,13 +57,13 @@ export interface CompileVosConfigOptions {
 }
 
 export function compileVosConfig(
-  input: VosConfigJson,
+  input: AuthoredVosConfigJson,
   options: CompileVosConfigOptions = {},
 ): string {
-  // Migrate old config versions
-  const config = migrateConfig(
-    input as unknown as Record<string, unknown>,
-  ) as unknown as VosConfigJson
+  // Playing a config is transient and watched, so this end takes the AUTHORED
+  // shape: `version` may be absent and is stamped here. Storing one is not
+  // transient, which is why a storer takes `VosConfigJson` instead.
+  const config = migrateConfig(input)
 
   // Validate config
   const result = vosConfigJsonSchema.safeParse(config)
