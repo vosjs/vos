@@ -8,6 +8,9 @@
  *   data changed           → `SET_DATA` (live, no re-init)
  *   duration changed       → `SET_DURATION` when the running program supports it
  *                            (`READY.canSetDuration`), else fall back to LOAD
+ *   a stack entry's data   → `SET_DATA { target }` for that entry alone
+ *                            (bridge protocol 5); a LOAD carries every entry's
+ *                            data as `stack`
  *
  * The program string is the structural hash — no field lists, no heuristics.
  * Editors that lower to a CONSTANT interpreter program (all editable state in
@@ -21,14 +24,34 @@ export interface LoweredProgram {
   data?: Record<string, unknown>
   /** Output duration in seconds; omit when the host doesn't manage duration. */
   duration?: number
+  /**
+   * Per-entry data for the program's `stack` (`config.stack[].id` → its own
+   * `ctx.data`). Each entry is diffed by reference on its own, like `data`.
+   */
+  stack?: Record<string, Record<string, unknown>>
 }
 
 export type SessionCommand =
-  | { type: 'LOAD'; code: string; data?: Record<string, unknown> }
-  | { type: 'SET_DATA'; data: Record<string, unknown> }
+  | {
+      type: 'LOAD'
+      code: string
+      data?: Record<string, unknown>
+      stack?: Record<string, Record<string, unknown>>
+    }
+  | { type: 'SET_DATA'; data: Record<string, unknown>; target?: string }
   | { type: 'SET_DURATION'; value: number }
 
 const EPSILON = 1e-6
+
+function load(next: LoweredProgram): SessionCommand {
+  const cmd: SessionCommand = {
+    type: 'LOAD',
+    code: next.program,
+    data: next.data,
+  }
+  if (next.stack) cmd.stack = next.stack
+  return cmd
+}
 
 export function classifyEdit(
   prev: LoweredProgram | null,
@@ -36,7 +59,7 @@ export function classifyEdit(
   canSetDuration: boolean,
 ): SessionCommand[] {
   if (!prev || prev.program !== next.program) {
-    return [{ type: 'LOAD', code: next.program, data: next.data }]
+    return [load(next)]
   }
 
   const durationChanged =
@@ -47,12 +70,19 @@ export function classifyEdit(
   // Duration changed but the running program can't retime → one warm LOAD
   // (it re-inits the carrier from data.duration and carries the data anyway).
   if (durationChanged && !canSetDuration) {
-    return [{ type: 'LOAD', code: next.program, data: next.data }]
+    return [load(next)]
   }
 
   const commands: SessionCommand[] = []
   if (next.data !== undefined && next.data !== prev.data) {
     commands.push({ type: 'SET_DATA', data: next.data })
+  }
+  if (next.stack) {
+    for (const [target, data] of Object.entries(next.stack)) {
+      if (data !== prev.stack?.[target]) {
+        commands.push({ type: 'SET_DATA', data, target })
+      }
+    }
   }
   // After SET_DATA, so a rebuilt carrier and fresh data can never disagree.
   if (durationChanged) {
