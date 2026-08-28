@@ -110,6 +110,12 @@ export interface VosTimeline {
   time(): number
   /** Normalized progress 0..1. */
   progress(): number
+  /**
+   * Optional (the vos tween backend): re-apply a tween-timing overlay over the
+   * recorded tweens, from the recording every time. The bridge's
+   * SET_TWEEN_EDITS rides it; absent on a gsap timeline.
+   */
+  applyEdits?(edits: readonly Record<string, unknown>[]): unknown
   /** Configured duration in seconds. */
   duration(): number
   /** Total duration including repeats (seconds). */

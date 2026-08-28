@@ -11,6 +11,10 @@
  *   a stack entry's data   → `SET_DATA { target }` for that entry alone
  *                            (bridge protocol 5); a LOAD carries every entry's
  *                            data as `stack`
+ *   tween edits changed    → `SET_TWEEN_EDITS { edits }` (protocol 8): the
+ *                            running timeline retimes live; a LOAD carries
+ *                            the overlay as `tweenEdits`. The program string
+ *                            never moves on a retime.
  *
  * The program string is the structural hash — no field lists, no heuristics.
  * Editors that lower to a CONSTANT interpreter program (all editable state in
@@ -29,6 +33,20 @@ export interface LoweredProgram {
    * `ctx.data`). Each entry is diffed by reference on its own, like `data`.
    */
   stack?: Record<string, Record<string, unknown>>
+  /**
+   * The tween-timing overlay (the recorder's `TweenEdit[]`, structurally),
+   * diffed by reference. Absent means "none", the same as `[]`.
+   */
+  tweenEdits?: readonly TweenEditLike[]
+}
+
+export interface TweenEditLike {
+  index: number
+  startTime?: number
+  duration?: number
+  ease?: string
+  to?: Record<string, number>
+  from?: Record<string, number>
 }
 
 export type SessionCommand =
@@ -37,8 +55,10 @@ export type SessionCommand =
       code: string
       data?: Record<string, unknown>
       stack?: Record<string, Record<string, unknown>>
+      tweenEdits?: readonly TweenEditLike[]
     }
   | { type: 'SET_DATA'; data: Record<string, unknown>; target?: string }
+  | { type: 'SET_TWEEN_EDITS'; edits: readonly TweenEditLike[] }
   | { type: 'SET_DURATION'; value: number }
 
 const EPSILON = 1e-6
@@ -50,6 +70,7 @@ function load(next: LoweredProgram): SessionCommand {
     data: next.data,
   }
   if (next.stack) cmd.stack = next.stack
+  if (next.tweenEdits) cmd.tweenEdits = next.tweenEdits
   return cmd
 }
 
@@ -83,6 +104,9 @@ export function classifyEdit(
         commands.push({ type: 'SET_DATA', data, target })
       }
     }
+  }
+  if (next.tweenEdits !== prev.tweenEdits) {
+    commands.push({ type: 'SET_TWEEN_EDITS', edits: next.tweenEdits ?? [] })
   }
   // After SET_DATA, so a rebuilt carrier and fresh data can never disagree.
   if (durationChanged) {

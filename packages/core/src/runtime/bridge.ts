@@ -16,7 +16,7 @@
  */
 
 /** Bumped whenever the message set changes. Advertised in `BRIDGE_READY`. */
-export const VOS_BRIDGE_PROTOCOL = 7
+export const VOS_BRIDGE_PROTOCOL = 8
 
 /** One stack entry's live state, as `STACK_STATE` reports it. */
 export interface StackEntryReport {
@@ -35,6 +35,19 @@ export interface ElementRect {
   visible: boolean
 }
 
+/**
+ * One entry of a tween-timing overlay — `@vosjs/tween`'s `TweenEdit`,
+ * structurally: the recorded tween at `index`, retimed and/or revalued.
+ */
+export interface TweenEditPayload {
+  index: number
+  startTime?: number
+  duration?: number
+  ease?: string
+  to?: Record<string, number>
+  from?: Record<string, number>
+}
+
 /** Commands the host posts INTO the player document. */
 export type VosBridgeCommand =
   /** Warm program (re)load — preserves transport across the swap. */
@@ -45,6 +58,8 @@ export type VosBridgeCommand =
       data?: Record<string, unknown> | null
       /** Per-entry data for the program stack, by entry id (overrides each entry's baked `data`). */
       stack?: Record<string, Record<string, unknown>> | null
+      /** Protocol 8: a tween-timing overlay applied after init (see SET_TWEEN_EDITS). */
+      tweenEdits?: TweenEditPayload[] | null
       autoplay?: boolean
     }
   /**
@@ -60,6 +75,15 @@ export type VosBridgeCommand =
    * LOAD. A compare pane, a muted preview, a second player on one page.
    */
   | { type: 'SET_MUTED'; muted: boolean }
+  /**
+   * Protocol 8: retime the running program's recorded tweens LIVE. The whole
+   * overlay, every time (it applies from the recording, never on top of the
+   * previous overlay); the frame at the current time repaints and an UPDATE
+   * carries the new duration. Honored when the timeline can (`READY.
+   * canRetimeTweens`: the vos tween backend); the gsap backend ignores it,
+   * and a host then bakes the overlay into `createTimeline` and LOADs.
+   */
+  | { type: 'SET_TWEEN_EDITS'; edits: TweenEditPayload[] }
   | { type: 'PLAY' }
   | { type: 'PAUSE' }
   /** Legacy progress seek (0-1). Prefer SEEK_TIME. */
@@ -117,6 +141,8 @@ export type VosBridgeEvent =
       canSetDuration: boolean
       stack: string[]
       retime: boolean
+      /** Protocol 8: the timeline honors SET_TWEEN_EDITS. */
+      canRetimeTweens: boolean
     }
   /** Protocol 5: a stack entry threw and is disabled for the session; everything else keeps running. */
   | { type: 'STACK_ERROR'; id: string; error: string }

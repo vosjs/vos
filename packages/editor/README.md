@@ -16,7 +16,7 @@ pnpm add @vosjs/editor
 ## What it gives you
 
 - **`createProjectStore`** — a patch-based document store (Immer) with undo/redo, drag coalescing, and a forward patch log. The app's document is the source of truth; lowered compositions are derived from it.
-- **`classifyEdit`** — the live-edit tier classifier that keeps editing fast: a program-string change → warm `LOAD`, a data change → `SET_DATA`, a duration change → `SET_DURATION` (with `LOAD` fallback), a stack entry's data change → `SET_DATA { target }` for that entry alone (a `LOAD` carries every entry's data as `stack`). Program-string equality is the structural hash.
+- **`classifyEdit`** — the live-edit tier classifier that keeps editing fast: a program-string change → warm `LOAD`, a data change → `SET_DATA`, a duration change → `SET_DURATION` (with `LOAD` fallback), a stack entry's data change → `SET_DATA { target }` for that entry alone (a `LOAD` carries every entry's data as `stack`), a tween-timing overlay change → `SET_TWEEN_EDITS` (the running timeline retimes live, protocol 8; a `LOAD` carries the overlay as `tweenEdits`). Program-string equality is the structural hash.
 - **`createEditorBridgeClient`** — the host-side client for the engine's editor-mode playback bridge: element hit-testing, bounds, and ephemeral property overrides for drag previews.
 - **Element-edit commit helpers** — turn on-canvas drags into durable, undoable config patches (`nudgeElementRecipe`, `scaleElementRecipe`, `rotateElementRecipe`, `cssDeltaToDesign`, …).
 - **Timeline view-model math** — px↔time mapping (`toPx`/`toTime`), ruler ticks, magnetic snapping, plus the `LaneAdapter` contract so apps can define their own timeline lanes.

@@ -149,9 +149,20 @@ function totalWithRepeats(
   return duration * (repeat + 1) + (repeatDelay ?? 0) * repeat
 }
 
+/** A spec is plain data (numbers, strings, records): a JSON round trip copies it. */
+const cloneSpec = (spec: TweenSpec): TweenSpec =>
+  JSON.parse(JSON.stringify(spec)) as TweenSpec
+
 export class RecordingTimeline {
   /** Recorded tweens with their runtime bindings (source of truth). */
   readonly entries: RuntimeEntry[] = []
+  /**
+   * The specs as RECORDED, snapshotted the first time an overlay is applied,
+   * so every later `applyEdits` starts from the original timing: a live
+   * editor re-applies its whole overlay on each change, and an edit that
+   * leaves the overlay must leave the timeline too.
+   */
+  private _recorded: { specs: TweenSpec[]; end: number } | null = null
   private pos = new PositionState()
   private _data: unknown
   protected _callbacks = new Map<string, (...args: unknown[]) => void>()
@@ -253,6 +264,18 @@ export class RecordingTimeline {
    * the vos backend.
    */
   applyEdits(edits: readonly TweenEdit[]): this {
+    // Start from the recording, never from the previous overlay.
+    if (!this._recorded) {
+      this._recorded = {
+        specs: this.entries.map((e) => cloneSpec(e.spec)),
+        end: this.pos.end,
+      }
+    } else {
+      this._recorded.specs.forEach((spec, i) => {
+        const entry = this.entries[i]
+        if (entry) entry.spec = cloneSpec(spec)
+      })
+    }
     const finite = (
       values: Record<string, number> | undefined,
     ): [string, number][] =>
