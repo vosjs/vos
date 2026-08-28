@@ -16,7 +16,14 @@
  */
 
 /** Bumped whenever the message set changes. Advertised in `BRIDGE_READY`. */
-export const VOS_BRIDGE_PROTOCOL = 4
+export const VOS_BRIDGE_PROTOCOL = 5
+
+/** One stack entry's live state, as `STACK_STATE` reports it. */
+export interface StackEntryReport {
+  id: string
+  ok: boolean
+  error: string | null
+}
 
 /** Element bounds in CSS pixels, relative to the player document's viewport. */
 export interface ElementRect {
@@ -36,10 +43,17 @@ export type VosBridgeCommand =
       code?: string
       url?: string
       data?: Record<string, unknown> | null
+      /** Per-entry data for the program stack, by entry id (overrides each entry's baked `data`). */
+      stack?: Record<string, Record<string, unknown>> | null
       autoplay?: boolean
     }
-  /** Live ctx.data replacement (T2) — no re-init. */
-  | { type: 'SET_DATA'; data: Record<string, unknown> }
+  /**
+   * Live ctx.data replacement (T2) — no re-init. Protocol 5: `target` names a
+   * stack entry, whose own data is replaced instead (its own three rungs).
+   */
+  | { type: 'SET_DATA'; data: Record<string, unknown>; target?: string }
+  /** Protocol 5: the stack's live state (response: STACK_STATE). */
+  | { type: 'GET_STACK_STATE'; requestId: number }
   | { type: 'PLAY' }
   | { type: 'PAUSE' }
   /** Legacy progress seek (0-1). Prefer SEEK_TIME. */
@@ -79,8 +93,17 @@ export type VosBridgeCommand =
 export type VosBridgeEvent =
   /** Document booted; bridge is listening. Feature-detect on `protocol`/`editor`. */
   | { type: 'BRIDGE_READY'; protocol: number; editor: boolean }
-  /** A program finished loading (assets ready, transport restored). */
-  | { type: 'READY'; duration: number; canSetDuration: boolean }
+  /** A program finished loading (assets ready, transport restored). Protocol 5: `stack` lists the entry ids. */
+  | {
+      type: 'READY'
+      duration: number
+      canSetDuration: boolean
+      stack: string[]
+    }
+  /** Protocol 5: a stack entry threw and is disabled for the session; everything else keeps running. */
+  | { type: 'STACK_ERROR'; id: string; error: string }
+  /** Response to GET_STACK_STATE. */
+  | { type: 'STACK_STATE'; requestId: number; entries: StackEntryReport[] }
   /** Per-frame transport tick (driven by the timeline's onUpdate). */
   | { type: 'UPDATE'; progress: number; time: number; duration: number }
   | { type: 'ERROR'; error: string }

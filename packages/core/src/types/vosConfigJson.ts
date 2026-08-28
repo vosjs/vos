@@ -20,6 +20,23 @@ export interface FontFaceDecl {
 }
 
 /**
+ * One program of the stack (`VosConfigJson.stack`), functions as strings: the
+ * main program's hooks minus `createTimeline`. Runs after the main program in
+ * each phase, on the same context, with its own `ctx.data` (`data` here,
+ * overridable at runtime through `deps.stack[id]`) and its own error
+ * boundary. See `ProgramEntry` for the semantics.
+ */
+export interface ProgramEntryJson {
+  /** Unique within the stack; the `SET_DATA` target and the error report's name. */
+  id: string
+  /** This entry's own `ctx.data` (baked default). */
+  data?: Record<string, unknown>
+  setup?: string
+  createContent?: string
+  onFrame?: string
+}
+
+/**
  * JSON-serializable version of VosConfig.
  * Functions are stored as strings that can be embedded in the compiled template.
  *
@@ -105,6 +122,14 @@ export interface VosConfigJson {
    * @example "(ctx, content, deltaTime) => { content.refs.uniforms.iTime.value += deltaTime; }"
    */
   onFrame?: string
+
+  /**
+   * The program stack: more programs on this context, run after the main one
+   * in array order, each with its own `ctx.data` and error boundary. A HUD, a
+   * subtitle pass, a watermark, an overlay a remixer adds without touching the
+   * main program's code. No timeline of their own — one master clock.
+   */
+  stack?: ProgramEntryJson[]
 }
 
 /**

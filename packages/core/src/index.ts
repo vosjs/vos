@@ -12,7 +12,10 @@
  */
 
 // Compiler
-export { compileVosConfig, type CompileVosConfigOptions } from './compiler/compileVosConfig'
+export {
+  compileVosConfig,
+  type CompileVosConfigOptions,
+} from './compiler/compileVosConfig'
 
 // Schema & validators
 export { vosConfigSchema } from './schema/configSchema'
@@ -56,6 +59,9 @@ export type {
   VosConfig,
   VosConfigJson,
   AuthoredVosConfigJson,
+  ProgramEntry,
+  ProgramEntryJson,
+  StackEntryState,
   VosResult,
   VosTimeline,
   // Elements

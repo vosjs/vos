@@ -72,6 +72,24 @@ export const fontFaceDeclSchema = z
   .passthrough()
 
 // ---------------------------------------------------------------------------
+// The program stack: ids unique, hooks as strings, no timeline.
+// ---------------------------------------------------------------------------
+
+export const programEntryJsonSchema = z.object({
+  id: z.string().min(1),
+  data: z.record(z.string(), z.unknown()).optional(),
+  setup: z.string().optional(),
+  createContent: z.string().optional(),
+  onFrame: z.string().optional(),
+})
+
+export const stackJsonSchema = z
+  .array(programEntryJsonSchema)
+  .refine((s) => new Set(s.map((e) => e.id)).size === s.length, {
+    message: 'stack entry ids must be unique',
+  })
+
+// ---------------------------------------------------------------------------
 // VosConfigJson - functions stored as strings
 // ---------------------------------------------------------------------------
 
@@ -98,6 +116,8 @@ export const vosConfigJsonSchema = z.object({
   createContent: z.string(),
   createTimeline: z.string(),
   onFrame: z.string().optional(),
+  // More programs on this context, after the main one (own data, own errors).
+  stack: stackJsonSchema.optional(),
 })
 
 export type ValidatedVosConfigJson = z.infer<typeof vosConfigJsonSchema>

@@ -8,6 +8,7 @@ export function generateCleanup(config: VosConfig): string {
   const hasComposer = !!config.postprocessing?.length
   const hasElements = !!config.elements?.length
   const hasPerLayer = !!config.perLayerEffects?.length
+  const hasStack = !!config.stack?.length
 
   const perLayerCleanup = hasPerLayer
     ? `// Dispose per-layer composers
@@ -26,7 +27,7 @@ export function generateCleanup(config: VosConfig): string {
   return `() => {
       window.removeEventListener('resize', handleResize);
       cancelAnimationFrame(frameId);
-      tl.kill();
+      tl.kill();${hasStack ? '\n      for (const s of __stack) __stackDisposeOne(s);' : ''}
       if (content.dispose) content.dispose();
       ${
         hasElements

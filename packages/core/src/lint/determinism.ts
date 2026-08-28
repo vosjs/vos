@@ -23,6 +23,8 @@ export type DeterminismSeverity = 'error' | 'warn'
 
 export interface DeterminismIssue {
   fn: 'setup' | 'createContent' | 'createTimeline' | 'onFrame'
+  /** Set when the function belongs to a stack entry (its id). */
+  entry?: string
   rule: DeterminismRule
   severity: DeterminismSeverity
   /** The offending snippet. */
@@ -48,13 +50,15 @@ const RULES: RuleDef[] = [
     rule: 'random',
     severity: 'error',
     pattern: /\bMath\.random\s*\(/g,
-    message: 'Math.random() is non-deterministic — seed it or precompute values.',
+    message:
+      'Math.random() is non-deterministic — seed it or precompute values.',
   },
   {
     rule: 'gsap-random',
     severity: 'error',
     pattern: /\bgsap\.utils\.random\s*\(/g,
-    message: 'gsap.utils.random() is not seedable — breaks reproducible export.',
+    message:
+      'gsap.utils.random() is not seedable — breaks reproducible export.',
   },
   {
     // GSAP interprets string-form values like { x: 'random(-100, 100)' } or
@@ -63,7 +67,7 @@ const RULES: RuleDef[] = [
     severity: 'error',
     pattern: /["']random\s*[([]/g,
     message:
-      "String-form random() tween value is non-seedable — breaks reproducible export. Precompute values instead.",
+      'String-form random() tween value is non-seedable — breaks reproducible export. Precompute values instead.',
   },
   {
     // stagger: { from: 'random' } shuffles start order non-deterministically.
@@ -77,23 +81,31 @@ const RULES: RuleDef[] = [
     rule: 'wall-clock',
     severity: 'error',
     pattern: /\b(?:Date\.now\s*\(|new\s+Date\s*\(|performance\.now\s*\()/g,
-    message: 'Wall-clock time is non-deterministic — use the timeline (ctx.time / progress).',
+    message:
+      'Wall-clock time is non-deterministic — use the timeline (ctx.time / progress).',
   },
   {
     rule: 'timer',
     severity: 'warn',
     pattern: /\b(?:setTimeout|setInterval|requestAnimationFrame)\s*\(/g,
-    message: 'Timers/rAF are not driven by the timeline — state may differ across export frames.',
+    message:
+      'Timers/rAF are not driven by the timeline — state may differ across export frames.',
   },
   {
     rule: 'network',
     severity: 'warn',
     pattern: /\b(?:fetch\s*\(|XMLHttpRequest\b|WebSocket\b)/g,
-    message: 'Network access at render time is non-deterministic — load assets in setup().',
+    message:
+      'Network access at render time is non-deterministic — load assets in setup().',
   },
 ]
 
-export const FN_KEYS = ['setup', 'createContent', 'createTimeline', 'onFrame'] as const
+export const FN_KEYS = [
+  'setup',
+  'createContent',
+  'createTimeline',
+  'onFrame',
+] as const
 
 export function lineOf(src: string, index: number): number {
   let line = 1
@@ -155,6 +167,20 @@ export function lintVosConfig(config: VosConfigJson): DeterminismIssue[] {
     const src = record[key]
     if (typeof src === 'string' && src.length) {
       issues.push(...lintFunctionString(key, src))
+    }
+  }
+  for (const entry of config.stack ?? []) {
+    const rec = entry as unknown as Record<string, unknown>
+    for (const key of FN_KEYS) {
+      const src = rec[key]
+      if (typeof src === 'string' && src.length) {
+        issues.push(
+          ...lintFunctionString(key, src).map((i) => ({
+            ...i,
+            entry: entry.id,
+          })),
+        )
+      }
     }
   }
   return issues

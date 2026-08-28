@@ -10,6 +10,8 @@ export function generateRenderLoop(config: VosConfig): string {
   const hasComposer = config.postprocessing?.length
   const hasPerLayer = !!config.perLayerEffects?.length
   const hasOnFrame = !!config.onFrame
+  // A stack entry's onFrame runs after the main program's, on the same delta.
+  const hasStackFrame = !!config.stack?.some((e) => !!e.onFrame)
   const hasDynamic = !!config.dynamicLayers
 
   // Main 3D render - use composer if post-processing is enabled
@@ -17,14 +19,15 @@ export function generateRenderLoop(config: VosConfig): string {
     ? 'composer.render();'
     : 'renderer.render(scene, camera);'
 
-  const onFrameCall = hasOnFrame
-    ? `
+  const onFrameCall =
+    hasOnFrame || hasStackFrame
+      ? `
     timer.update();
-    const deltaTime = timer.getDelta();
-    onFrame(context, content, deltaTime);`
-    : ''
+    const deltaTime = timer.getDelta();${hasOnFrame ? '\n    onFrame(context, content, deltaTime);' : ''}${hasStackFrame ? '\n    __stackFrame(deltaTime);' : ''}`
+      : ''
 
-  const clockDecl = hasOnFrame ? 'const timer = new THREE.Timer();' : ''
+  const clockDecl =
+    hasOnFrame || hasStackFrame ? 'const timer = new THREE.Timer();' : ''
   const dynamicRebuild = hasDynamic ? '\n    __rebuildRenderGroups();' : ''
 
   // 3D group rendering — select the right path based on features

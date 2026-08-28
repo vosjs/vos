@@ -22,6 +22,7 @@ import {
   generateRendererSetup,
   generateResizeHandler,
   generateSceneSetup,
+  generateStack,
 } from './generators'
 import type { AuthoredVosConfigJson, VosConfigJson } from '../types'
 
@@ -75,7 +76,9 @@ export function compileVosConfig(
   }
 
   // Detect which addons are actually needed by scanning function strings
+  // (the stack's entries included).
   const detectedAddons = detectRequiredAddons(config)
+  const stack = generateStack(config)
   // Declarative gltf objects need the loader even though no function string
   // mentions it — objects are data, not code.
   if (
@@ -92,7 +95,8 @@ export function compileVosConfig(
       (o) => (o as { asset?: { kind?: string } }).asset?.kind === 'text3d',
     )
   ) {
-    if (!detectedAddons.includes('FontLoader')) detectedAddons.push('FontLoader')
+    if (!detectedAddons.includes('FontLoader'))
+      detectedAddons.push('FontLoader')
     if (!detectedAddons.includes('TextGeometry'))
       detectedAddons.push('TextGeometry')
   }
@@ -133,13 +137,17 @@ export function compileVosConfig(
   const hasOnFrame = !!config.onFrame
   const hasPerLayer = !!config.perLayerEffects?.length
 
-  // Generate setup hook if present
-  const hasSetup = !!config.setup
-  const setupFn = hasSetup ? `const setup = ${config.setup};` : ''
-  const setupCall = hasSetup
+  // Generate setup hook if present. The loaders registry and the setup
+  // context exist whenever ANY program on the context declares a setup — the
+  // main one or a stack entry; the main setup call itself stays the main
+  // program's.
+  const hasMainSetup = !!config.setup
+  const hasSetup = hasMainSetup || stack.hasSetup
+  const setupFn = hasMainSetup ? `const setup = ${config.setup};` : ''
+  const setupCall = hasMainSetup
     ? 'const setupData = await setup(setupContext);'
     : ''
-  const setupDataArg = hasSetup ? 'setupData' : 'undefined'
+  const setupDataArg = hasMainSetup ? 'setupData' : 'undefined'
 
   // Baked default for ctx.data. Runtime deps.data overrides this (so a live editor
   // can pass fresh data without recompiling). Omitting config.data bakes `{}`.
@@ -284,6 +292,8 @@ export const initVos = async (container, deps) => {
   // (setData without onFrame) strips everything the content put there.
   const __baseChildren = new Set(scene.children);
   let content = createContent(context, ${setupDataArg});
+  ${stack.decls}
+  ${stack.mount}
 
   ${layerAssignment}
 
@@ -345,7 +355,7 @@ export const initVos = async (container, deps) => {
       if (!__baseChildren.has(child)) scene.remove(child);
     }
     __resetLayers();
-    content = createContent(context, ${setupDataArg});
+    content = createContent(context, ${setupDataArg});${stack.remount}
     __assignLayers();${hasPerLayer ? '\n    __buildLayerComposers();' : ''}
     tl = createTimeline(context, content, DURATION);
     tl.repeat(-1);
@@ -356,6 +366,8 @@ export const initVos = async (container, deps) => {
     tl.seek(isFinite(dur) && dur > 0 ? Math.min(prevTime, dur) : prevTime, false);
     if (!prevPaused) tl.play();
   };
+
+  ${stack.setData}
 
   return {
     // A getter: a live rebuild replaces the timeline, and hosts read this
@@ -371,7 +383,11 @@ export const initVos = async (container, deps) => {
     // into GSAP tweens at createTimeline time survive only through the rebuild or
     // onData rungs; for an onFrame program that is a program (T3) edit handled by
     // warm LOAD.
-    setData: (next) => {
+    setData: (next${stack.present ? ', target' : ''}) => {${
+      stack.present
+        ? '\n      // A target names a stack entry: its own data, its own rungs.\n      if (target != null) { __stackSetData(target, next); return; }'
+        : ''
+    }
       __vosData = Object.freeze(next ?? {});
       // Data-carried webfonts (font knobs): register new faces lazily; when
       // one lands, re-raster text elements so the real face replaces the
@@ -389,7 +405,7 @@ export const initVos = async (container, deps) => {
         hasOnFrame ? '' : '\n      __rebuildContent();'
       }
     },
-    getData: () => __vosData,
+    getData: () => __vosData,${stack.api}
     setDuration: __setDuration,
     // One synchronous engine tick (seek → renderFrame() → capture): lets
     // capture harnesses render without waiting for vsync-locked rAF. The

@@ -25,11 +25,14 @@ export type {
   VosConfig,
   VosResult,
   VosTimeline,
+  ProgramEntry,
+  StackEntryState,
 } from './vos'
 
 // JSON-serializable config type
 export type {
   AuthoredVosConfigJson,
+  ProgramEntryJson,
   VosConfigJson,
 } from './vosConfigJson'
 
