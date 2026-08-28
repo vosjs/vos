@@ -16,7 +16,7 @@
  */
 
 /** Bumped whenever the message set changes. Advertised in `BRIDGE_READY`. */
-export const VOS_BRIDGE_PROTOCOL = 5
+export const VOS_BRIDGE_PROTOCOL = 6
 
 /** One stack entry's live state, as `STACK_STATE` reports it. */
 export interface StackEntryReport {
@@ -54,6 +54,12 @@ export type VosBridgeCommand =
   | { type: 'SET_DATA'; data: Record<string, unknown>; target?: string }
   /** Protocol 5: the stack's live state (response: STACK_STATE). */
   | { type: 'GET_STACK_STATE'; requestId: number }
+  /**
+   * Protocol 6: mute or unmute every media element of the instance (video
+   * and audio) without touching their gain or the transport. Survives a warm
+   * LOAD. A compare pane, a muted preview, a second player on one page.
+   */
+  | { type: 'SET_MUTED'; muted: boolean }
   | { type: 'PLAY' }
   | { type: 'PAUSE' }
   /** Legacy progress seek (0-1). Prefer SEEK_TIME. */
@@ -88,6 +94,13 @@ export type VosBridgeCommand =
     }
   /** Editor mode: raycast declarative objects at viewport CSS px (response: OBJECT_HIT_RESULT). */
   | { type: 'OBJECT_HIT_TEST'; x: number; y: number; requestId: number }
+  /**
+   * Editor mode, protocol 6: the screen rect of one declarative object — its
+   * world bounding box projected through the main camera into viewport CSS
+   * px (response: OBJECT_RECT). The sibling of GET_ELEMENT_RECTS for the
+   * 3D scene, so a host can draw a transform box around a prop.
+   */
+  | { type: 'OBJECT_BOUNDS'; id: string; requestId: number }
 
 /** Events the player document posts OUT to the host. */
 export type VosBridgeEvent =
@@ -114,3 +127,10 @@ export type VosBridgeEvent =
   | { type: 'OBJECT_HIT_RESULT'; requestId: number; id: string | null }
   /** Response to GET_ELEMENT_RECTS; also pushed with `requestId: null` on resize. */
   | { type: 'ELEMENT_RECTS'; requestId: number | null; rects: ElementRect[] }
+  /** Response to OBJECT_BOUNDS; `rect` is null for an unknown or invisible object. */
+  | {
+      type: 'OBJECT_RECT'
+      requestId: number
+      id: string
+      rect: ElementRect | null
+    }

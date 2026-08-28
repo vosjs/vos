@@ -38,6 +38,14 @@ export function generateElementsSetup(config: any): string {
     window.__vos__.isPaused = paused;
     window.__vos__.videoCallbacks.forEach(cb => cb());
   };
+  // Mute every media element of the instance (video and audio alike) without
+  // touching their own gain or the transport. Document-scoped like isPaused,
+  // so a warm LOAD keeps the mute the host set.
+  window.__vos__.isMuted = window.__vos__.isMuted ?? false;
+  window.__vos__.setGlobalMuted = (muted) => {
+    window.__vos__.isMuted = !!muted;
+    window.__vos__.videoCallbacks.forEach(cb => cb());
+  };
 
   // Frame-accurate video: elements register their in-flight decode here so the
   // export/scrub loop can await the exact frame before capturing.
