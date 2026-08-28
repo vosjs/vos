@@ -124,6 +124,13 @@ export interface VosConfigJson {
   onFrame?: string
 
   /**
+   * Evaluate the program at `f(t)`, as a string: `(t, data) => number`, a
+   * pure function of the OUTPUT time and `ctx.data`. Slow motion, ramps,
+   * reverse, freeze frames, ping-pong loops. See `VosConfig.retime`.
+   */
+  retime?: string
+
+  /**
    * The program stack: more programs on this context, run after the main one
    * in array order, each with its own `ctx.data` and error boundary. A HUD, a
    * subtitle pass, a watermark, an overlay a remixer adds without touching the

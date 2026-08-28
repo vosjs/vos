@@ -39,6 +39,7 @@ export const vosConfigSchema = z.object({
   createContent: fnSchema,
   createTimeline: fnSchema,
   onFrame: fnSchema.optional(),
+  retime: fnSchema.optional(),
   stack: z
     .array(
       z.object({

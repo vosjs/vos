@@ -13,6 +13,7 @@ export function generateRenderLoop(config: VosConfig): string {
   // A stack entry's onFrame runs after the main program's, on the same delta.
   const hasStackFrame = !!config.stack?.some((e) => !!e.onFrame)
   const hasDynamic = !!config.dynamicLayers
+  const hasRetime = !!config.retime
 
   // Main 3D render - use composer if post-processing is enabled
   const mainRenderCall = hasComposer
@@ -103,9 +104,20 @@ export function generateRenderLoop(config: VosConfig): string {
 
     // Publish the master clock: ctx.time / ctx.progress track the GSAP timeline
     // (time within the current cycle). Assigned before onFrame so per-frame code
-    // reads the position being rendered — output stays a pure fn of (data, time).
-    currentTime = tl.time();
-    currentProgress = tl.progress();${onFrameCall}${dynamicRebuild}
+    // reads the position being rendered — output stays a pure fn of (data, time).${
+      hasRetime
+        ? `
+    // retime: the OUTPUT clock advances; the program's own timeline is seeked
+    // at retime(outputTime, data) each frame, so frames stay a pure fn of
+    // (data, output time) and every capture path is exact by construction.
+    currentOutputTime = __clock.time();
+    currentTime = __retimeAt(currentOutputTime);
+    tl.seek(currentTime, false);
+    currentProgress = __clock.progress();`
+        : `
+    currentOutputTime = currentTime = tl.time();
+    currentProgress = tl.progress();`
+    }${onFrameCall}${dynamicRebuild}
 
     renderer.autoClear = false;${globalPre}
     renderer.clear();

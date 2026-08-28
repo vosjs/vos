@@ -16,7 +16,7 @@
  */
 
 /** Bumped whenever the message set changes. Advertised in `BRIDGE_READY`. */
-export const VOS_BRIDGE_PROTOCOL = 6
+export const VOS_BRIDGE_PROTOCOL = 7
 
 /** One stack entry's live state, as `STACK_STATE` reports it. */
 export interface StackEntryReport {
@@ -106,12 +106,17 @@ export type VosBridgeCommand =
 export type VosBridgeEvent =
   /** Document booted; bridge is listening. Feature-detect on `protocol`/`editor`. */
   | { type: 'BRIDGE_READY'; protocol: number; editor: boolean }
-  /** A program finished loading (assets ready, transport restored). Protocol 5: `stack` lists the entry ids. */
+  /**
+   * A program finished loading (assets ready, transport restored). Protocol 5:
+   * `stack` lists the entry ids. Protocol 7: `retime` says the program carries
+   * one — its transport is the output clock, and `canSetDuration` is true.
+   */
   | {
       type: 'READY'
       duration: number
       canSetDuration: boolean
       stack: string[]
+      retime: boolean
     }
   /** Protocol 5: a stack entry threw and is disabled for the session; everything else keeps running. */
   | { type: 'STACK_ERROR'; id: string; error: string }

@@ -415,7 +415,7 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
             if (result.stack && result.stack.onError) {
                 __stackUnsub = result.stack.onError((e) => { if (myEpoch === __epoch) __post({ type: 'STACK_ERROR', id: e.id, error: e.error }); });
             }
-            __post({ type: 'READY', duration: __finiteDuration(tl), canSetDuration: !!result.setDuration, stack: result.stack ? result.stack.ids : [] });
+            __post({ type: 'READY', duration: __finiteDuration(tl), canSetDuration: !!result.setDuration, stack: result.stack ? result.stack.ids : [], retime: !!result.retime });
 
             if (tl) {
                 if (prev) {

@@ -136,6 +136,7 @@ export function compileVosConfig(
   // without one, setData rebuilds the content (see __rebuildContent).
   const hasOnFrame = !!config.onFrame
   const hasPerLayer = !!config.perLayerEffects?.length
+  const hasRetime = !!config.retime
 
   // Generate setup hook if present. The loaders registry and the setup
   // context exist whenever ANY program on the context declares a setup — the
@@ -261,8 +262,11 @@ export const initVos = async (container, deps) => {
   ${elementsSetup}
   ${objectsSetup}
 
-  // Playback state
+  // Playback state. currentTime is the PROGRAM time (what the timeline is
+  // evaluated at); currentOutputTime is what the transport shows — the same
+  // number unless a retime maps one onto the other.
   let currentTime = 0;
+  let currentOutputTime = 0;
   let currentProgress = 0;
 
   // Context for content and timeline creation
@@ -279,6 +283,7 @@ export const initVos = async (container, deps) => {
     objects,
     get data() { return __vosData; },
     get time() { return currentTime; },
+    get outputTime() { return currentOutputTime; },
     get progress() { return currentProgress; },
     ${hasSetup ? 'loaders,' : ''}
     ${hasSetup ? 'utils,' : ''}
@@ -305,6 +310,31 @@ export const initVos = async (container, deps) => {
   let tl = createTimeline(context, content, DURATION);
   tl.repeat(-1);
   tl.pause();
+${
+  hasRetime
+    ? `
+  // retime (${'`'}config.retime${'`'}): the OUTPUT clock is a carrier of DURATION seconds
+  // that the transport drives; the program's timeline above stays paused and
+  // is seeked at __retimeAt(outputTime) every frame. Reads ctx.data live, so
+  // a rate held in data changes with setData. Clamped to the program
+  // timeline's [0, duration]; a non-finite result falls back to t, once warned.
+  const __retime = ${config.retime};
+  let __retimeWarned = false;
+  const __retimeAt = (t) => {
+    let r = Number(__retime(t, __vosData));
+    if (!isFinite(r)) {
+      if (!__retimeWarned) { __retimeWarned = true; console.warn('[vos] retime returned a non-finite time; using the output time'); }
+      r = t;
+    }
+    const d = tl.duration();
+    return Math.max(0, isFinite(d) && d > 0 ? Math.min(r, d) : r);
+  };
+  const __clock = gsap.timeline();
+  __clock.to({}, { duration: DURATION, ease: 'none' }, 0);
+  __clock.repeat(-1);
+  __clock.pause();`
+    : ''
+}
 
   // Duration capability (T2.5): opt-in for "carrier" timelines. Programs whose
   // timeline exists only to define duration and drive ctx.time (the interpreter
@@ -314,13 +344,15 @@ export const initVos = async (container, deps) => {
   // so edits fall back to a warm LOAD. No heuristic: GSAP cannot retime a nested
   // value-tween without invalidate() re-capturing starts (nondeterministic).
   let __setDuration;
-  if (tl.data && tl.data.vosCarrier === true) {
+  if (${hasRetime ? 'true' : 'tl.data && tl.data.vosCarrier === true'}) {
+    // With a retime the carrier is the output clock, ours by construction.
+    const __carrier = ${hasRetime ? '__clock' : 'tl'};
     __setDuration = (seconds) => {
       const s = Math.max(0.001, Number(seconds) || 0);
-      const t = Math.min(tl.time(), s);
-      tl.clear();
-      tl.to({}, { duration: s, ease: 'none' }, 0);
-      tl.seek(t, false);
+      const t = Math.min(__carrier.time(), s);
+      __carrier.clear();
+      __carrier.to({}, { duration: s, ease: 'none' }, 0);
+      __carrier.seek(t, false);
     };
   }
 
@@ -371,8 +403,9 @@ export const initVos = async (container, deps) => {
 
   return {
     // A getter: a live rebuild replaces the timeline, and hosts read this
-    // property per command rather than caching it.
-    get timeline() { return tl; },
+    // property per command rather than caching it. With a retime the
+    // transport drives the OUTPUT clock, never the program's own timeline.
+    get timeline() { return ${hasRetime ? '__clock' : 'tl'}; },${hasRetime ? '\n    retime: true,' : ''}
     cleanup: ${cleanup},
     assetsReady: content.assetsReady,
     // Live data channel (T2): swap ctx.data without re-init. Three rungs, cheapest
