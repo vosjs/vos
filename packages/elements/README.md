@@ -15,13 +15,13 @@ pnpm add @vosjs/elements three
 
 ## Element types
 
-| Type | Renders as |
-| --- | --- |
-| `text` | A text mesh, with optional per-character `split` for staggered animation |
-| `image` | An image plane (`src` loaded through the shared asset cache) |
-| `svg` | A rasterized SVG plane |
-| `video` | A video plane driven by the master clock |
-| `audio` | A non-visual audio element, synced to the master clock (no mesh) |
+| Type    | Renders as                                                                                                                                                                                                                    |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `text`  | A text mesh, with optional per-character `split` for staggered animation                                                                                                                                                      |
+| `image` | An image plane (`src` loaded through the shared asset cache)                                                                                                                                                                  |
+| `svg`   | A rasterized SVG plane                                                                                                                                                                                                        |
+| `video` | A video plane driven by the master clock                                                                                                                                                                                      |
+| `audio` | A non-visual audio element, synced to the master clock (no mesh); an optional `gainEnvelope` (`[t, gain]` points over output time) scales `props.gain` frame by frame, and `@vosjs/core/audio` renders the same sound offline |
 
 ## Two entry points
 
@@ -34,7 +34,11 @@ import * as THREE from 'three'
 import { createVosElements } from '@vosjs/elements'
 
 const elements = createVosElements(THREE)
-const map = await elements.renderElements(elementsConfig, overlayScenes, resolution)
+const map = await elements.renderElements(
+  elementsConfig,
+  overlayScenes,
+  resolution,
+)
 // ...
 elements.disposeElements(map)
 ```

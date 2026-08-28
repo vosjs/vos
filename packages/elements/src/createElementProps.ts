@@ -13,6 +13,22 @@ interface FrameAccurateSource {
  * Props that require re-rasterizing a canvas-backed element (text). Writes
  * route through the instance's raster handler instead of touching the mesh.
  */
+/** `[t, gain]` points over output seconds, linear between, flat outside. */
+export type GainEnvelope = Array<[number, number]>
+
+/** Evaluate an envelope (sorted points) at `t`; empty is unity. */
+export function envelopeGain(env: GainEnvelope, t: number): number {
+  const n = env.length
+  if (!n) return 1
+  if (t <= env[0][0]) return env[0][1]
+  if (t >= env[n - 1][0]) return env[n - 1][1]
+  let i = 1
+  while (i < n - 1 && env[i][0] <= t) i++
+  const [t0, g0] = env[i - 1]
+  const [t1, g1] = env[i]
+  return t1 <= t0 ? g1 : g0 + ((g1 - g0) * (t - t0)) / (t1 - t0)
+}
+
 const RASTER_PROPS = new Set([
   'content',
   'fontSize',
@@ -35,6 +51,7 @@ export function createElementProps(
   videoSource: FrameAccurateSource | null = null,
   videoTexture: THREE_NS.Texture | null = null,
   onRasterProp: ((prop: string, value: unknown) => void) | null = null,
+  gainEnvelope: GainEnvelope | null = null,
 ) {
   // Capture base scale (set by renderer for resolution scaling)
   const baseScaleX = mesh.scale.x
@@ -94,6 +111,30 @@ export function createElementProps(
     videoElement.muted = ownMuted || !!vos?.isMuted
   }
   applyMuted()
+
+  // Volume = props.gain × the element's gain envelope at the output time the
+  // render loop publishes. Sorted once; an envelope-less element writes gain
+  // straight through and never registers a frame callback.
+  const envelope: GainEnvelope | null = gainEnvelope?.length
+    ? gainEnvelope
+        .filter(
+          (p) =>
+            Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]),
+        )
+        .map(([t, g]) => [t, Math.max(0, Math.min(1, g))] as [number, number])
+        .sort((a, b) => a[0] - b[0])
+    : null
+  const applyGain = () => {
+    if (!videoElement) return
+    const g = Math.max(0, Math.min(1, Number(state.gain) || 0))
+    const t = envelope ? Number((window as any).__vos__?.outputTime) || 0 : 0
+    videoElement.volume = envelope ? g * envelopeGain(envelope, t) : g
+  }
+  if (envelope && videoElement) {
+    applyGain()
+    const vos = (window as any).__vos__
+    vos?.frameCallbacks?.add(applyGain)
+  }
 
   const updateVideoPlayback = () => {
     if (!videoElement) return
@@ -183,9 +224,7 @@ export function createElementProps(
           updateVideoPlayback()
           break
         case 'gain':
-          if (videoElement) {
-            videoElement.volume = Math.max(0, Math.min(1, Number(value) || 0))
-          }
+          applyGain()
           break
         default:
           // Raster props (text content/style) re-draw the element's canvas —

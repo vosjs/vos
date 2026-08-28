@@ -14,6 +14,7 @@ export function generateRenderLoop(config: VosConfig): string {
   const hasStackFrame = !!config.stack?.some((e) => !!e.onFrame)
   const hasDynamic = !!config.dynamicLayers
   const hasRetime = !!config.retime
+  const hasElements = !!config.elements?.length
 
   // Main 3D render - use composer if post-processing is enabled
   const mainRenderCall = hasComposer
@@ -117,6 +118,14 @@ export function generateRenderLoop(config: VosConfig): string {
         : `
     currentOutputTime = currentTime = tl.time();
     currentProgress = tl.progress();`
+    }${
+      hasElements
+        ? `
+    if (window.__vos__ && window.__vos__.frameCallbacks) {
+      window.__vos__.outputTime = currentOutputTime;
+      window.__vos__.frameCallbacks.forEach(cb => cb(currentOutputTime));
+    }`
+        : ''
     }${onFrameCall}${dynamicRebuild}
 
     renderer.autoClear = false;${globalPre}

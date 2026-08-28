@@ -311,6 +311,9 @@ export async function renderElements(
         videoSource,
         videoTexture,
         textRerender ? queueRaster : null,
+        videoElement && Array.isArray((config as any).gainEnvelope)
+          ? (config as any).gainEnvelope
+          : null,
       )
 
       const elementInstance = {

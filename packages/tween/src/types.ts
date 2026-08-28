@@ -78,6 +78,11 @@ export interface TweenSpec {
   opaque: boolean
   /** Vars keys that were dropped as unstructurable (callbacks, non-numeric values). */
   opaqueKeys?: string[]
+  /**
+   * Discrete destination values (booleans, plain strings): applied as a step at
+   * `startTime`, never interpolated. Also named in `opaqueKeys`.
+   */
+  discrete?: Record<string, boolean | string>
 }
 
 /** A per-target, per-property keyframe track derived from the recorded specs. */

@@ -14,6 +14,7 @@ export default defineConfig({
     'src/types/index.ts',
     'src/compiler/index.ts',
     'src/runtime/index.ts',
+    'src/audio/index.ts',
     'src/addons/index.ts',
     'src/schema/index.ts',
     'src/extract/index.ts',
@@ -25,5 +26,5 @@ export default defineConfig({
   sourcemap: true,
   target: 'es2022',
   // Library deps/peers are resolved by the consumer, not bundled.
-  external: ['three', 'gsap', 'zod'],
+  external: ['three', 'gsap', 'zod', '@vosjs/tween'],
 })

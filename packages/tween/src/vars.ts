@@ -79,6 +79,13 @@ export interface ParsedVars {
   opaque: boolean
   /** Names of dropped keys (unstructurable animated values or effect triggers). */
   opaqueKeys: string[]
+  /**
+   * Discrete values (booleans and plain strings): not interpolated, applied as
+   * a step at the tween's start. `playing: true` on a media element, a mode
+   * string on a ref. Still listed in `opaqueKeys` (a track editor cannot draw
+   * them), but the sampler replays them.
+   */
+  discrete?: Record<string, boolean | string>
 }
 
 function easeToString(ease: unknown): string {
@@ -104,6 +111,8 @@ export function parseVars(
   const props: Record<string, number> = {}
   const relative: Record<string, number> = {}
   const opaqueKeys: string[] = []
+  const discrete: Record<string, boolean | string> = {}
+  let hasDiscrete = false
   let opaque = false
   let hasRelative = false
 
@@ -132,6 +141,10 @@ export function parseVars(
       // Non-numeric animated value (color/unit string, function value, nested object).
       opaque = true
       opaqueKeys.push(key)
+      if (typeof val === 'boolean' || typeof val === 'string') {
+        discrete[key] = val
+        hasDiscrete = true
+      }
     }
   }
 
@@ -169,5 +182,6 @@ export function parseVars(
     callbacks,
     opaque,
     opaqueKeys,
+    discrete: hasDiscrete ? discrete : undefined,
   }
 }

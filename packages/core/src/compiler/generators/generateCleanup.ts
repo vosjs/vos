@@ -59,6 +59,7 @@ export function generateCleanup(config: VosConfig): string {
       // and the next initVos needs the factory intact.
       if (window.__vos__) {
         window.__vos__.videoCallbacks?.clear();
+        window.__vos__.frameCallbacks?.clear();
         window.__vos__.pendingDecodes?.clear();
       }
     }`
