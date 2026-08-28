@@ -84,8 +84,20 @@ export function createElementProps(
     mat.needsUpdate = true
   }
 
+  // The element's own mute (a video config's `muted`, false for audio). The
+  // instance's global mute (`window.__vos__.isMuted`, set by the SET_MUTED
+  // bridge command) composes on top: muted when either says so.
+  const ownMuted = videoElement ? videoElement.muted : false
+  const applyMuted = () => {
+    if (!videoElement) return
+    const vos = (window as any).__vos__
+    videoElement.muted = ownMuted || !!vos?.isMuted
+  }
+  applyMuted()
+
   const updateVideoPlayback = () => {
     if (!videoElement) return
+    applyMuted()
 
     // Video plays only if:
     // 1. It is marked as 'playing' (active in timeline)

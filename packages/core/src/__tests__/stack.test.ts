@@ -196,7 +196,7 @@ describe('stack — bridge (protocol 5)', () => {
   )
 
   it('advertises the stack in READY and pushes STACK_ERROR', () => {
-    expect(VOS_BRIDGE_PROTOCOL).toBe(5)
+    expect(VOS_BRIDGE_PROTOCOL).toBe(6)
     expect(html).toContain('stack: result.stack ? result.stack.ids : []')
     expect(html).toContain(
       "__post({ type: 'STACK_ERROR', id: e.id, error: e.error })",

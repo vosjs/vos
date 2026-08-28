@@ -291,6 +291,8 @@ ${moduleBody}
 //   - LOAD     { code | url, data?, stack?, autoplay? } -> warm program swap, preserving transport
 //   - SET_DATA { data, target? }                -> live ctx.data swap (no re-init); target = a stack entry
 //   - GET_STACK_STATE { requestId }             -> STACK_STATE; STACK_ERROR is pushed when an entry throws
+//   - SET_MUTED { muted }                       -> mute every media element (survives LOAD)
+//   - editor mode: OBJECT_BOUNDS { id }        -> OBJECT_RECT (a prop's screen rect)
 //   - PLAY / PAUSE / SEEK { value } / SEEK_TIME { value } / PLAY_SPEED { value }
 //   - SET_DURATION { value }                    -> retime (only if program supports it)
 //   - editor mode: GET_ELEMENT_RECTS / HIT_TEST / SET_ELEMENT_PROPS (ephemeral)
@@ -444,6 +446,10 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
                 case 'GET_STACK_STATE':
                     __post({ type: 'STACK_STATE', requestId: msg.requestId, entries: (__current && __current.stack) ? __current.stack.state() : [] });
                     break;
+                case 'SET_MUTED':
+                    if (window.__vos__?.setGlobalMuted) window.__vos__.setGlobalMuted(!!msg.muted);
+                    else { window.__vos__ = window.__vos__ || {}; window.__vos__.isMuted = !!msg.muted; }
+                    break;
                 case 'PLAY':
                     if (window.__vos__?.setGlobalPaused) window.__vos__.setGlobalPaused(false);
                     if (__current && __current.timeline) __current.timeline.play();
@@ -513,6 +519,9 @@ function editorMessageCases(editor: boolean): string {
                     break;
                 case 'OBJECT_HIT_TEST':
                     __post({ type: 'OBJECT_HIT_RESULT', requestId: msg.requestId ?? null, id: __editorApi.objectHitTest(msg.x, msg.y) });
+                    break;
+                case 'OBJECT_BOUNDS':
+                    __post({ type: 'OBJECT_RECT', requestId: msg.requestId ?? null, id: msg.id, rect: __editorApi.objectRect(msg.id) });
                     break;`
 }
 
@@ -635,6 +644,31 @@ function editorExtension(editor: boolean): string {
                 return null;
             };
 
+            // A declarative object's screen rect: its WORLD bounding box (the
+            // whole subtree — a GLB is a group of meshes) projected through the
+            // main camera, corner by corner, like meshRect does for an element.
+            const box3 = new THREE.Box3();
+            const objectRect = (id) => {
+                const cam = __current && __current.camera;
+                const inst = __current && __current.objects && __current.objects.get(id);
+                if (!cam || !inst || !inst.root || inst.root.visible === false) return null;
+                cam.updateMatrixWorld();
+                inst.root.updateWorldMatrix(true, true);
+                box3.setFromObject(inst.root);
+                if (box3.isEmpty()) return null;
+                const rect = canvasRect();
+                let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                for (let ci = 0; ci < 8; ci++) {
+                    v3.set(ci & 1 ? box3.max.x : box3.min.x, ci & 2 ? box3.max.y : box3.min.y, ci & 4 ? box3.max.z : box3.min.z);
+                    v3.project(cam);
+                    const px = rect.left + ((v3.x + 1) / 2) * rect.width;
+                    const py = rect.top + ((1 - v3.y) / 2) * rect.height;
+                    if (px < minX) minX = px; if (px > maxX) maxX = px;
+                    if (py < minY) minY = py; if (py > maxY) maxY = py;
+                }
+                return { id, x: minX, y: minY, width: maxX - minX, height: maxY - minY, visible: true };
+            };
+
             // Ephemeral object prop override — mirrored onto the mesh by the
             // render loop's __syncObjects pass. Cleared by LOAD like element props.
             const setObjectProps = (id, props) => {
@@ -649,7 +683,7 @@ function editorExtension(editor: boolean): string {
                 __post({ type: 'ELEMENT_RECTS', requestId: null, rects: getRects() });
             });
 
-            return { getRects, hitTest, setProps, objectHitTest, setObjectProps };
+            return { getRects, hitTest, setProps, objectHitTest, objectRect, setObjectProps };
         })();`
 }
 
