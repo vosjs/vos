@@ -49,7 +49,9 @@ export function sample<V>(
 }
 
 /** Return keyframes stably sorted by `t` (the invariant `sample` requires). */
-export function sortKeyframes<V>(keyframes: readonly Keyframe<V>[]): Keyframe<V>[] {
+export function sortKeyframes<V>(
+  keyframes: readonly Keyframe<V>[],
+): Keyframe<V>[] {
   return keyframes
     .map((k, i) => [k, i] as const)
     .sort((x, y) => x[0].t - y[0].t || x[1] - y[1])

@@ -64,7 +64,12 @@ export interface TweenEdit {
 export interface TimelineBackend {
   to(target: unknown, vars: object, position?: number | string): unknown
   from(target: unknown, vars: object, position?: number | string): unknown
-  fromTo(target: unknown, fromVars: object, toVars: object, position?: number | string): unknown
+  fromTo(
+    target: unknown,
+    fromVars: object,
+    toVars: object,
+    position?: number | string,
+  ): unknown
   set(target: unknown, vars: object, position?: number | string): unknown
   add(child: unknown, position?: number | string): unknown
   addLabel(label: string, position?: number | string): unknown
@@ -135,7 +140,11 @@ class PositionState {
 }
 
 /** Total occupied duration of a tween including finite repeats (infinite → base). */
-function totalWithRepeats(duration: number, repeat?: number, repeatDelay?: number): number {
+function totalWithRepeats(
+  duration: number,
+  repeat?: number,
+  repeatDelay?: number,
+): number {
   if (!repeat || repeat < 0) return duration
   return duration * (repeat + 1) + (repeatDelay ?? 0) * repeat
 }
@@ -211,7 +220,8 @@ export class RecordingTimeline {
       if (parsed.relative) spec.toRelative = parsed.relative
       if (parsed.repeat !== undefined) spec.repeat = parsed.repeat
       if (parsed.yoyo !== undefined) spec.yoyo = parsed.yoyo
-      if (parsed.repeatDelay !== undefined) spec.repeatDelay = parsed.repeatDelay
+      if (parsed.repeatDelay !== undefined)
+        spec.repeatDelay = parsed.repeatDelay
       if (parsed.opaqueKeys.length) spec.opaqueKeys = parsed.opaqueKeys
       if (parsed.discrete) spec.discrete = parsed.discrete
       this.entries.push({ spec, raw: targets[i], callbacks: parsed.callbacks })
@@ -221,7 +231,8 @@ export class RecordingTimeline {
     this._sampler = null // recompile implicit values on next transport use
     this.pos.advance(
       base,
-      stagger.max + totalWithRepeats(parsed.duration, parsed.repeat, parsed.repeatDelay),
+      stagger.max +
+        totalWithRepeats(parsed.duration, parsed.repeat, parsed.repeatDelay),
     )
   }
 
@@ -287,13 +298,21 @@ export class RecordingTimeline {
     return this
   }
 
-  to(target: unknown, vars: Record<string, unknown>, position?: number | string): this {
+  to(
+    target: unknown,
+    vars: Record<string, unknown>,
+    position?: number | string,
+  ): this {
     this.record(target, undefined, parseVars(vars), position)
     this.backend?.to(target, vars, position)
     return this
   }
 
-  from(target: unknown, vars: Record<string, unknown>, position?: number | string): this {
+  from(
+    target: unknown,
+    vars: Record<string, unknown>,
+    position?: number | string,
+  ): this {
     // `.from` animates FROM these values TO the target's current state; we record the
     // explicit values as `from` and leave `to` empty (destination resolved at extract).
     const parsed = parseVars(vars)
@@ -314,8 +333,17 @@ export class RecordingTimeline {
     return this
   }
 
-  set(target: unknown, vars: Record<string, unknown>, position?: number | string): this {
-    this.record(target, undefined, parseVars(vars, { defaultDuration: 0 }), position)
+  set(
+    target: unknown,
+    vars: Record<string, unknown>,
+    position?: number | string,
+  ): this {
+    this.record(
+      target,
+      undefined,
+      parseVars(vars, { defaultDuration: 0 }),
+      position,
+    )
     this.backend?.set(target, vars, position)
     return this
   }
@@ -347,7 +375,10 @@ export class RecordingTimeline {
       this.pos.advance(base, 0)
     }
     this._sampler = null
-    this.backend?.add(child instanceof RecordingTimeline ? undefined : child, position)
+    this.backend?.add(
+      child instanceof RecordingTimeline ? undefined : child,
+      position,
+    )
     return this
   }
 
@@ -363,7 +394,9 @@ export class RecordingTimeline {
     if (this._raf !== null) {
       const g = globalThis as Record<string, unknown>
       const cancel = (
-        typeof g.cancelAnimationFrame === 'function' ? g.cancelAnimationFrame : g.clearTimeout
+        typeof g.cancelAnimationFrame === 'function'
+          ? g.cancelAnimationFrame
+          : g.clearTimeout
       ) as (id: unknown) => void
       cancel(this._raf)
       this._raf = null
@@ -381,7 +414,8 @@ export class RecordingTimeline {
     const schedule = (
       typeof g.requestAnimationFrame === 'function'
         ? g.requestAnimationFrame
-        : (fn: () => void) => (g.setTimeout as (f: () => void, ms: number) => unknown)(fn, 16)
+        : (fn: () => void) =>
+            (g.setTimeout as (f: () => void, ms: number) => unknown)(fn, 16)
     ) as (fn: () => void) => unknown
     let last = Date.now()
     const tick = (): void => {

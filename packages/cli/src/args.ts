@@ -10,7 +10,10 @@ export interface ParsedArgs {
 
 export class UsageError extends Error {}
 
-export function parseArgs(argv: string[], booleanFlags: ReadonlySet<string>): ParsedArgs {
+export function parseArgs(
+  argv: string[],
+  booleanFlags: ReadonlySet<string>,
+): ParsedArgs {
   const positionals: string[] = []
   const flags: Record<string, string | true> = {}
   for (let i = 0; i < argv.length; i++) {
@@ -51,6 +54,7 @@ export function numFlag(
   const v = flags[name]
   if (v === undefined) return fallback
   const n = Number(v)
-  if (!Number.isFinite(n)) throw new UsageError(`--${name} expects a number, got "${String(v)}"`)
+  if (!Number.isFinite(n))
+    throw new UsageError(`--${name} expects a number, got "${String(v)}"`)
   return n
 }

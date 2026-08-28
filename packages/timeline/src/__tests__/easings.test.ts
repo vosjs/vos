@@ -35,7 +35,15 @@ describe('resolveEase', () => {
   })
 
   it('bare family names default to .out, matching gsap.parseEase', () => {
-    for (const fam of ['power1', 'power2', 'sine', 'expo', 'back', 'elastic', 'bounce']) {
+    for (const fam of [
+      'power1',
+      'power2',
+      'sine',
+      'expo',
+      'back',
+      'elastic',
+      'bounce',
+    ]) {
       const ours = resolveEase(fam)
       const theirs = gsap.parseEase(fam)
       for (const x of SAMPLES) {

@@ -49,7 +49,8 @@ export function createSpecPlayer(resolve: ResolveTarget): SpecPlayer {
     const entries: RuntimeEntry[] = []
     for (const spec of specs ?? []) {
       const raw = resolve(spec.target)
-      if (!raw || (typeof raw !== 'object' && typeof raw !== 'function')) continue
+      if (!raw || (typeof raw !== 'object' && typeof raw !== 'function'))
+        continue
       entries.push({ spec: { ...spec }, raw })
     }
 

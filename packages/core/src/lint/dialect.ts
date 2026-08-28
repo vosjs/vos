@@ -102,7 +102,7 @@ const RULES: RuleDef[] = [
     severity: 'error',
     pattern: /\bmodifiers\s*:/g,
     message:
-      "modifiers is outside the dialect — compute derived properties in onUpdate from the tweened driver instead.",
+      'modifiers is outside the dialect — compute derived properties in onUpdate from the tweened driver instead.',
   },
   {
     // First arg to .to/.from/.fromTo/.set is a string literal → DOM/selector target
@@ -131,7 +131,8 @@ const RULES: RuleDef[] = [
     rule: 'snap',
     severity: 'error',
     pattern: /\bsnap\s*:/g,
-    message: 'snap is per-tick post-processing — precompute snapped values instead.',
+    message:
+      'snap is per-tick post-processing — precompute snapped values instead.',
   },
   {
     rule: 'immediate-render',

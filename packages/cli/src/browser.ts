@@ -21,7 +21,9 @@ export async function launchBrowser(): Promise<Browser> {
   const explicit = process.env.VOS_BROWSER_PATH
   if (explicit) {
     return chromium.launch({ executablePath: explicit }).catch((e) => {
-      throw new BrowserUnavailableError(`VOS_BROWSER_PATH failed: ${(e as Error).message}`)
+      throw new BrowserUnavailableError(
+        `VOS_BROWSER_PATH failed: ${(e as Error).message}`,
+      )
     })
   }
   try {
@@ -30,7 +32,9 @@ export async function launchBrowser(): Promise<Browser> {
     try {
       return await chromium.launch()
     } catch (e) {
-      throw new BrowserUnavailableError((e as Error).message.split('\n')[0] ?? 'unknown')
+      throw new BrowserUnavailableError(
+        (e as Error).message.split('\n')[0] ?? 'unknown',
+      )
     }
   }
 }

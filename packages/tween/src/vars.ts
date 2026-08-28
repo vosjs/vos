@@ -154,11 +154,13 @@ export function parseVars(
       ? durationRaw
       : (opts.defaultDuration ?? DEFAULT_DURATION)
   const delayRaw = v.delay
-  const delay = typeof delayRaw === 'number' && Number.isFinite(delayRaw) ? delayRaw : 0
+  const delay =
+    typeof delayRaw === 'number' && Number.isFinite(delayRaw) ? delayRaw : 0
 
   const repeat = typeof v.repeat === 'number' ? v.repeat : undefined
   const yoyo = typeof v.yoyo === 'boolean' ? v.yoyo : undefined
-  const repeatDelay = typeof v.repeatDelay === 'number' ? v.repeatDelay : undefined
+  const repeatDelay =
+    typeof v.repeatDelay === 'number' ? v.repeatDelay : undefined
 
   let callbacks: TweenCallbacks | undefined
   for (const key of ['onStart', 'onUpdate', 'onComplete'] as const) {

@@ -57,7 +57,11 @@ export function staggerOffsets(n: number, stagger: unknown): StaggerResult {
           ? amount / (n - 1)
           : 0
     const offsets = norm.map((d) => d * unit)
-    return { offsets, max: Math.max(...offsets.map(Math.abs), 0), opaque: false }
+    return {
+      offsets,
+      max: Math.max(...offsets.map(Math.abs), 0),
+      opaque: false,
+    }
   }
 
   // Function-based (or otherwise exotic) stagger — outside the dialect.

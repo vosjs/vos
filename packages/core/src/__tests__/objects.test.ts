@@ -61,7 +61,9 @@ describe('objects[] codegen', () => {
 
   it('a gltf object auto-detects the GLTFLoader addon (objects are data, not code)', () => {
     const code = compileVosConfig(
-      withObjects([{ id: 'm0', asset: { kind: 'gltf', key: 'https://x/m.glb' } }]),
+      withObjects([
+        { id: 'm0', asset: { kind: 'gltf', key: 'https://x/m.glb' } },
+      ]),
     )
     expect(code).toContain('GLTFLoader')
     expect(code).toMatch(/import .*GLTFLoader.* from/)
@@ -71,7 +73,9 @@ describe('objects[] codegen', () => {
 
   it('primitive-only configs do not import GLTFLoader', () => {
     const code = compileVosConfig(
-      withObjects([{ id: 'p0', asset: { kind: 'primitive', shape: 'sphere' } }]),
+      withObjects([
+        { id: 'p0', asset: { kind: 'primitive', shape: 'sphere' } },
+      ]),
     )
     expect(code).not.toMatch(/import .*GLTFLoader.* from/)
   })
@@ -101,7 +105,9 @@ describe('objects[] codegen', () => {
 
   it('primitive-only configs do not import FontLoader', () => {
     const code = compileVosConfig(
-      withObjects([{ id: 'p0', asset: { kind: 'primitive', shape: 'sphere' } }]),
+      withObjects([
+        { id: 'p0', asset: { kind: 'primitive', shape: 'sphere' } },
+      ]),
     )
     expect(code).not.toMatch(/import .*FontLoader.* from/)
   })

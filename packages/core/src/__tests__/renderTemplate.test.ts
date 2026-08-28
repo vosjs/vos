@@ -161,7 +161,9 @@ describe('generateRenderTemplate', () => {
       expect(html).toContain('const startFrame = 0;')
       expect(html).toContain('const endFrame = 150;')
       // Segment-local capture timestamps (identical to global when start=0).
-      expect(html).toContain('videoSource.add((frame - startFrame) / 30, 1 / 30)')
+      expect(html).toContain(
+        'videoSource.add((frame - startFrame) / 30, 1 / 30)',
+      )
     })
 
     it('captures a sub-range as an independent segment', () => {
@@ -273,7 +275,9 @@ describe('capture-video: data injection and audio producer', () => {
       capture: { ...capture, data: { videoSrc: 'x.webm', micGain: 0.8 } },
     })
     expect(video).toContain('"videoSrc":"x.webm"')
-    expect(video).toContain('if (__captureData != null) deps.data = __captureData;')
+    expect(video).toContain(
+      'if (__captureData != null) deps.data = __captureData;',
+    )
 
     const thumb = generateRenderTemplate(sampleCode, {
       mode: 'capture-thumbnail',

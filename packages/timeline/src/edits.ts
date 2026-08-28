@@ -13,7 +13,9 @@ export const MIN_SEGMENT_LENGTH = 0.05
 
 /** Drop degenerate segments and sort by source `in` order preserved as given. */
 export function normalizeSegments(segments: readonly Segment[]): Segment[] {
-  return segments.filter((s) => s.out - s.in >= MIN_SEGMENT_LENGTH).map((s) => ({ ...s }))
+  return segments
+    .filter((s) => s.out - s.in >= MIN_SEGMENT_LENGTH)
+    .map((s) => ({ ...s }))
 }
 
 /**
@@ -21,7 +23,10 @@ export function normalizeSegments(segments: readonly Segment[]): Segment[] {
  * moment. No-op when `t` falls on a boundary (either half would be degenerate)
  * or outside the timeline.
  */
-export function splitSegments(segments: readonly Segment[], t: number): Segment[] {
+export function splitSegments(
+  segments: readonly Segment[],
+  t: number,
+): Segment[] {
   if (!segments.length) return [...segments]
   const sourceT = mapTime(segments, t)
   let acc = 0
@@ -70,7 +75,10 @@ export function trimSegment(
 }
 
 /** Remove a segment. No-op on an invalid index or when it is the only one. */
-export function removeSegment(segments: readonly Segment[], index: number): Segment[] {
+export function removeSegment(
+  segments: readonly Segment[],
+  index: number,
+): Segment[] {
   if (segments.length <= 1 || !segments[index]) return [...segments]
   return segments.filter((_, i) => i !== index)
 }

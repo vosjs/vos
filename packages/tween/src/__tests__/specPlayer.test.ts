@@ -5,7 +5,9 @@ import type { TweenSpec } from '../index'
 const el = (id: string, _props: Record<string, number>) =>
   ({ kind: 'element', id, scope: 'props' }) as const
 
-const spec = (partial: Partial<TweenSpec> & Pick<TweenSpec, 'target' | 'to'>): TweenSpec => ({
+const spec = (
+  partial: Partial<TweenSpec> & Pick<TweenSpec, 'target' | 'to'>,
+): TweenSpec => ({
   startTime: 0,
   duration: 1,
   ease: 'none',
@@ -26,10 +28,32 @@ describe('createSpecPlayer', () => {
     const s = scene()
     const player = createSpecPlayer(contextResolver(s.ctx, s.content))
     player.setSpecs([
-      spec({ target: el('title', s.title.props), from: { opacity: 0 }, to: { opacity: 1 }, startTime: 0.5 }),
-      spec({ target: { kind: 'uniform', path: 'iTime' }, to: { value: 4 }, duration: 4 }),
-      spec({ target: { kind: 'ref', path: 'group.rotation' }, to: { y: 6.28 }, duration: 2 }),
-      spec({ target: { kind: 'element', id: 'title', scope: 'segment', segmentIndex: 1 }, to: { y: 10 }, duration: 1 }),
+      spec({
+        target: el('title', s.title.props),
+        from: { opacity: 0 },
+        to: { opacity: 1 },
+        startTime: 0.5,
+      }),
+      spec({
+        target: { kind: 'uniform', path: 'iTime' },
+        to: { value: 4 },
+        duration: 4,
+      }),
+      spec({
+        target: { kind: 'ref', path: 'group.rotation' },
+        to: { y: 6.28 },
+        duration: 2,
+      }),
+      spec({
+        target: {
+          kind: 'element',
+          id: 'title',
+          scope: 'segment',
+          segmentIndex: 1,
+        },
+        to: { y: 10 },
+        duration: 1,
+      }),
     ])
     expect(player.duration()).toBe(4)
 
@@ -45,13 +69,17 @@ describe('createSpecPlayer', () => {
     const s = scene()
     s.title.props.y = 5 // original base
     const player = createSpecPlayer(contextResolver(s.ctx, s.content))
-    const v1: TweenSpec[] = [spec({ target: el('title', s.title.props), to: { y: 105 }, duration: 2 })]
+    const v1: TweenSpec[] = [
+      spec({ target: el('title', s.title.props), to: { y: 105 }, duration: 2 }),
+    ]
     player.setSpecs(v1)
     player.seek(1)
     expect(s.title.props.y).toBeCloseTo(55, 6) // halfway 5→105
 
     // SET_DATA mid-playback: new spec list (new identity), implicit start again.
-    const v2: TweenSpec[] = [spec({ target: el('title', s.title.props), to: { y: 205 }, duration: 2 })]
+    const v2: TweenSpec[] = [
+      spec({ target: el('title', s.title.props), to: { y: 205 }, duration: 2 }),
+    ]
     player.setSpecs(v2)
     player.seek(1)
     expect(s.title.props.y).toBeCloseTo(105, 6) // halfway 5→205 — base preserved
@@ -75,7 +103,10 @@ describe('createSpecPlayer', () => {
     const s = scene()
     const player = createSpecPlayer(contextResolver(s.ctx, s.content))
     player.setSpecs([
-      spec({ target: { kind: 'element', id: 'ghost', scope: 'props' }, to: { y: 1 } }),
+      spec({
+        target: { kind: 'element', id: 'ghost', scope: 'props' },
+        to: { y: 1 },
+      }),
       spec({ target: { kind: 'opaque', label: '#0' }, to: { t: 1 } }),
       spec({ target: el('title', s.title.props), to: { y: 3 }, duration: 1 }),
     ])

@@ -16,7 +16,9 @@ describe('migrateConfig', () => {
       createContent: '() => ({})',
       createTimeline: '() => gsap.timeline()',
     }
-    expect(() => migrateConfig(v1)).toThrow(/No migration from config version 1/)
+    expect(() => migrateConfig(v1)).toThrow(
+      /No migration from config version 1/,
+    )
   })
 
   it('passes through v2 config unchanged', () => {

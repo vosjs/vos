@@ -88,10 +88,13 @@ describe('splitBySpeed', () => {
   })
 
   it('applies multiple spans in source order, earlier span wins overlaps', () => {
-    const out = splitBySpeed([{ in: 0, out: 10 }], [
-      { in: 2, out: 5, rate: 2 },
-      { in: 4, out: 7, rate: 0.5 },
-    ])
+    const out = splitBySpeed(
+      [{ in: 0, out: 10 }],
+      [
+        { in: 2, out: 5, rate: 2 },
+        { in: 4, out: 7, rate: 0.5 },
+      ],
+    )
     expect(out).toEqual([
       { in: 0, out: 2 },
       { in: 2, out: 5, rate: 2 },
@@ -128,6 +131,10 @@ describe('edits preserve rates', () => {
   })
 
   it('trimSegment keeps the rate', () => {
-    expect(trimSegment(rated, 1, 'out', 4.5)[1]).toEqual({ in: 3, out: 4.5, rate: 2 })
+    expect(trimSegment(rated, 1, 'out', 4.5)[1]).toEqual({
+      in: 3,
+      out: 4.5,
+      rate: 2,
+    })
   })
 })

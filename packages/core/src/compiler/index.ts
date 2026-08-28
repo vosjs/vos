@@ -1,1 +1,4 @@
-export { compileVosConfig, type CompileVosConfigOptions } from './compileVosConfig'
+export {
+  compileVosConfig,
+  type CompileVosConfigOptions,
+} from './compileVosConfig'

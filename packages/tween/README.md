@@ -25,7 +25,11 @@ pnpm add @vosjs/tween
 
 ```ts
 import gsap from 'gsap'
-import { createTweenRecorder, extractTimeline, createSampler } from '@vosjs/tween'
+import {
+  createTweenRecorder,
+  extractTimeline,
+  createSampler,
+} from '@vosjs/tween'
 
 // record a config's createTimeline against the facade (delegating to real gsap)
 const recorder = createTweenRecorder({ backend: gsap })

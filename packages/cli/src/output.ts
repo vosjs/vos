@@ -30,7 +30,8 @@ export function createReporter(json: boolean): Reporter {
       if (json) process.stdout.write(`${JSON.stringify(obj)}\n`)
     },
     done: (obj, humanLine) => {
-      if (json) process.stdout.write(`${JSON.stringify({ event: 'done', ...obj })}\n`)
+      if (json)
+        process.stdout.write(`${JSON.stringify({ event: 'done', ...obj })}\n`)
       else process.stdout.write(`${humanLine}\n`)
     },
   }

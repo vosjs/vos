@@ -35,7 +35,12 @@ interface Case {
 interface TimelineLike {
   to(target: unknown, vars: object, position?: number | string): unknown
   from(target: unknown, vars: object, position?: number | string): unknown
-  fromTo(target: unknown, from: object, to: object, position?: number | string): unknown
+  fromTo(
+    target: unknown,
+    from: object,
+    to: object,
+    position?: number | string,
+  ): unknown
   set(target: unknown, vars: object, position?: number | string): unknown
   addLabel(label: string, position?: number | string): unknown
   seek(t: number, suppress?: boolean): unknown
@@ -94,7 +99,17 @@ const CASES: Case[] = [
     targets: () => ({ a: { x: 0 }, b: { y: 0 } }),
     build: (tl, o) => {
       tl.to(o.a, { x: 10, duration: 1, ease: 'none', repeat: 2, yoyo: true }, 0)
-      tl.to(o.b, { y: 4, duration: 0.5, ease: 'power1.in', repeat: 3, repeatDelay: 0.25 }, 0)
+      tl.to(
+        o.b,
+        {
+          y: 4,
+          duration: 0.5,
+          ease: 'power1.in',
+          repeat: 3,
+          repeatDelay: 0.25,
+        },
+        0,
+      )
     },
     extraTimes: [0.999, 1.001, 1.5, 2.999, 3.0],
   },
@@ -102,7 +117,11 @@ const CASES: Case[] = [
     name: 'infinite repeat (values over a finite window)',
     targets: () => ({ a: { r: 0 } }),
     build: (tl, o) => {
-      tl.to(o.a, { r: 1, duration: 0.8, ease: 'none', repeat: -1, yoyo: true }, 0)
+      tl.to(
+        o.a,
+        { r: 1, duration: 0.8, ease: 'none', repeat: -1, yoyo: true },
+        0,
+      )
     },
     sweepEnd: 5,
   },
@@ -115,7 +134,11 @@ const CASES: Case[] = [
       d: { y: 0 },
     }),
     build: (tl, o) => {
-      tl.to([o.a, o.b, o.c, o.d], { y: 1, duration: 0.5, ease: 'none', stagger: 0.2 }, 0)
+      tl.to(
+        [o.a, o.b, o.c, o.d],
+        { y: 1, duration: 0.5, ease: 'none', stagger: 0.2 },
+        0,
+      )
     },
   },
   {
@@ -129,8 +152,26 @@ const CASES: Case[] = [
     }),
     build: (tl, o) => {
       const arr = [o.a, o.b, o.c, o.d, o.e]
-      tl.to(arr, { y: 1, duration: 0.4, ease: 'none', stagger: { each: 0.3, from: 'center' } }, 0)
-      tl.to(arr, { z: 2, duration: 0.4, ease: 'none', stagger: { amount: 1, from: 'end' } }, 3)
+      tl.to(
+        arr,
+        {
+          y: 1,
+          duration: 0.4,
+          ease: 'none',
+          stagger: { each: 0.3, from: 'center' },
+        },
+        0,
+      )
+      tl.to(
+        arr,
+        {
+          z: 2,
+          duration: 0.4,
+          ease: 'none',
+          stagger: { amount: 1, from: 'end' },
+        },
+        3,
+      )
     },
   },
   {
@@ -143,7 +184,16 @@ const CASES: Case[] = [
       e: { y: 0 },
     }),
     build: (tl, o) => {
-      tl.to([o.a, o.b, o.c, o.d, o.e], { y: 1, duration: 0.4, ease: 'none', stagger: { each: 0.25, from: 'edges' } }, 0)
+      tl.to(
+        [o.a, o.b, o.c, o.d, o.e],
+        {
+          y: 1,
+          duration: 0.4,
+          ease: 'none',
+          stagger: { each: 0.25, from: 'edges' },
+        },
+        0,
+      )
     },
   },
   {
@@ -185,8 +235,16 @@ const CASES: Case[] = [
     build: (tl, o) => {
       // The "Elements Test" official-example shape: .from intro, then a
       // relative yoyo float chained on the same property.
-      tl.from(o.a, { opacity: 0, scale: 0.8, y: 1, duration: 1, ease: 'power2.out' }, 0.5)
-      tl.to(o.a, { y: '-=0.1', duration: 2, yoyo: true, repeat: 1, ease: 'sine.inOut' }, 1.5)
+      tl.from(
+        o.a,
+        { opacity: 0, scale: 0.8, y: 1, duration: 1, ease: 'power2.out' },
+        0.5,
+      )
+      tl.to(
+        o.a,
+        { y: '-=0.1', duration: 2, yoyo: true, repeat: 1, ease: 'sine.inOut' },
+        1.5,
+      )
       tl.to(o.b, { x: '+=5', duration: 1, ease: 'none' }, 0)
     },
   },
