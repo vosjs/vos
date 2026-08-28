@@ -10,7 +10,7 @@ const sample =
 
 describe('SET_MUTED', () => {
   it('is a playback command that reaches every media element', () => {
-    expect(VOS_BRIDGE_PROTOCOL).toBe(7)
+    expect(VOS_BRIDGE_PROTOCOL).toBe(8)
     const html = generateRenderTemplate(sample, { mode: 'playback' })
     expect(html).toContain("case 'SET_MUTED':")
     expect(html).toContain('window.__vos__.setGlobalMuted(!!msg.muted)')

@@ -52,6 +52,19 @@ if (hasDeterminismErrors(issues)) throw new Error('non-deterministic config')
 
 `lintVosConfig` flags non-deterministic patterns (`Date.now()`, `Math.random()`, wall-clock reads), and `lintVosDialect` checks the GSAP authoring dialect.
 
+## Retime the tweens, live
+
+A host editing a program's timing does not need to rewrite `createTimeline`. On the vos tween backend the recorded timeline takes an overlay — `@vosjs/tween`'s `TweenEdit[]`, one entry per recorded tween index — and the bridge applies it live:
+
+```ts
+player.postMessage({
+  type: 'SET_TWEEN_EDITS',
+  edits: [{ index: 2, startTime: 2.7, duration: 4 }],
+})
+```
+
+The whole overlay, every time: it applies from the recording, never on top of the previous overlay, so an edit that leaves the overlay leaves the timeline too. The frame under the playhead repaints, an `UPDATE` carries the new duration, and the overlay survives a warm `LOAD` (or rides one as `LOAD.tweenEdits`). `READY.canRetimeTweens` says the running timeline honors it; the gsap backend does not, and a host then bakes the overlay into `createTimeline` (`tl.applyEdits(edits)` after the user's function returns) and loads.
+
 ## Retime
 
 `retime` evaluates the program at `f(t)`: a pure function of the OUTPUT time and `ctx.data`, returning the program time to render.

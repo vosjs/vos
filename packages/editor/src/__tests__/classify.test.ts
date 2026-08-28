@@ -10,6 +10,33 @@ const lowered = (over: Partial<LoweredProgram> = {}): LoweredProgram => ({
 })
 
 describe('classifyEdit', () => {
+  it('a tween-timing overlay rides the LOAD and retimes live afterwards', () => {
+    const edits = [{ index: 0, startTime: 1 }]
+    const prev = lowered({ tweenEdits: edits })
+    expect(classifyEdit(null, prev, false)).toEqual([
+      { type: 'LOAD', code: 'PROGRAM_A', data: prev.data, tweenEdits: edits },
+    ])
+    const next = lowered({
+      data: prev.data,
+      tweenEdits: [{ index: 0, startTime: 2 }],
+    })
+    expect(classifyEdit(prev, next, false)).toEqual([
+      { type: 'SET_TWEEN_EDITS', edits: next.tweenEdits },
+    ])
+    // Dropping the overlay is an edit too (the recording comes back).
+    expect(classifyEdit(next, lowered({ data: next.data }), false)).toEqual([
+      { type: 'SET_TWEEN_EDITS', edits: [] },
+    ])
+    // Same reference: nothing to send.
+    expect(
+      classifyEdit(
+        next,
+        lowered({ data: next.data, tweenEdits: next.tweenEdits }),
+        false,
+      ),
+    ).toEqual([])
+  })
+
   it('a stack rides the LOAD, and an entry whose data changed gets its own SET_DATA', () => {
     const hud = { text: 'a' }
     const prev = lowered({ stack: { hud, sub: { on: true } } })

@@ -292,6 +292,7 @@ ${moduleBody}
 //   - SET_DATA { data, target? }                -> live ctx.data swap (no re-init); target = a stack entry
 //   - GET_STACK_STATE { requestId }             -> STACK_STATE; STACK_ERROR is pushed when an entry throws
 //   - SET_MUTED { muted }                       -> mute every media element (survives LOAD)
+//   - SET_TWEEN_EDITS { edits }                 -> retime the recorded tweens live (vos backend; survives LOAD)
 //   - editor mode: OBJECT_BOUNDS { id }        -> OBJECT_RECT (a prop's screen rect)
 //   - PLAY / PAUSE / SEEK { value } / SEEK_TIME { value } / PLAY_SPEED { value }
 //   - SET_DURATION { value }                    -> retime (only if program supports it)
@@ -352,6 +353,7 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
         let __current = null;   // current VosResult
         let __data = null;      // last applied ctx.data
         let __stackData = null; // last applied per-entry data, by id
+        let __tweenEdits = null;
         let __stackUnsub = null;
 
         const __attachProgress = (tl, myEpoch) => {
@@ -383,6 +385,7 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
             __data = data;
             const stackData = (payload && payload.stack != null) ? payload.stack : __stackData;
             __stackData = stackData;
+            if (payload && payload.tweenEdits != null) __tweenEdits = payload.tweenEdits;
             if (__stackUnsub) { try { __stackUnsub(); } catch (e) {} __stackUnsub = null; }
 
             let initVos;
@@ -411,11 +414,14 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
 
             const tl = result.timeline;
             if (tl) tl.pause();
+            // Protocol 8: the overlay a host handed us survives the warm swap
+            // the way data does — applied to the fresh recording.
+            if (tl && __tweenEdits && typeof tl.applyEdits === 'function') { try { tl.applyEdits(__tweenEdits); } catch (e) {} }
             __attachProgress(tl, myEpoch);
             if (result.stack && result.stack.onError) {
                 __stackUnsub = result.stack.onError((e) => { if (myEpoch === __epoch) __post({ type: 'STACK_ERROR', id: e.id, error: e.error }); });
             }
-            __post({ type: 'READY', duration: __finiteDuration(tl), canSetDuration: !!result.setDuration, stack: result.stack ? result.stack.ids : [], retime: !!result.retime });
+            __post({ type: 'READY', duration: __finiteDuration(tl), canSetDuration: !!result.setDuration, stack: result.stack ? result.stack.ids : [], retime: !!result.retime, canRetimeTweens: !!(tl && typeof tl.applyEdits === 'function') });
 
             if (tl) {
                 if (prev) {
@@ -450,6 +456,19 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
                     if (window.__vos__?.setGlobalMuted) window.__vos__.setGlobalMuted(!!msg.muted);
                     else { window.__vos__ = window.__vos__ || {}; window.__vos__.isMuted = !!msg.muted; }
                     break;
+                case 'SET_TWEEN_EDITS': {
+                    __tweenEdits = Array.isArray(msg.edits) ? msg.edits : [];
+                    const tl = __current && __current.timeline;
+                    if (tl && typeof tl.applyEdits === 'function') {
+                        try { tl.applyEdits(__tweenEdits); } catch (e) { __post({ type: 'ERROR', error: String((e && e.message) || e) }); break; }
+                        // Repaint the frame under the playhead (clamped to the new length)
+                        // and tell the host what the timeline is now.
+                        const dur = __finiteDuration(tl);
+                        tl.seek(Math.max(0, Math.min(tl.time(), dur)), false);
+                        __post({ type: 'UPDATE', progress: tl.progress(), time: tl.time(), duration: dur });
+                    }
+                    break;
+                }
                 case 'PLAY':
                     if (window.__vos__?.setGlobalPaused) window.__vos__.setGlobalPaused(false);
                     if (__current && __current.timeline) __current.timeline.play();
