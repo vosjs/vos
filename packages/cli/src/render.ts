@@ -59,16 +59,22 @@ async function runCapturePage(
     await page.route(`${RENDER_ORIGIN}/**`, (route) =>
       route.fulfill({ status: 200, contentType: 'text/html', body: html }),
     )
-    await page.goto(`${RENDER_ORIGIN}/render`, { waitUntil: 'domcontentloaded' })
+    await page.goto(`${RENDER_ORIGIN}/render`, {
+      waitUntil: 'domcontentloaded',
+    })
     const start = Date.now()
     for (;;) {
-      const done = (await page.evaluate('window.__renderComplete ?? null')) as RenderComplete | null
+      const done = (await page.evaluate(
+        'window.__renderComplete ?? null',
+      )) as RenderComplete | null
       if (done) return done
       if (Date.now() - start > opts.timeoutMs) {
         return {
           success: false,
           error: `render timed out after ${Math.round(opts.timeoutMs / 1000)}s${
-            errors.length ? ` (page errors: ${errors.slice(0, 3).join(' | ')})` : ''
+            errors.length
+              ? ` (page errors: ${errors.slice(0, 3).join(' | ')})`
+              : ''
           }`,
         }
       }
@@ -113,7 +119,8 @@ export async function renderVideo(
     height: opts.height,
     timeoutMs,
   })
-  if (!done.success || !done.data) throw new Error(done.error ?? 'render failed')
+  if (!done.success || !done.data)
+    throw new Error(done.error ?? 'render failed')
   return decodeDataUrl(done.data)
 }
 
@@ -143,7 +150,8 @@ export async function renderStill(
     height: opts.height,
     timeoutMs: 120_000,
   })
-  if (!done.success || !done.data) throw new Error(done.error ?? 'still render failed')
+  if (!done.success || !done.data)
+    throw new Error(done.error ?? 'still render failed')
   return decodeDataUrl(done.data)
 }
 

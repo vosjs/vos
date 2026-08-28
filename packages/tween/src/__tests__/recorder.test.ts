@@ -12,9 +12,18 @@ import {
 describe('RecordingTimeline — recording & targets', () => {
   it('records element props tweens with resolved absolute times', () => {
     const rec = createTweenRecorder()
-    const el = tagTarget({} as Record<string, number>, { kind: 'element', id: 'title', scope: 'props' })
+    const el = tagTarget({} as Record<string, number>, {
+      kind: 'element',
+      id: 'title',
+      scope: 'props',
+    })
     const tl = rec.timeline({ paused: true })
-    tl.fromTo(el, { opacity: 0, scale: 0.8 }, { opacity: 1, scale: 1, duration: 1.5, ease: 'power2.out' }, 0.5)
+    tl.fromTo(
+      el,
+      { opacity: 0, scale: 0.8 },
+      { opacity: 1, scale: 1, duration: 1.5, ease: 'power2.out' },
+      0.5,
+    )
 
     expect(tl.specs).toHaveLength(1)
     const s = tl.specs[0]
@@ -51,7 +60,9 @@ describe('RecordingTimeline — recording & targets', () => {
     const s = tl.specs[0]
     expect(s.to).toEqual({ x: 100 })
     expect(s.opaque).toBe(true)
-    expect(s.opaqueKeys).toEqual(expect.arrayContaining(['onUpdate', 'modifiers', 'color']))
+    expect(s.opaqueKeys).toEqual(
+      expect.arrayContaining(['onUpdate', 'modifiers', 'color']),
+    )
   })
 
   it('assigns stable opaque handles to untagged objects', () => {
@@ -132,9 +143,18 @@ describe('position resolution', () => {
 describe('extraction — specs → tracks', () => {
   it('turns a fromTo into two keyframes with the ease on the destination', () => {
     const rec = createTweenRecorder()
-    const el = tagTarget({} as Record<string, number>, { kind: 'element', id: 'a', scope: 'props' })
+    const el = tagTarget({} as Record<string, number>, {
+      kind: 'element',
+      id: 'a',
+      scope: 'props',
+    })
     const tl = rec.timeline()
-    tl.fromTo(el, { opacity: 0 }, { opacity: 1, duration: 1, ease: 'sine.inOut' }, 0.5)
+    tl.fromTo(
+      el,
+      { opacity: 0 },
+      { opacity: 1, duration: 1, ease: 'sine.inOut' },
+      0.5,
+    )
     const doc = extractTimeline(tl)
     const track = doc.tracks.find((t) => t.property === 'opacity')!
     expect(track.hasOpaque).toBe(false)
@@ -146,7 +166,11 @@ describe('extraction — specs → tracks', () => {
 
   it('chains sequential .to off the prior anchor and flags a leading .to', () => {
     const rec = createTweenRecorder()
-    const el = tagTarget({} as Record<string, number>, { kind: 'element', id: 'b', scope: 'props' })
+    const el = tagTarget({} as Record<string, number>, {
+      kind: 'element',
+      id: 'b',
+      scope: 'props',
+    })
     const tl = rec.timeline()
     tl.set(el, { x: 0 }, 0) // anchor
     tl.to(el, { x: 100, duration: 1, ease: 'none' }, 0)
@@ -163,10 +187,16 @@ describe('extraction — specs → tracks', () => {
     // Without the anchoring .set, a leading .to has an unknown implicit start — the track
     // is still structured (not opaque), just flagged `unresolved`.
     const rec2 = createTweenRecorder()
-    const el2 = tagTarget({} as Record<string, number>, { kind: 'element', id: 'c', scope: 'props' })
+    const el2 = tagTarget({} as Record<string, number>, {
+      kind: 'element',
+      id: 'c',
+      scope: 'props',
+    })
     const tl2 = rec2.timeline()
     tl2.to(el2, { x: 100, duration: 1 }, 0)
-    const leadTrack = extractTimeline(tl2).tracks.find((t) => t.property === 'x')!
+    const leadTrack = extractTimeline(tl2).tracks.find(
+      (t) => t.property === 'x',
+    )!
     expect(leadTrack.hasOpaque).toBe(false)
     expect(leadTrack.unresolved).toBe(true)
   })
@@ -193,10 +223,17 @@ describe('runCreateTimeline — host-side extraction from a function string', ()
     const tl = runCreateTimeline(SOURCE, ctx, content, 4)!
     const doc = extractTimeline(tl)
 
-    expect(doc.tracks.some((t) => t.target.kind === 'uniform' && t.property === 'value')).toBe(true)
     expect(
       doc.tracks.some(
-        (t) => t.target.kind === 'element' && t.target.scope === 'props' && t.property === 'opacity',
+        (t) => t.target.kind === 'uniform' && t.property === 'value',
+      ),
+    ).toBe(true)
+    expect(
+      doc.tracks.some(
+        (t) =>
+          t.target.kind === 'element' &&
+          t.target.scope === 'props' &&
+          t.property === 'opacity',
       ),
     ).toBe(true)
     const segTracks = doc.tracks.filter(

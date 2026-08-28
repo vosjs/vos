@@ -26,9 +26,9 @@ const half: VosConfigJson = {
 describe('retime — schema and lint', () => {
   it('is an optional function string', () => {
     expect(vosConfigJsonSchema.safeParse(half).success).toBe(true)
-    expect(
-      vosConfigJsonSchema.safeParse({ ...base, retime: 3 }).success,
-    ).toBe(false)
+    expect(vosConfigJsonSchema.safeParse({ ...base, retime: 3 }).success).toBe(
+      false,
+    )
   })
 
   it('is linted like every other hook', () => {

@@ -5,7 +5,10 @@ const BOOLS = new Set(['json', 'help'])
 
 describe('parseArgs', () => {
   it('separates positionals and flags', () => {
-    const p = parseArgs(['config.json', 'out.webm', '--width', '1920', '--json'], BOOLS)
+    const p = parseArgs(
+      ['config.json', 'out.webm', '--width', '1920', '--json'],
+      BOOLS,
+    )
     expect(p.positionals).toEqual(['config.json', 'out.webm'])
     expect(p.flags).toEqual({ width: '1920', json: true })
   })

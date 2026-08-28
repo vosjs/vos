@@ -28,7 +28,10 @@ describe('real-GSAP parity', () => {
       .getChildren(false, true, true)
       .map((k) => ({ start: k.startTime(), dur: k.duration() }))
 
-    const recorded = tl.specs.map((s) => ({ start: s.startTime, dur: s.duration }))
+    const recorded = tl.specs.map((s) => ({
+      start: s.startTime,
+      dur: s.duration,
+    }))
     expect(recorded).toEqual(fromGsap)
     expect(recorded).toEqual([
       { start: 0, dur: 2 },

@@ -20,7 +20,11 @@ const inOut =
   (x) =>
     x < 0.5 ? easeIn(x * 2) / 2 : 1 - easeIn((1 - x) * 2) / 2
 
-const family = (name: string, easeIn: EaseFn, target: Record<string, EaseFn>) => {
+const family = (
+  name: string,
+  easeIn: EaseFn,
+  target: Record<string, EaseFn>,
+) => {
   target[`${name}.in`] = easeIn
   target[`${name}.out`] = out(easeIn)
   target[`${name}.inOut`] = inOut(easeIn)
@@ -86,7 +90,12 @@ const bounceIn: EaseFn = (x) => 1 - bounceOut(1 - x)
  * monotonic); y control points may exceed [0, 1] for overshoot curves.
  * Deterministic and stateless like every other ease here.
  */
-const cubicBezier = (x1: number, y1: number, x2: number, y2: number): EaseFn => {
+const cubicBezier = (
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+): EaseFn => {
   const cx1 = Math.min(1, Math.max(0, x1))
   const cx2 = Math.min(1, Math.max(0, x2))
   const coefA = (a1: number, a2: number) => 1 - 3 * a2 + 3 * a1
@@ -124,8 +133,7 @@ const cubicBezier = (x1: number, y1: number, x2: number, y2: number): EaseFn => 
  */
 const stepsEase = (n: number): EaseFn => {
   const count = Math.max(1, Math.round(n))
-  return (x) =>
-    Math.min(1, Math.max(0, Math.floor(x * (count + 1)) / count))
+  return (x) => Math.min(1, Math.max(0, Math.floor(x * (count + 1)) / count))
 }
 
 const build = (): Record<string, EaseFn> => {
@@ -201,9 +209,7 @@ function parse(name: string): EaseFn | undefined {
   const m = EASE_EXPR.exec(name)
   if (!m) return undefined
   const [, fam, dir, argsRaw] = m
-  const args = argsRaw
-    ? argsRaw.split(',').map((s) => Number(s.trim()))
-    : []
+  const args = argsRaw ? argsRaw.split(',').map((s) => Number(s.trim())) : []
   if (args.some((a) => !Number.isFinite(a))) return undefined
 
   if (fam === 'steps') return args.length ? stepsEase(args[0]) : undefined

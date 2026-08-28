@@ -44,7 +44,10 @@ export class TargetResolver {
     if (keyable(obj)) {
       const existing = this.opaque.get(obj)
       if (existing) return existing
-      const target: TweenTarget = { kind: 'opaque', label: `#${this.counter++}` }
+      const target: TweenTarget = {
+        kind: 'opaque',
+        label: `#${this.counter++}`,
+      }
       this.opaque.set(obj, target)
       return target
     }

@@ -64,7 +64,8 @@ async function cmdRender(argv: string[]): Promise<number> {
   if (!source) throw new UsageError('vos render <config.json|url|take> [out]')
   const r = createReporter(flags.json === true)
   const format = (flags.format as string) ?? 'webm'
-  if (format !== 'webm' && format !== 'mp4') throw new UsageError('--format must be webm or mp4')
+  if (format !== 'webm' && format !== 'mp4')
+    throw new UsageError('--format must be webm or mp4')
 
   const { config, warnings } = await loadVosConfig(source)
   for (const w of warnings) r.log(`note: ${w}`)
@@ -126,7 +127,14 @@ async function cmdStill(argv: string[]): Promise<number> {
     })
     await writeFile(out, result.bytes)
     r.done(
-      { out, bytes: result.bytes.length, width, height, time, mimeType: result.mimeType },
+      {
+        out,
+        bytes: result.bytes.length,
+        width,
+        height,
+        time,
+        mimeType: result.mimeType,
+      },
       `Wrote ${out} (${(result.bytes.length / 1024).toFixed(0)} KB, ${width}x${height} @ t=${time}s)`,
     )
     return EXIT_OK
@@ -143,14 +151,18 @@ async function cmdInfo(argv: string[]): Promise<number> {
 
   const { config, warnings } = await loadVosConfig(source)
   const elements = Array.isArray(config.elements) ? config.elements.length : 0
-  const data = typeof config.data === 'object' && config.data !== null ? Object.keys(config.data) : []
+  const data =
+    typeof config.data === 'object' && config.data !== null
+      ? Object.keys(config.data)
+      : []
   const fns = ['setup', 'createContent', 'createTimeline', 'onFrame'].filter(
     (k) => typeof config[k] === 'string',
   )
   const info = {
     version: config.version,
     duration: configDuration(config) ?? null,
-    camera: (config.camera as Record<string, unknown> | undefined)?.preset ?? null,
+    camera:
+      (config.camera as Record<string, unknown> | undefined)?.preset ?? null,
     elements,
     dataKeys: data,
     functions: fns,
@@ -193,7 +205,9 @@ function packageVersion(name: string): string | null {
   let dir = dirname(entry)
   for (let i = 0; i < 6; i++) {
     try {
-      const pkg = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
+      const pkg = JSON.parse(
+        readFileSync(join(dir, 'package.json'), 'utf8'),
+      ) as {
         name?: string
         version?: string
       }
@@ -211,7 +225,10 @@ function packageVersion(name: string): string | null {
 function ownVersion(): string {
   try {
     const own = JSON.parse(
-      readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8'),
+      readFileSync(
+        fileURLToPath(new URL('../package.json', import.meta.url)),
+        'utf8',
+      ),
     ) as { version: string }
     return own.version
   } catch {
@@ -224,7 +241,12 @@ async function cmdVersions(argv: string[]): Promise<number> {
   const r = createReporter(flags.json === true)
   const versions: Record<string, string> = {}
   versions['@vosjs/cli'] = ownVersion()
-  for (const name of ['@vosjs/core', '@vosjs/elements', '@vosjs/tween', 'playwright']) {
+  for (const name of [
+    '@vosjs/core',
+    '@vosjs/elements',
+    '@vosjs/tween',
+    'playwright',
+  ]) {
     versions[name] = packageVersion(name) ?? '(not found)'
   }
   // The plugin, under whichever of its names is installed (the doctor's row).
@@ -236,7 +258,9 @@ async function cmdVersions(argv: string[]): Promise<number> {
     }
   }
   if (r.json) r.done({ versions }, '')
-  else for (const [k, v] of Object.entries(versions)) process.stdout.write(`${k} ${v}\n`)
+  else
+    for (const [k, v] of Object.entries(versions))
+      process.stdout.write(`${k} ${v}\n`)
   return EXIT_OK
 }
 
@@ -283,14 +307,29 @@ async function cmdCheck(argv: string[]): Promise<number> {
   } catch (e) {
     parsed = undefined
     if (!r.json) process.stdout.write(`error [json] ${(e as Error).message}\n`)
-    r.done({ ok: false, errors: 1, warnings: 0, issues: [{ level: 'error', source: 'json', message: (e as Error).message }] }, `${source}: 1 error`)
+    r.done(
+      {
+        ok: false,
+        errors: 1,
+        warnings: 0,
+        issues: [
+          { level: 'error', source: 'json', message: (e as Error).message },
+        ],
+      },
+      `${source}: 1 error`,
+    )
     return EXIT_ERROR
   }
 
   const result = runCheck(parsed)
   if (r.json) {
     r.done(
-      { ok: result.ok, errors: result.errors, warnings: result.warnings, issues: result.issues },
+      {
+        ok: result.ok,
+        errors: result.errors,
+        warnings: result.warnings,
+        issues: result.issues,
+      },
       '',
     )
   } else {
@@ -372,7 +411,9 @@ async function delegate(argv: string[], viaAlias = false): Promise<number> {
     )
   }
   if (viaAlias && argv[0]) {
-    process.stderr.write(`note: "vos voila ${argv[0]}" is now "vos ${argv[0]}".\n`)
+    process.stderr.write(
+      `note: "vos voila ${argv[0]}" is now "vos ${argv[0]}".\n`,
+    )
   }
   return await plugin.run(argv)
 }
@@ -394,7 +435,14 @@ async function printHelp(): Promise<void> {
   process.stdout.write(HELP_CONVENTIONS)
 }
 
-const ENGINE_VERBS = new Set(['render', 'still', 'info', 'versions', 'preview', 'check'])
+const ENGINE_VERBS = new Set([
+  'render',
+  'still',
+  'info',
+  'versions',
+  'preview',
+  'check',
+])
 
 async function main(): Promise<number> {
   const [cmd, ...rest] = process.argv.slice(2)
@@ -437,6 +485,8 @@ main()
       process.stderr.write(`${e.message}\n`)
       process.exit(EXIT_NO_BROWSER)
     }
-    process.stderr.write(`error: ${e instanceof Error ? e.message : String(e)}\n`)
+    process.stderr.write(
+      `error: ${e instanceof Error ? e.message : String(e)}\n`,
+    )
     process.exit(EXIT_ERROR)
   })

@@ -73,9 +73,7 @@ describe('data refs', () => {
         font: { family: { $data: 'font' }, color: { $data: 'ink' }, size: 24 },
       }),
     ).toEqual({ content: 'headline', family: 'font', color: 'ink' })
-    expect(
-      extractTextBindings({ type: 'text', content: 'static' }),
-    ).toBeNull()
+    expect(extractTextBindings({ type: 'text', content: 'static' })).toBeNull()
     expect(
       extractTextBindings({ type: 'image', src: { $data: 'x' } }),
     ).toBeNull()

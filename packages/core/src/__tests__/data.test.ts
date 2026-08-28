@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { compileVosConfig } from '../compiler/compileVosConfig'
-import { textElementSchema, vosConfigJsonSchema } from '../schema/configJsonSchema'
+import {
+  textElementSchema,
+  vosConfigJsonSchema,
+} from '../schema/configJsonSchema'
 
 const base = {
   version: 2,
@@ -16,7 +19,9 @@ describe('ctx.data', () => {
     // baked default present
     expect(code).toContain('{"k":1}')
     // data wired into a mutable internal with a runtime override fallback (live channel)
-    expect(code).toMatch(/let __vosData = Object\.freeze\(\(deps && deps\.data\) \?\? /)
+    expect(code).toMatch(
+      /let __vosData = Object\.freeze\(\(deps && deps\.data\) \?\? /,
+    )
     // exposed as a getter (so setData can swap it live) and a setData on the instance
     expect(code).toContain('get data() { return __vosData; }')
     expect(code).toContain('setData:')
@@ -36,7 +41,9 @@ describe('ctx.data', () => {
 
   it('setData replaces ctx.data live (frozen snapshot)', () => {
     // prove the live-swap semantics in isolation: getter reads the mutable internal
-    let __vosData: Readonly<Record<string, unknown>> = Object.freeze({ mode: 'init' })
+    let __vosData: Readonly<Record<string, unknown>> = Object.freeze({
+      mode: 'init',
+    })
     const ctx = {
       get data() {
         return __vosData
@@ -62,7 +69,10 @@ describe('ctx.data', () => {
 
   it('schema accepts arbitrary data shapes and rejects non-objects', () => {
     expect(() =>
-      vosConfigJsonSchema.parse({ ...base, data: { cursor: [{ t: 0, x: 1 }] } }),
+      vosConfigJsonSchema.parse({
+        ...base,
+        data: { cursor: [{ t: 0, x: 1 }] },
+      }),
     ).not.toThrow()
     expect(() => vosConfigJsonSchema.parse({ ...base, data: 5 })).toThrow()
   })
@@ -73,7 +83,8 @@ describe('ctx.data', () => {
 })
 
 describe('setData keeps every program live', () => {
-  const onFrame = '(ctx, content) => { content.uniforms.uHue.value = ctx.data.hue }'
+  const onFrame =
+    '(ctx, content) => { content.uniforms.uHue.value = ctx.data.hue }'
 
   it('rebuilds content in place when the program declares no onFrame', () => {
     const code = compileVosConfig({ ...base, data: { hue: 0.2 } })
@@ -83,7 +94,9 @@ describe('setData keeps every program live', () => {
     expect(setDataBlock).toContain('__rebuildContent();')
     // content and timeline are rebindable, and the timeline is read live
     expect(code).toContain('let content = createContent(context,')
-    expect(code).toContain('let tl = createTimeline(context, content, DURATION);')
+    expect(code).toContain(
+      'let tl = createTimeline(context, content, DURATION);',
+    )
     expect(code).toContain('get timeline() { return tl; }')
     expect(code).not.toContain('timeline: tl,')
   })
@@ -113,9 +126,13 @@ describe('setData keeps every program live', () => {
       code.indexOf('const __rebuildContent = () => {'),
       code.indexOf('return {'),
     )
-    expect(rebuild).toContain('if (content && content.dispose) content.dispose();')
+    expect(rebuild).toContain(
+      'if (content && content.dispose) content.dispose();',
+    )
     expect(rebuild).toContain('if (obj && obj.parent) obj.parent.remove(obj);')
-    expect(rebuild).toContain('if (!__baseChildren.has(child)) scene.remove(child);')
+    expect(rebuild).toContain(
+      'if (!__baseChildren.has(child)) scene.remove(child);',
+    )
     expect(rebuild).toContain('__resetLayers();')
     expect(rebuild).toContain('__assignLayers();')
     // layer assignment is emitted as re-runnable functions
@@ -129,8 +146,12 @@ describe('setData keeps every program live', () => {
       code.indexOf('const __rebuildContent = () => {'),
       code.indexOf('return {'),
     )
-    expect(rebuild).toContain("const prevOnUpdate = prev.eventCallback('onUpdate');")
-    expect(rebuild).toContain("if (prevOnUpdate) tl.eventCallback('onUpdate', prevOnUpdate);")
+    expect(rebuild).toContain(
+      "const prevOnUpdate = prev.eventCallback('onUpdate');",
+    )
+    expect(rebuild).toContain(
+      "if (prevOnUpdate) tl.eventCallback('onUpdate', prevOnUpdate);",
+    )
     expect(rebuild).toContain('tl.timeScale(prevRate);')
     expect(rebuild).toContain('if (!prevPaused) tl.play();')
     expect(rebuild).toContain('prev.kill();')
@@ -139,7 +160,10 @@ describe('setData keeps every program live', () => {
   it('rebuilds per-layer composers only when the config has per-layer effects', () => {
     const withLayers = compileVosConfig({
       ...base,
-      perLayerEffects: [{ type: 'bloom', strength: 1, radius: 0.5, threshold: 0 }, { type: 'output' }],
+      perLayerEffects: [
+        { type: 'bloom', strength: 1, radius: 0.5, threshold: 0 },
+        { type: 'output' },
+      ],
     } as never)
     expect(withLayers).toContain('function __buildLayerComposers() {')
     const rebuild = withLayers.slice(

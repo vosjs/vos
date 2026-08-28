@@ -110,7 +110,9 @@ describe('cleanup is warm-swap safe', () => {
     // warm LOAD of an element config then failed at renderElements.
     const withElements = compileVosConfig({
       ...base,
-      elements: [{ id: 'title', type: 'text', content: 'Hi', position: 'center' }],
+      elements: [
+        { id: 'title', type: 'text', content: 'Hi', position: 'center' },
+      ],
     })
     expect(withElements).not.toContain('delete window.__vos__')
     expect(withElements).toContain('videoCallbacks?.clear()')
@@ -176,7 +178,9 @@ describe('playback bridge editor mode', () => {
   })
 
   it('picks topmost by (zIndex, config order), not ray distance', () => {
-    expect(html).toContain('m.z > best.z || (m.z === best.z && m.order > best.order)')
+    expect(html).toContain(
+      'm.z > best.z || (m.z === best.z && m.order > best.order)',
+    )
   })
 
   it('pushes rects on resize for host selection chrome', () => {

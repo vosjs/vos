@@ -1,5 +1,9 @@
 import { readFile } from 'node:fs/promises'
-import { CURRENT_CONFIG_VERSION, migrateConfig, vosConfigJsonSchema } from '@vosjs/core'
+import {
+  CURRENT_CONFIG_VERSION,
+  migrateConfig,
+  vosConfigJsonSchema,
+} from '@vosjs/core'
 import { UsageError } from './args'
 
 export interface LoadedConfig {
@@ -69,7 +73,9 @@ export async function loadVosConfig(source: string): Promise<LoadedConfig> {
 }
 
 /** Best-effort duration from the config (seconds). */
-export function configDuration(config: Record<string, unknown>): number | undefined {
+export function configDuration(
+  config: Record<string, unknown>,
+): number | undefined {
   const d = config.duration
   return typeof d === 'number' && Number.isFinite(d) && d > 0 ? d : undefined
 }

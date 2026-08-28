@@ -18,7 +18,7 @@ const base = {
 }
 
 describe('generateRenderTemplate tweenEngine', () => {
-  it("defaults to gsap mode (unchanged): imports gsap, preloads it, no tween bundle", () => {
+  it('defaults to gsap mode (unchanged): imports gsap, preloads it, no tween bundle', () => {
     const html = generateRenderTemplate('', { mode: 'playback' })
     expect(html).toContain("import gsap from 'gsap';")
     expect(html).not.toContain('__vosTween') // no bundle reference
@@ -50,12 +50,15 @@ describe('generateRenderTemplate tweenEngine', () => {
   })
 
   it('capture modes accept the vos backend too', () => {
-    const html = generateRenderTemplate('export const initVos = async () => {}', {
-      mode: 'capture-thumbnail',
-      tweenEngine: 'vos',
-      tweenBundleCode: tweenRuntimeCode,
-      capture: { width: 64, height: 64, duration: 1, fps: 30 },
-    })
+    const html = generateRenderTemplate(
+      'export const initVos = async () => {}',
+      {
+        mode: 'capture-thumbnail',
+        tweenEngine: 'vos',
+        tweenBundleCode: tweenRuntimeCode,
+        capture: { width: 64, height: 64, duration: 1, fps: 30 },
+      },
+    )
     expect(html).not.toContain("import gsap from 'gsap';")
     expect(html).toContain('globalThis.__vosTween = __vosTween')
   })

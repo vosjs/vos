@@ -246,17 +246,22 @@ export function createSampler(
   return {
     seek(t: number, suppressEvents?: boolean): void {
       for (const track of tracks.values()) {
-        ;(track.raw as Record<string, unknown>)[track.property] = trackValueAt(track, t)
+        ;(track.raw as Record<string, unknown>)[track.property] = trackValueAt(
+          track,
+          t,
+        )
       }
       for (const track of discreteTracks.values()) {
-        ;(track.raw as Record<string, unknown>)[track.property] = discreteValueAt(track, t)
+        ;(track.raw as Record<string, unknown>)[track.property] =
+          discreteValueAt(track, t)
       }
 
       if (!suppressEvents) {
         for (const c of compiled) {
           const cb = c.entry.callbacks
           if (!cb) continue
-          const active = t >= c.start && (c.total === Infinity || t <= c.start + c.total)
+          const active =
+            t >= c.start && (c.total === Infinity || t <= c.start + c.total)
           if (cb.onStart && lastT < c.start && t >= c.start) cb.onStart()
           if (cb.onUpdate && active) cb.onUpdate()
           if (

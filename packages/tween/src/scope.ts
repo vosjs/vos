@@ -19,7 +19,11 @@ export interface ExtractionElement {
 
 /** Build one tagged element with `props` and `segmentCount` split segments. */
 export function makeElement(id: string, segmentCount = 0): ExtractionElement {
-  const props = tagTarget({} as Record<string, number>, { kind: 'element', id, scope: 'props' })
+  const props = tagTarget({} as Record<string, number>, {
+    kind: 'element',
+    id,
+    scope: 'props',
+  })
   const segments = Array.from({ length: segmentCount }, (_, i) =>
     tagTarget({} as Record<string, number>, {
       kind: 'element',
@@ -35,9 +39,12 @@ export function makeElement(id: string, segmentCount = 0): ExtractionElement {
  * Build a `ctx.elements`-shaped Map from `{ id: segmentCount }`. A segmentCount of 0
  * yields an element with only `props`.
  */
-export function makeElementsMap(spec: Record<string, number>): Map<string, ExtractionElement> {
+export function makeElementsMap(
+  spec: Record<string, number>,
+): Map<string, ExtractionElement> {
   const map = new Map<string, ExtractionElement>()
-  for (const [id, count] of Object.entries(spec)) map.set(id, makeElement(id, count))
+  for (const [id, count] of Object.entries(spec))
+    map.set(id, makeElement(id, count))
   return map
 }
 

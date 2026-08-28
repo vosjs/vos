@@ -35,7 +35,12 @@ export {
   runCreateTimeline,
   type ExtractionElement,
 } from './scope'
-export { DEFAULT_EASE, DEFAULT_DURATION, parseVars, type ParsedVars } from './vars'
+export {
+  DEFAULT_EASE,
+  DEFAULT_DURATION,
+  parseVars,
+  type ParsedVars,
+} from './vars'
 export {
   targetKey,
   type TweenTarget,

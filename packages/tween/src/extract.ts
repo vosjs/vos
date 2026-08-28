@@ -24,7 +24,12 @@ function keyFor(spec: TweenSpec, property: string): string {
 }
 
 /** Insert a keyframe, letting a later write at the same `t` win. */
-function putKeyframe(kfs: Keyframe[], t: number, value: number, ease?: string): void {
+function putKeyframe(
+  kfs: Keyframe[],
+  t: number,
+  value: number,
+  ease?: string,
+): void {
   const existing = kfs.find((k) => k.t === t)
   if (existing) {
     existing.value = value
@@ -46,7 +51,13 @@ export function buildTracks(specs: readonly TweenSpec[]): TargetTrack[] {
     const k = keyFor(spec, property)
     let b = builders.get(k)
     if (!b) {
-      b = { target: spec.target, property, keyframes: [], hasOpaque: false, unresolved: false }
+      b = {
+        target: spec.target,
+        property,
+        keyframes: [],
+        hasOpaque: false,
+        unresolved: false,
+      }
       builders.set(k, b)
     }
     return b
@@ -94,7 +105,8 @@ export function buildTracks(specs: readonly TweenSpec[]): TargetTrack[] {
         explicitFrom ??
         [...b.keyframes].reverse().find((k) => k.t <= spec.startTime)?.value
       if (anchor !== undefined) {
-        if (explicitFrom !== undefined) putKeyframe(b.keyframes, spec.startTime, explicitFrom)
+        if (explicitFrom !== undefined)
+          putKeyframe(b.keyframes, spec.startTime, explicitFrom)
         putKeyframe(b.keyframes, end, anchor + delta, spec.ease)
       } else {
         b.unresolved = true // start value resolves at runtime
