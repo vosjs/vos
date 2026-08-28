@@ -1,5 +1,25 @@
 # @vosjs/core
 
+## 0.21.0
+
+### Minor Changes
+
+- a165ecb: Bridge protocol 6: `SET_MUTED` and `OBJECT_BOUNDS`.
+
+  `SET_MUTED { muted }` mutes or unmutes every media element of the instance (video and audio) without touching their gain or the transport, and survives a warm `LOAD`: `window.__vos__.setGlobalMuted` sits beside `setGlobalPaused`, and the media props proxy applies `element.muted = own || global` on creation and on every global callback. A compare pane, a muted preview, a second player on one page.
+
+  `OBJECT_BOUNDS { id }` (editor mode) answers `OBJECT_RECT` with a declarative object's world bounding box projected through the main camera into viewport CSS px — the sibling of `GET_ELEMENT_RECTS` for the 3D scene, so a host can draw a transform box around a prop.
+
+- cf84b4c: The program stack: `config.stack` runs more programs on one context.
+
+  An entry is `{ id, data?, setup?, createContent?, onFrame? }` — the main program's hooks minus `createTimeline`. Entries run after the main program in each phase, in array order, on the same scene, overlay scene, renderer, elements, objects and master clock, each with its OWN `ctx.data` (`data` baked, `deps.stack[id]` at load, `setData(next, id)` live) and its own error boundary: a throwing entry is disabled for the session and reported through `result.stack.onError`, and nothing else stops. A HUD, a subtitle pass, a watermark, an overlay a remixer adds without touching the main program's code.
+
+  Bridge protocol 5: `SET_DATA` takes `target`, `LOAD` takes `stack`, `READY` lists `stack` ids, `STACK_ERROR` is pushed when an entry throws, `GET_STACK_STATE` answers `STACK_STATE`. Addon detection and the determinism lints read the stack's strings too (`DeterminismIssue.entry`). A config without a stack compiles exactly as before.
+
+- ab92044: `retime`: evaluate the program at `f(t)`.
+
+  `config.retime` is a pure function of the OUTPUT time and `ctx.data` returning the program time to render. Each frame the runtime seeks the program's own timeline there and sets `ctx.time` to it, while the transport (play, pause, seek, `SET_DURATION`, capture) keeps counting output time on a clock of `duration` seconds; `ctx.outputTime` carries that number on every program, and `READY.retime` (protocol 7) tells a host the transport is the clock. Slow motion, speed ramps, reverse, a freeze, a ping-pong loop, without re-authoring the timeline, and every capture path exact by construction. Reads `data` live, so a rate held in `ctx.data` changes with `setData`. Clamped to the program timeline's `[0, duration]`; a non-finite result falls back to `t` and warns once. Stack entries are output-anchored: their `ctx.time` is the output time.
+
 ## 0.20.0
 
 ### Minor Changes
