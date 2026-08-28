@@ -7,7 +7,7 @@ import { generateRenderTemplate } from '../runtime/renderTemplate'
 // says whether the timeline honors it.
 
 describe('tween edits, live (protocol 8)', () => {
-  const html = generateRenderTemplate('')
+  const html = generateRenderTemplate('', { mode: 'playback' })
 
   it('bumps the protocol', () => {
     expect(VOS_BRIDGE_PROTOCOL).toBe(8)
