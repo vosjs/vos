@@ -10,6 +10,29 @@ const lowered = (over: Partial<LoweredProgram> = {}): LoweredProgram => ({
 })
 
 describe('classifyEdit', () => {
+  it('a stack rides the LOAD, and an entry whose data changed gets its own SET_DATA', () => {
+    const hud = { text: 'a' }
+    const prev = lowered({ stack: { hud, sub: { on: true } } })
+    expect(classifyEdit(null, prev, false)).toEqual([
+      { type: 'LOAD', code: 'PROGRAM_A', data: prev.data, stack: prev.stack },
+    ])
+    const next = lowered({
+      data: prev.data,
+      stack: { hud, sub: { on: false } },
+    })
+    expect(classifyEdit(prev, next, false)).toEqual([
+      { type: 'SET_DATA', data: { on: false }, target: 'sub' },
+    ])
+    // Untouched entries and untouched main data send nothing.
+    expect(
+      classifyEdit(
+        next,
+        lowered({ data: next.data, stack: next.stack }),
+        false,
+      ),
+    ).toEqual([])
+  })
+
   it('first delivery is a LOAD carrying the data', () => {
     const next = lowered()
     expect(classifyEdit(null, next, false)).toEqual([
