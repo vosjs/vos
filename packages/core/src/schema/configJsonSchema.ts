@@ -116,6 +116,8 @@ export const vosConfigJsonSchema = z.object({
   createContent: z.string(),
   createTimeline: z.string(),
   onFrame: z.string().optional(),
+  // Evaluate the program at f(t): (t, data) => number, pure.
+  retime: z.string().optional(),
   // More programs on this context, after the main one (own data, own errors).
   stack: stackJsonSchema.optional(),
 })

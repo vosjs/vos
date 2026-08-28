@@ -22,7 +22,7 @@ export type DeterminismRule =
 export type DeterminismSeverity = 'error' | 'warn'
 
 export interface DeterminismIssue {
-  fn: 'setup' | 'createContent' | 'createTimeline' | 'onFrame'
+  fn: 'setup' | 'createContent' | 'createTimeline' | 'onFrame' | 'retime'
   /** Set when the function belongs to a stack entry (its id). */
   entry?: string
   rule: DeterminismRule
@@ -105,6 +105,7 @@ export const FN_KEYS = [
   'createContent',
   'createTimeline',
   'onFrame',
+  'retime',
 ] as const
 
 export function lineOf(src: string, index: number): number {

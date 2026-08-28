@@ -65,8 +65,11 @@ describe('stack — codegen', () => {
     expect(code).toContain('baked: {"label":"take 1"}')
     // Its context derives from the main one: every live getter inherited,
     // `data` overridden with the entry's own slot.
+    expect(code).toContain('s.ctx = Object.create(context, {')
+    expect(code).toContain('data: { get: () => s.data, enumerable: true },')
+    // Output-anchored: an entry's ctx.time is the output time.
     expect(code).toContain(
-      's.ctx = Object.create(context, { data: { get: () => s.data, enumerable: true } })',
+      'time: { get: () => context.outputTime, enumerable: true },',
     )
     // Mounted after the main content and before layer assignment.
     const mainAt = code.indexOf('let content = createContent(context')
@@ -196,7 +199,7 @@ describe('stack — bridge (protocol 5)', () => {
   )
 
   it('advertises the stack in READY and pushes STACK_ERROR', () => {
-    expect(VOS_BRIDGE_PROTOCOL).toBe(6)
+    expect(VOS_BRIDGE_PROTOCOL).toBe(7)
     expect(html).toContain('stack: result.stack ? result.stack.ids : []')
     expect(html).toContain(
       "__post({ type: 'STACK_ERROR', id: e.id, error: e.error })",

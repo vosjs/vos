@@ -74,6 +74,14 @@ export interface VosContext extends SetupContext {
   time: number
   /** Playback progress 0-1 (available in onFrame) */
   progress: number
+  /**
+   * The OUTPUT time in seconds: what the transport shows and the capture
+   * counts. Equal to `time` unless the config carries a `retime`, in which
+   * case `time` is `retime(outputTime, data)` — the program's own time —
+   * while `outputTime` keeps counting the output. Stack entries read
+   * `ctx.time` as output time (they are output-anchored by contract).
+   */
+  outputTime: number
 }
 
 /**
@@ -343,6 +351,20 @@ export interface VosConfig {
   onFrame?: (ctx: VosContext, content: ContentResult, deltaTime: number) => void
 
   /**
+   * Evaluate the program at `f(t)`: a pure function of the OUTPUT time and
+   * `ctx.data`, returning the program time to render. Each frame the runtime
+   * seeks the program's timeline there and sets `ctx.time` to it, while the
+   * transport (play, pause, seek, duration, capture) keeps counting output
+   * time on a clock of `duration` seconds. Slow motion (`t => t / 2`),
+   * ramps, reverse (`(t, d) => d.duration - t`), a freeze, a ping-pong loop,
+   * all without re-authoring the timeline. Reads `data` live, so a rate
+   * that lives in `ctx.data` changes with `setData` (no re-init). The
+   * result is clamped to the program timeline's `[0, duration]`; a
+   * non-finite result falls back to `t` and warns once.
+   */
+  retime?: (t: number, data: Readonly<Record<string, unknown>>) => number
+
+  /**
    * The program stack: more programs on this context, after the main one,
    * each with its own `ctx.data` and error boundary. See `ProgramEntry`.
    */
@@ -370,6 +392,8 @@ export interface VosResult {
   ) => void
   /** Current live `ctx.data` snapshot (frozen). */
   getData?: () => Readonly<Record<string, unknown>>
+  /** True when the program carries a `retime`: `timeline` is then the OUTPUT clock, and `setDuration` is always defined. */
+  retime?: boolean
   /** The program stack, when `config.stack` is set: its ids, each entry's live state, and an error subscription. */
   stack?: {
     ids: string[]

@@ -52,6 +52,20 @@ if (hasDeterminismErrors(issues)) throw new Error('non-deterministic config')
 
 `lintVosConfig` flags non-deterministic patterns (`Date.now()`, `Math.random()`, wall-clock reads), and `lintVosDialect` checks the GSAP authoring dialect.
 
+## Retime
+
+`retime` evaluates the program at `f(t)`: a pure function of the OUTPUT time and `ctx.data`, returning the program time to render.
+
+```ts
+const config = {
+  // …
+  data: { rate: 0.5 },
+  retime: '(t, data) => t * data.rate', // half speed; setData({ rate: 2 }) doubles it live
+}
+```
+
+Each frame the runtime seeks the program's own timeline at `retime(outputTime, data)` and sets `ctx.time` to it, while the transport (play, pause, seek, `SET_DURATION`, capture) keeps counting output time on a clock of `duration` seconds — `ctx.outputTime` carries that number, and `READY.retime` tells a host the transport is the clock. Slow motion, speed ramps, reverse (`(t, d) => d.duration - t`), a freeze frame, a ping-pong loop, none of them needing the timeline re-authored, and every capture path exact by construction because a frame is still a pure function of `(data, output time)`. The result is clamped to the program timeline's `[0, duration]`; a non-finite result falls back to `t` and warns once. Stack entries are output-anchored: their `ctx.time` is the output time, so a retime never moves a HUD.
+
 ## The program stack
 
 A config runs one program: `setup → createContent → createTimeline → onFrame`. `stack` runs more of them on the same context, after the main one, in array order — a HUD, a subtitle pass, a watermark, an overlay a remixer adds without touching the main program's code:

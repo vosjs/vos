@@ -11,10 +11,11 @@ import type { VosConfigJson } from '../../types'
  * `overlayScene`, `renderer`, `elements`, `objects` and the clock; they
  * compose, they do not nest.
  *
- * Each entry's context is `Object.create(context, { data })`: the prototype
- * keeps every live getter (`time`, `progress`, the main `data`) and the
- * derived object overrides `data` with the entry's own slot, so an entry
- * reads its own inputs with the same `ctx.data` it would anywhere else.
+ * Each entry's context is `Object.create(context, { data, time })`: the
+ * prototype keeps every live getter (`progress`, `outputTime`, the main
+ * `data`) and the derived object overrides `data` with the entry's own slot
+ * and `time` with the OUTPUT time — entries are output-anchored by contract,
+ * so a `retime` on the main program never moves them.
  *
  * A throwing entry is disabled for the session and reported through
  * `result.stack.onError`; the main program and the other entries keep
@@ -128,7 +129,10 @@ ${table}
   // entry's zIndexed objects land in render groups like the main program's.
   for (const s of __stack) {
     try {${setupLine}
-      s.ctx = Object.create(context, { data: { get: () => s.data, enumerable: true } });
+      s.ctx = Object.create(context, {
+        data: { get: () => s.data, enumerable: true },
+        time: { get: () => context.outputTime, enumerable: true },
+      });
       __stackCreate(s);
     } catch (e) { __stackFail(s, e); }
   }`

@@ -257,6 +257,7 @@ export function detectRequiredAddons(config: VosConfigJson): string[] {
       config.createContent,
       config.createTimeline,
       config.onFrame,
+      config.retime,
       ...stack.flatMap((e) => [e.setup, e.createContent, e.onFrame]),
     ]
       .filter(Boolean)
