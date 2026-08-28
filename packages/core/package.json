@@ -52,6 +52,10 @@
       "types": "./dist/runtime/index.d.ts",
       "import": "./dist/runtime/index.js"
     },
+    "./audio": {
+      "types": "./dist/audio/index.d.ts",
+      "import": "./dist/audio/index.js"
+    },
     "./addons": {
       "types": "./dist/addons/index.d.ts",
       "import": "./dist/addons/index.js"
@@ -82,7 +86,8 @@
     "clean": "rm -rf dist node_modules"
   },
   "dependencies": {
-    "zod": "^4.3.6"
+    "zod": "^4.3.6",
+    "@vosjs/tween": "workspace:^"
   },
   "peerDependencies": {
     "three": ">=0.160.0",
@@ -103,8 +108,7 @@
     "three": "^0.182.0",
     "tsup": "^8.5.0",
     "typescript": "^5",
-    "vitest": "^3.0.5",
-    "@vosjs/tween": "workspace:^"
+    "vitest": "^3.0.5"
   },
   "publishConfig": {
     "access": "public"

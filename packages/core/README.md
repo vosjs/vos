@@ -99,6 +99,22 @@ Three rules make it a composition, not a nesting:
 
 An entry's `createContent` returns the objects it added (`objects`), like the main program's — that list is what a rebuild removes, since entries share the scene. Addon detection and the determinism lints read an entry's strings exactly as the main program's.
 
+## Render audio
+
+An `AudioElement` plays under the master clock: set `props.playing`, animate `props.currentTime`, fade `props.gain`. `@vosjs/core/audio` renders that same sound offline, so an export carries it:
+
+```ts
+import { renderAudio, toAudioBuffer } from '@vosjs/core/audio'
+
+const pcm = await renderAudio(config, { sampleRate: 48000, channels: 2 })
+// { sampleRate, length, channels: Float32Array[] } — mux it beside the captured frames,
+// or wrap it for Web Audio: toAudioBuffer(pcm, audioContext)
+```
+
+The schedule is sampled with the same pure tween sampler live playback uses (`playing`, `currentTime`, `gain` on every audio element, through `retime`), then the decoded sources are mixed sample-exactly into plain PCM. No DOM, no pixels: the decoder is injectable (`decode: (src) => Promise<PcmBuffer | null>`; the default is `fetch` + Web Audio's `decodeAudioData` where a context exists), so it runs in a Worker or in Node as well as a page. `planAudio` and `mixAudio` are the two halves, for consumers that inspect a schedule or bring their own sources.
+
+`gainEnvelope` on an `AudioElement` is `[t, gain]` points over output time, linear between them and held flat outside, multiplied with `props.gain`: a fade, a duck under a voice, a bed that swells, as data the renderer replays and live playback follows frame by frame.
+
 ## Subpath exports
 
 | Import                 | What it gives you                                              |
@@ -106,6 +122,7 @@ An entry's `createContent` returns the objects it added (`objects`), like the ma
 | `@vosjs/core`          | `compileVosConfig`, schemas, addon registry, types             |
 | `@vosjs/core/compiler` | The compiler and code generators                               |
 | `@vosjs/core/runtime`  | `generateRenderTemplate`, `transformModuleCode`, render limits |
+| `@vosjs/core/audio`    | `renderAudio`, `planAudio`, `mixAudio`, the gain envelope      |
 | `@vosjs/core/schema`   | Zod schemas, validators, config migrations                     |
 | `@vosjs/core/addons`   | Three.js addon / post-processing registry                      |
 | `@vosjs/core/extract`  | Config extraction from LLM/text output                         |

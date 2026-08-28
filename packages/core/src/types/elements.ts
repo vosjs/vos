@@ -229,6 +229,13 @@ export interface AudioElement extends Omit<BaseElement, 'position'> {
   loop?: boolean
   /** Offset into the source when playback begins, seconds (default: 0) */
   startTime?: number
+  /**
+   * A gain envelope over OUTPUT time: `[t, gain]` points, linear between
+   * them, held flat outside, multiplied with `props.gain`. Fades, ducking, a
+   * bed that swells under a title, as data the offline renderer replays
+   * (`@vosjs/core/audio`) and live playback follows frame by frame.
+   */
+  gainEnvelope?: Array<[t: number, gain: number]>
 }
 
 // =============================================================================

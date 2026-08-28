@@ -49,6 +49,31 @@ interface Track {
   base: number
 }
 
+/**
+ * A discrete track (`spec.discrete`): booleans and strings are not
+ * interpolated. The latest-started step wins (ties to insertion order), and
+ * before the first step the target keeps whatever it held at compile time.
+ */
+interface DiscreteTrack {
+  raw: object
+  property: string
+  steps: { start: number; value: boolean | string }[]
+  base: unknown
+}
+
+function discreteValueAt(track: DiscreteTrack, t: number): unknown {
+  let value = track.base
+  let bestStart = -Infinity
+  for (const s of track.steps) {
+    if (s.start > t) continue
+    if (s.start >= bestStart) {
+      bestStart = s.start
+      value = s.value
+    }
+  }
+  return value
+}
+
 const clamp01 = (x: number): number => (x < 0 ? 0 : x > 1 ? 1 : x)
 
 /** Fold absolute local time into the eased-progress input for one tween. */
@@ -142,10 +167,27 @@ export function createSampler(
   }
 
   const compiled: CompiledTween[] = []
+  const discreteTracks = new Map<string, DiscreteTrack>()
   for (const entry of entries) {
     const { spec, raw } = entry
     if (!raw || (typeof raw !== 'object' && typeof raw !== 'function')) continue
     const target = raw as object
+    if (spec.discrete) {
+      for (const [property, value] of Object.entries(spec.discrete)) {
+        const key = `${idOf(target)}::${property}`
+        let track = discreteTracks.get(key)
+        if (!track) {
+          track = {
+            raw: target,
+            property,
+            steps: [],
+            base: (target as Record<string, unknown>)[property],
+          }
+          discreteTracks.set(key, track)
+        }
+        track.steps.push({ start: spec.startTime, value })
+      }
+    }
     const props = new Set([
       ...Object.keys(spec.from ?? {}),
       ...Object.keys(spec.to),
@@ -205,6 +247,9 @@ export function createSampler(
     seek(t: number, suppressEvents?: boolean): void {
       for (const track of tracks.values()) {
         ;(track.raw as Record<string, unknown>)[track.property] = trackValueAt(track, t)
+      }
+      for (const track of discreteTracks.values()) {
+        ;(track.raw as Record<string, unknown>)[track.property] = discreteValueAt(track, t)
       }
 
       if (!suppressEvents) {

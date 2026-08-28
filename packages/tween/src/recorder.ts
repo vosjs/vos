@@ -213,6 +213,7 @@ export class RecordingTimeline {
       if (parsed.yoyo !== undefined) spec.yoyo = parsed.yoyo
       if (parsed.repeatDelay !== undefined) spec.repeatDelay = parsed.repeatDelay
       if (parsed.opaqueKeys.length) spec.opaqueKeys = parsed.opaqueKeys
+      if (parsed.discrete) spec.discrete = parsed.discrete
       this.entries.push({ spec, raw: targets[i], callbacks: parsed.callbacks })
     }
 

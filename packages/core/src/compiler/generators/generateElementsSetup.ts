@@ -32,6 +32,10 @@ export function generateElementsSetup(config: any): string {
   window.__vos__ = window.__vos__ || {};
   window.__vos__.videoCallbacks = window.__vos__.videoCallbacks || new Set();
   window.__vos__.pendingDecodes = window.__vos__.pendingDecodes || new Set();
+  // Elements that read the clock (a media gain envelope) register here; the
+  // render loop publishes outputTime and calls them once per frame.
+  window.__vos__.frameCallbacks = window.__vos__.frameCallbacks || new Set();
+  window.__vos__.outputTime = 0;
   window.__vos__.isPaused = true;
 
   window.__vos__.setGlobalPaused = (paused) => {
