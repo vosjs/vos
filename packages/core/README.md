@@ -52,18 +52,51 @@ if (hasDeterminismErrors(issues)) throw new Error('non-deterministic config')
 
 `lintVosConfig` flags non-deterministic patterns (`Date.now()`, `Math.random()`, wall-clock reads), and `lintVosDialect` checks the GSAP authoring dialect.
 
+## The program stack
+
+A config runs one program: `setup → createContent → createTimeline → onFrame`. `stack` runs more of them on the same context, after the main one, in array order — a HUD, a subtitle pass, a watermark, an overlay a remixer adds without touching the main program's code:
+
+```ts
+const config = {
+  version: 2,
+  duration: 3,
+  camera: { preset: 'perspective' },
+  createContent: '(ctx) => { /* the scene */ return { objects: [] } }',
+  createTimeline:
+    '(ctx, content, duration) => ctx.gsap.timeline().to({}, { duration })',
+  stack: [
+    {
+      id: 'hud',
+      data: { label: 'take 1' },
+      createContent:
+        '(ctx) => { const m = new ctx.THREE.Mesh(new ctx.THREE.PlaneGeometry(200, 40)); ctx.overlayScene.add(m); return { objects: [m] } }',
+      onFrame:
+        '(ctx, content) => { content.objects[0].position.x = ctx.time * 50 }',
+    },
+  ],
+}
+```
+
+Three rules make it a composition, not a nesting:
+
+- **Own data.** An entry's `ctx.data` is its own: `data` bakes the default, `deps.stack[id]` overrides it at load, and `setData(next, id)` (bridge: `SET_DATA { data, target: id }`) replaces it live with the same three rungs as the main program (`content.onData`, else an `onFrame` entry reads next frame, else the entry's content is rebuilt). Everything else on `ctx` — `scene`, `overlayScene`, `renderer`, `elements`, `objects`, `time`, `progress` — is shared.
+- **One clock.** Entries have no `createTimeline`; they read `ctx.time` like any hook, so frames stay a pure function of time.
+- **Own errors.** A throwing entry is disabled for the session and reported (`result.stack.onError`, bridge `STACK_ERROR`); the main program and the other entries keep running. `result.stack.state()` (bridge `GET_STACK_STATE`) says which entries are alive.
+
+An entry's `createContent` returns the objects it added (`objects`), like the main program's — that list is what a rebuild removes, since entries share the scene. Addon detection and the determinism lints read an entry's strings exactly as the main program's.
+
 ## Subpath exports
 
-| Import | What it gives you |
-| --- | --- |
-| `@vosjs/core` | `compileVosConfig`, schemas, addon registry, types |
-| `@vosjs/core/compiler` | The compiler and code generators |
-| `@vosjs/core/runtime` | `generateRenderTemplate`, `transformModuleCode`, render limits |
-| `@vosjs/core/schema` | Zod schemas, validators, config migrations |
-| `@vosjs/core/addons` | Three.js addon / post-processing registry |
-| `@vosjs/core/extract` | Config extraction from LLM/text output |
-| `@vosjs/core/lint` | Determinism + GSAP-dialect linters for configs |
-| `@vosjs/core/types` | Pure type definitions |
+| Import                 | What it gives you                                              |
+| ---------------------- | -------------------------------------------------------------- |
+| `@vosjs/core`          | `compileVosConfig`, schemas, addon registry, types             |
+| `@vosjs/core/compiler` | The compiler and code generators                               |
+| `@vosjs/core/runtime`  | `generateRenderTemplate`, `transformModuleCode`, render limits |
+| `@vosjs/core/schema`   | Zod schemas, validators, config migrations                     |
+| `@vosjs/core/addons`   | Three.js addon / post-processing registry                      |
+| `@vosjs/core/extract`  | Config extraction from LLM/text output                         |
+| `@vosjs/core/lint`     | Determinism + GSAP-dialect linters for configs                 |
+| `@vosjs/core/types`    | Pure type definitions                                          |
 
 ## License
 

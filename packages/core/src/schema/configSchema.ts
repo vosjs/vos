@@ -39,6 +39,20 @@ export const vosConfigSchema = z.object({
   createContent: fnSchema,
   createTimeline: fnSchema,
   onFrame: fnSchema.optional(),
+  stack: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        data: z.record(z.string(), z.unknown()).optional(),
+        setup: fnSchema.optional(),
+        createContent: fnSchema.optional(),
+        onFrame: fnSchema.optional(),
+      }),
+    )
+    .refine((s) => new Set(s.map((e) => e.id)).size === s.length, {
+      message: 'stack entry ids must be unique',
+    })
+    .optional(),
 })
 
 export type ValidatedVosConfig = z.infer<typeof vosConfigSchema>

@@ -288,8 +288,9 @@ ${moduleBody}
 // boots EMPTY and waits for a LOAD message carrying the user program (+ data). This lets
 // the host edit without reloading the document. Typed contract: see ./bridge.ts
 // (VosBridgeCommand / VosBridgeEvent, protocol v${VOS_BRIDGE_PROTOCOL}).
-//   - LOAD     { code | url, data?, autoplay? } -> warm program swap, preserving transport
-//   - SET_DATA { data }                         -> live ctx.data swap (no re-init)
+//   - LOAD     { code | url, data?, stack?, autoplay? } -> warm program swap, preserving transport
+//   - SET_DATA { data, target? }                -> live ctx.data swap (no re-init); target = a stack entry
+//   - GET_STACK_STATE { requestId }             -> STACK_STATE; STACK_ERROR is pushed when an entry throws
 //   - PLAY / PAUSE / SEEK { value } / SEEK_TIME { value } / PLAY_SPEED { value }
 //   - SET_DURATION { value }                    -> retime (only if program supports it)
 //   - editor mode: GET_ELEMENT_RECTS / HIT_TEST / SET_ELEMENT_PROPS (ephemeral)
@@ -348,6 +349,8 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
         let __epoch = 0;        // guards against stale async work after a newer LOAD
         let __current = null;   // current VosResult
         let __data = null;      // last applied ctx.data
+        let __stackData = null; // last applied per-entry data, by id
+        let __stackUnsub = null;
 
         const __attachProgress = (tl, myEpoch) => {
             if (!tl) return;
@@ -376,6 +379,9 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
 
             const data = (payload && payload.data != null) ? payload.data : __data;
             __data = data;
+            const stackData = (payload && payload.stack != null) ? payload.stack : __stackData;
+            __stackData = stackData;
+            if (__stackUnsub) { try { __stackUnsub(); } catch (e) {} __stackUnsub = null; }
 
             let initVos;
             try {
@@ -385,6 +391,7 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
 
             const deps = __deps();
             if (data != null) deps.data = data;
+            if (stackData != null) deps.stack = stackData;
 
             let result;
             try {
@@ -403,7 +410,10 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
             const tl = result.timeline;
             if (tl) tl.pause();
             __attachProgress(tl, myEpoch);
-            __post({ type: 'READY', duration: __finiteDuration(tl), canSetDuration: !!result.setDuration });
+            if (result.stack && result.stack.onError) {
+                __stackUnsub = result.stack.onError((e) => { if (myEpoch === __epoch) __post({ type: 'STACK_ERROR', id: e.id, error: e.error }); });
+            }
+            __post({ type: 'READY', duration: __finiteDuration(tl), canSetDuration: !!result.setDuration, stack: result.stack ? result.stack.ids : [] });
 
             if (tl) {
                 if (prev) {
@@ -423,8 +433,16 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
             switch (msg.type) {
                 case 'LOAD': __load(msg); break;
                 case 'SET_DATA':
+                    if (msg.target != null) {
+                        __stackData = Object.assign({}, __stackData || {}, { [msg.target]: msg.data });
+                        if (__current && __current.setData) __current.setData(msg.data, msg.target);
+                        break;
+                    }
                     __data = msg.data;
                     if (__current && __current.setData) __current.setData(msg.data);
+                    break;
+                case 'GET_STACK_STATE':
+                    __post({ type: 'STACK_STATE', requestId: msg.requestId, entries: (__current && __current.stack) ? __current.stack.state() : [] });
                     break;
                 case 'PLAY':
                     if (window.__vos__?.setGlobalPaused) window.__vos__.setGlobalPaused(false);

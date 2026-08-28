@@ -225,6 +225,47 @@ export interface OutputEffect {
 }
 
 /**
+ * One program of the stack (`VosConfig.stack`): the main program's hooks
+ * minus `createTimeline`, run AFTER the main program in each phase (setup →
+ * createContent → onFrame), on the same context — the same scene,
+ * overlayScene, renderer, elements, objects and master clock.
+ *
+ * Three rules make it a composition and not a nesting:
+ * - `ctx.data` is the entry's OWN (`data` here; `deps.stack[id]` at runtime;
+ *   `setData(next, id)` live). Everything else on `ctx` is shared.
+ * - No timeline: an entry reads `ctx.time` / `ctx.progress` like any hook.
+ * - Its own error boundary: a throwing entry is disabled for the session and
+ *   reported through `VosResult.stack.onError`; nothing else stops.
+ *
+ * An entry's `createContent` returns the objects it added (`objects`), like
+ * the main program's: that list is what a live rebuild removes.
+ */
+export interface ProgramEntry {
+  /** Unique within the stack. */
+  id: string
+  /** This entry's own `ctx.data` (baked default). */
+  data?: Record<string, unknown>
+  setup?: (ctx: SetupContext) => Promise<Record<string, any>>
+  createContent?: (
+    ctx: VosContext,
+    setupData?: Record<string, any>,
+  ) => ContentResult
+  onFrame?: (
+    ctx: VosContext,
+    content: ContentResult | null,
+    deltaTime: number,
+  ) => void
+}
+
+/** One stack entry's live state (`VosResult.stack.state()`). */
+export interface StackEntryState {
+  id: string
+  /** False once the entry threw; it stays disabled for the session. */
+  ok: boolean
+  error: string | null
+}
+
+/**
  * Main animation configuration interface
  */
 export interface VosConfig {
@@ -300,6 +341,12 @@ export interface VosConfig {
    * Optional per-frame update (for uniforms, custom logic)
    */
   onFrame?: (ctx: VosContext, content: ContentResult, deltaTime: number) => void
+
+  /**
+   * The program stack: more programs on this context, after the main one,
+   * each with its own `ctx.data` and error boundary. See `ProgramEntry`.
+   */
+  stack?: ProgramEntry[]
 }
 
 /**
@@ -316,9 +363,20 @@ export interface VosResult {
    * tweens at `createTimeline` time do NOT change retroactively (that is a program /
    * T3 edit — handled by a warm reload via the bridge's LOAD command).
    */
-  setData?: (next: Readonly<Record<string, unknown>>) => void
+  setData?: (
+    next: Readonly<Record<string, unknown>>,
+    /** A stack entry's id: replace THAT entry's `ctx.data` instead (its own three rungs). */
+    target?: string,
+  ) => void
   /** Current live `ctx.data` snapshot (frozen). */
   getData?: () => Readonly<Record<string, unknown>>
+  /** The program stack, when `config.stack` is set: its ids, each entry's live state, and an error subscription. */
+  stack?: {
+    ids: string[]
+    state: () => StackEntryState[]
+    /** Fires when an entry throws (once per entry — it is disabled after). Returns the unsubscribe. */
+    onError: (cb: (e: { id: string; error: string }) => void) => () => void
+  }
   /**
    * Duration capability (T2.5 edit): retime the master timeline without re-init.
    * Opt-in: only defined when `createTimeline` returned a pure duration-carrier

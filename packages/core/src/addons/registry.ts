@@ -247,13 +247,17 @@ export function getRequiredAddons(config: VosConfig): string[] {
 export function detectRequiredAddons(config: VosConfigJson): string[] {
   const addons = new Set<string>()
 
-  // 1. Scan function strings for setup-condition addons
-  if (config.setup) {
+  // 1. Scan function strings for setup-condition addons — the main program's
+  // and every stack entry's (an entry's setup earns the loaders registry
+  // exactly like the main one's).
+  const stack = config.stack ?? []
+  if (config.setup || stack.some((e) => e.setup)) {
     const codeToScan = [
       config.setup,
       config.createContent,
       config.createTimeline,
       config.onFrame,
+      ...stack.flatMap((e) => [e.setup, e.createContent, e.onFrame]),
     ]
       .filter(Boolean)
       .join('\n')
