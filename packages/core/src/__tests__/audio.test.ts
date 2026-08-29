@@ -207,6 +207,38 @@ describe('mixAudio + renderAudio', () => {
     expect(rms(ended, 1.01, 4)).toBe(0)
   })
 
+  it('a jump in position between two points is a seek, not a sweep', () => {
+    // A hand-built plan: the track plays 0→1s, then wraps back to 0 (a loop
+    // over the first second of a longer source) — the wrap step must not
+    // sweep backwards through the source.
+    const step = 1 / 240
+    const points = []
+    for (let k = 0; k <= 2 / step; k++) {
+      const t = k * step
+      points.push({ t, on: true, pos: t % 1, gain: 1 })
+    }
+    const plan = {
+      duration: 2,
+      step,
+      tracks: [{ id: 'a', src: 'ramp.wav', loop: false, points }],
+    }
+    // A source that is a linear ramp 0→1 over its first second, then -1.
+    const src = createPcm(RATE, 2 * RATE, 1)
+    for (let i = 0; i < src.length; i++)
+      src.channels[0][i] = i < RATE ? i / RATE : -1
+    const out = mixAudio(plan, new Map([['ramp.wav', src]]), {
+      sampleRate: RATE,
+      channels: 1,
+    })
+    // Right after the wrap (t = 1 + ε) the output reads the source's start,
+    // never the -1 region a backwards sweep would cross.
+    const i = Math.round(1.001 * RATE)
+    expect(out.channels[0][i]).toBeGreaterThanOrEqual(0)
+    expect(out.channels[0][i]).toBeLessThan(0.01)
+    // And within the first second it is the ramp itself.
+    expect(out.channels[0][Math.round(0.5 * RATE)]).toBeCloseTo(0.5, 2)
+  })
+
   it('a source that fails to decode leaves its track silent, never the render', async () => {
     const out = await renderAudio(fadeConfig, {
       sampleRate: RATE,

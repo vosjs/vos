@@ -72,7 +72,13 @@ export function mixAudio(
       const i1 = Math.min(length, Math.ceil(p1.t * sampleRate))
       if (i1 <= i0) continue
       const span = p1.t - p0.t
-      const continuous = p1.on
+      // Between two points the position sweeps linearly — unless the next
+      // point is a SEEK: a jump the playback rate could not have covered
+      // (a loop wrapping back to its start, a set of currentTime). Then the
+      // interval plays on from the first point at native rate and the jump
+      // lands at the second, the way an element seeks.
+      const seek = Math.abs(p1.pos - p0.pos - span) > Math.max(0.05, span * 8)
+      const continuous = p1.on && !seek
       for (let i = i0; i < i1; i++) {
         const t = i / sampleRate
         const u = span > 0 ? (t - p0.t) / span : 0
