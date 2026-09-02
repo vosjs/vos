@@ -1,5 +1,11 @@
 # @vosjs/cli
 
+## 0.8.5
+
+### Patch Changes
+
+- f17ca0f: `vos still` refuses a `.png`/`.jpg` output name in words: the capture template writes WebP, and a still named `.png` shipped WebP bytes under a lying extension, which stores refuse as a mislabelled image.
+
 ## 0.8.4
 
 ### Patch Changes
