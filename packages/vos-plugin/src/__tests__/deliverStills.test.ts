@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { SCREENSHOT_DEFAULTS, stillOverridesFor } from '../deliver'
+import { FULL_BLEED, SCREENSHOT_DEFAULTS, stillOverridesFor } from '../deliver'
 import { applyDocOverrides } from '../docOverride'
 import type { ProjectDoc } from '@vosso/studio-core'
 
@@ -24,7 +24,12 @@ function doc(): ProjectDoc {
     zoom: [{ id: 'z', in: 1, out: 4, level: 1.8, cx: 0.5, cy: 0.5 }],
     tilt: [{ id: 't', in: 1, out: 4, rx: 6, ry: -6 }],
     audio: [],
-    cursor: { smoothing: 0.5, size: 1 },
+    cursor: {
+      visible: true,
+      smoothing: 0.5,
+      size: 1,
+      clickFx: { style: 'ripple' },
+    },
     cam: {},
     frame: {
       background: '#111',
@@ -60,12 +65,29 @@ describe('stillOverridesFor (the screenshot policy)', () => {
     expect(o?.set).toEqual(['frame.fit=cover'])
   })
 
-  it('a card-genre still keeps the composition (the poster leg owns cards)', () => {
+  it('a card with no poster is a full-bleed cover crop of the real page, camera kept', () => {
     const o = stillOverridesFor({ fit: 'cover', genre: 'card' }, {})
-    expect(o?.set).toEqual(['frame.fit=cover'])
+    expect(o?.set?.[0]).toBe('frame.fit=cover')
+    for (const s of FULL_BLEED) expect(o?.set).toContain(s)
+    expect(o?.set).not.toContain('zoom=[]')
+    const d = doc()
+    applyDocOverrides(d, o!)
+    expect(d.zoom).toHaveLength(1)
+    expect(d.frame.browserBar.kind).toBe('none')
+    expect(d.cursor.visible).toBe(false)
     expect(
-      stillOverridesFor({ fit: 'contain', genre: 'card' }, {}),
+      stillOverridesFor({ fit: 'contain', genre: 'card' }, { composed: true }),
     ).toBeUndefined()
+  })
+
+  it('a screenshot hides the cursor dot and the click ring', () => {
+    const d = doc()
+    applyDocOverrides(
+      d,
+      stillOverridesFor({ fit: 'cover', genre: 'screenshot' }, {})!,
+    )
+    expect(d.cursor.visible).toBe(false)
+    expect(d.cursor.clickFx.style).toBe('none')
   })
 
   it("the user's own --set applies last and wins", () => {

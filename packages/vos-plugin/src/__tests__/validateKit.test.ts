@@ -106,6 +106,25 @@ describe('validateKit', () => {
     )
   })
 
+  it('a moved kit resolves beside its manifest when the recorded absolute path is gone', async () => {
+    const png = pngHeader(1200, 630)
+    await writeFile(join(dir, 'og-card.png'), png)
+    const p = await kit([
+      {
+        channel: 'og',
+        asset: 'card',
+        destination: 'og-card',
+        path: '/home/runner/work/_temp/take/kit/og-card.png',
+        w: 1200,
+        h: 630,
+        bytes: png.length,
+        seconds: null,
+      },
+    ])
+    const v = await validateKit(p)
+    expect(v.problems).toEqual([])
+  })
+
   it('names a missing file and a still-set below its count floor', async () => {
     const p = await kit([
       {

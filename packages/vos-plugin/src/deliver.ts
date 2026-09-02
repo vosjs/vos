@@ -22,7 +22,7 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 import { totalDuration } from '@vosjs/timeline'
 import {
   CHANNEL_SPECS_VERIFIED,
@@ -209,15 +209,18 @@ const specWords = (d: Destination) => {
  * cut's camera and chrome. Pure, so the policy is testable without a
  * browser.
  */
-export const SCREENSHOT_DEFAULTS = [
+/** The real page, edge to edge: no chrome, no cursor dot, no click ring. */
+export const FULL_BLEED = [
   'frame.padding=0',
   'frame.radius=0',
   'frame.shadow=0',
   'frame.border=0',
   'frame.browserBar.kind=none',
-  'zoom=[]',
-  'tilt=[]',
+  'cursor.visible=false',
+  'cursor.clickFx.style=none',
 ]
+/** A store screenshot: the real page at that moment, the camera released. */
+export const SCREENSHOT_DEFAULTS = [...FULL_BLEED, 'zoom=[]', 'tilt=[]']
 
 export function stillOverridesFor(
   d: Pick<Destination, 'fit' | 'genre'>,
@@ -227,6 +230,10 @@ export function stillOverridesFor(
   if (d.fit === 'cover') set.push('frame.fit=cover')
   if (d.genre === 'screenshot' && !opts.composed)
     set.push(...SCREENSHOT_DEFAULTS)
+  // A card with no poster program to render from is a cover crop of the
+  // real page (the cut's camera kept): never the card chrome and the padding
+  // band, which a 2.5:1 marquee turns into a browser bar over a gradient.
+  else if (d.genre === 'card' && !opts.composed) set.push(...FULL_BLEED)
   set.push(...(opts.overrides?.set ?? []))
   if (!set.length) return opts.overrides
   return { ...opts.overrides, set }
@@ -371,7 +378,7 @@ export async function deliverTake(
             channel: d.channel,
             asset: d.asset,
             destination: d.id,
-            path: to,
+            path: relative(outDir, to),
             w: d.px.w,
             h: d.px.h,
             bytes,
@@ -441,7 +448,7 @@ export async function deliverTake(
         channel: d.channel,
         asset: d.asset,
         destination: d.id,
-        path: outFile,
+        path: relative(outDir, outFile),
         w: result.width,
         h: result.height,
         bytes: result.bytes,
@@ -488,7 +495,7 @@ export async function deliverTake(
         channel: d.channel,
         asset: d.asset,
         destination: d.id,
-        path: to,
+        path: relative(outDir, to),
         w: captured.width,
         h: captured.height,
         bytes,
