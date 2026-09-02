@@ -1,0 +1,6 @@
+export { diffConfig } from './diffConfig'
+export { diffDoc } from './diffDoc'
+export { coalesce } from './coalesce'
+export { summarize } from './summarize'
+export { opKey } from './types'
+export type { Op, VersionChanges } from './types'

@@ -1,0 +1,168 @@
+{
+  "$comment": "Per-channel launch-asset specs \u2014 the data the launch-kit skill loops over (mirrored as references/channel-specs.md in vosjs/skills; update together). Verified against official platform docs 2026-08-04; platform specs drift, re-verify quarterly. Image specs carry `genre`: 'screenshot' = real UI from the take (store policy demands real UX); 'card' = a composed cover \u2014 rendered from the poster program when one is in hand.",
+  "version": 1,
+  "verified": "2026-08-04",
+  "specs": [
+    {
+      "channel": "youtube",
+      "asset": "main-demo",
+      "kind": "video",
+      "w": 1920,
+      "h": 1080,
+      "minSeconds": 60,
+      "maxSeconds": 120,
+      "format": "mp4 (H.264+AAC)",
+      "notes": "Captions burned in. The same public upload serves the Chrome Web Store promo video and Product Hunt video (both take YouTube URLs only)."
+    },
+    {
+      "channel": "x",
+      "asset": "feed-cut",
+      "kind": "video",
+      "w": 1920,
+      "h": 1080,
+      "minSeconds": 30,
+      "maxSeconds": 140,
+      "maxBytes": 536870912,
+      "format": "mp4 (H.264+AAC ONLY \u2014 HEVC/VP9/AV1 rejected)",
+      "notes": "30\u201360s plays best; 140s/512MB is the free-tier ceiling. 1:1 also allowed. Native upload, never a link post."
+    },
+    {
+      "channel": "shorts-linkedin",
+      "asset": "vertical-cut",
+      "kind": "video",
+      "w": 1080,
+      "h": 1920,
+      "minSeconds": 30,
+      "maxSeconds": 90,
+      "format": "mp4 (H.264+AAC)",
+      "notes": "Critical text inside a centered ~900\u00d71160 safe zone \u2014 platform chrome covers the rest. Serves YouTube Shorts and LinkedIn native vertical."
+    },
+    {
+      "channel": "github",
+      "asset": "readme-loop",
+      "kind": "video",
+      "w": 1920,
+      "h": 1080,
+      "minSeconds": 10,
+      "maxSeconds": 20,
+      "maxBytes": 10485760,
+      "format": "mp4 (H.264)",
+      "notes": "\u226410MB is the free-plan attachment ceiling; two-pass target bitrate from duration."
+    },
+    {
+      "channel": "youtube",
+      "asset": "thumbnail",
+      "kind": "image",
+      "w": 1280,
+      "h": 720,
+      "maxBytes": 2097152,
+      "format": "png|jpg",
+      "notes": "",
+      "genre": "card"
+    },
+    {
+      "channel": "cws",
+      "asset": "screenshot",
+      "kind": "image",
+      "w": 1280,
+      "h": 800,
+      "count": "1-5",
+      "format": "png|jpg",
+      "notes": "Real UX only \u2014 misleading listing images are a removal-grade violation. Full bleed, square corners.",
+      "genre": "screenshot"
+    },
+    {
+      "channel": "cws",
+      "asset": "small-promo-tile",
+      "kind": "image",
+      "w": 440,
+      "h": 280,
+      "format": "png|jpg",
+      "notes": "Listings without one rank lower. No text; fill the region; subject centered.",
+      "genre": "card"
+    },
+    {
+      "channel": "cws",
+      "asset": "marquee",
+      "kind": "image",
+      "w": 1400,
+      "h": 560,
+      "format": "png|jpg",
+      "notes": "Carousel eligibility.",
+      "genre": "card"
+    },
+    {
+      "channel": "cws",
+      "asset": "icon",
+      "kind": "image",
+      "w": 128,
+      "h": 128,
+      "format": "png",
+      "notes": "96\u00d796 art + 16px transparent padding."
+    },
+    {
+      "channel": "producthunt",
+      "asset": "thumbnail",
+      "kind": "image",
+      "w": 240,
+      "h": 240,
+      "maxBytes": 3145728,
+      "format": "gif|png",
+      "notes": "GIF animates on hover only \u2014 the first frame must stand alone.",
+      "genre": "card"
+    },
+    {
+      "channel": "producthunt",
+      "asset": "gallery",
+      "kind": "image",
+      "w": 1270,
+      "h": 760,
+      "count": "4-8",
+      "format": "png|jpg|gif",
+      "notes": "First image is the hero.",
+      "genre": "screenshot"
+    },
+    {
+      "channel": "x",
+      "asset": "feed-image",
+      "kind": "image",
+      "w": 1200,
+      "h": 675,
+      "format": "png|jpg",
+      "notes": "",
+      "genre": "card"
+    },
+    {
+      "channel": "linkedin",
+      "asset": "feed-image",
+      "kind": "image",
+      "w": 1200,
+      "h": 627,
+      "format": "png|jpg",
+      "notes": "1080\u00d71350 vertical also performs in the mobile feed.",
+      "genre": "card"
+    },
+    {
+      "channel": "og",
+      "asset": "card",
+      "kind": "image",
+      "w": 1200,
+      "h": 630,
+      "maxBytes": 1048576,
+      "format": "png|jpg",
+      "notes": "Text in the center ~1080\u00d7600. Set twitter:card=summary_large_image explicitly \u2014 og:image alone gets the small card.",
+      "genre": "card"
+    },
+    {
+      "channel": "github",
+      "asset": "social-preview",
+      "kind": "image",
+      "w": 1280,
+      "h": 640,
+      "maxBytes": 1048576,
+      "format": "png|jpg",
+      "notes": "Key text \u226550px from every edge.",
+      "genre": "card"
+    }
+  ]
+}

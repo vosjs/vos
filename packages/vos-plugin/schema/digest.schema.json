@@ -1,0 +1,218 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vos.so/schemas/digest.schema.json",
+  "title": "vosso take digest (digest.json — how an agent sees a recording)",
+  "description": "Written by `vos digest <take>` into <take>/digest/. One MOMENT per thing the cursor telemetry says mattered, each with a footage frame and a crop around the target, in the doc's own units: `source` extents are seconds of footage, `output` the same window through trims and speed (null when cut away), `focus`/`rect` are normalized [0..1] fractions of the video frame (the zoom cx/cy convention — copy them into a ZoomSpan). `activity` is the fraction of pixels that changed per SOURCE second. `plan` holds the planners' proposals; `proposed` names which cover each moment. Read digest.json, then sheet.png, then a crop only where you must decide.",
+  "type": "object",
+  "required": [
+    "digestVersion",
+    "take",
+    "units",
+    "moments",
+    "plan",
+    "doc",
+    "images"
+  ],
+  "properties": {
+    "digestVersion": { "type": "integer", "const": 1 },
+    "take": {
+      "type": "object",
+      "properties": {
+        "sourceDuration": {
+          "type": "number",
+          "description": "seconds of footage"
+        },
+        "outputDuration": {
+          "type": "number",
+          "description": "seconds of rendered video (trims + speed)"
+        },
+        "width": { "type": "number", "description": "cursor space (CSS px)" },
+        "height": { "type": "number" },
+        "captureWidth": { "type": ["number", "null"] },
+        "captureHeight": { "type": ["number", "null"] },
+        "frameWidth": {
+          "type": ["number", "null"],
+          "description": "decoded frame px (null with --no-frames)"
+        },
+        "frameHeight": { "type": ["number", "null"] },
+        "surface": { "type": "string", "enum": ["tab", "window", "monitor"] },
+        "producer": { "type": "string", "enum": ["extension", "cli"] },
+        "pageUrl": { "type": ["string", "null"] },
+        "pageTitle": { "type": ["string", "null"] },
+        "hasMic": { "type": "boolean" },
+        "hasSystemAudio": { "type": "boolean" },
+        "hasCursor": {
+          "type": "boolean",
+          "description": "false = browser-recorder take: moments are head/tail/scenes only"
+        },
+        "windowFocusedFrac": { "type": ["number", "null"] }
+      }
+    },
+    "units": {
+      "type": "object",
+      "description": "The unit sentences, repeated so a reader never has to guess."
+    },
+    "moments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "source",
+          "output",
+          "at",
+          "outputAt",
+          "focus",
+          "rect",
+          "activity",
+          "proposed",
+          "said",
+          "full",
+          "crop"
+        ],
+        "properties": {
+          "id": { "type": "string", "pattern": "^m[0-9]{2,}$" },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "head",
+              "tail",
+              "click",
+              "typing",
+              "scroll",
+              "dwell",
+              "idle",
+              "scene"
+            ]
+          },
+          "source": {
+            "type": "object",
+            "properties": {
+              "in": { "type": "number" },
+              "out": { "type": "number" }
+            },
+            "required": ["in", "out"]
+          },
+          "output": {
+            "type": ["object", "null"],
+            "properties": {
+              "in": { "type": "number" },
+              "out": { "type": "number" }
+            }
+          },
+          "at": {
+            "type": ["number", "null"],
+            "description": "SOURCE instant of the frame; null = no frame (idle)"
+          },
+          "outputAt": { "type": ["number", "null"] },
+          "focus": {
+            "type": ["object", "null"],
+            "properties": {
+              "cx": { "type": "number" },
+              "cy": { "type": "number" }
+            }
+          },
+          "rect": {
+            "type": ["object", "null"],
+            "properties": {
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "w": { "type": "number" },
+              "h": { "type": "number" }
+            }
+          },
+          "clicks": { "type": "integer" },
+          "pings": {
+            "type": "integer",
+            "description": "typing-activity pings in the session (never key identity)"
+          },
+          "activity": {
+            "type": ["number", "null"],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "proposed": {
+            "type": "object",
+            "properties": {
+              "zoom": { "type": "string" },
+              "speed": { "type": "string" },
+              "tilt": { "type": "string" }
+            }
+          },
+          "said": { "type": ["string", "null"] },
+          "full": {
+            "type": ["string", "null"],
+            "description": "the footage frame, relative to digest/"
+          },
+          "crop": {
+            "type": ["string", "null"],
+            "description": "a crop around rect/focus, relative to digest/"
+          },
+          "box": {
+            "type": ["object", "null"],
+            "description": "the crop's source box in FRAME px (not doc units)",
+            "properties": {
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "w": { "type": "number" },
+              "h": { "type": "number" }
+            }
+          }
+        }
+      }
+    },
+    "activity": {
+      "type": ["array", "null"],
+      "items": { "type": "number" },
+      "description": "index = SOURCE second"
+    },
+    "plan": {
+      "type": "object",
+      "properties": {
+        "zoom": { "type": "array" },
+        "speed": { "type": "array" },
+        "tilt": { "type": "array" }
+      },
+      "description": "The three planners run fresh under the doc's own style (source:'auto' spans, ids as in doc.json)."
+    },
+    "doc": {
+      "type": "object",
+      "properties": {
+        "manual": {
+          "type": "object",
+          "description": "counts of human-decided spans — never re-plan these away"
+        },
+        "zoomStyle": { "type": ["string", "null"] },
+        "tiltStyle": { "type": ["string", "null"] }
+      }
+    },
+    "style": {
+      "type": ["object", "null"],
+      "description": "--style: the reference doc's style fields, reported"
+    },
+    "transcript": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "object",
+        "properties": {
+          "start": { "type": "number" },
+          "end": { "type": "number" },
+          "text": { "type": "string" }
+        }
+      }
+    },
+    "images": {
+      "type": "object",
+      "properties": {
+        "full": { "type": "integer" },
+        "crop": { "type": "integer" },
+        "sheet": { "type": ["string", "null"] },
+        "tokensEstimateClaude": {
+          "type": "integer",
+          "description": "sum of (w×h)/750 over full + crop images — a budget hint, not a bill"
+        }
+      }
+    }
+  }
+}
