@@ -120,6 +120,17 @@ describe('parseLlmsTxt', () => {
     })
     expect(parseLlmsTxt('# Acme\n')).toEqual({ name: 'Acme', claim: null })
   })
+
+  it('joins a wrapped blockquote and keeps its first sentence', () => {
+    expect(
+      parseLlmsTxt(
+        '# Acme — tools (acme.test)\n\n> Acme makes the thing, from the real\n> product. Built on vos (https://vos.so).\n> Export is free.\n',
+      ),
+    ).toEqual({
+      name: 'Acme',
+      claim: 'Acme makes the thing, from the real product.',
+    })
+  })
 })
 
 describe('composeBrand', () => {

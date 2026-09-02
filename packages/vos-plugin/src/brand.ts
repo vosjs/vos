@@ -227,7 +227,21 @@ export function parseLlmsTxt(text: string): {
   claim: string | null
 } {
   const h1 = /^#\s+(.+)$/m.exec(text)?.[1]?.trim() ?? null
-  const quote = /^>\s+(.+)$/m.exec(text)?.[1]?.trim() ?? null
+  // The blockquote WRAPS (llms.txt files are written at 80 columns), so
+  // join its consecutive `> ` lines and keep the first sentence: the claim
+  // is one line by contract, and a recipe heading that stops mid-sentence
+  // reads as broken (vos.so's own claim did, on the verb's first run).
+  const block = /^>\s*.+(?:\n>\s*.*)*/m.exec(text)?.[0]
+  const joined = block
+    ? block
+        .split('\n')
+        .map((line) => line.replace(/^>\s*/, '').trim())
+        .filter(Boolean)
+        .join(' ')
+    : ''
+  const quote = joined
+    ? (/^(.*?[.!?])(?:\s|$)/.exec(joined)?.[1] ?? joined)
+    : null
   let name = h1
   if (h1) {
     const split = /^(.+?)\s+[—–-]\s+(.+)$/.exec(h1)

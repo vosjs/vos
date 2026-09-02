@@ -47,6 +47,7 @@ import { cmdFolder } from './folder'
 import { cmdAsset } from './asset'
 import { cmdRecipe } from './recipe'
 import { cmdBrand } from './brand'
+import { cmdActions } from './agentBrowser'
 import type { ProjectDoc } from '@vosso/studio-core'
 import type { ActionsFile } from './actions'
 import type { ParsedArgs } from './args'
@@ -81,6 +82,7 @@ Take pipeline
   vos brand <url> [--out BRAND.md] [--json]
   vos open <take> [--studio <url>] [--print]
   vos validate <actions.json|take> [--json]
+  vos actions from-agent-browser <steps.jsonl> [--out actions.json] [--url <url>] [--viewport WxH] [--json]
 
 Platform (vos.so) — fetch, edit, push, pull, repeat
   vos login [--key <vos_sk_…>] [--label <name>] [--no-browser]
@@ -204,6 +206,15 @@ estimates it). --transcript merges Whisper-shaped segments (SOURCE seconds)
 onto moments as "said". --style REPORTS a reference doc's style fields.
 validate <take> lints doc.json semantics (span overlap/bounds, normalized
 [0..1] zoom focus coords, export honesty) — schema in schema/doc.schema.json.
+actions from-agent-browser turns the walk an agent made in agent-browser
+into actions.json, so a feature verified there becomes a take with no
+second script. Input: one record per command in agent-browser's own batch
+shape, {command:[…], …result} — a bare --json result does not say what ran,
+so wrap each call (the product-video skill has the one-line function) or
+keep a batch's output. Refs (@e27) resolve through the last snapshot -i
+before them (-u gives links their href); what the recorder cannot follow
+(a shortcut key, a drag, a second open) is named in the output, never
+dropped. Then: vos record --actions actions.json --strict.
 open serves the take and loads it into the studio (?take=<server>) —
 doc.json edits arrive intact; a human can drag every zoom span. Keeps
 serving until Ctrl-C; --studio overrides the default http://localhost:6060.
@@ -1224,6 +1235,8 @@ export async function run(argv: string[]): Promise<number> {
         return await cmdRecipe(rest)
       case 'brand':
         return await cmdBrand(rest)
+      case 'actions':
+        return await cmdActions(rest)
       default:
         throw new UsageError(`unknown command "${cmd}" — run: vos help`)
     }

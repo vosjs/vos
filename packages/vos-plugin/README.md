@@ -26,6 +26,7 @@ vos deliver take --to cws,producthunt,og --release "v2.1"  # the release's asset
 vos deliver take --to cws,og,linkedin --poster poster.json  # + the CARD half: covers composed by your poster program, this release's shot baked in
 vos validate take/kit/kit.json                 # re-measure every kit asset from its bytes against the channel specs
 vos brand https://your.app --out BRAND.md      # the brand kit, witnessed: /design.md, /llms.txt, then the page (palette, faces, marks, the avoid list)
+vos actions from-agent-browser steps.jsonl     # the walk an agent made in agent-browser → actions.json (no second script; what cannot follow is named)
 vos open take                                  # hand the take to the studio — a human can drag every zoom span
 vos push take --yes --note "first pass"        # host it: private vos + version history (recording uploads once)
 vos pull take                                  # take the human's studio edits back: typed changelog + fresh doc.json
@@ -94,7 +95,7 @@ The package also ships [`schema/channel-specs.json`](./schema/channel-specs.json
 }
 ```
 
-Verbs: `wait` · `hover` · `click` · `type` · `scroll` · `move` · `drag` (press-move-release — slide a range input, drag a canvas element, move a timeline clip). Because the CLI issues every input itself, the cursor track is synthesized — exact coordinates, exact timing, fresh element rects — which is what powers element-aware auto-zoom and click effects downstream. `vos validate` checks a script (or a take) without running anything.
+Verbs: `wait` · `hover` · `click` · `type` · `scroll` · `move` · `drag` (press-move-release — slide a range input, drag a canvas element, move a timeline clip). Because the CLI issues every input itself, the cursor track is synthesized — exact coordinates, exact timing, fresh element rects — which is what powers element-aware auto-zoom and click effects downstream. `vos validate` checks a script (or a take) without running anything. Verified the feature in agent-browser already? `vos actions from-agent-browser steps.jsonl` writes the script from that walk (each command kept beside its `--json` result, the `batch` record shape; refs resolve through the last `snapshot -i`), and names every step the recorder cannot follow.
 
 ## CI: the release loop on every tag
 

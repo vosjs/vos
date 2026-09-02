@@ -22,6 +22,16 @@ export type {
   RenderAnimationResult,
 } from './renderAnimation'
 export { validateActions } from './actions'
+export {
+  convertAgentBrowser,
+  parseAgentBrowserLog,
+  splitCommand,
+} from './agentBrowser'
+export type {
+  AgentBrowserRecord,
+  ConvertOptions,
+  ConvertResult,
+} from './agentBrowser'
 export type { ActionsFile, ActionStep } from './actions'
 export { loadTake, takePaths } from './take'
 export type { TakeData, TakePaths } from './take'
