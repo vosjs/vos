@@ -1,13 +1,27 @@
 # vos
 
-> The open visual operating system — turn a function into deterministic, resolution-independent, mixed-media video, and render it anywhere.
+> The open programmatic video engine, and the `vos` CLI your coding agent uses to turn the real product into its demo, its store listing and its social cuts: deterministic, resolution-independent, rendered anywhere.
 
 [![CI](https://github.com/vosjs/vos/actions/workflows/ci.yml/badge.svg)](https://github.com/vosjs/vos/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
 **A video is just inputs and a function, rendered.** vos is a **programmatic video engine** for the web: it takes a JSON description of an animation — scenes, cameras, post-processing, GSAP timelines, and overlay elements — and **compiles** it into a self-contained template that renders identical motion graphics every time, anywhere a browser can run: the browser, Node, or a Cloudflare Worker. The core is pure (no DOM dependencies), and `three` / `gsap` stay optional peers you bring yourself.
 
-`vos` — short for **V**isual **O**perating **S**ystem, and Latin for _you_ — is the open engine. [vosso](https://vos.so) is the platform built on it: a visual operating system for generated video, where every app is _powered by vos_.
+`vos` is Latin for _you_. This repo is the open engine (MIT) and the `vos` binary. [vosso](https://vos.so) is the platform built on it: the same engine records the real product and keeps its demo, its store listing and its social cuts current with every release.
+
+## Make product media with it
+
+One binary, `vos`. The engine verbs live here; the take pipeline (record the real product, auto-zoom from the cursor track, cut as data, deliver to every destination's spec) and the vos.so verbs ship as a plugin the binary delegates to, free to use:
+
+```bash
+npm i -g @vosjs/cli @vosso/vos-plugin
+vos record --actions actions.json --out take --strict   # drive the page, synthesize the cursor track, encode + plan
+vos render take out.webm                                # deterministic polished render; edit take/doc.json and render again
+vos deliver take --to cws,producthunt,og --release "v2.1"  # the release's assets per channel spec, verified into kit.json
+npx skills add vosjs/skills                             # the workflows, for Claude Code, Codex, Cursor and friends
+```
+
+Every edit is a data patch to `doc.json`, never a re-record; the preview is the render; export is free at every resolution up to 4K, no watermark. The full agent contract is [vos.so/llms.txt](https://vos.so/llms.txt).
 
 ## Packages
 
@@ -18,7 +32,7 @@
 | [`@vosjs/timeline`](./packages/timeline) | [![npm](https://img.shields.io/npm/v/%40vosjs%2Ftimeline)](https://www.npmjs.com/package/@vosjs/timeline) | Deterministic timeline math for video editing: keyframe sampling, GSAP-compatible pure easings, source-time remapping (trim/split).                          |
 | [`@vosjs/tween`](./packages/tween)       | [![npm](https://img.shields.io/npm/v/%40vosjs%2Ftween)](https://www.npmjs.com/package/@vosjs/tween)       | Records a GSAP-dialect timeline into a per-element tween IR (extract / edit / deterministically sample), delegating 1:1 to a real backend for live playback. |
 | [`@vosjs/editor`](./packages/editor)     | [![npm](https://img.shields.io/npm/v/%40vosjs%2Feditor)](https://www.npmjs.com/package/@vosjs/editor)     | Headless video-editor infrastructure: patch-based document store (undo/redo), live-edit classifier, editor bridge client, timeline view-model math.          |
-| [`@vosjs/cli`](./packages/cli)           | [![npm](https://img.shields.io/npm/v/%40vosjs%2Fcli)](https://www.npmjs.com/package/@vosjs/cli)           | Command line: render deterministic videos and stills from vos configs, headlessly — for your terminal, CI, or an AI agent.                                   |
+| [`@vosjs/cli`](./packages/cli)           | [![npm](https://img.shields.io/npm/v/%40vosjs%2Fcli)](https://www.npmjs.com/package/@vosjs/cli)           | The `vos` binary: render deterministic videos and stills from vos configs, headlessly, and delegate the take and platform verbs to the plugin. |
 
 > `three` and `gsap` are **optional peer dependencies** — you bring your own versions, and the engine never bundles them.
 

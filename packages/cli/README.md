@@ -3,7 +3,7 @@
 [![npm](https://img.shields.io/npm/v/@vosjs/cli)](https://www.npmjs.com/package/@vosjs/cli)
 [![license](https://img.shields.io/npm/l/@vosjs/cli)](../../LICENSE)
 
-Command line for [vos](https://vos.so/engine), the open visual operating system — render deterministic videos and stills from vos configs, headlessly, from your terminal, CI, or an AI agent.
+The `vos` binary: render deterministic videos and stills from [vos](https://vos.so/engine) configs headlessly, from your terminal, CI, or an AI agent, and hand every take and platform verb (record the real product, cut it as data, deliver the release's media, sync with vos.so) to the plugin below.
 
 ```bash
 pnpm add -D @vosjs/cli
@@ -21,7 +21,7 @@ vos preview <config.json|url>        # serve a local playback page
 vos versions                         # installed @vosjs/* (and plugin) versions
 ```
 
-That is the whole engine surface: local, deterministic, no account, no auth — this package knows nothing about any hosting platform. Everything else — the take pipeline (screen recordings in, product video out: `create` / `record` / `plan` / `frames` / `open` / `validate`) and the vos.so platform verbs (`fetch` / `push` / `pull` / `login`) — ships as a separately installed plugin:
+That is the whole engine surface: local, deterministic, no account, no auth — this package knows nothing about any hosting platform. Everything else — the take pipeline (screen recordings in, the release's media out: `create` / `record` / `plan` / `digest` / `frames` / `deliver` / `open` / `validate`) and the vos.so platform verbs (`fetch` / `push` / `pull` / `login` / `duplicate` / `folder` / `asset` / `recipe`) — ships as a separately installed plugin:
 
 ```bash
 npm i -D @vosso/vos-plugin
