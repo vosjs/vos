@@ -81,8 +81,28 @@ export interface DeliverOptions {
    * policy demands real UX).
    */
   poster?: { config: Record<string, unknown>; from: string }
-  /** Poster capture instant; default 90% through the poster's timeline. */
+  /**
+   * Capture instant INSIDE the poster program's own timeline (its text
+   * enters over the first seconds); default 90% through it. Not the take
+   * moment — that is `shotTime`.
+   */
   posterTime?: number
+  /**
+   * The take moment (OUTPUT seconds) baked into the poster as its shot;
+   * default the first still time. A zoom apex is the natural pick: the
+   * cut's camera composes the frame, so the shot is the feature, not the
+   * whole page.
+   */
+  shotTime?: number
+  /**
+   * Keep the cut's camera and the frame chrome on SCREENSHOT-genre stills.
+   * By default a store screenshot is the real page at that moment, full
+   * bleed: no zoom, no tilt, no browser bar, no padding (store policy says
+   * real UX, full bleed, square corners; a zoomed crop under a mac bar on a
+   * gradient reads as a marketing frame, and a text-heavy page zoomed to a
+   * corner reads as an empty page).
+   */
+  composed?: boolean
   onPhase?: (phase: string) => void
   onProgress?: (fraction: number) => void
 }
@@ -182,6 +202,36 @@ const specWords = (d: Destination) => {
   return parts.join(' ')
 }
 
+/**
+ * The in-memory overrides a still destination rides, in apply order (the
+ * user's own --set entries come LAST, so they win): the channel's fit, then
+ * the screenshot genre's full-bleed defaults unless `composed` keeps the
+ * cut's camera and chrome. Pure, so the policy is testable without a
+ * browser.
+ */
+export const SCREENSHOT_DEFAULTS = [
+  'frame.padding=0',
+  'frame.radius=0',
+  'frame.shadow=0',
+  'frame.border=0',
+  'frame.browserBar.kind=none',
+  'zoom=[]',
+  'tilt=[]',
+]
+
+export function stillOverridesFor(
+  d: Pick<Destination, 'fit' | 'genre'>,
+  opts: Pick<DeliverOptions, 'overrides' | 'composed'>,
+): DocOverrides | undefined {
+  const set: string[] = []
+  if (d.fit === 'cover') set.push('frame.fit=cover')
+  if (d.genre === 'screenshot' && !opts.composed)
+    set.push(...SCREENSHOT_DEFAULTS)
+  set.push(...(opts.overrides?.set ?? []))
+  if (!set.length) return opts.overrides
+  return { ...opts.overrides, set }
+}
+
 export async function deliverTake(
   browser: Browser,
   dir: string,
@@ -233,7 +283,8 @@ export async function deliverTake(
   // our own page, so the webp-only thumbnail template never enters it.
   if (opts.poster && posterCards.length) {
     const meta = doc.source.meta
-    const heroTime = stillTimes[0] ?? duration / 2
+    const heroTime =
+      opts.shotTime ?? (stillTimes.length ? stillTimes[0] : duration / 2)
     opts.onPhase?.(
       `poster shot (full bleed at ${heroTime.toFixed(2)}s) from ${opts.poster.from}`,
     )
@@ -412,13 +463,7 @@ export async function deliverTake(
     // a 16:9 take fills a 440x280 tile instead of striping the background.
     // The doc on disk is untouched; an explicit --set frame.fit wins (later
     // entries apply last in docOverride).
-    const overrides =
-      d.fit === 'cover'
-        ? {
-            ...opts.overrides,
-            set: ['frame.fit=cover', ...(opts.overrides?.set ?? [])],
-          }
-        : opts.overrides
+    const overrides = stillOverridesFor(d, opts)
     const captured = await framesTake(browser, dir, {
       times: wanted,
       width: d.px.w,
