@@ -19,8 +19,8 @@ pnpm test
 - `packages/core` — `@vosjs/core`, the engine (compiler, schema, runtime, addons, types).
 - `packages/elements` — `@vosjs/elements`, the overlay element system.
 - `packages/timeline`, `packages/tween`, `packages/editor` — timeline math, the tween IR, the headless editor infrastructure.
-- `packages/cli` — `@vosjs/cli`, the `vos` binary and the engine verbs.
-- `packages/vos-plugin`, `packages/studio-core`, `packages/render-core`, `packages/shared` — the take pipeline and the vos.so verbs, MIRRORED from vosso's monorepo (see `MIRROR.md`: open issues here; a pull request against these four is ported by a maintainer until the source of truth moves).
+- `packages/cli` — `@vosjs/cli`, the `vos` binary: the engine verbs, and under `src/plugin/` the take pipeline and the vos.so verbs (record, plan, digest, frames, render, deliver, brand, fetch, push, pull, login, folder, asset, recipe).
+- `packages/studio-core`, `packages/render-core`, `packages/shared` — the document model and planner, the render harness, and the small shared layer the CLI and the vosso studio both build on.
 
 The core is intentionally **pure** — no DOM/browser globals — so it can run in the browser, Node, and Workers. Please keep browser-only code out of `@vosjs/core`.
 

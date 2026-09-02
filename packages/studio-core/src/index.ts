@@ -1,5 +1,5 @@
 /**
- * @vosso/studio-core — the studio's app-level editing opinions.
+ * @vosjs/studio-core — the studio's app-level editing opinions.
  *
  * The generic editing mechanisms (patch store, edit classifier, editor-bridge
  * client, element-edit helpers, timeline view-model) were extracted to the

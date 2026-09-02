@@ -9,7 +9,7 @@
  * SwiftShader), no `dispersion` (blows preview-job deadlines), transmission
  * only single-sided. Keep new presets inside those constraints.
  */
-import { DEFAULT_TYPEFACE_SLUG, findTypeface, typefaceUrl } from '@vosso/shared'
+import { DEFAULT_TYPEFACE_SLUG, findTypeface, typefaceUrl } from '@vosjs/shared'
 import type { ObjectAsset, Text3dMaterial } from './types'
 
 export const TEXT3D_DEPTH_DEFAULT = 0.25

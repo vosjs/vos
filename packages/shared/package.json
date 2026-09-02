@@ -1,31 +1,80 @@
 {
-  "name": "@vosso/shared",
+  "name": "@vosjs/shared",
   "version": "0.1.0",
-  "private": true,
+  "description": "The small shared layer under the vos CLI and the vosso studio: the semantic differ, the free-tier limits, frontmatter, params, the font, music and typeface catalogs.",
   "license": "MIT",
-  "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
-  "exports": {
-    ".": "./src/index.ts",
-    "./types": "./src/types/index.ts",
-    "./utils": "./src/utils/index.ts",
-    "./diff": "./src/diff/index.ts",
-    "./frontmatter": "./src/frontmatter.ts",
-    "./params": "./src/params.ts",
-    "./limits": "./src/limits.ts",
-    "./acquisition": "./src/acquisition.ts",
-    "./backdrops": "./src/backdrops.ts",
-    "./timelineEdits": "./src/timelineEdits.ts"
+  "author": "vosso",
+  "homepage": "https://vos.so",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vosjs/vos.git",
+    "directory": "packages/shared"
   },
+  "bugs": {
+    "url": "https://github.com/vosjs/vos/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./types": {
+      "types": "./dist/types/index.d.ts",
+      "import": "./dist/types/index.js"
+    },
+    "./utils": {
+      "types": "./dist/utils/index.d.ts",
+      "import": "./dist/utils/index.js"
+    },
+    "./diff": {
+      "types": "./dist/diff/index.d.ts",
+      "import": "./dist/diff/index.js"
+    },
+    "./frontmatter": {
+      "types": "./dist/frontmatter.d.ts",
+      "import": "./dist/frontmatter.js"
+    },
+    "./params": {
+      "types": "./dist/params.d.ts",
+      "import": "./dist/params.js"
+    },
+    "./limits": {
+      "types": "./dist/limits.d.ts",
+      "import": "./dist/limits.js"
+    },
+    "./acquisition": {
+      "types": "./dist/acquisition.d.ts",
+      "import": "./dist/acquisition.js"
+    },
+    "./backdrops": {
+      "types": "./dist/backdrops.d.ts",
+      "import": "./dist/backdrops.js"
+    },
+    "./timelineEdits": {
+      "types": "./dist/timelineEdits.d.ts",
+      "import": "./dist/timelineEdits.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
   "scripts": {
+    "build": "tsup",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "clean": "rm -rf dist node_modules"
   },
   "devDependencies": {
+    "tsup": "^8.5.0",
     "typescript": "^5",
     "vitest": "^3.0.5"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
