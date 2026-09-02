@@ -32,9 +32,13 @@ export type {
   ConvertResult,
 } from './agentBrowser'
 export type { ActionsFile, ActionStep } from './actions'
-export { loadTake, takePaths } from './take'
+export { RECORDING_NAME, loadTake, takePaths } from './take'
 export type { TakeData, TakePaths } from './take'
+export { startTakeServer, waitForPageDone } from './server'
+export type { TakeServer } from './server'
 export {
+  apiError,
+  apiJson,
   parseVosId,
   platformOrigin,
   readSyncState,
