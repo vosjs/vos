@@ -1,6 +1,6 @@
 {
   "name": "@vosso/vos-plugin",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "description": "The take pipeline and the vos.so verbs of the vos CLI: record the real product from a scripted browser flow, auto-zoom from the cursor track, cut as data in doc.json, render deterministic video and stills, deliver a release's media per destination spec, and sync with vos.so (fetch/push/pull/login, folders). No bin of its own; verbs surface through the `vos` binary (@vosjs/cli), which delegates every non-engine verb here.",
   "type": "module",
   "license": "MIT",
