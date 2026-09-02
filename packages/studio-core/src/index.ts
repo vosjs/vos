@@ -273,3 +273,12 @@ export {
   defaultBackdropMedia,
   withDefaultBackdrop,
 } from './backdrop'
+
+export {
+  REJECT_OVERLAP,
+  isRejected,
+  overlapFraction,
+  rejectSpan,
+  withoutRejected,
+} from './rejected'
+export type { RejectedLane, RejectedSpan } from './types'

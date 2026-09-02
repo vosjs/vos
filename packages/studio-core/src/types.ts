@@ -186,6 +186,28 @@ export interface StepAnchor {
   offset?: number
 }
 
+/** The lanes whose planners propose spans, and whose proposals can be rejected. */
+export type RejectedLane = 'zoom' | 'tilt' | 'speed'
+
+/**
+ * A planner proposal the human or the agent deleted, kept so no re-plan
+ * proposes it again: the lane and the SOURCE extent of the deleted `auto`
+ * span (plus its step anchor when it had one). Every auto-merge drops a
+ * fresh proposal that lands on a rejected extent of the same lane;
+ * `plan --reuse` re-times these the way it re-times a manual span.
+ */
+export interface RejectedSpan {
+  /** `r{n}`, stable for the differ and the history. */
+  id: string
+  lane: RejectedLane
+  /** SOURCE seconds, the deleted span's extent. */
+  in: number
+  out: number
+  anchor?: StepAnchor
+  /** Why, in the deleter's words. Optional. */
+  note?: string
+}
+
 /** One executed actions.json step's extent in the recording. */
 export interface StepSpan {
   /** index into actions.steps at record time. */
@@ -1169,6 +1191,12 @@ export interface ProjectDoc {
    * is off; manual tilt spans work either way.
    */
   tiltStyle?: TiltStyleName
+  /**
+   * Deleted planner proposals (SOURCE time, one lane each — see
+   * RejectedSpan): a re-plan never proposes a span that lands on one. Absent
+   * = nothing rejected; lowers byte-identically (the renderer never reads it).
+   */
+  rejected?: RejectedSpan[]
   /** music/SFX clips on the output timeline (see AudioClip anchoring note). */
   audio: AudioClip[]
   /**

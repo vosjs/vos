@@ -16,6 +16,7 @@ const ID_TRACKS: readonly [track: string, field: string][] = [
   ['tilt', 'tilt'],
   ['camMove', 'camMotion'],
   ['speed', 'speed'],
+  ['rejected', 'rejected'],
   ['overlay', 'overlays'],
   ['object', 'objects'],
   ['audio', 'audio'],

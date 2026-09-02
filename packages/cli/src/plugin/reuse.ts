@@ -17,6 +17,7 @@
  */
 import type {
   ProjectDoc,
+  RejectedSpan,
   SpeedSpan,
   StepAnchor,
   StepSpan,
@@ -213,6 +214,8 @@ export interface ReusedCut {
   zoom: ZoomSpan[]
   speed: SpeedSpan[]
   tilt: TiltSpan[]
+  /** The previous cut's rejected proposals, re-timed like its manual spans. */
+  rejected: RejectedSpan[]
   report: ReuseReport
 }
 
@@ -289,6 +292,22 @@ export function retimeCut(
     newDuration,
     report,
   )
+  // A rejected proposal is a deletion the human made; it follows the
+  // footage the way the spans it stands beside do, one lane at a time
+  // (two lanes may legitimately reject the same seconds).
+  const rejected: RejectedSpan[] = []
+  for (const lane of ['zoom', 'tilt', 'speed'] as const) {
+    rejected.push(
+      ...retimeSpans(
+        `rejected ${lane}`,
+        (prev.rejected ?? []).filter((r) => r.lane === lane),
+        stepMap,
+        newSteps,
+        newDuration,
+        report,
+      ),
+    )
+  }
 
-  return { segments, zoom, speed, tilt, report }
+  return { segments, zoom, speed, tilt, rejected, report }
 }

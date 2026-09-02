@@ -297,6 +297,26 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       )
     }
 
+    // --- rejected proposals ("not this one": a deleted auto span, kept) ---
+    if (doc.rejected !== undefined && !Array.isArray(doc.rejected)) {
+      problems.push('rejected must be an array of {id, lane, in, out}')
+    }
+    for (const r of entries(doc.rejected)) {
+      const name = spanName('rejected', r)
+      if (!['zoom', 'tilt', 'speed'].includes(r.lane as string)) {
+        problems.push(
+          `${name}: lane must be "zoom" | "tilt" | "speed" (got ${String(r.lane)})`,
+        )
+      }
+      if (!isNum(r.in) || !isNum(r.out) || r.out <= r.in) {
+        problems.push(`${name}: needs SOURCE seconds in < out`)
+      } else if (r.in >= duration) {
+        problems.push(
+          `${name}: starts at ${r.in}s, past the footage (${duration.toFixed(2)}s) — nothing to reject there`,
+        )
+      }
+    }
+
     // --- cam pose spans (MO: animated cam layouts — fractions, footage-anchored) ---
     if (doc.camMotion !== undefined && !Array.isArray(doc.camMotion)) {
       problems.push('camMotion must be an array of spans')

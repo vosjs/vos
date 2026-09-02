@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import {
   STYLE_FIELDS,
   copyStyle,
+  isRejected,
   planAutoSpeed,
   planAutoZoom,
   projectFromArtifact,
@@ -103,20 +104,27 @@ export async function planTake(
     doc = copyStyle(prev, doc)
     const rt = retimeCut(prev, meta.steps ?? [], meta.durationMs)
     doc.segments = rt.segments
+    // The previous cut's deletions come along too: a proposal the human
+    // rejected stays rejected on the new footage.
+    if (rt.rejected.length) doc.rejected = rt.rejected
     const manualZoom = rt.zoom
     const autoZoom = planAutoZoom(doc.source.cursor, {
       width: doc.source.meta.width,
       height: doc.source.meta.height,
       style: doc.zoomStyle,
       params: doc.zoomParams,
-    }).filter((z) => !manualZoom.some((m) => overlaps(z, m)))
+    })
+      .filter((z) => !manualZoom.some((m) => overlaps(z, m)))
+      .filter((z) => !isRejected('zoom', z, doc.rejected))
     doc.zoom = [...manualZoom, ...autoZoom].sort((a, b) => a.in - b.in)
     const manualSpeed = rt.speed
     const autoSpeed = planAutoSpeed(doc.source.cursor, {
       durationMs: doc.source.meta.durationMs,
       params: doc.speedParams,
       activity,
-    }).filter((s) => !manualSpeed.some((m) => s.in < m.out && s.out > m.in))
+    })
+      .filter((s) => !manualSpeed.some((m) => s.in < m.out && s.out > m.in))
+      .filter((s) => !isRejected('speed', s, doc.rejected))
     doc.speed = [...manualSpeed, ...autoSpeed].sort((a, b) => a.in - b.in)
     if (rt.tilt.length) doc.tilt = rt.tilt
     // Output-anchored work carries at its output times — a title at 1s is
@@ -145,7 +153,9 @@ export async function planTake(
       height: doc.source.meta.height,
       style: doc.zoomStyle,
       params: doc.zoomParams,
-    }).filter((z) => !manual.some((m) => overlaps(z, m)))
+    })
+      .filter((z) => !manual.some((m) => overlaps(z, m)))
+      .filter((z) => !isRejected('zoom', z, doc.rejected))
     doc.zoom = [...manual, ...auto].sort((a, b) => a.in - b.in)
     // The speed wand: absent `source` counts as manual — spans from before
     // the wand are user work and always survive a re-plan.
@@ -154,7 +164,9 @@ export async function planTake(
       durationMs: doc.source.meta.durationMs,
       params: doc.speedParams,
       activity,
-    }).filter((s) => !manualSpeed.some((m) => s.in < m.out && s.out > m.in))
+    })
+      .filter((s) => !manualSpeed.some((m) => s.in < m.out && s.out > m.in))
+      .filter((s) => !isRejected('speed', s, doc.rejected))
     doc.speed = [...manualSpeed, ...autoSpeed].sort((a, b) => a.in - b.in)
   } else {
     const artifact: RecordingArtifact = {

@@ -161,6 +161,35 @@ describe('retimeCut', () => {
     expect(cut.report.mapped).toBe(1)
   })
 
+  it('re-times rejected proposals like manual spans, one lane at a time', () => {
+    const cut = retimeCut(
+      doc({
+        rejected: [
+          { id: 'r0', lane: 'zoom', in: 5.8, out: 7.2 },
+          // Two lanes may reject the same seconds; neither trims the other.
+          { id: 'r1', lane: 'speed', in: 5.8, out: 7.2 },
+          {
+            id: 'r2',
+            lane: 'zoom',
+            in: 2.1,
+            out: 3.1,
+            anchor: { step: 0, offset: 0.1 },
+          },
+        ],
+      }),
+      newSteps,
+      12000,
+    )
+    expect(cut.rejected.map((r) => r.id).sort()).toEqual(['r0', 'r1', 'r2'])
+    const byId = Object.fromEntries(cut.rejected.map((r) => [r.id, r]))
+    expect(byId.r0.in).toBeCloseTo(7.667, 2)
+    expect(byId.r0.out - byId.r0.in).toBeCloseTo(1.4, 5)
+    expect(byId.r1.in).toBeCloseTo(7.667, 2)
+    expect(byId.r2.in).toBeCloseTo(2.1, 5) // the anchor carried it exactly
+    expect(cut.report.anchored).toBe(1)
+    expect(cut.report.mapped).toBe(2)
+  })
+
   it('an explicit anchor wins over the map and reports when its step vanished', () => {
     const anchored = retimeCut(
       doc({
