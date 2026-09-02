@@ -222,6 +222,58 @@
           "enum": ["off", "subtle", "medium", "strong"],
           "description": "Dynamic-tilt wand intensity: derives source:'auto' tilt spans FROM the zoom spans, leaning toward each zoom's focus (max 5/9/14\u00b0 per axis). 'off'/absent = no auto tilt; manual spans work either way."
         },
+        "rejected": {
+          "type": "array",
+          "description": "Deleted planner proposals, kept so no re-plan proposes them again (\"not this one\"). Each entry is the lane and the SOURCE extent of an auto span you deleted; a fresh proposal on that lane overlapping the extent by half of the shorter span is dropped by vos plan, by plan --reuse (which re-times these like manual spans) and by the studio's re-plans. Manual spans never need this: a re-plan keeps them by contract. The renderer never reads it.",
+          "items": {
+            "type": "object",
+            "required": ["id", "lane", "in", "out"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "stable identity (`r{n}`)"
+              },
+              "lane": {
+                "enum": ["zoom", "tilt", "speed"],
+                "description": "which planner's proposals this rejects"
+              },
+              "in": {
+                "type": "number",
+                "minimum": 0,
+                "description": "SOURCE seconds, the deleted span's start"
+              },
+              "out": {
+                "type": "number",
+                "description": "SOURCE seconds, > in"
+              },
+              "anchor": {
+                "type": "object",
+                "description": "the deleted span's step anchor, when it had one, so a re-record re-times the rejection the same way",
+                "required": ["step"],
+                "additionalProperties": false,
+                "properties": {
+                  "step": {
+                    "type": ["string", "integer"],
+                    "description": "the actions.json step: its `id` when it has one, else its record-time index (meta.steps)"
+                  },
+                  "at": {
+                    "enum": ["start", "end"],
+                    "description": "which edge of the step the span's `in` is measured from (default start)"
+                  },
+                  "offset": {
+                    "type": "number",
+                    "description": "seconds from that edge to `in` (negative = before it)"
+                  }
+                }
+              },
+              "note": {
+                "type": "string",
+                "description": "why, in the deleter's words"
+              }
+            },
+            "additionalProperties": false
+          }
+        },
         "audio": {
           "$ref": "#/definitions/audio"
         },
