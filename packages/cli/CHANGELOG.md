@@ -1,5 +1,11 @@
 # @vosjs/cli
 
+## 0.9.2
+
+### Patch Changes
+
+- e2f6b24: A type step takes `focus: false`, and a converted `press Enter` uses it, so the keystroke that submits a field no longer clicks it a second time and rings a click effect on empty space beside the text.
+
 ## 0.9.1
 
 ### Patch Changes
