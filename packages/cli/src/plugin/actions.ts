@@ -16,7 +16,20 @@ export type ActionStep = (
   | { do: 'wait'; ms: number }
   | { do: 'hover'; selector: string; ms?: number }
   | { do: 'click'; selector: string }
-  | { do: 'type'; selector: string; text: string; delayMs?: number }
+  /**
+   * Type into `selector`. The recorder clicks the field first, which is what
+   * opens the typing zoom on it; `focus: false` types into the field as it is
+   * already focused, for a keystroke that follows earlier typing (a submitting
+   * Enter) rather than starting it — a second click there rings a click effect
+   * on empty space beside the text.
+   */
+  | {
+      do: 'type'
+      selector: string
+      text: string
+      delayMs?: number
+      focus?: boolean
+    }
   | { do: 'scroll'; dy: number }
   | { do: 'move'; x: number; y: number }
   /**
@@ -105,6 +118,12 @@ export function validateActions(value: unknown): string[] {
       errors.push(`${at}: wait needs ms`)
     if (s.do === 'type' && typeof s.text !== 'string')
       errors.push(`${at}: type needs text`)
+    if (
+      s.do === 'type' &&
+      s.focus !== undefined &&
+      typeof s.focus !== 'boolean'
+    )
+      errors.push(`${at}: type focus must be true or false`)
     if (s.do === 'scroll' && typeof s.dy !== 'number')
       errors.push(`${at}: scroll needs dy`)
     if (

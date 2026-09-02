@@ -135,6 +135,7 @@ describe('convertAgentBrowser', () => {
         do: 'type',
         selector: 'role=textbox[name="Search"]',
         text: '\n',
+        focus: false,
         id: 'ab11',
       },
       { do: 'move', x: 100, y: 100, id: 'ab12' },
@@ -172,6 +173,25 @@ describe('convertAgentBrowser', () => {
     ])
     expect(r.skipped).toBe(1)
     expect(r.notes[0]).toContain('Unknown ref: e999')
+  })
+
+  it('a submitting Enter types without clicking the field a second time', () => {
+    const r = convertAgentBrowser([
+      snapshot,
+      { command: ['fill', '@e30', 'deliver'], data: {}, success: true },
+      { command: ['wait', '900'], data: {}, success: true },
+      { command: ['press', 'Enter'], data: {}, success: true },
+    ])
+    // The fill's click is what opens the typing zoom on the field; the Enter
+    // that submits it must not ring a second click effect on the same spot.
+    expect(r.actions.steps).toHaveLength(3)
+    expect(r.actions.steps.at(0)).not.toHaveProperty('focus')
+    expect(r.actions.steps.at(-1)).toMatchObject({
+      do: 'type',
+      text: '\n',
+      focus: false,
+    })
+    expect(validateActions(r.actions)).toEqual([])
   })
 
   it('CSS targets pass through; find locators become Playwright selectors', () => {

@@ -442,7 +442,16 @@ export function convertAgentBrowser(
       case 'key': {
         const key = args.at(0)
         if (key === 'Enter' && lastTarget) {
-          emit(n, { do: 'type', selector: lastTarget, text: '\n' })
+          // `focus: false`: agent-browser's press goes to whatever is focused
+          // and never clicks, so neither does this. A type step that clicks
+          // rings a click effect in the middle of a field the walk had already
+          // filled — a bloom on empty space beside the text.
+          emit(n, {
+            do: 'type',
+            selector: lastTarget,
+            text: '\n',
+            focus: false,
+          })
           notes.push(
             `line ${n}: press Enter became a newline typed into the last field`,
           )
