@@ -25,6 +25,7 @@ vos frames take --frame 2.5 --size 1280x800    # exact-size still — posters, O
 vos deliver take --to cws,producthunt,og --release "v2.1"  # the release's assets per channel spec + verified kit.json
 vos deliver take --to cws,og,linkedin --poster poster.json  # + the CARD half: covers composed by your poster program, this release's shot baked in
 vos validate take/kit/kit.json                 # re-measure every kit asset from its bytes against the channel specs
+vos brand https://your.app --out BRAND.md      # the brand kit, witnessed: /design.md, /llms.txt, then the page (palette, faces, marks, the avoid list)
 vos open take                                  # hand the take to the studio — a human can drag every zoom span
 vos push take --yes --note "first pass"        # host it: private vos + version history (recording uploads once)
 vos pull take                                  # take the human's studio edits back: typed changelog + fresh doc.json

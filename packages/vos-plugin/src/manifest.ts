@@ -55,7 +55,13 @@ export const manifest: PluginManifest = {
     { name: 'open', summary: 'serve the take into the vos.so studio' },
     {
       name: 'validate',
-      summary: 'lint actions.json or a take dir (doc.json semantics)',
+      summary:
+        'lint actions.json, a take dir (doc.json semantics), or re-measure a kit.json against the channel specs',
+    },
+    {
+      name: 'brand',
+      summary:
+        "write a product's BRAND.md, witnessed: /design.md, /llms.txt, then the page (palette, faces, marks, the avoid list)",
     },
     {
       name: 'fetch',

@@ -46,6 +46,7 @@ import {
 import { cmdFolder } from './folder'
 import { cmdAsset } from './asset'
 import { cmdRecipe } from './recipe'
+import { cmdBrand } from './brand'
 import type { ProjectDoc } from '@vosso/studio-core'
 import type { ActionsFile } from './actions'
 import type { ParsedArgs } from './args'
@@ -77,6 +78,7 @@ Take pipeline
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
   vos deliver <take> --to cws,producthunt,x,linkedin,og,github,youtube (or all) [--poster <config.json|vosId>] [--shot-time <t>] [--poster-time <t>] [--composed] [--set path=value] [--release v2.1] [--out dir] [--times a,b] [--range a..b] [--parallel N] [--json]
   vos digest <take> [--out dir] [--full 960] [--crop 640] [--no-frames] [--transcript <file.json>] [--style <doc.json|vosId>] [--json]
+  vos brand <url> [--out BRAND.md] [--json]
   vos open <take> [--studio <url>] [--print]
   vos validate <actions.json|take> [--json]
 
@@ -181,6 +183,15 @@ path=value overrides the doc in memory for every render here (the user's
 sets apply last). Store uploads stay manual: hand the human the kit
 directory, then vos validate <kit.json> re-measures every asset from its
 bytes against the channel specs.
+brand writes the product's BRAND.md, witnessed: it reads /design.md when
+the site publishes one (the convention beside /llms.txt: fonts, logo assets,
+an avoid list), /llms.txt for the name and the claim, then the page itself
+in a browser (the body ground, the surfaces, the h1 and body faces and inks,
+the accent buttons and links agree on, theme-color, the icons, og:image).
+The frontmatter carries the roles the poster family binds (bgA/bgB/bgC,
+ink, accent, fontDisplay, logoUrl); the prose says where every value came
+from and quotes the site's own avoid list. Resolve the brand BEFORE any
+asset is authored; file it with vos recipe push BRAND.md --folder <slug>.
 digest is how an agent SEES a recording before it cuts: writes digest/ with
 digest.json (the moments the cursor track says matter — click clusters,
 typing sessions, scroll runs, dwells, idle gaps, scene changes — each with
@@ -1211,6 +1222,8 @@ export async function run(argv: string[]): Promise<number> {
         return await cmdAsset(rest)
       case 'recipe':
         return await cmdRecipe(rest)
+      case 'brand':
+        return await cmdBrand(rest)
       default:
         throw new UsageError(`unknown command "${cmd}" — run: vos help`)
     }
