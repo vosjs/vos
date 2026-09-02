@@ -95,7 +95,7 @@ import {
   hexToRgbTriplet,
 } from './extractClicks'
 import type { StudioDoc } from '../doc/studioDoc'
-import type { TimelineEdit } from '@vosso/shared/timelineEdits'
+import type { TimelineEdit } from '@vosjs/shared/timelineEdits'
 import type { Keyframe, KeyframeTrack, Segment } from '@vosjs/timeline'
 import type { ZoomStyleParams } from '../zoomStyle'
 import type { CamBubbleRect } from '../layout'

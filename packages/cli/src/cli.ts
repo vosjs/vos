@@ -32,13 +32,6 @@ Engine verbs (local, no account, no network beyond the render page's CDN deps)
   vos versions [--json]
 `
 
-const HELP_PLUGIN_HINT = `
-Everything else — the take pipeline (screen recordings in, product video out)
-and the vos.so platform verbs (fetch/push/pull/login) — ships as a plugin:
-  npm i -D @vosso/vos-plugin
-Installed plugin verbs appear here and run as plain \`vos <verb>\`.
-`
-
 const HELP_CONVENTIONS = `
 Conventions
   Results go to stdout; logs go to stderr. --json switches stdout to NDJSON
@@ -252,17 +245,15 @@ async function cmdVersions(argv: string[]): Promise<number> {
     '@vosjs/core',
     '@vosjs/elements',
     '@vosjs/tween',
+    '@vosjs/editor',
+    '@vosjs/timeline',
+    '@vosjs/studio-core',
+    '@vosjs/render-core',
+    '@vosjs/shared',
+    'mediabunny',
     'playwright',
   ]) {
     versions[name] = packageVersion(name) ?? '(not found)'
-  }
-  // The plugin, under whichever of its names is installed (the doctor's row).
-  for (const name of PLUGIN_PACKAGES) {
-    const v = packageVersion(name)
-    if (v) {
-      versions[name] = v
-      break
-    }
   }
   if (r.json) r.done({ versions }, '')
   else
@@ -353,91 +344,30 @@ async function cmdCheck(argv: string[]): Promise<number> {
 }
 
 // ---------------------------------------------------------------------------
-// The extension seam: every verb this CLI does not own delegates to the vos
-// plugin (the vosso platform layer — take pipeline + vos.so verbs). The
-// contract is the plugin's `run(argv)` export; its optional `manifest`
-// (verb list + supported host range) feeds `vos help` and the doctor, so a
-// new plugin verb never needs a release of this package.
+// Every verb this file does not own is a take-pipeline or vos.so verb from
+// `./plugin` (what used to ship separately as @vosso/vos-plugin). It loads on
+// demand, so the engine verbs never pay for the recorder's imports, and the
+// old names (`@vosso/cli`, `@vosso/voila-cli`, the `vos voila` alias) keep
+// resolving here for scripts that still use them.
 // ---------------------------------------------------------------------------
 
-const PLUGIN_PACKAGES = ['@vosso/vos-plugin', '@vosso/cli', '@vosso/voila-cli']
-
-interface PluginManifest {
-  name?: string
-  hostRange?: string
-  verbs?: { name: string; summary: string }[]
-}
-
-interface PluginModule {
-  run?: (argv: string[]) => Promise<number>
-  manifest?: PluginManifest
-}
-
-async function loadPlugin(): Promise<PluginModule | null> {
-  for (const name of PLUGIN_PACKAGES) {
-    let mod: PluginModule
-    try {
-      mod = (await import(name as string)) as PluginModule
-    } catch {
-      continue
-    }
-    if (typeof mod.run === 'function') return mod
-  }
-  return null
-}
-
-function versionAtLeast(version: string, min: string): boolean {
-  const pa = version.split('.').map((n) => Number.parseInt(n, 10))
-  const pb = min.split('.').map((n) => Number.parseInt(n, 10))
-  for (let i = 0; i < 3; i++) {
-    const a = pa[i] ?? 0
-    const b = pb[i] ?? 0
-    if (a !== b) return a > b
-  }
-  return true
-}
-
 async function delegate(argv: string[], viaAlias = false): Promise<number> {
-  const plugin = await loadPlugin()
-  if (!plugin?.run) {
-    process.stderr.write(
-      `vos ${argv[0] ?? ''}: not an engine verb.\n` +
-        'The take pipeline and the vos.so platform verbs (create, record, plan,\n' +
-        'frames, open, validate, fetch, push, pull, login) ship as a plugin:\n' +
-        '  npm i -D @vosso/vos-plugin\n' +
-        `then re-run: vos ${argv.join(' ')}\n` +
-        '(If this was a typo, run: vos help)\n',
-    )
-    return EXIT_ERROR
-  }
-  const range = plugin.manifest?.hostRange
-  const min = range ? /^>=\s*(\d+\.\d+\.\d+)/.exec(range)?.[1] : undefined
-  if (min && !versionAtLeast(ownVersion(), min)) {
-    process.stderr.write(
-      `note: the installed plugin expects @vosjs/cli ${range} (this is ${ownVersion()}) — upgrade with: npm i -D @vosjs/cli@latest\n`,
-    )
-  }
+  const { run } = await import('./plugin/run')
   if (viaAlias && argv[0]) {
     process.stderr.write(
       `note: "vos voila ${argv[0]}" is now "vos ${argv[0]}".\n`,
     )
   }
-  return await plugin.run(argv)
+  return await run(argv)
 }
 
 async function printHelp(): Promise<void> {
   process.stdout.write(HELP_ENGINE)
-  const plugin = await loadPlugin()
-  const verbs = plugin?.manifest?.verbs
-  if (verbs?.length) {
-    const label = plugin?.manifest?.name ?? 'vos plugin'
-    process.stdout.write(`\nPlatform + take pipeline (via ${label})\n`)
-    for (const v of verbs) {
-      if (v.name === 'render') continue // polymorphic — already listed above
-      process.stdout.write(`  vos ${v.name.padEnd(8)} ${v.summary}\n`)
-    }
-  } else {
-    process.stdout.write(HELP_PLUGIN_HINT)
+  const { manifest } = await import('./plugin/manifest')
+  process.stdout.write('\nTake pipeline + vos.so verbs\n')
+  for (const v of manifest.verbs) {
+    if (v.name === 'render') continue // polymorphic — already listed above
+    process.stdout.write(`  vos ${v.name.padEnd(8)} ${v.summary}\n`)
   }
   process.stdout.write(HELP_CONVENTIONS)
 }

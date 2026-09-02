@@ -20,7 +20,7 @@ import {
   fontFaceUrl,
   fontStack,
   nearestFontWeight,
-} from '@vosso/shared'
+} from '@vosjs/shared'
 import {
   OVERLAY_LINE_HEIGHT,
   OVERLAY_MEDIA_DEFAULT_WIDTH,
@@ -131,7 +131,7 @@ export const OVERLAY_SIZE_MAX = 200
  * woff2 faces SETUP preloads when the doc has overlays (latin subset only —
  * overlay text is product UI copy). URLs are the self-hosted catalog on
  * assets.vos.so; studio-core stays dependency-free, so the three base faces
- * are literals — keep them within the catalog `@vosso/shared` hosts.
+ * are literals — keep them within the catalog `@vosjs/shared` hosts.
  */
 export const OVERLAY_FONT_FACES: {
   family: string

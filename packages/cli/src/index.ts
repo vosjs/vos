@@ -2,7 +2,8 @@
  * @vosjs/cli — programmatic surface.
  *
  * The same rendering core the `vos` bin uses, exposed as functions so other
- * tools (scripts, servers, MCP wrappers) can render without shelling out.
+ * tools (scripts, servers, MCP wrappers) can render without shelling out,
+ * plus the take pipeline and the vos.so client the bin's other verbs run on.
  */
 export { renderVideo, renderStill, previewPages } from './render'
 export type {
@@ -13,3 +14,4 @@ export type {
 export { loadVosConfig, configDuration } from './loadConfig'
 export type { LoadedConfig } from './loadConfig'
 export { launchBrowser, BrowserUnavailableError } from './browser'
+export * from './plugin/index'

@@ -1,16 +1,33 @@
 {
-  "name": "@vosso/render-core",
+  "name": "@vosjs/render-core",
   "version": "0.1.0",
-  "private": true,
   "description": "The render harness for deterministic vos renders: timeline-sharded chunk planning and stream-copy chunk concat. Pixels stay in the browser; this package owns the orchestration math and the Node-side media plumbing.",
   "license": "MIT",
-  "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
-  "exports": {
-    ".": "./src/index.ts"
+  "author": "vosso",
+  "homepage": "https://vos.so",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vosjs/vos.git",
+    "directory": "packages/render-core"
   },
+  "bugs": {
+    "url": "https://github.com/vosjs/vos/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
   "scripts": {
+    "build": "tsup",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -20,8 +37,11 @@
     "mediabunny": "^1.27.3"
   },
   "devDependencies": {
+    "tsup": "^8.5.0",
     "typescript": "^5",
     "vitest": "^3.0.0"
   },
-  "sideEffects": false
+  "publishConfig": {
+    "access": "public"
+  }
 }

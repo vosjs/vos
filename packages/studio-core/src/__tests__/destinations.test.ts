@@ -13,14 +13,11 @@ import {
  * The staleness gate (the schemaReference.test.ts pattern): the committed
  * DESTINATIONS module carries a hash of the channel specs it was generated
  * from. A channel-specs.json change without
- * re-running the vosso build script fails here, so `vos
+ * re-running scripts/build-destinations.mjs fails here, so `vos
  * deliver` and the export surfaces can never render to a spec the kit data
  * no longer states.
  */
-const SPECS_FILE = join(
-  process.cwd(),
-  '../vos-plugin/schema/channel-specs.json',
-)
+const SPECS_FILE = join(process.cwd(), '../cli/schema/channel-specs.json')
 
 function currentHash(): string {
   const specs = JSON.parse(readFileSync(SPECS_FILE, 'utf8'))

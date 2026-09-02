@@ -1,11 +1,11 @@
 {
   "name": "@vosjs/cli",
   "version": "0.8.5",
-  "description": "Command line for the vos programmatic video engine — render deterministic videos and stills from vos configs, headlessly, from your terminal or an AI agent.",
+  "description": "The vos CLI: record the real product from a scripted browser flow, auto-zoom from the cursor track, cut as data in doc.json, render deterministic video and stills, deliver a release's media per destination spec, and sync with vos.so. One binary, every verb, MIT.",
   "type": "module",
   "license": "MIT",
   "author": "vosso",
-  "homepage": "https://vos.so/engine",
+  "homepage": "https://vos.so/cli",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/vosjs/vos.git",
@@ -23,7 +23,11 @@
     "headless",
     "agent",
     "animation",
-    "three"
+    "three",
+    "screen-recording",
+    "product-video",
+    "demo",
+    "auto-zoom"
   ],
   "bin": {
     "vos": "./dist/cli.js"
@@ -37,7 +41,8 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "schema"
   ],
   "sideEffects": false,
   "scripts": {
@@ -49,8 +54,14 @@
   },
   "dependencies": {
     "@vosjs/core": "workspace:^",
+    "@vosjs/editor": "workspace:^",
     "@vosjs/elements": "workspace:^",
+    "@vosjs/render-core": "workspace:^",
+    "@vosjs/shared": "workspace:^",
+    "@vosjs/studio-core": "workspace:^",
+    "@vosjs/timeline": "workspace:^",
     "@vosjs/tween": "workspace:^",
+    "mediabunny": "^1.27.3",
     "playwright": "^1.49.0"
   },
   "devDependencies": {

@@ -1,4 +1,4 @@
-import { applyTimelineEdits } from '@vosso/shared/timelineEdits'
+import { applyTimelineEdits } from '@vosjs/shared/timelineEdits'
 import { totalDuration } from '@vosjs/timeline'
 import { isRecordingDoc, programDuration } from '../doc/studioDoc'
 import {
