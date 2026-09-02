@@ -112,6 +112,13 @@ async function cmdStill(argv: string[]): Promise<number> {
   const width = numFlag(flags, 'width', 1280)
   const height = numFlag(flags, 'height', 720)
   const out = positionals[1] ?? outName(source, 'webp')
+  // The capture template encodes WebP; a .png/.jpg name would ship WebP
+  // bytes under a lying extension (stores refuse a mislabelled image), so
+  // refuse in words instead of writing it.
+  if (/\.(png|jpe?g)$/i.test(out))
+    throw new UsageError(
+      `vos still writes WebP (the engine's capture format): name the output .webp, or convert afterwards (ffmpeg -i out.webp out.png)`,
+    )
 
   const browser = await launchBrowser()
   try {
