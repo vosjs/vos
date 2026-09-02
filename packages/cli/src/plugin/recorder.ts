@@ -252,7 +252,11 @@ export async function recordTake(
       case 'type': {
         const rect = await boxOf(step.selector)
         if (rect) {
-          await clickAt(rect)
+          // The click is what opens the typing zoom on the field. A step that
+          // only finishes earlier typing (a submitting Enter) passes
+          // focus:false: the field is already focused and a second click
+          // rings a click effect on empty space beside the text.
+          if (step.focus !== false) await clickAt(rect)
           // Typing-activity pings (TZ): one per ~350ms while characters land,
           // plus one at completion so the planner's hold starts at the true
           // typing end. When-and-where only — a ping never carries the text.

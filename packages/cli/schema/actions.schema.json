@@ -115,6 +115,11 @@
                 "minimum": 0,
                 "default": 40
               },
+              "focus": {
+                "type": "boolean",
+                "default": true,
+                "description": "The recorder clicks the field before typing, and that click is what opens the typing zoom on it. false types into the field as it is already focused: for a keystroke that finishes earlier typing (a submitting Enter) rather than starting it, where a second click rings a click effect on empty space beside the text."
+              },
               "id": {
                 "type": "string",
                 "minLength": 1,
