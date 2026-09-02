@@ -1,6 +1,6 @@
 # @vosso/vos-plugin
 
-The vosso platform layer of the **vos CLI** — record a scripted browser flow into a **take**, plan zoom/cursor effects with the same planner the vosso studio uses, render a polished video headlessly, and sync your work with [vos.so](https://vos.so) (fetch, push, pull, login). Designed to be driven by AI agents (Claude Code, Codex) as well as humans. This package ships **no binary of its own**: every verb surfaces through the `vos` bin, whose MIT host ([`@vosjs/cli`](https://www.npmjs.com/package/@vosjs/cli)) delegates every non-engine verb here. (Previously published as `@vosso/cli` and, before that, `@vosso/voila-cli` — both remain as forwarding shims, so older `vos` versions keep working.)
+The vosso platform layer of the **vos CLI** — record a scripted browser flow into a **take**, plan zoom/cursor effects with the same planner the vosso studio uses, render a polished video headlessly, and sync your work with [vos.so](https://vos.so) (fetch, push, pull, login). Designed to be driven by AI agents (Claude Code, Codex) as well as humans. This package ships **no binary of its own**: every verb surfaces through the `vos` bin, whose MIT host ([`@vosjs/cli`](https://www.npmjs.com/package/@vosjs/cli)) delegates every non-engine verb here. (Previously published as `@vosso/cli` and, before that, `@vosso/voila-cli`; both names are deprecated on npm and still forward here, so older `vos` versions keep working.)
 
 ```bash
 npm i -D @vosjs/cli @vosso/vos-plugin
@@ -24,6 +24,7 @@ vos render take out.webm                       # deterministic polished render
 vos frames take --frame 2.5 --size 1280x800    # exact-size still — posters, OG cards, store screenshots
 vos deliver take --to cws,producthunt,og --release "v2.1"  # the release's assets per channel spec + verified kit.json
 vos deliver take --to cws,og,linkedin --poster poster.json  # + the CARD half: covers composed by your poster program, this release's shot baked in
+vos validate take/kit/kit.json                 # re-measure every kit asset from its bytes against the channel specs
 vos open take                                  # hand the take to the studio — a human can drag every zoom span
 vos push take --yes --note "first pass"        # host it: private vos + version history (recording uploads once)
 vos pull take                                  # take the human's studio edits back: typed changelog + fresh doc.json

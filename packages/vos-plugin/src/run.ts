@@ -21,6 +21,7 @@ import {
 } from './mediaProbe'
 import { framesTake, parseTimes, writeIndexJson } from './framesTake'
 import { deliverTake, resolveChannels } from './deliver'
+import { validateKit } from './validateKit'
 import { digestTake, parseTranscript } from './digestTake'
 import { apiJson, platformOrigin, resolveCredential } from './platform'
 import { startTakeServer } from './server'
@@ -74,7 +75,7 @@ Take pipeline
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
-  vos deliver <take> --to cws,producthunt,x,linkedin,og,github,youtube (or all) [--poster <config.json|vosId>] [--poster-time <t>] [--release v2.1] [--out dir] [--times a,b] [--range a..b] [--parallel N] [--json]
+  vos deliver <take> --to cws,producthunt,x,linkedin,og,github,youtube (or all) [--poster <config.json|vosId>] [--shot-time <t>] [--poster-time <t>] [--composed] [--set path=value] [--release v2.1] [--out dir] [--times a,b] [--range a..b] [--parallel N] [--json]
   vos digest <take> [--out dir] [--full 960] [--crop 640] [--no-frames] [--transcript <file.json>] [--style <doc.json|vosId>] [--json]
   vos open <take> [--studio <url>] [--print]
   vos validate <actions.json|take> [--json]
@@ -168,10 +169,18 @@ zoom apexes (--times overrides); --range cuts every video destination.
 --poster <config.json|vosId> is the CARD half: card-genre destinations
 (OG, LinkedIn, X, YouTube thumbnail, the CWS tile + marquee, GitHub
 social preview) render from your poster PROGRAM — the split-cover family
-— with this release's full-bleed shot baked into its image element (id
-"shot"), PNG at exact pixels; screenshot-genre destinations always stay
-real take frames (store policy). Store uploads stay manual: hand the
-human the kit directory.
+— with this release's shot baked into its image element (id "shot"), PNG
+at exact pixels. --shot-time <t> picks the take moment (OUTPUT seconds;
+default the first still time — pick a zoom apex, the cut's camera makes
+the shot the feature, not the whole page); --poster-time <t> is the instant
+inside the poster's OWN timeline (default 90% through it). Screenshot-genre
+destinations (CWS screenshots, the PH gallery) are the real page at that
+moment, FULL BLEED: no zoom, no tilt, no browser bar, no padding (store
+policy); --composed keeps the cut's camera and chrome instead. --set
+path=value overrides the doc in memory for every render here (the user's
+sets apply last). Store uploads stay manual: hand the human the kit
+directory, then vos validate <kit.json> re-measures every asset from its
+bytes against the channel specs.
 digest is how an agent SEES a recording before it cuts: writes digest/ with
 digest.json (the moments the cursor track says matter — click clusters,
 typing sessions, scroll runs, dwells, idle gaps, scene changes — each with
@@ -760,6 +769,10 @@ async function cmdDeliver(argv: string[]): Promise<number> {
       posterTime: hasFlag(flags, 'poster-time')
         ? numFlag(flags, 'poster-time', 0)
         : undefined,
+      shotTime: hasFlag(flags, 'shot-time')
+        ? numFlag(flags, 'shot-time', 0)
+        : undefined,
+      composed: hasFlag(flags, 'composed'),
       overrides: {
         set: multi.set,
         background: strFlag(flags, 'background'),
@@ -972,6 +985,31 @@ async function cmdValidate(argv: string[]): Promise<number> {
   const target = positionals[0]
   if (!target) throw new UsageError('vos validate <actions.json|take>')
   const r = createReporter(flags.json === true)
+  // A kit manifest (deliver's output, or a hand-assembled PR kit): every
+  // asset re-measured from its bytes against the channel specs.
+  const kitTarget = target.endsWith('kit.json')
+    ? target
+    : existsSync(join(target, 'kit.json')) && !isTakeDir(target)
+      ? join(target, 'kit.json')
+      : null
+  if (kitTarget) {
+    const verdict = await validateKit(kitTarget)
+    const tail = verdict.warnings.length
+      ? `\n  warnings:\n  ${verdict.warnings.join('\n  ')}`
+      : ''
+    if (!verdict.valid) {
+      r.done(
+        { ...verdict, target: kitTarget },
+        `${kitTarget}:\n  ${verdict.problems.join('\n  ')}${tail}`,
+      )
+      return EXIT_ERROR
+    }
+    r.done(
+      { ...verdict, target: kitTarget },
+      `${kitTarget}: ${verdict.measured.length} asset(s) match their bytes and their specs${tail}`,
+    )
+    return EXIT_OK
+  }
   if (target.endsWith('.json')) {
     await loadActions(target)
     r.done({ valid: true, target }, `${target}: valid actions file`)
