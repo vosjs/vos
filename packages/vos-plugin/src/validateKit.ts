@@ -7,6 +7,7 @@
  * from intent, so a manifest that lies is caught the way a still that lies
  * is. Pure over a directory: no browser, no network.
  */
+import { existsSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 import { DESTINATIONS } from '@vosso/studio-core'
@@ -130,7 +131,9 @@ export async function validateKit(kitPath: string): Promise<KitVerdict> {
   }
   const base = dirname(kitPath)
   const resolvePath = (p: string) => {
-    if (isAbsolute(p)) return p
+    // An absolute path from the machine that made the kit (a CI runner) is
+    // honoured while it exists; a moved kit resolves beside its manifest.
+    if (isAbsolute(p) && existsSync(p)) return p
     // A PR kit records paths as `media/kit/<name>`; the file sits beside the
     // manifest, so the last segment is what resolves.
     const beside = join(base, p.split('/').pop() ?? p)
