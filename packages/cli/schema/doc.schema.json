@@ -291,7 +291,7 @@
         },
         "cursor": {
           "type": "object",
-          "description": "Cursor rendering (visible, hideWhenIdle, smoothing, size, click effects). See CursorStyle in @vosso/studio-core. `visible: false` hides the drawn dot only \u2014 the track still drives cursor-follow zoom, and click effects keep drawing (silence those with clickFx.style: \"none\"). `hideWhenIdle` (default true) fades the dot out after ~1s parked and back in when it moves; scrolling is not movement, and it is always back at full opacity on a click.",
+          "description": "Cursor rendering (visible, hideWhenIdle, smoothing, size, click effects). See CursorStyle in @vosjs/studio-core. `visible: false` hides the drawn dot only \u2014 the track still drives cursor-follow zoom, and click effects keep drawing (silence those with clickFx.style: \"none\"). `hideWhenIdle` (default true) fades the dot out after ~1s parked and back in when it moves; scrolling is not movement, and it is always back at full opacity on a click.",
           "additionalProperties": true
         },
         "cam": {

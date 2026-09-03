@@ -70,6 +70,7 @@ const BOOLEAN_FLAGS = new Set([
   'media',
   'print',
   'yes',
+  'composed',
 ])
 /** Repeatable value flags (accumulate): --set path=value on render/frames, --override id on push. */
 const MULTI_FLAGS = new Set(['set', 'override'])
@@ -162,7 +163,8 @@ actions.json so anchors survive script edits.
 record --strict exits 2 when any selector was skipped, the page never
 reached networkidle, or the take hit --max-duration (the done event lists
 skipped[] and capped either way). --max-duration defaults to the hosted
-recording cap (1800s): the capture stops there and says so in one line.
+recording cap, read live from GET /api/limits (30 min when the origin is
+unreachable): the capture stops there and says so in one line.
 frames captures PNG stills at OUTPUT times (seconds or % of duration);
 --at-zooms adds every zoom span's apex, --at-moments every digest moment —
 the agent's eyes AND exact-size posters/screenshots (--size WxH). render
