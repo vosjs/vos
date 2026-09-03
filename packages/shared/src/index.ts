@@ -2,5 +2,4 @@
 export * from './types'
 export * from './utils'
 export * from './fonts'
-export * from './music'
 export * from './typefaceCatalog'
