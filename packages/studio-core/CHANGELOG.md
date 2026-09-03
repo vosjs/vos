@@ -1,5 +1,16 @@
 # @vosjs/studio-core
 
+## 0.4.0
+
+### Minor Changes
+
+- baaa9c8: The overlay preset faces resolve through the hosted font catalog instead of three literal URLs, so the package carries no URL of its own (same bytes, same faces). The digest's `images.tokensEstimateClaude` is `images.tokensEstimate`; the old key is emitted beside it for one minor.
+
+### Patch Changes
+
+- Updated dependencies [baaa9c8]
+  - @vosjs/shared@0.4.0
+
 ## 0.3.1
 
 ### Patch Changes
