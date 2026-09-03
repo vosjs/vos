@@ -1,4 +1,4 @@
-# @vosso/render-core
+# @vosjs/render-core
 
 The orchestration math and Node-side media plumbing for deterministic vos
 renders. Pixels never leave the browser — every frame is encoded in-page via
@@ -6,9 +6,15 @@ WebCodecs + [mediabunny](https://mediabunny.dev). This package owns everything
 around that: how a timeline is sharded into parallel chunks, and how the encoded
 chunks are stitched back into one file without re-encoding.
 
-Pure Node, no browser and no WebGL. Consumed in-source by
-[`@vosso/vos-plugin`](../vos-plugin) (bundled via tsup `noExternal`) and by the
-vosso render worker's finalize path. MIT.
+Pure Node, no browser and no WebGL. Consumed by the `vos` CLI's local render
+(`../cli`) and by any host that fans a render out across browser sessions and
+stitches the parts back together. MIT.
+
+What is deliberately NOT here: the pages a hosted fleet runs (a finalize page
+that fetches parts from an ingest route, an audio mix page, a digest page) and
+any queue, storage or session-pool policy. Those are a host's opinions about its
+own infrastructure; this package hands them the plan and the mux and nothing
+else.
 
 ## Why sharding is correct here
 
@@ -31,25 +37,24 @@ priming seams never exist.
 
 ## Exports
 
-| Export                                       | Purpose                                                                                                                                                            |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `planChunks(totalFrames, fps, policy)`       | Split a timeline into balanced frame ranges (floor `DEFAULT_MIN_FRAMES_PER_CHUNK` per chunk). Pure math.                                                           |
-| `concatEncodedVideo(chunks, options)`        | Stream-copy encoded chunks into one video (mediabunny demux/mux, no re-encode).                                                                                    |
-| `countVideoPackets(bytes)`                   | Count video packets in an encoded file — used by parity checks.                                                                                                    |
-| `buildFinalizeConcatPage(options)`           | Build the in-browser finalize page: fetch chunk parts, concat, mux produced audio, upload the result. Runs in a browser page (its memory, not the 128 MB isolate). |
-| `audioProducerCode()` / `dataHasAudio(data)` | Page-JS mirror of the client audio exporter — produces the mixed audio buffer at finalize from the lowered Voila data.                                             |
+| Export                                       | Purpose                                                                                                                |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `planChunks(totalFrames, fps, policy)`       | Split a timeline into balanced frame ranges (floor `DEFAULT_MIN_FRAMES_PER_CHUNK` per chunk). Pure math.               |
+| `concatEncodedVideo(chunks, options)`        | Stream-copy encoded chunks into one video (mediabunny demux/mux, no re-encode).                                        |
+| `countVideoPackets(bytes)`                   | Count video packets in an encoded file — used by parity checks.                                                        |
+| `audioProducerCode()` / `dataHasAudio(data)` | Page-JS mirror of the client audio exporter — produces the mixed audio buffer at finalize from the lowered Voila data. |
 
 ## Contract: the concat mirror
 
-`concat.ts` and the concat inside `buildFinalizeConcatPage` must stay
-**packet-identical** — the finalize page runs in a browser, the standalone concat
-runs in Node, and cloud exports fan-in through the page while the CLI uses the Node
-path. `vos-plugin`'s `verify-finalize-page` asserts they produce identical output;
-keep the two in sync when touching either.
+A host that concatenates chunk parts inside a browser page (a fleet's finalize
+fallback, where the Node mux cannot run) must stay **packet-identical** to
+`concat.ts`: the CLI uses the Node path, a fleet may use a page, and the two
+must produce the same file. Keep any such page in sync with `concat.ts` and
+assert the parity in the host's own harness.
 
 ## Development
 
 ```bash
-pnpm --filter @vosso/render-core test       # vitest
-pnpm --filter @vosso/render-core typecheck
+pnpm --filter @vosjs/render-core test       # vitest
+pnpm --filter @vosjs/render-core typecheck
 ```

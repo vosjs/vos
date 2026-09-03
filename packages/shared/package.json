@@ -45,14 +45,6 @@
       "types": "./dist/limits.d.ts",
       "import": "./dist/limits.js"
     },
-    "./acquisition": {
-      "types": "./dist/acquisition.d.ts",
-      "import": "./dist/acquisition.js"
-    },
-    "./backdrops": {
-      "types": "./dist/backdrops.d.ts",
-      "import": "./dist/backdrops.js"
-    },
     "./timelineEdits": {
       "types": "./dist/timelineEdits.d.ts",
       "import": "./dist/timelineEdits.js"

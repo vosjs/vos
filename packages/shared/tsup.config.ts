@@ -14,8 +14,6 @@ export default defineConfig({
     frontmatter: 'src/frontmatter.ts',
     params: 'src/params.ts',
     limits: 'src/limits.ts',
-    acquisition: 'src/acquisition.ts',
-    backdrops: 'src/backdrops.ts',
     timelineEdits: 'src/timelineEdits.ts',
   },
   format: ['esm'],
