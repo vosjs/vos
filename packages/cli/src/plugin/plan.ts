@@ -9,17 +9,20 @@ import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
+  DEFAULT_FRAME_STYLE,
   STYLE_FIELDS,
   copyStyle,
   isRejected,
   planAutoSpeed,
   planAutoZoom,
   projectFromArtifact,
+  withBackdrop,
 } from '@vosjs/studio-core'
 import { RECORDING_NAME, loadTake, writeJson } from './take'
 import { retimeCut } from './reuse'
 import type { ReuseReport } from './reuse'
 import type {
+  Backdrop,
   ProjectDoc,
   RecordingArtifact,
   ZoomSpan,
@@ -31,6 +34,8 @@ export interface PlanSummary {
   zoomManual: number
   cursorKept: boolean
   fresh: boolean
+  /** The loop the fresh doc opened on when one was handed in (`none` if a reference's frame won without one). */
+  backdrop?: string
   /** The style fields copied from `--style`'s reference, when given. */
   styleFrom?: string
   styleFields?: readonly string[]
@@ -56,6 +61,12 @@ export interface PlanOptions {
    * re-plan on the new cursor. The report NAMES whatever could not follow.
    */
   reuse?: { from: string; doc: ProjectDoc }
+  /**
+   * The backdrop a FRESH doc opens on (the set's house pick, or what
+   * `--background` named), written under a `--style`/`--reuse` reference's
+   * frame, which still wins. Null or absent: the bare frame.
+   */
+  backdrop?: Backdrop | null
 }
 
 const overlaps = (a: ZoomSpan, b: ZoomSpan) => a.in < b.out && b.in < a.out
@@ -88,6 +99,12 @@ export async function planTake(
   // A digest's activity bins, when one exists: the speed planner then tells
   // playback from idle (the studio's ingest has no such witness).
   const activity = await readDigestActivity(dir)
+  // The frame a fresh doc opens on: the house backdrop on the bare frame
+  // when one was handed in. The ingest still derives the browser bar from
+  // the footage on top of it.
+  const ingest = opts.backdrop
+    ? { frame: withBackdrop(DEFAULT_FRAME_STYLE, opts.backdrop) }
+    : {}
 
   let doc: ProjectDoc
   let fresh: boolean
@@ -100,7 +117,7 @@ export async function planTake(
       cursor,
       meta,
     }
-    doc = projectFromArtifact(artifact, RECORDING_NAME).doc
+    doc = projectFromArtifact(artifact, RECORDING_NAME, ingest).doc
     doc = copyStyle(prev, doc)
     const rt = retimeCut(prev, meta.steps ?? [], meta.durationMs)
     doc.segments = rt.segments
@@ -174,7 +191,7 @@ export async function planTake(
       cursor,
       meta,
     }
-    doc = projectFromArtifact(artifact, RECORDING_NAME).doc
+    doc = projectFromArtifact(artifact, RECORDING_NAME, ingest).doc
     if (opts.style) doc = copyStyle(opts.style.doc, doc)
     doc.zoom = planAutoZoom(doc.source.cursor, {
       width: doc.source.meta.width,
@@ -197,6 +214,9 @@ export async function planTake(
     zoomManual: doc.zoom.filter((z) => z.source === 'manual').length,
     cursorKept: doc.source.cursor.length > 0,
     fresh,
+    ...(opts.backdrop
+      ? { backdrop: doc.frame.backgroundMedia?.key ?? 'none' }
+      : {}),
     ...(opts.style
       ? {
           styleFrom: opts.style.from,

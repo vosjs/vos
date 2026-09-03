@@ -31,6 +31,7 @@ import { recordTake } from './recorder'
 import { defaultMaxDurationSeconds } from './recordingCap'
 import { encodeRecording } from './encode'
 import { planTake } from './plan'
+import { openingBackdrop } from './backdrops'
 import { renderTake } from './renderTake'
 import { pullTake, pushTake } from './sync'
 import {
@@ -48,7 +49,7 @@ import { cmdAsset } from './asset'
 import { cmdRecipe } from './recipe'
 import { cmdBrand } from './brand'
 import { cmdActions } from './agentBrowser'
-import type { ProjectDoc } from '@vosjs/studio-core'
+import type { Backdrop, ProjectDoc } from '@vosjs/studio-core'
 import type { ActionsFile } from './actions'
 import type { ParsedArgs } from './args'
 
@@ -72,9 +73,9 @@ const MULTI_FLAGS = new Set(['set', 'override'])
 const HELP = `vos — record a browser flow, plan effects, render a product video; sync with vos.so
 
 Take pipeline
-  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--max-duration <s>] [render flags] [--json]
-  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--max-duration <s>] [--json]
-  vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--json]
+  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--max-duration <s>] [--background <slug|url|none>] [render flags] [--json]
+  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--max-duration <s>] [--background <slug|url|none>] [--json]
+  vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--background <slug|url|none>] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
   vos deliver <take> --to cws,producthunt,x,linkedin,og,github,youtube (or all) [--poster <config.json|vosId>] [--shot-time <t>] [--poster-time <t>] [--composed] [--set path=value] [--release v2.1] [--out dir] [--times a,b] [--range a..b] [--parallel N] [--json]
@@ -241,7 +242,9 @@ lint-gated, so a bad override fails like a bad doc.json):
                        --set frame.padding=120 --set frame.browserBar.kind=mac-light)
   --frame <kind>       (render) browser frame: macos|mac-dark|windows|windows-dark|minimal|none
   --background <url|slug>  background media: a URL (kind inferred), or a backdrop slug from GET /api/backdrops
-                       (.webm/.mp4 = video @10s loop, image otherwise); "none" clears
+                       (.webm/.mp4 = video @10s loop, image otherwise); "none" clears.
+                       On create/record/plan it is the frame a FRESH take opens on; absent, the set's
+                       first ready loop (the house backdrop the studio opens on), or a flat ground offline
 `
 
 async function loadActions(file: string): Promise<ActionsFile> {
@@ -273,6 +276,27 @@ function strictReason(rec: {
   return parts.join(' + ')
 }
 
+/**
+ * The backdrop a FRESH take opens on: `--background <slug|url|none>`, or
+ * absent, the set's house pick from `GET /api/backdrops`. Read once per
+ * command; a set out of reach is said in words and the take opens on a
+ * flat ground rather than failing.
+ */
+async function takeBackdrop(
+  flags: ParsedArgs['flags'],
+  r: { log: (line: string) => void },
+): Promise<Backdrop | null> {
+  const { backdrop, note } = await openingBackdrop(
+    strFlag(flags, 'background'),
+    platformOrigin({
+      origin: strFlag(flags, 'origin'),
+      api: strFlag(flags, 'api'),
+    }),
+  )
+  if (note) r.log(`note: ${note}`)
+  return backdrop
+}
+
 async function cmdRecord(argv: string[]): Promise<number> {
   const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
   const actionsPath = strFlag(flags, 'actions') ?? positionals[0]
@@ -286,6 +310,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
   if (!url)
     throw new UsageError('no URL — set "url" in the actions file or pass --url')
   const outDir = resolve(strFlag(flags, 'out') ?? 'take')
+  const backdrop = await takeBackdrop(flags, r)
 
   if (existsSync(join(outDir, 'meta.json'))) {
     // A re-record replaces the FOOTAGE, never the cut. The previous
@@ -317,7 +342,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
       r.event({ event: 'progress', phase: 'encode', fraction: p }),
     )
     r.event({ event: 'phase', phase: 'plan' })
-    const plan = await planTake(outDir)
+    const plan = await planTake(outDir, { backdrop })
     const clicks = rec.events.filter((e) => e.type === 'down').length
     const strict = flags.strict === true
     const strictFail =
@@ -385,6 +410,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
   if (!Number.isInteger(parallel) || parallel < 1 || parallel > 16) {
     throw new UsageError('--parallel expects an integer between 1 and 16')
   }
+  const backdrop = await takeBackdrop(flags, r)
 
   if (existsSync(join(outDir, 'meta.json'))) {
     // A re-record replaces the FOOTAGE, never the cut. The previous
@@ -416,7 +442,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
       r.event({ event: 'progress', phase: 'encode', fraction: p }),
     )
     r.event({ event: 'phase', phase: 'plan' })
-    await planTake(outDir)
+    await planTake(outDir, { backdrop })
 
     if (
       flags.strict === true &&
@@ -508,9 +534,15 @@ async function cmdPlan(argv: string[]): Promise<number> {
     }
   }
   const style = await resolveStyleRef(flags)
+  // A refresh keeps the doc's own frame; only a FRESH doc opens on the
+  // house backdrop, so the set is read only when there is no doc.json.
+  const backdrop = existsSync(join(dir, 'doc.json'))
+    ? null
+    : await takeBackdrop(flags, r)
   const s = await planTake(dir, {
     ...(style ? { style } : {}),
     ...(reuse ? { reuse } : {}),
+    backdrop,
   })
   const reuseLines = s.reuse
     ? `\n  reused ${s.reuse.from}: ${s.reuse.anchored} anchored + ${s.reuse.mapped} mapped span(s)` +
@@ -526,6 +558,7 @@ async function cmdPlan(argv: string[]): Promise<number> {
       zoomAuto: s.zoomAuto,
       zoomManual: s.zoomManual,
       duration: s.doc.source.meta.durationMs / 1000,
+      ...(s.backdrop !== undefined ? { backdrop: s.backdrop } : {}),
       ...(s.styleFrom
         ? { styleFrom: s.styleFrom, styleFields: s.styleFields }
         : {}),

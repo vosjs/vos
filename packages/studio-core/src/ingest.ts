@@ -15,13 +15,24 @@ import {
   WINDOW_FOCUS_MIN,
   normalizeCaptureSpace,
 } from './capture'
-import type { ProjectDoc, RecordingArtifact } from './types'
+import type { FrameStyle, ProjectDoc, RecordingArtifact } from './types'
+
+export interface IngestOptions {
+  /**
+   * The frame the take opens on: a host's house backdrop on the bare frame,
+   * say (`withBackdrop`). Its browser bar is still derived from the footage
+   * below. Absent, `DEFAULT_FRAME_STYLE`.
+   */
+  frame?: FrameStyle
+}
 
 /** Build a ProjectDoc from a RecordingArtifact handed off by a recorder. */
 export function projectFromArtifact(
   artifact: RecordingArtifact,
   videoUrl: string,
+  opts: IngestOptions = {},
 ): { doc: ProjectDoc; videoUrl: string } {
+  const baseFrame = opts.frame ?? DEFAULT_FRAME_STYLE
   // Window/monitor takes: map cursor events into capture px (normalizeCaptureSpace);
   // low coverage means the user shared a surface other than the one hosting the
   // recorded tab (or the mapping anchors are unusable) — drop the track rather
@@ -92,9 +103,9 @@ export function projectFromArtifact(
     cursor: { ...DEFAULT_CURSOR_STYLE },
     cam: { ...DEFAULT_CAM_STYLE },
     frame: {
-      ...DEFAULT_FRAME_STYLE,
+      ...baseFrame,
       browserBar: {
-        ...DEFAULT_FRAME_STYLE.browserBar,
+        ...baseFrame.browserBar,
         // Chrome-free footage (tab takes, cropped window takes) opens with the
         // OS-matched realistic frame — the Screen-Studio first render; Hidden is
         // one click away. Footage that still contains real chrome gets none.

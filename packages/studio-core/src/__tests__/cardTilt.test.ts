@@ -5,7 +5,7 @@ import {
   DEFAULT_BROWSER_BAR,
   DEFAULT_CAM_STYLE,
   DEFAULT_CURSOR_STYLE,
-  DEFAULT_FRAME_STYLE,
+  BASE_FRAME_STYLE,
 } from '../types'
 import type { ProjectDoc, TiltSpan } from '../types'
 
@@ -36,7 +36,7 @@ function makeDoc(tilt?: TiltSpan[]): ProjectDoc {
     audio: [],
     cursor: DEFAULT_CURSOR_STYLE,
     cam: DEFAULT_CAM_STYLE,
-    frame: { ...DEFAULT_FRAME_STYLE, browserBar: DEFAULT_BROWSER_BAR },
+    frame: { ...BASE_FRAME_STYLE, browserBar: DEFAULT_BROWSER_BAR },
     ...(tilt !== undefined ? { tilt } : {}),
     export: { resolution: '1080p', fps: 30, format: 'mp4' },
   }

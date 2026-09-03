@@ -1,51 +1,56 @@
 /**
- * The DEFAULT backdrop: the house loop every NEW take opens on
- * once the flag below is on. A committed constant, not a live vos, the same
- * way Home's door tiles are a deliberate asset push (decided 2026-08-17):
- * changing it is a code change with a review, never something an autosave
- * can re-skin.
- *
- * `ground` is the loop's average colour, written into `frame.background` so
+ * A backdrop is the loop (or still) a frame opens on, together with its
+ * GROUND: the loop's average colour, written into `frame.background` so
  * the frame before the first decoded frame, the reduced-motion still and
- * the offline fail-open all land on the loop's own colour. The
- * keys are the pre-registry bucket objects, which stay in the bucket
- * forever; the registry's `backdrops/{slug}/…` keys replace them when the
- * house loop is featured through the verb.
+ * the offline fail-open all land on the loop's own colour instead of
+ * whatever the frame carried before.
  *
- * BACKDROP_DEFAULT_ON is the flip. It stays OFF until the set has a signed-off
- * seed and the fleet measurement has run: a switch, not a surprise.
- * Docs already carrying a frame are never touched either way.
+ * WHICH backdrop a new take opens on is the host's decision, never this
+ * package's: the studio hands its pick to `projectFromArtifact` as `frame`,
+ * the CLI reads the set the platform publishes. The document model carries
+ * the mechanism only, so the default here is a frame with no backdrop.
+ * A doc that already carries a frame is never touched either way.
  */
 import type { BackgroundMedia, FrameStyle } from './types'
 
-export const DEFAULT_BACKDROP = {
-  slug: 'soft-beams',
-  title: 'Soft Beams',
-  key: 'https://assets.vos.so/backgrounds/soft-beams-1080p.webm',
-  key2k: 'https://assets.vos.so/backgrounds/soft-beams-2k.webm',
-  poster: 'https://assets.vos.so/backgrounds/soft-beams-poster.jpg',
-  duration: 10,
-  ground: '#a7b2d1',
-} as const
+export interface Backdrop {
+  /** The loop's URL, or a take-dir path (`/bg.webm`). */
+  key: string
+  /** `video` unless said otherwise. */
+  kind?: BackgroundMedia['kind']
+  /** The loop's period in seconds, a fact of the asset. Video only. */
+  duration?: number
+  /** A still to show before the first decoded frame and under reduced motion. */
+  poster?: string
+  /**
+   * The loop's average colour. Written as `frame.background` when given; a
+   * backdrop without one keeps the frame's own fill under it.
+   */
+  ground?: string
+}
 
-export const BACKDROP_DEFAULT_ON = false as boolean
-
-/** The default backdrop as a doc's `frame.backgroundMedia`. */
-export function defaultBackdropMedia(): BackgroundMedia {
+/** A backdrop as a doc's `frame.backgroundMedia`. */
+export function backdropMedia(backdrop: Backdrop): BackgroundMedia {
   return {
-    kind: 'video',
-    key: DEFAULT_BACKDROP.key,
-    duration: DEFAULT_BACKDROP.duration,
-    poster: DEFAULT_BACKDROP.poster,
+    kind: backdrop.kind ?? 'video',
+    key: backdrop.key,
+    ...(backdrop.duration !== undefined ? { duration: backdrop.duration } : {}),
+    ...(backdrop.poster ? { poster: backdrop.poster } : {}),
     dim: 0,
   }
 }
 
-/** A frame style opening on the default backdrop (media + its ground). */
-export function withDefaultBackdrop(frame: FrameStyle): FrameStyle {
+/**
+ * A frame opening on a backdrop: the media, and its ground when it has one,
+ * in one write. Everything else on the frame is kept.
+ */
+export function withBackdrop(
+  frame: FrameStyle,
+  backdrop: Backdrop,
+): FrameStyle {
   return {
     ...frame,
-    background: DEFAULT_BACKDROP.ground,
-    backgroundMedia: defaultBackdropMedia(),
+    ...(backdrop.ground ? { background: backdrop.ground } : {}),
+    backgroundMedia: backdropMedia(backdrop),
   }
 }

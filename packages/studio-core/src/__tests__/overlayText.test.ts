@@ -21,7 +21,7 @@ import {
   DEFAULT_BROWSER_BAR,
   DEFAULT_CAM_STYLE,
   DEFAULT_CURSOR_STYLE,
-  DEFAULT_FRAME_STYLE,
+  BASE_FRAME_STYLE,
   OVERLAY_LINE_HEIGHT,
 } from '../types'
 import {
@@ -64,7 +64,7 @@ function makeDoc(overlays?: OverlayClip[]): ProjectDoc {
     audio: [],
     cursor: DEFAULT_CURSOR_STYLE,
     cam: DEFAULT_CAM_STYLE,
-    frame: { ...DEFAULT_FRAME_STYLE, browserBar: DEFAULT_BROWSER_BAR },
+    frame: { ...BASE_FRAME_STYLE, browserBar: DEFAULT_BROWSER_BAR },
     ...(overlays !== undefined ? { overlays } : {}),
     export: { resolution: '1080p', fps: 30, format: 'mp4' },
   }

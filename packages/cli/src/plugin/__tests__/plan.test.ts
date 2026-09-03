@@ -58,6 +58,44 @@ describe('planTake', () => {
     expect(doc.zoom.every((z) => z.source === 'auto')).toBe(true)
   })
 
+  it('a fresh take opens on the backdrop handed in, bar still derived from the footage', async () => {
+    const dir = await makeTake()
+    const backdrop = {
+      key: 'https://example.test/backdrops/mesh/1080p.webm',
+      poster: 'https://example.test/backdrops/mesh/poster.webp',
+      duration: 12,
+      ground: '#bab8dc',
+    }
+    const s = await planTake(dir, { backdrop })
+    expect(s.backdrop).toBe(backdrop.key)
+    const doc = await readJson<ProjectDoc>(join(dir, 'doc.json'))
+    expect(doc.frame.background).toBe('#bab8dc')
+    expect(doc.frame.backgroundMedia).toEqual({
+      kind: 'video',
+      key: backdrop.key,
+      duration: 12,
+      poster: backdrop.poster,
+      dim: 0,
+    })
+    expect(doc.frame.browserBar.kind).not.toBe('none')
+  })
+
+  it("a null backdrop is the bare frame, and a --style reference's frame wins over one", async () => {
+    const bare = await planTake(await makeTake(), { backdrop: null })
+    expect(bare.backdrop).toBeUndefined()
+    expect(bare.doc.frame.backgroundMedia).toBeUndefined()
+
+    const ref = await planTake(await makeTake())
+    ref.doc.frame = { ...ref.doc.frame, background: '#123456' }
+    const s = await planTake(await makeTake(), {
+      style: { from: 'ref', doc: ref.doc },
+      backdrop: { key: 'https://example.test/x.webm', duration: 5 },
+    })
+    expect(s.doc.frame.background).toBe('#123456')
+    expect(s.doc.frame.backgroundMedia).toBeUndefined()
+    expect(s.backdrop).toBe('none')
+  })
+
   it('re-planning preserves manual spans and drops overlapping auto suggestions', async () => {
     const dir = await makeTake()
     await planTake(dir)

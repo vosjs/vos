@@ -14,7 +14,16 @@
  */
 import { lintDoc } from './validateDoc'
 import { UsageError } from './args'
+import {
+  BACKGROUND_DEFAULT_DURATION,
+  backdropBySlug,
+  fetchBackdropSet,
+  inferBackgroundKind,
+  isBackdropSlug,
+} from './backdrops'
 import type { ProjectDoc } from '@vosjs/studio-core'
+
+export { BACKGROUND_DEFAULT_DURATION, isBackdropSlug } from './backdrops'
 
 export interface DocOverrides {
   /** raw `path=value` expressions from repeated --set. */
@@ -31,11 +40,6 @@ export interface DocOverrides {
   origin?: string
 }
 
-/** A bare slug (`soft-beams`), never a URL, a path or `none`. */
-export function isBackdropSlug(value: string): boolean {
-  return /^[a-z0-9][a-z0-9-]{0,49}$/.test(value) && value !== 'none'
-}
-
 /**
  * `--background <slug>` names a backdrop from the set. The set is
  * public (`GET /api/backdrops`), so this needs no credential; it rewrites
@@ -45,27 +49,21 @@ export function isBackdropSlug(value: string): boolean {
 export async function resolveBackdropSlug(o: DocOverrides): Promise<void> {
   if (!o.background || !isBackdropSlug(o.background)) return
   const origin = (o.origin ?? 'https://vos.so').replace(/\/+$/, '')
-  let list: {
-    slug: string
-    duration: number
-    urls: { '1080p': string | null }
-  }[] = []
+  let list: Awaited<ReturnType<typeof fetchBackdropSet>>
   try {
-    const res = await fetch(`${origin}/api/backdrops`)
-    if (res.ok)
-      list = ((await res.json()) as { backdrops: typeof list }).backdrops
+    list = await fetchBackdropSet(origin)
   } catch {
     throw new UsageError(
       `--background "${o.background}" — could not read the backdrop set from ${origin}/api/backdrops; pass a URL instead`,
     )
   }
-  const hit = list.find((b) => b.slug === o.background && b.urls['1080p'])
-  if (!hit?.urls['1080p']) {
+  const hit = backdropBySlug(list, o.background)
+  if (!hit) {
     throw new UsageError(
       `--background "${o.background}" is not in the set (${list.map((b) => b.slug).join(' | ') || 'empty'}); GET ${origin}/api/backdrops lists it, or pass a URL`,
     )
   }
-  o.background = hit.urls['1080p']
+  o.background = hit.key
   o.backgroundDuration = hit.duration
 }
 
@@ -90,12 +88,6 @@ const FRAME_KINDS: Record<string, string> = {
   none: 'none',
   hidden: 'none',
 }
-
-/** Default loop length assumed for a --background video with no explicit duration. */
-export const BACKGROUND_DEFAULT_DURATION = 10
-
-const VIDEO_EXT = /\.(webm|mp4|mov|m4v)(\?|#|$)/i
-const IMAGE_EXT = /\.(jpe?g|png|webp|gif|avif)(\?|#|$)/i
 
 /**
  * Coerce a `--set` value: JSON when it parses (numbers, booleans, null, objects,
@@ -176,14 +168,6 @@ export function setPath(
     }
   }
   ;(node as Record<string | number, unknown>)[segs[segs.length - 1].key] = value
-}
-
-function inferBackgroundKind(url: string): 'video' | 'image' {
-  if (IMAGE_EXT.test(url)) return 'image'
-  if (VIDEO_EXT.test(url)) return 'video'
-  // Default to video (the flagship case: a vos loop); the lint still warns if a
-  // video lacks duration, and --set gives precise control when the URL is opaque.
-  return 'video'
 }
 
 /**
