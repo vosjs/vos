@@ -5,7 +5,7 @@ import {
   DEFAULT_BROWSER_BAR,
   DEFAULT_CAM_STYLE,
   DEFAULT_CURSOR_STYLE,
-  DEFAULT_FRAME_STYLE,
+  BASE_FRAME_STYLE,
 } from '../types'
 import { bothFrames, lowerMerged as lowerToComposition } from './helpers/studio'
 import type { OverlayClip, ProjectDoc } from '../types'
@@ -39,7 +39,7 @@ function makeDoc(over: Partial<ProjectDoc> = {}): ProjectDoc {
     cursor: DEFAULT_CURSOR_STYLE,
     cam: DEFAULT_CAM_STYLE,
     frame: {
-      ...DEFAULT_FRAME_STYLE,
+      ...BASE_FRAME_STYLE,
       browserBar: { ...DEFAULT_BROWSER_BAR, kind: 'mac-light', url: '' },
     },
     export: { resolution: '1080p', fps: 30, format: 'mp4' },
@@ -50,7 +50,7 @@ function makeDoc(over: Partial<ProjectDoc> = {}): ProjectDoc {
 describe('card-chrome scale cf (computeCardLayout mirror)', () => {
   const video = { width: 1600, height: 900 } // 16:9 footage
   const frame = {
-    ...DEFAULT_FRAME_STYLE,
+    ...BASE_FRAME_STYLE,
     browserBar: { ...DEFAULT_BROWSER_BAR, kind: 'mac-light' as const },
   }
 

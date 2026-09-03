@@ -1298,7 +1298,12 @@ export const DEFAULT_BROWSER_BAR: BrowserBarStyle = {
   height: 44,
 }
 
-const BASE_FRAME_STYLE: FrameStyle = {
+/**
+ * The frame with no backdrop: the card, its chrome and a flat ground.
+ * `DEFAULT_FRAME_STYLE` is this plus the house loop when the flag is on, so
+ * anything that must be independent of that flag builds on this one.
+ */
+export const BASE_FRAME_STYLE: FrameStyle = {
   // Brand default: signal red → amber (sunset warmth; deliberately not AI-purple).
   background: 'linear-gradient(135deg, #ff5148, #ffb03a)',
   padding: 48,
@@ -1311,11 +1316,11 @@ const BASE_FRAME_STYLE: FrameStyle = {
 }
 
 /**
- * The frame a NEW take opens on. Once `BACKDROP_DEFAULT_ON`
- * flips (backdrop.ts), the default is the house loop on its own ground;
- * until then the brand gradient. Every ingest path spreads this, so the
- * flip reaches the extension handoff, the in-page recorder, a dropped file
- * and `vos record` at once; a doc that already carries a frame keeps it.
+ * The frame a NEW take opens on. With `BACKDROP_DEFAULT_ON` on
+ * (backdrop.ts) that is the house loop on its own ground; off, the brand
+ * gradient. Every ingest path spreads this, so the flag reaches the
+ * extension handoff, the in-page recorder, a dropped file and `vos record`
+ * at once; a doc that already carries a frame keeps it.
  */
 export const DEFAULT_FRAME_STYLE: FrameStyle = BACKDROP_DEFAULT_ON
   ? withDefaultBackdrop(BASE_FRAME_STYLE)
