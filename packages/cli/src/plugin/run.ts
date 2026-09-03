@@ -28,7 +28,11 @@ import { startTakeServer } from './server'
 import { PREV_DOC_NAME, ensureTakeDir, loadTake, prepareReRecord } from './take'
 import { BrowserUnavailableError, launchBrowser } from '../browser'
 import { recordTake } from './recorder'
-import { defaultMaxDurationSeconds } from './recordingCap'
+import {
+  defaultMaxDurationSeconds,
+  formatDurationCap,
+  hostedRecordingCap,
+} from './recordingCap'
 import { encodeRecording } from './encode'
 import { planTake } from './plan'
 import { openingBackdrop } from './backdrops'
@@ -259,10 +263,34 @@ async function loadActions(file: string): Promise<ActionsFile> {
  * --max-duration <seconds>: where the capture stops. Defaults to the
  * hosted recording cap so a CLI take is never longer than vos.so will host.
  */
-function maxDurationFlag(flags: ParsedArgs['flags']): number {
-  const v = numFlag(flags, 'max-duration', defaultMaxDurationSeconds())
-  if (!(v > 0)) throw new UsageError('--max-duration expects seconds above 0')
-  return v
+/**
+ * The cap a take records under: `--max-duration` when given; else the
+ * hosted cap read live from `GET /api/limits` (the caller's plan when a
+ * key resolves); else the built-in number, said in words, because a take
+ * longer than the platform's cap is refused at push time.
+ */
+async function maxDuration(
+  flags: ParsedArgs['flags'],
+  r: { log: (line: string) => void },
+): Promise<number> {
+  if (hasFlag(flags, 'max-duration')) {
+    const v = numFlag(flags, 'max-duration', defaultMaxDurationSeconds())
+    if (!(v > 0)) throw new UsageError('--max-duration expects seconds above 0')
+    return v
+  }
+  const origin = platformOrigin({
+    origin: strFlag(flags, 'origin'),
+    api: strFlag(flags, 'api'),
+  })
+  const live = await hostedRecordingCap(
+    origin,
+    resolveCredential(strFlag(flags, 'key')),
+  )
+  if (live) return live
+  r.log(
+    `note: could not read the hosted cap from ${origin}/api/limits; recording up to the built-in ${formatDurationCap(defaultMaxDurationSeconds())}`,
+  )
+  return defaultMaxDurationSeconds()
 }
 
 function strictReason(rec: {
@@ -311,6 +339,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
     throw new UsageError('no URL — set "url" in the actions file or pass --url')
   const outDir = resolve(strFlag(flags, 'out') ?? 'take')
   const backdrop = await takeBackdrop(flags, r)
+  const maxDurationSeconds = await maxDuration(flags, r)
 
   if (existsSync(join(outDir, 'meta.json'))) {
     // A re-record replaces the FOOTAGE, never the cut. The previous
@@ -334,7 +363,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
     r.log('recording…')
     r.event({ event: 'phase', phase: 'record' })
     const rec = await recordTake(browser, url, actions, paths, r.log, {
-      maxDurationSeconds: maxDurationFlag(flags),
+      maxDurationSeconds: maxDurationSeconds,
     })
     r.event({ event: 'phase', phase: 'encode' })
     r.log('encoding…')
@@ -411,6 +440,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
     throw new UsageError('--parallel expects an integer between 1 and 16')
   }
   const backdrop = await takeBackdrop(flags, r)
+  const maxDurationSeconds = await maxDuration(flags, r)
 
   if (existsSync(join(outDir, 'meta.json'))) {
     // A re-record replaces the FOOTAGE, never the cut. The previous
@@ -434,7 +464,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
     r.log('recording…')
     r.event({ event: 'phase', phase: 'record' })
     const rec = await recordTake(browser, url, actions, paths, r.log, {
-      maxDurationSeconds: maxDurationFlag(flags),
+      maxDurationSeconds: maxDurationSeconds,
     })
     r.event({ event: 'phase', phase: 'encode' })
     r.log('encoding…')

@@ -4,6 +4,8 @@ import {
   cappedLine,
   clampWait,
   defaultMaxDurationSeconds,
+  hostedRecordingCap,
+  parseHostedCap,
 } from '../recordingCap'
 
 describe('recording cap', () => {
@@ -26,5 +28,55 @@ describe('recording cap', () => {
     expect(cappedLine(1800)).toBe(
       'stopped at 30 min (--max-duration 1800); the remaining steps did not run',
     )
+  })
+})
+
+// The live cap makes the built-in number a fallback, never the truth.
+describe('hostedRecordingCap', () => {
+  const ok = (cap: unknown) =>
+    (async () => ({
+      ok: true,
+      json: async () => ({
+        plan: 'free',
+        limits: { recordingMaxSeconds: cap },
+      }),
+    })) as unknown as typeof fetch
+
+  it('reads limits.recordingMaxSeconds from GET /api/limits', async () => {
+    const calls: unknown[] = []
+    const f = (async (...args: unknown[]) => {
+      calls.push(args)
+      return {
+        ok: true,
+        json: async () => ({ limits: { recordingMaxSeconds: 3600 } }),
+      }
+    }) as unknown as typeof fetch
+    expect(await hostedRecordingCap('https://vos.test/', 'vos_k', f)).toBe(3600)
+    expect(calls[0]?.[0 as never]).toBe('https://vos.test/api/limits')
+    expect(
+      (calls[0] as [string, { headers?: Record<string, string> }])[1].headers,
+    ).toEqual({ authorization: 'Bearer vos_k' })
+  })
+
+  it('refuses a shape that is not a limits table', async () => {
+    expect(await hostedRecordingCap('https://vos.test', null, ok(0))).toBeNull()
+    expect(
+      await hostedRecordingCap('https://vos.test', null, ok('1800')),
+    ).toBeNull()
+    expect(parseHostedCap({ limits: { recordingMaxSeconds: 1.5 } })).toBeNull()
+  })
+
+  it('is null on a refusal or when the origin is down, never a throw', async () => {
+    const refused = (async () => ({
+      ok: false,
+      json: async () => ({}),
+    })) as unknown as typeof fetch
+    expect(
+      await hostedRecordingCap('https://vos.test', null, refused),
+    ).toBeNull()
+    const down = (async () => {
+      throw new Error('offline')
+    }) as unknown as typeof fetch
+    expect(await hostedRecordingCap('https://vos.test', null, down)).toBeNull()
   })
 })
