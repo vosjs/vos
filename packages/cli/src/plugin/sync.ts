@@ -325,6 +325,10 @@ export async function pullTake(
     vos?: string
     /** Also download the recording + sidecars and re-anchor the doc. */
     media?: boolean
+    /** The base to walk the changelog from; default the tracked version. */
+    since?: string
+    /** Report what changed and stop: no doc.json, no media, no repoint. */
+    check?: boolean
   },
   r: Reporter,
 ): Promise<{
@@ -333,6 +337,12 @@ export async function pullTake(
   versionNumber: number | null
   changed: boolean
   media?: MediaPullResult
+  /** --check: the report, nothing written. */
+  checked?: boolean
+  /** --check: versions between the base and head (null when there is no base to walk from). */
+  behind?: number | null
+  changes?: unknown[]
+  protected?: string[]
 }> {
   const ctx = apiContext(flags)
   const state = readSyncState(dir)
@@ -340,6 +350,7 @@ export async function pullTake(
   if (!vosId) {
     throw new Error('this take was never pushed — pass --vos <id> to link it')
   }
+  const base = flags.since ?? state?.versionId ?? null
 
   const meta = await api(ctx, `/vos/${vosId}`)
   if (meta.status !== 200) {
@@ -353,8 +364,24 @@ export async function pullTake(
   )
   if (!head) throw new Error('this vos has no versions')
 
-  if (state && state.versionId === head) {
-    r.log('up to date — HEAD is your last push')
+  if (base === head) {
+    r.log(
+      flags.since
+        ? 'up to date — --since names the head'
+        : 'up to date — HEAD is your last push',
+    )
+    if (flags.check) {
+      return {
+        vosId,
+        versionId: head,
+        versionNumber: null,
+        changed: false,
+        checked: true,
+        behind: 0,
+        changes: [],
+        protected: [],
+      }
+    }
     let media: MediaPullResult | undefined
     if (flags.media && existsSync(join(dir, 'doc.json'))) {
       const local = JSON.parse(
@@ -371,15 +398,54 @@ export async function pullTake(
     }
   }
 
-  // The typed changelog: what the human did since this take's base.
-  if (state?.versionId) {
+  // The typed changelog: what the human did since this take's base (the
+  // tracked version, or --since).
+  let walked: { changes: unknown[]; protected: string[] } | null = null
+  if (base) {
     const changes = await api(
       ctx,
-      `/vos/${vosId}/changes?since=${state.versionId}`,
+      `/vos/${vosId}/changes?since=${encodeURIComponent(base)}`,
     )
     if (changes.status === 200) {
-      r.log('changes since your last push:')
+      r.log(
+        flags.since
+          ? `changes since ${base.slice(0, 8)}…:`
+          : 'changes since your last push:',
+      )
       printChanges(r, changes.json.changes, changes.json.protected)
+      walked = {
+        changes: Array.isArray(changes.json.changes)
+          ? (changes.json.changes as unknown[])
+          : [],
+        protected: Array.isArray(changes.json.protected)
+          ? (changes.json.protected as string[])
+          : [],
+      }
+      if (changes.json.truncated === true) {
+        r.log('walk truncated — more versions exist; pull again after syncing')
+      }
+    } else {
+      r.log(
+        `changelog unavailable (${changes.status}) — the head is v?; pass --since <versionId> you can read, or pull to sync`,
+      )
+    }
+  } else {
+    r.log(
+      'no base to compare from (this take was linked with --vos) — pass --since <versionId> for the changelog',
+    )
+  }
+
+  // --check: the report is the result. Nothing on disk moves.
+  if (flags.check) {
+    return {
+      vosId,
+      versionId: head,
+      versionNumber: null,
+      changed: false,
+      checked: true,
+      behind: walked ? walked.changes.length : null,
+      changes: walked?.changes ?? [],
+      protected: walked?.protected ?? [],
     }
   }
 

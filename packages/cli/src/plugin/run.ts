@@ -71,6 +71,7 @@ const BOOLEAN_FLAGS = new Set([
   'print',
   'yes',
   'composed',
+  'check',
 ])
 /** Repeatable value flags (accumulate): --set path=value on render/frames, --override id on push. */
 const MULTI_FLAGS = new Set(['set', 'override'])
@@ -1217,9 +1218,22 @@ async function cmdPull(argv: string[]): Promise<number> {
       origin: strFlag(flags, 'origin'),
       vos: strFlag(flags, 'vos'),
       media: flags.media === true,
+      since: strFlag(flags, 'since'),
+      check: flags.check === true,
     },
     r,
   )
+  if (result.checked) {
+    r.done(
+      { ...result },
+      result.behind === null
+        ? `${result.vosId}: head is ${result.versionId.slice(0, 8)}… — no base to count from; run without --check to sync`
+        : result.behind === 0
+          ? `${result.vosId}: up to date`
+          : `${result.behind} version${result.behind === 1 ? '' : 's'} behind — run without --check to sync`,
+    )
+    return EXIT_OK
+  }
   const mediaLine = result.media
     ? result.media.downloaded.length
       ? ` + ${result.media.downloaded.map((m) => m.file).join(', ')} (footage home — digest/frames/render run here now)`
