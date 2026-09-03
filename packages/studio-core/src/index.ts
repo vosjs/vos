@@ -19,6 +19,7 @@ export {
 } from './capture'
 export type { CaptureNormalization } from './capture'
 export { projectFromArtifact } from './ingest'
+export type { IngestOptions } from './ingest'
 export { DOC_SCHEMA_VERSION, migrateHostedDoc } from './docVersion'
 export { anchorKindOf, isProgramDoc, isRecordingDoc } from './doc/studioDoc'
 export type {
@@ -267,12 +268,8 @@ export {
 } from './audioBeds'
 export type { MusicBedInput } from './audioBeds'
 
-export {
-  BACKDROP_DEFAULT_ON,
-  DEFAULT_BACKDROP,
-  defaultBackdropMedia,
-  withDefaultBackdrop,
-} from './backdrop'
+export { backdropMedia, withBackdrop } from './backdrop'
+export type { Backdrop } from './backdrop'
 
 export {
   REJECT_OVERLAP,

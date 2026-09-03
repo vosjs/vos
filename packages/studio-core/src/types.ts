@@ -5,7 +5,6 @@
  * and the lowering. Branding lives at the app layer;
  * these types are intentionally generic so the core stays extraction-ready.
  */
-import { BACKDROP_DEFAULT_ON, withDefaultBackdrop } from './backdrop'
 import type { Segment } from '@vosjs/timeline'
 import type { ZoomStyleName, ZoomStyleParams } from './zoomStyle'
 import type { SpeedParams } from './planner/autoSpeed'
@@ -1299,9 +1298,10 @@ export const DEFAULT_BROWSER_BAR: BrowserBarStyle = {
 }
 
 /**
- * The frame with no backdrop: the card, its chrome and a flat ground.
- * `DEFAULT_FRAME_STYLE` is this plus the house loop when the flag is on, so
- * anything that must be independent of that flag builds on this one.
+ * The frame with no backdrop: the card, its chrome and a flat ground. A
+ * host that opens new takes on a backdrop builds its own opening frame
+ * with `withBackdrop` (backdrop.ts) and hands it to `projectFromArtifact`,
+ * so the pick never lives in the document model.
  */
 export const BASE_FRAME_STYLE: FrameStyle = {
   // Brand default: signal red → amber (sunset warmth; deliberately not AI-purple).
@@ -1316,15 +1316,13 @@ export const BASE_FRAME_STYLE: FrameStyle = {
 }
 
 /**
- * The frame a NEW take opens on. With `BACKDROP_DEFAULT_ON` on
- * (backdrop.ts) that is the house loop on its own ground; off, the brand
- * gradient. Every ingest path spreads this, so the flag reaches the
- * extension handoff, the in-page recorder, a dropped file and `vos record`
- * at once; a doc that already carries a frame keeps it.
+ * The frame a NEW take opens on when the host names none: the bare frame.
+ * Every ingest path spreads the frame it is handed (or this one), so a
+ * host's pick reaches the extension handoff, the in-page recorder, a
+ * dropped file and `vos record` through one argument; a doc that already
+ * carries a frame keeps it.
  */
-export const DEFAULT_FRAME_STYLE: FrameStyle = BACKDROP_DEFAULT_ON
-  ? withDefaultBackdrop(BASE_FRAME_STYLE)
-  : BASE_FRAME_STYLE
+export const DEFAULT_FRAME_STYLE: FrameStyle = BASE_FRAME_STYLE
 
 /** Border alpha applied when the Frame-border toggle turns on. */
 export const FRAME_BORDER_DEFAULT = 0.35
