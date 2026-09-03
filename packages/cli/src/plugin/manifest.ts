@@ -59,6 +59,11 @@ export const manifest: PluginManifest = {
         'lint actions.json, a take dir (doc.json semantics), or re-measure a kit.json against the channel specs',
     },
     {
+      name: 'actions',
+      summary:
+        'from-agent-browser: turn an agent-browser walk (steps.jsonl) into actions.json; what cannot follow is named',
+    },
+    {
       name: 'brand',
       summary:
         "write a product's BRAND.md, witnessed: /design.md, /llms.txt, then the page (palette, faces, marks, the avoid list)",
