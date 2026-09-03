@@ -2,18 +2,14 @@ import { defineConfig } from 'tsup'
 
 /**
  * @vosjs/shared: the root plus every subpath the package.json exports map
- * names, so `@vosjs/shared/diff` resolves to `dist/diff/index.js` the way
- * the in-source workspace export resolved to `src/diff/index.ts`.
+ * names, so `@vosjs/shared/params` resolves to `dist/params.js` the way
+ * the in-source workspace export resolved to `src/params.ts`.
  */
 export default defineConfig({
   entry: {
     index: 'src/index.ts',
-    'types/index': 'src/types/index.ts',
-    'utils/index': 'src/utils/index.ts',
-    'diff/index': 'src/diff/index.ts',
     frontmatter: 'src/frontmatter.ts',
     params: 'src/params.ts',
-    limits: 'src/limits.ts',
     timelineEdits: 'src/timelineEdits.ts',
   },
   format: ['esm'],

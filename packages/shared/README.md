@@ -1,23 +1,24 @@
-# @vosso/shared
+# @vosjs/shared
 
-Small, dependency-free helpers and types shared across the vosso apps, the
-studio's document model and the vos CLI plugin. Consumed in-source and bundled
-into [`@vosso/vos-plugin`](../vos-plugin). MIT.
+The small shared layer under the `vos` CLI and the document model
+(`@vosjs/studio-core`). Dependency-free. MIT.
 
-## Exports
+## Subpaths
 
-```ts
-import { formatLabel, generateId, sleep, safeJsonParse } from '@vosso/shared'
-```
+| Import                        | What it holds                                                                                         |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `@vosjs/shared`               | The font and typeface catalogs (`FONT_CATALOG`, `TYPEFACE_CATALOG`) and their lookups and URL helpers |
+| `@vosjs/shared/params`        | The remix-knob contract of `config.params`: `ParamSpec`, `readParams`, `applyParamValue`              |
+| `@vosjs/shared/frontmatter`   | A small `---` frontmatter parser for recipe files                                                     |
+| `@vosjs/shared/timelineEdits` | `TimelineEdit` and the source wrapper that applies edits over a program's `createTimeline`            |
 
-| Utility                         | Description                                                          |
-| ------------------------------- | -------------------------------------------------------------------- |
-| `formatLabel(filename)`         | Turn a slug/filename into a title (`'basic-fade'` → `'Basic Fade'`). |
-| `generateId()`                  | A random UUID (`crypto.randomUUID`).                                 |
-| `sleep(ms)`                     | Promise that resolves after `ms`.                                    |
-| `safeJsonParse(json, fallback)` | Parse JSON, returning `fallback` on error.                           |
+The catalogs are generated data: the families, weights and typefaces the
+hosted catalog serves, with their URLs. They are the one place this package
+names a host, and a consumer may point `FONT_CDN_BASE`-shaped URLs elsewhere.
 
-Subpaths: `@vosso/shared/types` and `@vosso/shared/utils`.
+## What is deliberately not here
 
-Keep this package lean — it's the lowest layer, so anything with a heavier
-dependency or a product opinion belongs in `@vosso/studio-core` or the app.
+Anything one platform decides: quota and plan tables, attribution, a
+hosted endpoint's wire types, a hosted changelog's differ. Those live beside
+the service that enforces or serves them. Keep this package the lowest
+layer: a product opinion belongs in `@vosjs/studio-core` or the host.

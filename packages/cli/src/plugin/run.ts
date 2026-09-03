@@ -966,7 +966,7 @@ async function cmdDigest(argv: string[]): Promise<number> {
         sourceDuration: d.take.sourceDuration,
         outputDuration: d.take.outputDuration,
         hasCursor: d.take.hasCursor,
-        tokensEstimateClaude: d.images.tokensEstimateClaude,
+        tokensEstimate: d.images.tokensEstimate,
         bytes: result.bytes,
       },
       `Wrote ${result.file} — ${d.moments.length} moments (${Object.entries(
@@ -975,7 +975,7 @@ async function cmdDigest(argv: string[]): Promise<number> {
         .map(([k, n]) => `${n} ${k}`)
         .join(', ')}), ${d.images.full} frames + ${d.images.crop} crops` +
         (d.images.sheet ? `, sheet.png` : '') +
-        ` — ~${d.images.tokensEstimateClaude} image tokens to read them all` +
+        ` — ~${d.images.tokensEstimate} image tokens to read them all` +
         (d.take.hasCursor
           ? ''
           : '\n  no cursor track: moments are head/tail/scenes only — pace by activity, zoom only where the ask names a place') +

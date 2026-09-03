@@ -61,6 +61,7 @@ describe('digestTake --no-frames', () => {
       full: 0,
       crop: 0,
       sheet: null,
+      tokensEstimate: 0,
       tokensEstimateClaude: 0,
     })
     const kinds = d.moments.map((m: { kind: string }) => m.kind)

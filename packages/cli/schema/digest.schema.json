@@ -208,9 +208,13 @@
         "full": { "type": "integer" },
         "crop": { "type": "integer" },
         "sheet": { "type": ["string", "null"] },
+        "tokensEstimate": {
+          "type": "integer",
+          "description": "sum of (w×h)/750 over full + crop images — a reading-budget hint, not a bill"
+        },
         "tokensEstimateClaude": {
           "type": "integer",
-          "description": "sum of (w×h)/750 over full + crop images — a budget hint, not a bill"
+          "description": "deprecated: the same number under its old name; gone next minor"
         }
       }
     }
