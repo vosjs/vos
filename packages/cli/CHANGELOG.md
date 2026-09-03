@@ -1,5 +1,18 @@
 # @vosjs/cli
 
+## 0.12.0
+
+### Minor Changes
+
+- baaa9c8: `vos record` states the hosted recording cap from its own constant (`--max-duration` still overrides it); the plan table it used to read left `@vosjs/shared`. `vos digest` reports `tokensEstimate` (the old `tokensEstimateClaude` name stays in the JSON for one minor).
+
+### Patch Changes
+
+- Updated dependencies [baaa9c8]
+- Updated dependencies [baaa9c8]
+  - @vosjs/shared@0.4.0
+  - @vosjs/studio-core@0.4.0
+
 ## 0.11.1
 
 ### Patch Changes
