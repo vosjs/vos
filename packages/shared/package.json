@@ -1,7 +1,7 @@
 {
   "name": "@vosjs/shared",
   "version": "0.3.0",
-  "description": "The small shared layer under the vos CLI and the vosso studio: the semantic differ, the free-tier limits, frontmatter, params, the font and typeface catalogs.",
+  "description": "The small shared layer under the vos CLI and the document model: the font and typeface catalogs, the remix params contract, frontmatter, and the timeline-edit wrapper.",
   "license": "MIT",
   "author": "vosso",
   "homepage": "https://vos.so",
@@ -21,18 +21,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./types": {
-      "types": "./dist/types/index.d.ts",
-      "import": "./dist/types/index.js"
-    },
-    "./utils": {
-      "types": "./dist/utils/index.d.ts",
-      "import": "./dist/utils/index.js"
-    },
-    "./diff": {
-      "types": "./dist/diff/index.d.ts",
-      "import": "./dist/diff/index.js"
-    },
     "./frontmatter": {
       "types": "./dist/frontmatter.d.ts",
       "import": "./dist/frontmatter.js"
@@ -40,10 +28,6 @@
     "./params": {
       "types": "./dist/params.d.ts",
       "import": "./dist/params.js"
-    },
-    "./limits": {
-      "types": "./dist/limits.d.ts",
-      "import": "./dist/limits.js"
     },
     "./timelineEdits": {
       "types": "./dist/timelineEdits.d.ts",

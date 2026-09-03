@@ -70,6 +70,9 @@ export interface Digest {
     full: number
     crop: number
     sheet: string | null
+    /** Sum of (w×h)/750 over the full + crop images: a reading-budget hint, not a bill. */
+    tokensEstimate: number
+    /** @deprecated The same number under its old name; gone next minor. */
     tokensEstimateClaude: number
   }
 }
@@ -149,6 +152,7 @@ export function buildDigest(input: BuildDigestInput): Digest {
       full: withFiles.filter((m) => m.full).length,
       crop: withFiles.filter((m) => m.crop).length,
       sheet: input.sheet,
+      tokensEstimate: Math.round(tokens),
       tokensEstimateClaude: Math.round(tokens),
     },
   }

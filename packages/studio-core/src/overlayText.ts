@@ -129,29 +129,20 @@ export const OVERLAY_SIZE_MAX = 200
 
 /**
  * woff2 faces SETUP preloads when the doc has overlays (latin subset only —
- * overlay text is product UI copy). URLs are the self-hosted catalog on
- * assets.vos.so; studio-core stays dependency-free, so the three base faces
- * are literals — keep them within the catalog `@vosjs/shared` hosts.
+ * overlay text is product UI copy). The three base preset faces, resolved
+ * through the hosted catalog so this module carries no URL of its own.
  */
 export const OVERLAY_FONT_FACES: {
   family: string
   weight: number
   url: string
 }[] = [
-  {
-    family: 'Lexend',
-    weight: 400,
-    url: 'https://assets.vos.so/fonts/lexend/400.woff2',
-  },
-  {
-    family: 'Lexend',
-    weight: 600,
-    url: 'https://assets.vos.so/fonts/lexend/600.woff2',
-  },
+  { family: 'Lexend', weight: 400, url: fontFaceUrl('lexend', 400) },
+  { family: 'Lexend', weight: 600, url: fontFaceUrl('lexend', 600) },
   {
     family: 'JetBrains Mono',
     weight: 400,
-    url: 'https://assets.vos.so/fonts/jetbrains-mono/400.woff2',
+    url: fontFaceUrl('jetbrains-mono', 400),
   },
 ]
 
