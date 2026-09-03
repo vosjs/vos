@@ -7,7 +7,7 @@
  * check pipeline); push runs a preflight (migrate → schema → function syntax,
  * all MIT @vosjs/core) so an obviously broken config never burns a request.
  */
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createInterface } from 'node:readline/promises'
 import { basename, dirname, join } from 'node:path'
@@ -18,6 +18,7 @@ import {
 } from '@vosjs/core'
 import { migrateHostedDoc } from '@vosjs/studio-core'
 import { UsageError, parseArgs, strFlag } from './args'
+import { directoryKind } from '../loadConfig'
 import { EXIT_OK, createReporter } from './output'
 import { LoginUnsupportedError, browserLogin } from './login'
 import {
@@ -796,19 +797,7 @@ async function storeKey(
  * with config.json as its config); that is a program push.
  */
 export function isTakeDir(target: string): boolean {
-  try {
-    if (!statSync(target).isDirectory()) return false
-    const docPath = join(target, 'doc.json')
-    if (!existsSync(docPath)) return false
-    try {
-      const doc: unknown = JSON.parse(readFileSync(docPath, 'utf8'))
-      return typeof doc === 'object' && doc !== null && 'source' in doc
-    } catch {
-      return true // unparsable: leave it to the take path's own error
-    }
-  } catch {
-    return false
-  }
+  return directoryKind(target) === 'take'
 }
 
 /**

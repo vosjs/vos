@@ -52,7 +52,7 @@ vos versions                               # installed @vosjs/* versions
 | `still`  | `--time 0` `--width 1280` `--height 720`; the output is always WebP (a `.png` name is refused)                                            |
 | `check`  | Exits 1 on any error. Runs the same compiler a hosted push runs, so a clean check is a config that compiles anywhere                      |
 
-Configs can be local files or URLs; a platform `{ "config": … }` envelope is unwrapped. Rendering compiles the config with `@vosjs/core`, wraps it in the engine's capture template, and encodes frame by frame (WebCodecs) in headless Chromium. Same input, same video: locally, in CI, or on a server. `vos render` tells a take from a config by a deterministic sniff, never a flag: a directory holding `doc.json` is a take.
+Configs can be local files or URLs; a platform `{ "config": … }` envelope is unwrapped. Rendering compiles the config with `@vosjs/core`, wraps it in the engine's capture template, and encodes frame by frame (WebCodecs) in headless Chromium. Same input, same video: locally, in CI, or on a server. Every engine verb takes a directory too: a take (its `doc.json` is a recording document) renders through the take pipeline, and a program directory (`config.json`, composed with the program document beside it when there is one) renders as what the studio plays. A deterministic sniff of the document, never a flag.
 
 ## The take pipeline
 
@@ -198,14 +198,15 @@ vos push bright-loop/config.json                       # create a PRIVATE vos (l
 vos push bright-loop/config.json --vos <id>            # add a version against your tracked base
 vos push bright-loop/config.json --claimable           # no credential: a 72 h claim link instead (programs only)
 vos push take --yes --label "first pass" --note "…"    # host a take: private vos + version history (the recording uploads once)
-vos pull bright-loop                                   # what changed on vos.so; syncs config.json (backup kept); take dirs get a fresh doc.json
+vos pull bright-loop [--since <versionId>] [--check]   # what changed on vos.so since your base; syncs config.json (backup kept), or doc.json for a take
+                                                       # --check reports without writing; --since walks from a base you name
 vos duplicate <vosId>                                  # a private sibling of your OWN vos (someone else's is remixed: fetch, then push --remix-of)
 vos folder list | create <name> [--parent] [--desc] | move <ids…> --to <folder|none> | pull <ref> [--media]
 vos asset push <file…> [--folder <slug>] | rename <id> <name.ext>
 vos recipe push <FILE.md> --folder <slug> | --asset <id>   # the one recipe write: create, or replace in place
 ```
 
-`push` is polymorphic by a deterministic sniff, never a flag: a take directory (a `doc.json` carrying `source`) pushes recording and document through the take pipeline; a `config.json` (or a directory holding one) pushes the program, and a `doc.json` beside it that carries `program` (a program document: overlays, objects, audio, speed, tween edits, its own length; `program.config` omitted on disk) rides along, lint-gated. `fetch` and `pull` write a program document back the same way. Program pushes take `--vos`, `--title`, `--slug`, `--desc`, `--tags`, `--folder`, `--remix-of`, `--base`, `--label`, `--note`, `--override <id>` (repeatable) and `--claimable`; take pushes take `--title`, `--label`, `--note`, `--folder`, `--override` and `--yes`.
+`push` is polymorphic by a deterministic sniff, never a flag: a take directory (a `doc.json` carrying `source`) pushes recording and document through the take pipeline; a `config.json` (or a directory holding one) pushes the program, and a `doc.json` beside it that carries `program` (a program document: overlays, objects, audio, speed, tween edits, its own length; `program.config` omitted on disk) rides along, lint-gated. `fetch` and `pull` write a program document back the same way. `pull` takes `--since <versionId>` (walk the changelog from that base instead of the tracked one) and `--check` (print what changed and stop: nothing on disk moves) on both paths. Program pushes take `--vos`, `--title`, `--slug`, `--desc`, `--tags`, `--folder`, `--remix-of`, `--base`, `--label`, `--note`, `--override <id>` (repeatable) and `--claimable`; take pushes take `--title`, `--label`, `--note`, `--folder`, `--override` and `--yes`.
 
 Both paths share the same base tracking and the same two 409 shapes. `stale_base` replays the platform's typed changelog: run `vos pull`, re-apply, push again. `protected_conflict` lists nodes a human edited in the studio: keep their values, or re-push with `--override <id>` only when the user asked for that exact change. The first push of a take asks before uploading (`--yes` for headless); agents never upload unprompted. The take's duration rides the upload, and the platform refuses a take over the hosted recording cap. Every push should carry `--label` (what changed, one line) and `--note` (why: the user's ask); the version history reads as a conversation, and an unlabelled push is a turn the human cannot read.
 

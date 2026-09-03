@@ -1,5 +1,5 @@
-import { readFile, writeFile } from 'node:fs/promises'
-import { existsSync, readFileSync } from 'node:fs'
+import { writeFile } from 'node:fs/promises'
+import { readFileSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
@@ -12,7 +12,13 @@ import {
   EXIT_OK,
   EXIT_USAGE,
 } from './output'
-import { loadVosConfig, configDuration } from './loadConfig'
+import {
+  loadVosConfig,
+  configDuration,
+  directoryKind,
+  loadProgramDirectory,
+  readSourceText,
+} from './loadConfig'
 import { launchBrowser, BrowserUnavailableError } from './browser'
 import { renderVideo, renderStill, previewPages } from './render'
 import { runCheck } from './check'
@@ -45,11 +51,14 @@ function outName(source: string, ext: string): string {
 }
 
 async function cmdRender(argv: string[]): Promise<number> {
-  // Polymorphic render: a take DIRECTORY (detected by its doc.json — the take
-  // pipeline's editable document) renders through the plugin; anything else
-  // is an engine config render. A deterministic sniff, never a flag.
+  // Polymorphic render: a take DIRECTORY (its doc.json is a recording
+  // document) renders through the plugin; a program directory (config.json,
+  // composed with a program document when one sits beside it) and every
+  // other source are engine config renders. A deterministic sniff, never a
+  // flag — and the sniff reads the document, because a program directory
+  // carries a doc.json too.
   const first = argv.find((a) => !a.startsWith('-'))
-  if (first && existsSync(join(first, 'doc.json'))) {
+  if (first && directoryKind(first) === 'take') {
     return delegate(['render', ...argv])
   }
   const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
@@ -291,18 +300,29 @@ async function cmdCheck(argv: string[]): Promise<number> {
   if (!source) throw new UsageError('vos check <config.json>')
   const r = createReporter(flags.json === true)
 
-  let raw: string
-  if (/^https?:\/\//.test(source)) {
-    const res = await fetch(source)
-    if (!res.ok) throw new Error(`fetch ${source} → ${res.status}`)
-    raw = await res.text()
-  } else {
-    raw = await readFile(source, 'utf8')
+  // A directory is a take (refused here: its document is `vos validate`'s
+  // job) or a program directory (config.json, composed with the program
+  // document beside it so the ladder reads the layers' strings too).
+  const kind = /^https?:\/\//.test(source) ? 'none' : directoryKind(source)
+  if (kind === 'take') {
+    throw new UsageError(
+      `${source} is a take (its doc.json is a recording document). vos validate ${source} lints it; vos render ${source} renders it.`,
+    )
   }
+  let raw: string
   let parsed: unknown
   try {
-    parsed = JSON.parse(raw)
+    if (kind === 'program') {
+      const notes: string[] = []
+      parsed = await loadProgramDirectory(source, notes)
+      for (const n of notes) r.log(`note: ${n}`)
+      raw = ''
+    } else {
+      raw = await readSourceText(source)
+      parsed = JSON.parse(raw)
+    }
   } catch (e) {
+    if (!(e instanceof SyntaxError)) throw e
     parsed = undefined
     if (!r.json) process.stdout.write(`error [json] ${(e as Error).message}\n`)
     r.done(
