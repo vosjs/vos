@@ -1,6 +1,6 @@
 {
   "name": "@vosjs/shared",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "The small shared layer under the vos CLI and the vosso studio: the semantic differ, the free-tier limits, frontmatter, params, the font and typeface catalogs.",
   "license": "MIT",
   "author": "vosso",

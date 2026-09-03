@@ -1,6 +1,6 @@
 {
   "name": "@vosjs/cli",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "description": "The vos CLI: record the real product from a scripted browser flow, auto-zoom from the cursor track, cut as data in doc.json, render deterministic video and stills, deliver a release's media per destination spec, and sync with vos.so. One binary, every verb, MIT.",
   "type": "module",
   "license": "MIT",
