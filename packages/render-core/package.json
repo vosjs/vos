@@ -1,6 +1,6 @@
 {
   "name": "@vosjs/render-core",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "The render harness for deterministic vos renders: timeline-sharded chunk planning and stream-copy chunk concat. Pixels stay in the browser; this package owns the orchestration math and the Node-side media plumbing.",
   "license": "MIT",
   "author": "vosso",

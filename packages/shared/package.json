@@ -1,6 +1,6 @@
 {
   "name": "@vosjs/shared",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "The small shared layer under the vos CLI and the document model: the font and typeface catalogs, the remix params contract, frontmatter, and the timeline-edit wrapper.",
   "license": "MIT",
   "author": "vosso",

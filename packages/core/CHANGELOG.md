@@ -1,5 +1,13 @@
 # @vosjs/core
 
+## 0.23.2
+
+### Patch Changes
+
+- 598cec7: READMEs rewritten against the current API: every example compiles against the exported signatures, each package lists its real exports, and stale package names and moved modules are gone.
+- Updated dependencies [598cec7]
+  - @vosjs/tween@0.8.2
+
 ## 0.23.1
 
 ### Patch Changes

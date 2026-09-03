@@ -1,5 +1,15 @@
 # @vosjs/studio-core
 
+## 0.4.1
+
+### Patch Changes
+
+- 598cec7: READMEs rewritten against the current API: every example compiles against the exported signatures, each package lists its real exports, and stale package names and moved modules are gone.
+- Updated dependencies [598cec7]
+  - @vosjs/timeline@0.4.1
+  - @vosjs/editor@1.3.1
+  - @vosjs/shared@0.4.1
+
 ## 0.4.0
 
 ### Minor Changes

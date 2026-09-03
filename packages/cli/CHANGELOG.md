@@ -1,5 +1,21 @@
 # @vosjs/cli
 
+## 0.13.1
+
+### Patch Changes
+
+- 598cec7: `vos deliver --composed` parses as a bare flag (it used to demand a value), `vos help` lists `vos actions` and says the recording cap is read live, and the README documents every verb and flag the binary accepts.
+- 4dbb8ed: `vos pull <take> --check` reports what changed without writing, and `--since <versionId>` walks the changelog from a base you name, on the take path as the help always said. Every engine verb now tells a take from a program directory by what its `doc.json` carries, so a program directory that holds a program document renders as the composed program (its layers and tween edits ride) instead of dying in the take renderer; a take handed to `still`, `info` or `check` is refused in words that name the take pipeline.
+- Updated dependencies [598cec7]
+  - @vosjs/core@0.23.2
+  - @vosjs/elements@0.8.1
+  - @vosjs/timeline@0.4.1
+  - @vosjs/tween@0.8.2
+  - @vosjs/editor@1.3.1
+  - @vosjs/studio-core@0.4.1
+  - @vosjs/render-core@0.2.1
+  - @vosjs/shared@0.4.1
+
 ## 0.13.0
 
 ### Minor Changes

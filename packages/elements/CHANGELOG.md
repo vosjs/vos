@@ -1,5 +1,11 @@
 # @vosjs/elements
 
+## 0.8.1
+
+### Patch Changes
+
+- 598cec7: READMEs rewritten against the current API: every example compiles against the exported signatures, each package lists its real exports, and stale package names and moved modules are gone.
+
 ## 0.8.0
 
 ### Minor Changes
