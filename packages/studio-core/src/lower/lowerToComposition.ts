@@ -1381,6 +1381,14 @@ const ON_FRAME = `(ctx, content, dt) => {
   // strip is part of the card: it takes barH from the available height and the video
   // sits below it — bar + video share the rounded clip and zoom together.
   var pad = (frame.padding || 0) * s
+  // Per-side placement (frame.inset: fractions of the frame, a negative side
+  // bleeds the card past the edge) overrides the symmetric padding on the
+  // sides it names; absent sides keep pad, so the old math falls out.
+  var ipIns = frame.inset || {}
+  var ipL = ipIns.left == null ? pad : ipIns.left * W
+  var ipR = ipIns.right == null ? pad : ipIns.right * W
+  var ipT = ipIns.top == null ? pad : ipIns.top * H
+  var ipB = ipIns.bottom == null ? pad : ipIns.bottom * H
   var bar = frame.browserBar || {}
   // Window takes carry a viewport crop (drawImage source rect, capture px) that
   // removes the real browser chrome — the card's source dims are then the CROP
@@ -1407,26 +1415,37 @@ const ON_FRAME = `(ctx, content, dt) => {
   var cf = fitCover ? 1 : Math.min(1, (W / H) / (vw / vh))
   var s2 = s * cf
   var barH = bar.kind && bar.kind !== 'none' ? (bar.height || 44) * s2 : 0
-  var availW = Math.max(1, W - pad * 2), availH = Math.max(1, H - pad * 2 - barH)
+  var availW = Math.max(1, W - ipL - ipR), availH = Math.max(1, H - ipT - ipB - barH)
   var sc, dw, dh, dx, dy, cardX, cardY, cardW, cardH
   if (fitCover) {
     sc = Math.max(availW / vw, availH / vh)
     dw = vw * sc; dh = vh * sc
-    cardX = pad; cardY = pad; cardW = availW; cardH = availH + barH
+    cardX = ipL; cardY = ipT; cardW = availW; cardH = availH + barH
     var fcv = frame.focus || {}
     var fcx = fcv.cx == null ? 0.5 : Math.max(0, Math.min(1, fcv.cx))
     var fcy = fcv.cy == null ? 0.5 : Math.max(0, Math.min(1, fcv.cy))
-    var vTop = pad + barH
+    var vTop = ipT + barH
     dx = Math.min(cardX, Math.max(cardX + availW - dw, cardX + availW / 2 - fcx * dw))
     dy = Math.min(vTop, Math.max(vTop + availH - dh, vTop + availH / 2 - fcy * dh))
   } else {
     sc = Math.min(availW / vw, availH / vh)
     dw = vw * sc; dh = vh * sc
-    dx = (W - dw) / 2; dy = (H - dh + barH) / 2
+    // Centred inside the inset area (equal to (W - dw) / 2 when no side is
+    // inset, the old formula).
+    dx = ipL + (availW - dw) / 2; dy = ipT + barH + (availH - dh) / 2
     cardX = dx; cardY = dy - barH; cardW = dw; cardH = dh + barH
   }
   var radius = (frame.radius || 0) * s2
   var shadow = frame.shadow || 0
+  // The shadow's colour (a #rrggbb; the strengths are its alpha) and the
+  // optional tight CONTACT layer that makes a light card sit on a light
+  // ground.
+  var shC = frame.shadowContact || 0
+  var shRgb = '0,0,0'
+  var shHex = frame.shadowColor
+  if (typeof shHex === 'string' && /^#[0-9a-fA-F]{6}$/.test(shHex)) {
+    shRgb = parseInt(shHex.slice(1, 3), 16) + ',' + parseInt(shHex.slice(3, 5), 16) + ',' + parseInt(shHex.slice(5, 7), 16)
+  }
 
   // current zoom — a standard keyframe track in OUTPUT time (hold + arrival pairs
   // expanded by the lowering), sampled with the shared deterministic interpolator.
@@ -1453,8 +1472,17 @@ const ON_FRAME = `(ctx, content, dt) => {
   // soft shadow behind the card (bar strip + video)
   if (shadow > 0) {
     c.save()
-    c.shadowColor = 'rgba(0,0,0,' + shadow + ')'
+    c.shadowColor = 'rgba(' + shRgb + ',' + shadow + ')'
     c.shadowBlur = 60 * s2; c.shadowOffsetY = 24 * s2
+    c.fillStyle = '#000'
+    rr(cardX, cardY, cardW, cardH, radius); c.fill()
+    c.restore()
+  }
+  // contact shadow: tight and close, over the ambient layer
+  if (shC > 0) {
+    c.save()
+    c.shadowColor = 'rgba(' + shRgb + ',' + shC + ')'
+    c.shadowBlur = 10 * s2; c.shadowOffsetY = 3 * s2
     c.fillStyle = '#000'
     rr(cardX, cardY, cardW, cardH, radius); c.fill()
     c.restore()

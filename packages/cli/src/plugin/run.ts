@@ -20,7 +20,7 @@ import {
   probeMediaUrls,
 } from './mediaProbe'
 import { framesTake, parseTimes, writeIndexJson } from './framesTake'
-import { deliverTake, resolveChannels } from './deliver'
+import { deliverTake, resolveChannels, resolveLook } from './deliver'
 import { validateKit } from './validateKit'
 import { digestTake, parseTranscript } from './digestTake'
 import { apiJson, platformOrigin, resolveCredential } from './platform'
@@ -84,7 +84,7 @@ Take pipeline
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--background <slug|url|none>] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
-  vos deliver <take> --to cws,producthunt,x,linkedin,og,github,youtube (or all) [--poster <config.json|vosId>] [--shot-time <t>] [--poster-time <t>] [--composed] [--set path=value] [--release v2.1] [--out dir] [--times a,b] [--range a..b] [--parallel N] [--json]
+  vos deliver <take> --to cws,producthunt,x,linkedin,og,github,youtube (or all) [--look plate|gradient|dark|none] [--brand BRAND.md] [--poster <config.json|vosId>] [--shot-time <t>] [--poster-time <t>] [--composed] [--set path=value] [--release v2.1] [--out dir] [--times a,b] [--range a..b] [--parallel N] [--json]
   vos digest <take> [--out dir] [--full 960] [--crop 640] [--no-frames] [--transcript <file.json>] [--style <doc.json|vosId>] [--json]
   vos brand <url> [--out BRAND.md] [--json]
   vos open <take> [--studio <url>] [--print]
@@ -178,6 +178,15 @@ exact pixels and video cuts, every artifact is VERIFIED against its spec
 (px, bytes, duration; misses land in skipped[] with the reason), and
 kit.json beside the assets is the manifest. Still times default to the
 zoom apexes (--times overrides); --range cuts every video destination.
+The LOOK presents the card: card-genre stills with no poster and every
+video cut sit on a ground (a cream plate, the house gradient, a dark plate
+with a light streak) at ~84% of the width with headroom, a soft ambient
+shadow plus a tight contact shadow, and a hairline when card and ground
+are both light; a wide frame runs the card off the bottom. --look picks a
+house look (or none for the pre-look crops); with no flag the BRAND.md
+beside the take (or --brand <file>) decides from its look role or its own
+ground (a paper site is a plate, a dark site is dark), and with no brand
+the house gradient. Screenshot-genre stills never take a look.
 --poster <config.json|vosId> is the CARD half: card-genre destinations
 (OG, LinkedIn, X, YouTube thumbnail, the CWS tile + marquee, GitHub
 social preview) render from your poster PROGRAM — the split-cover family
@@ -844,9 +853,21 @@ async function cmdDeliver(argv: string[]): Promise<number> {
     }
   }
 
+  let lookPick: Awaited<ReturnType<typeof resolveLook>>
+  try {
+    lookPick = await resolveLook(dir, {
+      look: strFlag(flags, 'look'),
+      brand: strFlag(flags, 'brand'),
+    })
+  } catch (e) {
+    throw new UsageError(e instanceof Error ? e.message : String(e))
+  }
+  r.log(`look: ${lookPick.from}`)
+
   const browser = await launchBrowser()
   try {
     const result = await deliverTake(browser, dir, {
+      look: lookPick.look,
       channels,
       outDir: strFlag(flags, 'out'),
       release: strFlag(flags, 'release'),

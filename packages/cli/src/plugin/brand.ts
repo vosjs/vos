@@ -24,6 +24,7 @@
 import { writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { parseFrontmatter } from '@vosjs/shared/frontmatter'
+import { lookKindForGround } from '@vosjs/studio-core'
 import { UsageError, parseArgs, strFlag } from './args'
 import { createReporter } from './output'
 import { launchBrowser } from '../browser'
@@ -46,6 +47,13 @@ export interface BrandKit {
   wordmark: string
   designMd: string | null
   llmsTxt: string | null
+  /**
+   * The look the kit's cards and cuts are presented in, decided from the
+   * site's own ground: a paper site is a plate, a dark site is dark,
+   * anything else takes the gradient (accent → bgC). The maker overrides
+   * it by editing the role; `ground` (absent here) overrides the ground.
+   */
+  look: 'plate' | 'gradient' | 'dark'
 }
 
 export interface DesignMdFacts {
@@ -425,7 +433,9 @@ export function composeBrand(input: {
     wordmark,
     designMd: input.designUrl,
     llmsTxt: input.llmsUrl,
+    look: lookKindForGround(bgA),
   }
+  p.look = `from the body's ground (${bgA}): a paper site is a plate, a dark site is dark, else the gradient`
   return { kit, provenance: p, avoid: design?.avoid ?? [] }
 }
 
@@ -457,6 +467,7 @@ export function renderBrandMd(
     `wordmark: ${q(k.wordmark)}`,
     `designMd: ${q(k.designMd)}`,
     `llmsTxt: ${q(k.llmsTxt)}`,
+    `look: ${q(k.look)}`,
     '---',
   ].join('\n')
   const lines = [

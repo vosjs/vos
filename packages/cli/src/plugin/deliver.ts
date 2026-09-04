@@ -24,10 +24,17 @@ import {
 import { tmpdir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import { totalDuration } from '@vosjs/timeline'
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { parseFrontmatter } from '@vosjs/shared/frontmatter'
 import {
   CHANNEL_SPECS_VERIFIED,
   DESTINATIONS,
+  cardInset,
   destinationsForChannel,
+  houseLook,
+  isLookKind,
+  lookFromBrand,
   ratedSegments,
   spanOutputExtent,
 } from '@vosjs/studio-core'
@@ -35,7 +42,7 @@ import { loadTake } from './take'
 import { framesTake } from './framesTake'
 import { renderTake } from './renderTake'
 import { renderPosterStills } from './posterStill'
-import type { Destination } from '@vosjs/studio-core'
+import type { Destination, Look, LookPlacement } from '@vosjs/studio-core'
 import type { DocOverrides } from './docOverride'
 import type { Browser } from 'playwright'
 
@@ -103,6 +110,14 @@ export interface DeliverOptions {
    * corner reads as an empty page).
    */
   composed?: boolean
+  /**
+   * The card's presentation, resolved before the run (`resolveLook`): a
+   * house look, the maker's BRAND.md, or null for the pre-look behaviour
+   * (cards as cover crops, videos as the doc frames them). Card-genre
+   * stills without a poster and every video destination ride it; the
+   * screenshot genre never does (store policy: the real page, full bleed).
+   */
+  look?: Look | null
   onPhase?: (phase: string) => void
   onProgress?: (fraction: number) => void
 }
@@ -125,6 +140,8 @@ export interface KitAsset {
 
 export interface KitManifest {
   release: string | null
+  /** The look the cards and cuts were presented in (null = none). */
+  look: string | null
   take: string
   produced: string
   /** channel-specs.json's own verified date — the spec sheet's freshness. */
@@ -158,6 +175,89 @@ export function resolveChannels(raw: string): string[] {
     if (!out.includes(id)) out.push(id)
   }
   return out
+}
+
+/**
+ * Read the brand kit's frontmatter beside a take: `BRAND.md` in the take
+ * directory, else in its parent (a release's `media/` folder holds the
+ * takes under it), else an explicit path. Null when there is none.
+ */
+export async function readBrandBesideTake(
+  dir: string,
+  explicit?: string,
+): Promise<{ file: string; roles: Record<string, string> } | null> {
+  const candidates = explicit
+    ? [explicit]
+    : [join(dir, 'BRAND.md'), join(dir, '..', 'BRAND.md')]
+  for (const file of candidates) {
+    if (!existsSync(file)) continue
+    const roles = parseFrontmatter(await readFile(file, 'utf8'))
+    return { file, roles }
+  }
+  return null
+}
+
+/**
+ * The look a run presents its cards and cuts in, in precedence: `--look
+ * none` (the pre-look behaviour), `--look <kind>` (a house look), the
+ * brand kit beside the take (its `look` role, else its own ground decides),
+ * then the house gradient. Says where it came from, for the phase note.
+ */
+export async function resolveLook(
+  dir: string,
+  opts: { look?: string; brand?: string },
+): Promise<{ look: Look | null; from: string }> {
+  if (opts.look === 'none') return { look: null, from: '--look none' }
+  if (opts.look !== undefined) {
+    if (!isLookKind(opts.look))
+      throw new Error(
+        `--look "${opts.look}" — one of plate | gradient | dark | none`,
+      )
+    return { look: houseLook(opts.look), from: `--look ${opts.look}` }
+  }
+  const brand = await readBrandBesideTake(dir, opts.brand)
+  if (brand) {
+    const look = lookFromBrand(brand.roles)
+    return { look, from: `${brand.file} (${look.kind})` }
+  }
+  return { look: houseLook('gradient'), from: 'the house gradient (no BRAND.md beside the take)' }
+}
+
+/**
+ * The overrides that present the card in a look at one destination size:
+ * the ground, the placement (inset from the footage's aspect), the radius,
+ * both shadow layers and the hairline; a still also releases the camera
+ * and hides the cursor (a card shows the whole window at rest, and a
+ * zoomed crop inside a small card reads as a broken screenshot). The
+ * document's bar kind stays. Pure, so the policy is testable.
+ */
+export function lookOverrides(
+  look: Look,
+  placement: LookPlacement,
+  size: { w: number; h: number },
+  video: { w: number; h: number },
+  opts: { still: boolean; keepMedia?: boolean },
+): string[] {
+  const inset = cardInset(look, size, video, placement)
+  const set = [
+    'frame.fit=contain',
+    `frame.background=${JSON.stringify(look.ground)}`,
+    `frame.inset=${JSON.stringify(inset)}`,
+    `frame.radius=${look.radius}`,
+    `frame.shadow=${look.shadow}`,
+    `frame.shadowContact=${look.shadowContact}`,
+    `frame.border=${look.border}`,
+  ]
+  if (look.shadowColor) set.push(`frame.shadowColor=${look.shadowColor}`)
+  if (look.border > 0) {
+    set.push('frame.borderWidth=1')
+    set.push(`frame.borderColor=${look.borderColor ?? '#000000'}`)
+  }
+  if (!opts.keepMedia) set.push('frame.backgroundMedia=null')
+  if (opts.still) {
+    set.push('zoom=[]', 'tilt=[]', 'cursor.visible=false', 'cursor.clickFx.style=none')
+  }
+  return set
 }
 
 /**
@@ -223,17 +323,31 @@ export const FULL_BLEED = [
 export const SCREENSHOT_DEFAULTS = [...FULL_BLEED, 'zoom=[]', 'tilt=[]']
 
 export function stillOverridesFor(
-  d: Pick<Destination, 'fit' | 'genre'>,
-  opts: Pick<DeliverOptions, 'overrides' | 'composed'>,
+  d: Pick<Destination, 'fit' | 'genre'> & { px?: Destination['px'] },
+  opts: Pick<DeliverOptions, 'overrides' | 'composed' | 'look'>,
+  video?: { w: number; h: number },
 ): DocOverrides | undefined {
   const set: string[] = []
-  if (d.fit === 'cover') set.push('frame.fit=cover')
-  if (d.genre === 'screenshot' && !opts.composed)
+  if (d.genre === 'screenshot' && !opts.composed) {
+    if (d.fit === 'cover') set.push('frame.fit=cover')
     set.push(...SCREENSHOT_DEFAULTS)
-  // A card with no poster program to render from is a cover crop of the
-  // real page (the cut's camera kept): never the card chrome and the padding
-  // band, which a 2.5:1 marquee turns into a browser bar over a gradient.
-  else if (d.genre === 'card' && !opts.composed) set.push(...FULL_BLEED)
+  } else if (d.genre === 'card' && !opts.composed && opts.look && video && d.px) {
+    // A card with no poster program is the whole window on the look's
+    // ground: centred with room around it, or, on a frame too wide to hold
+    // it, given headroom and run off the bottom (the feature-clip grammar).
+    set.push(
+      ...lookOverrides(opts.look, 'card', d.px, video, {
+        still: true,
+        keepMedia: opts.overrides?.background !== undefined,
+      }),
+    )
+  } else {
+    if (d.fit === 'cover') set.push('frame.fit=cover')
+    // No look: a card with no poster program is a cover crop of the real
+    // page (the cut's camera kept): never the card chrome and the padding
+    // band, which a 2.5:1 marquee turns into a browser bar over a gradient.
+    if (d.genre === 'card' && !opts.composed) set.push(...FULL_BLEED)
+  }
   set.push(...(opts.overrides?.set ?? []))
   if (!set.length) return opts.overrides
   return { ...opts.overrides, set }
@@ -271,6 +385,25 @@ export async function deliverTake(
   const destinations = opts.channels.flatMap((c) => destinationsForChannel(c))
   const assets: KitAsset[] = []
   const skipped: string[] = []
+  const meta0 = doc.source.meta
+  const video = {
+    w: meta0.captureWidth ?? meta0.width,
+    h: meta0.captureHeight ?? meta0.height,
+  }
+  /** A video destination rides the look in the hero placement, camera kept. */
+  const videoOverrides = (d: Destination): DocOverrides | undefined => {
+    if (!opts.look) return opts.overrides
+    return {
+      ...opts.overrides,
+      set: [
+        ...lookOverrides(opts.look, 'hero', d.px, video, {
+          still: false,
+          keepMedia: opts.overrides?.background !== undefined,
+        }),
+        ...(opts.overrides?.set ?? []),
+      ],
+    }
+  }
 
   // The poster leg: with a poster program in hand, card-genre stills render
   // from IT (collected here, rendered after the take loop). Without one,
@@ -435,7 +568,7 @@ export async function deliverTake(
         parallel: opts.parallel,
         range: opts.range,
         bitrate,
-        overrides: opts.overrides,
+        overrides: videoOverrides(d),
         onProgress: opts.onProgress,
       })
       if (d.maxBytes !== undefined && result.bytes > d.maxBytes) {
@@ -470,7 +603,7 @@ export async function deliverTake(
     // a 16:9 take fills a 440x280 tile instead of striping the background.
     // The doc on disk is untouched; an explicit --set frame.fit wins (later
     // entries apply last in docOverride).
-    const overrides = stillOverridesFor(d, opts)
+    const overrides = stillOverridesFor(d, opts, video)
     const captured = await framesTake(browser, dir, {
       times: wanted,
       width: d.px.w,
@@ -512,6 +645,7 @@ export async function deliverTake(
 
   const kit: KitManifest = {
     release: opts.release ?? null,
+    look: opts.look?.kind ?? null,
     take: dir,
     produced: new Date().toISOString(),
     specsVerified: CHANNEL_SPECS_VERIFIED,

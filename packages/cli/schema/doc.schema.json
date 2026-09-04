@@ -414,7 +414,30 @@
             "shadow": {
               "type": "number",
               "minimum": 0,
-              "maximum": 1
+              "maximum": 1,
+              "description": "ambient shadow strength: the wide soft layer under the card (blur 60, offset 24 design px)"
+            },
+            "shadowContact": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "contact shadow strength: a second tight layer (blur 10, offset 3 design px) over the ambient one, what makes a light card sit on a light ground. Absent = 0"
+            },
+            "shadowColor": {
+              "type": "string",
+              "pattern": "^#[0-9a-fA-F]{6}$",
+              "description": "shadow colour as #rrggbb; the strengths are its alpha. Absent = black"
+            },
+            "inset": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "per-side card placement as FRACTIONS of the frame (left/right of its width, top/bottom of its height), each overriding `padding` on its side; a NEGATIVE side bleeds the card past the frame edge (headroom above, the window running off the bottom). Absent sides keep padding. Under contain the card centres inside the inset area; under cover the inset area is the card",
+              "properties": {
+                "top": { "type": "number", "minimum": -2, "maximum": 0.9 },
+                "right": { "type": "number", "minimum": -2, "maximum": 0.9 },
+                "bottom": { "type": "number", "minimum": -2, "maximum": 0.9 },
+                "left": { "type": "number", "minimum": -2, "maximum": 0.9 }
+              }
             },
             "border": {
               "type": "number",

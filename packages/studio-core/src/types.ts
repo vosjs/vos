@@ -743,8 +743,35 @@ export interface FrameStyle {
   backgroundMedia?: BackgroundMedia | null
   padding: number
   radius: number
-  /** shadow strength 0..1. */
+  /**
+   * Ambient shadow strength 0..1: the wide, soft layer under the card
+   * (blur 60, offset 24 design px). The look presets set it with
+   * `shadowContact`; every existing doc keeps its single layer.
+   */
   shadow: number
+  /**
+   * Contact shadow strength 0..1: a second, tight layer (blur 10, offset 3
+   * design px) drawn over the ambient one. It is what makes a light card sit
+   * on a light ground, where a wide soft shadow alone reads as haze. Absent
+   * = 0 (no second layer; byte-identical to before the field existed).
+   */
+  shadowContact?: number
+  /**
+   * Shadow colour as a `#rrggbb` hex; the strengths are its alpha. Absent =
+   * black. A dark look lifts it toward its accent so the card glows instead
+   * of sinking.
+   */
+  shadowColor?: string
+  /**
+   * Per-side card placement as FRACTIONS of the frame (left/right of its
+   * width, top/bottom of its height), each overriding `padding` on its side
+   * when present. A negative side BLEEDS the card past the frame edge (the
+   * feature-clip grammar: headroom above, the window running off the
+   * bottom). Absent sides keep `padding`, so every existing doc is untouched.
+   * Under contain the card centres inside the inset area; under cover the
+   * inset area IS the card.
+   */
+  inset?: { top?: number; right?: number; bottom?: number; left?: number }
   /** stroke around the card, 0..1 alpha (0 = off). The switch AND the opacity. */
   border: number
   /**

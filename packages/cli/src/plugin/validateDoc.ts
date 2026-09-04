@@ -495,9 +495,50 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       // wider than the padding renders cropped flat where the card meets the
       // frame (at padding 0, not at all on that axis). The doc still renders,
       // so this is honesty, not breakage.
+      // --- the second shadow layer and its colour ---
+      const sc = frame.shadowContact
+      if (sc !== undefined && (!isNum(sc) || sc < 0 || sc > 1)) {
+        problems.push(
+          `frame.shadowContact must be 0..1 (got ${String(sc)}); absent = no contact layer`,
+        )
+      }
+      const shc = frame.shadowColor
+      if (shc !== undefined && !/^#[0-9a-fA-F]{6}$/.test(String(shc))) {
+        problems.push(
+          `frame.shadowColor must be a #rrggbb hex (got ${String(shc)}); absent = black`,
+        )
+      }
+      // --- per-side placement: fractions, a negative side bleeds ---
+      const ins = frame.inset
+      if (ins !== undefined) {
+        if (typeof ins !== 'object' || ins === null || Array.isArray(ins)) {
+          problems.push(
+            'frame.inset must be an object of {top, right, bottom, left} fractions',
+          )
+        } else {
+          const sides = ins as Record<string, unknown>
+          for (const side of ['top', 'right', 'bottom', 'left']) {
+            const v = sides[side]
+            if (v !== undefined && (!isNum(v) || v < -2 || v > 0.9)) {
+              problems.push(
+                `frame.inset.${side} must be a fraction of the frame in -2..0.9 (got ${String(v)}); negative bleeds the card past the edge`,
+              )
+            }
+          }
+          const l = isNum(sides.left) ? sides.left : 0
+          const r = isNum(sides.right) ? sides.right : 0
+          const t = isNum(sides.top) ? sides.top : 0
+          const b = isNum(sides.bottom) ? sides.bottom : 0
+          if (l + r >= 1 || t + b >= 1) {
+            problems.push(
+              `frame.inset leaves no room for the card (left+right ${l + r}, top+bottom ${t + b}; each pair must stay under 1)`,
+            )
+          }
+        }
+      }
       const ebw = isNum(bw) && bw > 0 && bw <= 24 ? bw : 1.5
       const pad = isNum(frame.padding) ? frame.padding : 0
-      if (frame.border && ebw > pad) {
+      if (frame.border && ebw > pad && ins === undefined) {
         warnings.push(
           `frame.borderWidth (${ebw}) is wider than frame.padding (${pad}) — the border grows outward from the card, so the frame edge crops it; raise the padding to at least the width to show the whole stroke`,
         )
