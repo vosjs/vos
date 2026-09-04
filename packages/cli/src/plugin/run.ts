@@ -22,6 +22,7 @@ import {
 import { framesTake, parseTimes, writeIndexJson } from './framesTake'
 import { deliverTake, resolveChannels, resolveLook } from './deliver'
 import { resolveStepTime } from './moments'
+import { formatFinding } from './kitPicture'
 import { validateKit } from './validateKit'
 import { digestTake, parseTranscript } from './digestTake'
 import { apiJson, platformOrigin, resolveCredential } from './platform'
@@ -61,6 +62,7 @@ import type { ParsedArgs } from './args'
 const BOOLEAN_FLAGS = new Set([
   'json',
   'help',
+  'picture',
   'fresh',
   'reuse',
   'strict',
@@ -89,7 +91,7 @@ Take pipeline
   vos digest <take> [--out dir] [--full 960] [--crop 640] [--no-frames] [--transcript <file.json>] [--style <doc.json|vosId>] [--json]
   vos brand <url> [--out BRAND.md] [--json]
   vos open <take> [--studio <url>] [--print]
-  vos validate <actions.json|take> [--json]
+  vos validate <actions.json|take|kit.json> [--picture] [--json]
   vos actions from-agent-browser <steps.jsonl> [--out actions.json] [--url <url>] [--viewport WxH] [--json]
 
 Platform (vos.so) — fetch, edit, push, pull, repeat
@@ -207,7 +209,16 @@ policy); --composed keeps the cut's camera and chrome instead. --set
 path=value overrides the doc in memory for every render here (the user's
 sets apply last). Store uploads stay manual: hand the human the kit
 directory, then vos validate <kit.json> re-measures every asset from its
-bytes against the channel specs.
+bytes against the channel specs; --picture adds what each asset LOOKS
+like, read from its pixels: blank (a wallpaper or an empty canvas where
+the product should be), duplicate (two stills of one frame), subject (the
+card off the 60 to 92% band, or a crop where a card was asked for),
+separation (a light card on a light ground with no shadow), halfsize (a
+tile that loses its edges when the store shrinks it), and, where the kit
+records its text boxes, sliced, safe and contrast (APCA Lc 60/75); a
+video's first and last frames are read through ffmpeg. Every finding
+carries a code, a severity, a fix hint and a box; an error fails the
+verdict beside the spec problems.
 brand writes the product's BRAND.md, witnessed: it reads /design.md when
 the site publishes one (the convention beside /llms.txt: fonts, logo assets,
 an avoid list), /llms.txt for the name and the claim, then the page itself
@@ -1115,14 +1126,24 @@ async function cmdValidate(argv: string[]): Promise<number> {
       ? join(target, 'kit.json')
       : null
   if (kitTarget) {
-    const verdict = await validateKit(kitTarget)
-    const tail = verdict.warnings.length
-      ? `\n  warnings:\n  ${verdict.warnings.join('\n  ')}`
-      : ''
+    const picture = flags.picture === true
+    const verdict = await validateKit(kitTarget, { picture })
+    const pictureLines = (verdict.picture ?? []).map(formatFinding)
+    const pictureErrors = (verdict.picture ?? []).filter(
+      (f) => f.severity === 'error',
+    ).length
+    const tail =
+      (verdict.warnings.length
+        ? `\n  warnings:\n  ${verdict.warnings.join('\n  ')}`
+        : '') +
+      (picture
+        ? `\n  picture: ${pictureErrors} problem(s), ${(verdict.picture ?? []).length - pictureErrors} note(s)` +
+          (pictureLines.length ? `\n  ${pictureLines.join('\n  ')}` : '')
+        : '')
     if (!verdict.valid) {
       r.done(
         { ...verdict, target: kitTarget },
-        `${kitTarget}:\n  ${verdict.problems.join('\n  ')}${tail}`,
+        `${kitTarget}:${verdict.problems.length ? `\n  ${verdict.problems.join('\n  ')}` : ''}${tail}`,
       )
       return EXIT_ERROR
     }

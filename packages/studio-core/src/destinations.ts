@@ -36,13 +36,24 @@ export interface Destination {
   accepts: string
   /** How footage meets an off-ratio frame (a still fills, a video letterboxes). */
   fit: 'contain' | 'cover'
+  /**
+   * The destination's word policy: 'none' = the picture carries it alone (a
+   * tile, a store screenshot), 'allowed', 'expected' = a card that should
+   * say something. The picture checks read it.
+   */
+  text: 'none' | 'allowed' | 'expected'
+  /**
+   * The rect, as fractions of the frame, every text box must sit inside:
+   * the platform's own chrome or crop covers the rest.
+   */
+  safe: { x: number; y: number; w: number; h: number }
   notes: string
 }
 
 export const CHANNEL_SPECS_VERIFIED = '2026-08-04'
 
 export const CHANNEL_SPECS_HASH =
-  '7a3ad4301f96507ec471a35fa37f367dcaf4bd405b008f551d0ac4cd395d61f7'
+  'e2382b03d59d01a5d7ed20c928e60fd53267a8038cf686a5ba21758f86e50cb9'
 
 export const DESTINATIONS: Destination[] = [
   {
@@ -61,6 +72,13 @@ export const DESTINATIONS: Destination[] = [
     format: 'mp4',
     accepts: 'mp4 (H.264+AAC)',
     fit: 'contain',
+    text: 'allowed',
+    safe: {
+      x: 0.05,
+      y: 0.08,
+      w: 0.9,
+      h: 0.84,
+    },
     notes:
       'Captions burned in. The same public upload serves the Chrome Web Store promo video and Product Hunt video (both take YouTube URLs only).',
   },
@@ -81,6 +99,13 @@ export const DESTINATIONS: Destination[] = [
     format: 'mp4',
     accepts: 'mp4 (H.264+AAC ONLY — HEVC/VP9/AV1 rejected)',
     fit: 'contain',
+    text: 'allowed',
+    safe: {
+      x: 0.05,
+      y: 0.08,
+      w: 0.9,
+      h: 0.84,
+    },
     notes:
       '30–60s plays best; 140s/512MB is the free-tier ceiling. 1:1 also allowed. Native upload, never a link post.',
   },
@@ -100,6 +125,13 @@ export const DESTINATIONS: Destination[] = [
     format: 'mp4',
     accepts: 'mp4 (H.264+AAC)',
     fit: 'contain',
+    text: 'expected',
+    safe: {
+      x: 0.0833,
+      y: 0.1979,
+      w: 0.8333,
+      h: 0.6042,
+    },
     notes:
       'Critical text inside a centered ~900×1160 safe zone — platform chrome covers the rest. Serves YouTube Shorts and LinkedIn native vertical.',
   },
@@ -120,6 +152,13 @@ export const DESTINATIONS: Destination[] = [
     format: 'mp4',
     accepts: 'mp4 (H.264)',
     fit: 'contain',
+    text: 'none',
+    safe: {
+      x: 0.05,
+      y: 0.08,
+      w: 0.9,
+      h: 0.84,
+    },
     notes:
       '≤10MB is the free-plan attachment ceiling; two-pass target bitrate from duration.',
   },
@@ -139,6 +178,13 @@ export const DESTINATIONS: Destination[] = [
     format: 'png',
     accepts: 'png|jpg',
     fit: 'cover',
+    text: 'expected',
+    safe: {
+      x: 0.05,
+      y: 0.08,
+      w: 0.9,
+      h: 0.84,
+    },
     notes: '',
   },
   {
@@ -160,6 +206,13 @@ export const DESTINATIONS: Destination[] = [
     format: 'png',
     accepts: 'png|jpg',
     fit: 'cover',
+    text: 'none',
+    safe: {
+      x: 0,
+      y: 0,
+      w: 1,
+      h: 1,
+    },
     notes:
       'Real UX only — misleading listing images are a removal-grade violation. Full bleed, square corners.',
   },
@@ -178,6 +231,13 @@ export const DESTINATIONS: Destination[] = [
     format: 'png',
     accepts: 'png|jpg',
     fit: 'cover',
+    text: 'none',
+    safe: {
+      x: 0,
+      y: 0,
+      w: 1,
+      h: 1,
+    },
     notes:
       'Listings without one rank lower. No text; fill the region; subject centered.',
   },
@@ -196,6 +256,13 @@ export const DESTINATIONS: Destination[] = [
     format: 'png',
     accepts: 'png|jpg',
     fit: 'cover',
+    text: 'allowed',
+    safe: {
+      x: 0.05,
+      y: 0.08,
+      w: 0.9,
+      h: 0.84,
+    },
     notes: 'Carousel eligibility.',
   },
   {
@@ -212,6 +279,13 @@ export const DESTINATIONS: Destination[] = [
     format: 'png',
     accepts: 'png',
     fit: 'cover',
+    text: 'none',
+    safe: {
+      x: 0,
+      y: 0,
+      w: 1,
+      h: 1,
+    },
     notes: '96×96 art + 16px transparent padding.',
   },
   {
@@ -230,6 +304,13 @@ export const DESTINATIONS: Destination[] = [
     format: 'png',
     accepts: 'gif|png',
     fit: 'cover',
+    text: 'none',
+    safe: {
+      x: 0.06,
+      y: 0.06,
+      w: 0.88,
+      h: 0.88,
+    },
     notes: 'GIF animates on hover only — the first frame must stand alone.',
   },
   {
@@ -251,6 +332,13 @@ export const DESTINATIONS: Destination[] = [
     format: 'png',
     accepts: 'png|jpg|gif',
     fit: 'cover',
+    text: 'none',
+    safe: {
+      x: 0,
+      y: 0,
+      w: 1,
+      h: 1,
+    },
     notes: 'First image is the hero.',
   },
   {
@@ -268,6 +356,13 @@ export const DESTINATIONS: Destination[] = [
     format: 'png',
     accepts: 'png|jpg',
     fit: 'cover',
+    text: 'allowed',
+    safe: {
+      x: 0.05,
+      y: 0.08,
+      w: 0.9,
+      h: 0.84,
+    },
     notes: '',
   },
   {
@@ -285,6 +380,13 @@ export const DESTINATIONS: Destination[] = [
     format: 'png',
     accepts: 'png|jpg',
     fit: 'cover',
+    text: 'expected',
+    safe: {
+      x: 0.05,
+      y: 0.08,
+      w: 0.9,
+      h: 0.84,
+    },
     notes: '1080×1350 vertical also performs in the mobile feed.',
   },
   {
@@ -303,6 +405,13 @@ export const DESTINATIONS: Destination[] = [
     format: 'png',
     accepts: 'png|jpg',
     fit: 'cover',
+    text: 'expected',
+    safe: {
+      x: 0.05,
+      y: 0.0238,
+      w: 0.9,
+      h: 0.9524,
+    },
     notes:
       'Text in the center ~1080×600. Set twitter:card=summary_large_image explicitly — og:image alone gets the small card.',
   },
@@ -322,6 +431,13 @@ export const DESTINATIONS: Destination[] = [
     format: 'png',
     accepts: 'png|jpg',
     fit: 'cover',
+    text: 'expected',
+    safe: {
+      x: 0.0391,
+      y: 0.0781,
+      w: 0.9219,
+      h: 0.8438,
+    },
     notes: 'Key text ≥50px from every edge.',
   },
 ]

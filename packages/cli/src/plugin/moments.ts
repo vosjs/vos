@@ -46,9 +46,10 @@ export function momentCandidates(
     out.push(c)
   }
   const steps = doc.source.meta.steps ?? []
-  for (const s of steps) {
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i]
     if (s.skipped || NOT_A_GESTURE.has(s.do)) continue
-    const t = stepOutputTime(rated, s, STEP_SETTLE_SECONDS)
+    const t = stepOutputTime(rated, s, settleAfter(steps, i))
     if (t === null) continue
     push({ time: t, source: 'step', step: s.id ?? s.step })
   }
@@ -66,6 +67,19 @@ export function momentCandidates(
       push({ time: p * duration, source: 'spread' })
   }
   return { candidates: out, dropped }
+}
+
+/**
+ * How long after a gesture's end its frame is read. The script's author
+ * says it when a `wait` follows the step (a click that navigates, a hover
+ * that opens a menu: the wait IS the response landing), so the moment is
+ * that wait's end; otherwise the default settle.
+ */
+export function settleAfter(steps: StepSpan[], i: number): number {
+  const next = steps[i + 1]
+  if (next && next.do === 'wait' && !next.skipped)
+    return Math.max(0, next.tEnd - steps[i].tEnd)
+  return STEP_SETTLE_SECONDS
 }
 
 /**
@@ -133,6 +147,13 @@ export interface MomentPick {
 export const DUPLICATE_BITS = 6
 
 /**
+ * The relative floor's cap: a frame with this much ink is populated no
+ * matter how dense the take's other pages are (a gallery grid reads 90%+
+ * and must not make a watch page at 30% read as blank).
+ */
+export const POPULATED_INK = 0.12
+
+/**
  * Keep the candidates that are populated and distinct. The blank floor is
  * relative to the take (a fraction of the median ink across candidates,
  * with an absolute floor), so a dense page and a sparse app are each held
@@ -148,13 +169,13 @@ export function pickMoments(
   const bits = opts.duplicateBits ?? DUPLICATE_BITS
   const inks = measured.map((m) => m.ink).sort((a, b) => a - b)
   const median = inks[inks.length >> 1] ?? 0
-  const floor = Math.max(minInk, median * relative)
+  const floor = Math.max(minInk, Math.min(POPULATED_INK, median * relative))
   const kept: CandidateMeasure[] = []
   const dropped: string[] = []
   for (const m of measured) {
     if (m.ink < floor) {
       dropped.push(
-        `blank at ${m.time.toFixed(2)}s: ${Math.round(m.ink * 100)}% ink, the take's median is ${Math.round(median * 100)}%`,
+        `blank at ${m.time.toFixed(2)}s: ${Math.round(m.ink * 100)}% ink (the floor is ${Math.round(floor * 100)}%; the take's median is ${Math.round(median * 100)}%)`,
       )
       continue
     }

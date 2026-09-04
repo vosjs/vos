@@ -205,30 +205,108 @@ export function cardBounds(
 }
 
 /**
- * Shadow presence: the mean delta from the ground in a band 1..3% of the
- * height below the card's bottom edge (inside the frame). A soft shadow
- * reads above ~6; a hard edge on a flat ground reads ~0. Null when the
- * card touches the bottom (nothing to measure).
+ * Shadow presence, read INWARD from the object's faint edge: a soft shadow
+ * is a halo whose delta from the ground grows toward the card, so the band
+ * nearer the card must read darker than the outer band (a card fill, a
+ * hard edge or a flat plate read flat). Sides read are left, right and
+ * bottom, wherever the object clears the frame; the reading is the nearer
+ * band's delta, else 0. Null when no side has room.
  */
-export function shadowBelow(
+export function haloReading(
   img: Rgba,
   ground: [number, number, number],
   card: Rect,
 ): number | null {
-  const band = Math.max(2, Math.round(img.h * 0.02))
-  const y0 = Math.min(img.h, card.y + card.h + 2)
-  const y1 = Math.min(img.h, y0 + band)
-  if (y1 - y0 < 2) return null
-  let sum = 0
-  let n = 0
-  const step = Math.max(1, Math.round(card.w / 200))
-  for (let y = y0; y < y1; y++) {
-    for (let x = Math.max(0, card.x); x < Math.min(img.w, card.x + card.w); x += step) {
-      sum += delta(at(img, x, y), ground)
-      n++
+  const band = Math.max(2, Math.round(Math.min(img.w, img.h) * 0.012))
+  const meanRect = (x0: number, y0: number, x1: number, y1: number) => {
+    let sum = 0
+    let n = 0
+    const sx = Math.max(1, Math.round((x1 - x0) / 60))
+    const sy = Math.max(1, Math.round((y1 - y0) / 60))
+    for (let y = Math.max(0, y0); y < Math.min(img.h, y1); y += sy) {
+      for (let x = Math.max(0, x0); x < Math.min(img.w, x1); x += sx) {
+        sum += delta(at(img, x, y), ground)
+        n++
+      }
     }
+    return n ? sum / n : 0
   }
-  return n ? sum / n : null
+  // Two bands, not three: the innermost band would reach the card's own
+  // fill, which on a light card is LIGHTER than the halo and breaks the
+  // rise. A halo is present when the band nearer the card is darker than
+  // the outer one by a clear step and the outer one is not the ground.
+  const rise = (bands: [number, number, number]) => {
+    const [outer, mid] = bands
+    return outer >= 3 && mid - outer >= 1.5 ? mid : 0
+  }
+  const readings: number[] = []
+  const yA = card.y + card.h * 0.2
+  const yB = card.y + card.h * 0.8
+  if (card.x >= 1 && card.w > band * 4) {
+    const x0 = card.x
+    readings.push(
+      rise([
+        meanRect(x0, yA, x0 + band, yB),
+        meanRect(x0 + band, yA, x0 + band * 2, yB),
+        meanRect(x0 + band * 2, yA, x0 + band * 3, yB),
+      ]),
+    )
+  }
+  if (card.x + card.w <= img.w - 1 && card.w > band * 4) {
+    const x1 = card.x + card.w
+    readings.push(
+      rise([
+        meanRect(x1 - band, yA, x1, yB),
+        meanRect(x1 - band * 2, yA, x1 - band, yB),
+        meanRect(x1 - band * 3, yA, x1 - band * 2, yB),
+      ]),
+    )
+  }
+  if (card.y + card.h <= img.h - 1 && card.h > band * 4) {
+    const y1 = card.y + card.h
+    const xA = card.x + card.w * 0.2
+    const xB = card.x + card.w * 0.8
+    readings.push(
+      rise([
+        meanRect(xA, y1 - band, xB, y1),
+        meanRect(xA, y1 - band * 2, xB, y1 - band),
+        meanRect(xA, y1 - band * 3, xB, y1 - band * 2),
+      ]),
+    )
+  }
+  return readings.length ? Math.max(...readings) : null
+}
+
+/**
+ * A drawn edge at the object's boundary: the strongest single column
+ * within the first 24 px inside the faint edge (the halo lies between the
+ * faint edge and the card, so the hairline sits a few px in), as the
+ * median delta from the ground along its height. A hairline, a browser bar or a dark card reads
+ * high; a light fill against a light plate reads its own small tone step.
+ */
+export function edgeContrast(
+  img: Rgba,
+  ground: [number, number, number],
+  card: Rect,
+): number {
+  const yA = Math.max(0, Math.round(card.y + card.h * 0.2))
+  const yB = Math.min(img.h, Math.round(card.y + card.h * 0.8))
+  // The MEDIAN of a column, not its mean: a drawn edge is dark along its
+  // whole height, while a column through page content is mostly fill with
+  // a few dark rows, which a mean would mistake for an edge.
+  const col = (x: number) => {
+    if (x < 0 || x >= img.w) return 0
+    const ds: number[] = []
+    const step = Math.max(1, Math.round((yB - yA) / 80))
+    for (let y = yA; y < yB; y += step) ds.push(delta(at(img, x, y), ground))
+    return median(ds)
+  }
+  const depth = Math.min(24, Math.floor(card.w / 8))
+  let best = 0
+  for (let d = 0; d < depth; d++) {
+    best = Math.max(best, col(card.x + d), col(card.x + card.w - 1 - d))
+  }
+  return best
 }
 
 /**
@@ -397,8 +475,10 @@ export interface StillMeasure {
   pad: { left: number; right: number; top: number; bottom: number } | null
   /** Sides where the card runs to (or past) the frame edge (< 0.5% room). */
   bleed: ('left' | 'right' | 'top' | 'bottom')[]
-  /** Shadow band reading below the card, null when the card touches the bottom. */
+  /** The shadow halo reading inward from the object's edge; null when no side clears the frame. */
   shadow: number | null
+  /** The strongest drawn edge at the boundary (a hairline, a bar, a dark card). */
+  edge: number
   /** Ink coverage inside the card (or the whole frame when no card). */
   ink: number
   /** L* difference between the card's median and the ground. */
@@ -408,11 +488,18 @@ export interface StillMeasure {
 
 export function measureStill(img: Rgba): StillMeasure {
   const g = groundColour(img)
-  const card = cardBounds(img, g)
+  // Two thresholds: the STRONG box is the content (60, the reference
+  // measurement); the FAINT box (12) is the object, halo and hairline
+  // included, which is what a light card on a light plate needs to be
+  // found by at all.
+  const strong = cardBounds(img, g, 60)
+  const faint = cardBounds(img, g, 12) ?? strong
+  const card = faint
   const bleed: StillMeasure['bleed'] = []
   let pad: StillMeasure['pad'] = null
   let widthPct: number | null = null
   let shadow: number | null = null
+  let edge = 0
   let separation: number | null = null
   if (card) {
     pad = {
@@ -424,16 +511,18 @@ export function measureStill(img: Rgba): StillMeasure {
     for (const side of ['left', 'right', 'top', 'bottom'] as const)
       if (pad[side] < 0.005) bleed.push(side)
     widthPct = card.w / img.w
-    shadow = shadowBelow(img, g, card)
+    shadow = haloReading(img, g, card)
+    edge = edgeContrast(img, g, card)
+    const body = strong ?? card
     const inner = {
-      x: card.x + card.w * 0.1,
-      y: card.y + card.h * 0.1,
-      w: card.w * 0.8,
-      h: card.h * 0.8,
+      x: body.x + body.w * 0.1,
+      y: body.y + body.h * 0.1,
+      w: body.w * 0.8,
+      h: body.h * 0.8,
     }
     separation = Math.abs(lightness(medianColour(img, inner)) - lightness(g))
   }
-  const inkRect = card ?? { x: 0, y: 0, w: img.w, h: img.h }
+  const inkRect = strong ?? card ?? { x: 0, y: 0, w: img.w, h: img.h }
   return {
     w: img.w,
     h: img.h,
@@ -443,6 +532,7 @@ export function measureStill(img: Rgba): StillMeasure {
     pad,
     bleed,
     shadow,
+    edge,
     ink: inkCoverage(img, inkRect),
     separation,
     hash: differenceHash(img, inkRect),

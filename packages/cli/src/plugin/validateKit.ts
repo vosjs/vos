@@ -11,6 +11,9 @@ import { existsSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 import { DESTINATIONS } from '@vosjs/studio-core'
+import { pictureChecks } from './kitPicture'
+import type { PictureAsset, PictureFinding, TextBox } from './kitPicture'
+import type { StillMeasure } from './picture'
 import type { Destination } from '@vosjs/studio-core'
 
 export interface KitAssetRecord {
@@ -24,6 +27,14 @@ export interface KitAssetRecord {
   seconds: number | null
   frameTime?: number | null
   source?: string
+  /**
+   * Where the words are, as fractions of the asset (the poster leg records
+   * the element layout it rendered): what the sliced, safe and contrast
+   * checks read. Absent on a take frame, whose page text is unknown.
+   */
+  text?: TextBox[]
+  /** A screenshot rendered with the cut's camera and chrome (--composed). */
+  composed?: boolean
 }
 
 export interface KitRecord {
@@ -38,6 +49,14 @@ export interface KitVerdict {
   valid: boolean
   problems: string[]
   warnings: string[]
+  /**
+   * The picture checks (`--picture`): every finding with a code, a
+   * severity, a message, a fix hint and a box. An `error` finding fails
+   * the verdict beside the spec problems; absent when the pass did not run.
+   */
+  picture?: PictureFinding[]
+  /** Per asset, what the picture pass measured (null = unreadable). */
+  pictureMeasured?: { destination: string; measure: StillMeasure | null }[]
   /** Per asset: what the file measured. */
   measured: {
     destination: string
@@ -106,7 +125,10 @@ const near = (a: number, b: number, tol: number) => Math.abs(a - b) <= tol
  * its directory (the deliver output layout) or against `take`-relative
  * `media/kit/…` paths a hand-assembled PR kit uses.
  */
-export async function validateKit(kitPath: string): Promise<KitVerdict> {
+export async function validateKit(
+  kitPath: string,
+  opts: { picture?: boolean } = {},
+): Promise<KitVerdict> {
   const problems: string[] = []
   const warnings: string[] = []
   const measured: KitVerdict['measured'] = []
@@ -140,6 +162,7 @@ export async function validateKit(kitPath: string): Promise<KitVerdict> {
     return beside
   }
   const perDestination = new Map<string, number>()
+  const pictureAssets: PictureAsset[] = []
 
   for (const a of kit.assets) {
     const id = a.destination ?? `${a.channel}-${a.asset}`
@@ -207,6 +230,15 @@ export async function validateKit(kitPath: string): Promise<KitVerdict> {
       )
     }
     measured.push({ destination: id, path: a.path, w, h, bytes, seconds })
+    pictureAssets.push({
+      destination: id,
+      path: a.path,
+      file,
+      spec,
+      text: a.text,
+      seconds,
+      composed: a.composed,
+    })
 
     if (!spec) {
       if (a.channel !== 'demo')
@@ -247,5 +279,17 @@ export async function validateKit(kitPath: string): Promise<KitVerdict> {
       )
   }
 
-  return { valid: problems.length === 0, problems, warnings, measured }
+  if (!opts.picture) {
+    return { valid: problems.length === 0, problems, warnings, measured }
+  }
+  const picture = await pictureChecks(pictureAssets)
+  const pictureErrors = picture.findings.filter((f) => f.severity === 'error')
+  return {
+    valid: problems.length === 0 && pictureErrors.length === 0,
+    problems,
+    warnings,
+    measured,
+    picture: picture.findings,
+    pictureMeasured: picture.measured,
+  }
 }

@@ -138,6 +138,11 @@ export interface KitAsset {
   frameTime: number | null
   /** Where the pixels came from: the take (absent = take) or the poster. */
   source?: 'poster'
+  /**
+   * A screenshot-genre still rendered with the cut's camera and chrome
+   * (`--composed`), which store policy refuses; the picture checks read it.
+   */
+  composed?: boolean
 }
 
 export interface KitManifest {
@@ -302,16 +307,23 @@ async function pickStillTimes(
         set: [...SCREENSHOT_DEFAULTS, ...(opts.overrides?.set ?? [])],
       },
     })
-    const measured = []
-    for (let i = 0; i < probe.frames.length; i++) {
-      const img = decodePng(new Uint8Array(await readFile(probe.frames[i].file)))
+    // The probe writes its frames in time order; the candidates are in
+    // rung order (steps first), which is the order the pick must keep, so
+    // measures are joined by TIME, never by index.
+    const byTime = new Map<number, { ink: number; hash: string }>()
+    for (const frame of probe.frames) {
+      const img = decodePng(new Uint8Array(await readFile(frame.file)))
       if (!img) continue
       const whole = { x: 0, y: 0, w: img.w, h: img.h }
-      measured.push({
-        time: candidates[i].time,
+      byTime.set(+frame.time.toFixed(3), {
         ink: inkCoverage(img, whole),
         hash: differenceHash(img, whole),
       })
+    }
+    const measured = []
+    for (const c of candidates) {
+      const m = byTime.get(+c.time.toFixed(3))
+      if (m) measured.push({ time: c.time, ...m })
     }
     const pick = pickMoments(measured)
     const kept = candidates.filter((c) => pick.times.includes(c.time))
@@ -682,6 +694,7 @@ export async function deliverTake(
         bytes,
         seconds: null,
         frameTime: frame.time,
+        ...(d.genre === 'screenshot' && opts.composed ? { composed: true } : {}),
       })
     }
     if (d.count && captured.frames.length < d.count.min) {

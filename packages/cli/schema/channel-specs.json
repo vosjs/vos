@@ -1,5 +1,5 @@
 {
-  "$comment": "Per-channel launch-asset specs \u2014 the data the launch-kit skill loops over (mirrored as references/channel-specs.md in vosjs/skills; update together). Verified against official platform docs 2026-08-04; platform specs drift, re-verify quarterly. Image specs carry `genre`: 'screenshot' = real UI from the take (store policy demands real UX); 'card' = a composed cover \u2014 rendered from the poster program when one is in hand.",
+  "$comment": "Per-channel launch-asset specs — the data the launch-kit skill loops over (mirrored as references/channel-specs.md in vosjs/skills; update together). Verified against official platform docs 2026-08-04; platform specs drift, re-verify quarterly. Image specs carry `genre`: 'screenshot' = real UI from the take (store policy demands real UX); 'card' = a composed cover — rendered from the poster program when one is in hand. `text` is the destination's word policy: 'none' (the picture carries it alone: a tile, a store screenshot), 'allowed', 'expected' (a card that should say something). `safe` is the rect, as fractions of the frame, that every text box must sit inside (the platform's own chrome or crop covers the rest); the picture checks read both.",
   "version": 1,
   "verified": "2026-08-04",
   "specs": [
@@ -12,7 +12,14 @@
       "minSeconds": 60,
       "maxSeconds": 120,
       "format": "mp4 (H.264+AAC)",
-      "notes": "Captions burned in. The same public upload serves the Chrome Web Store promo video and Product Hunt video (both take YouTube URLs only)."
+      "notes": "Captions burned in. The same public upload serves the Chrome Web Store promo video and Product Hunt video (both take YouTube URLs only).",
+      "text": "allowed",
+      "safe": {
+        "x": 0.05,
+        "y": 0.08,
+        "w": 0.9,
+        "h": 0.84
+      }
     },
     {
       "channel": "x",
@@ -23,8 +30,15 @@
       "minSeconds": 30,
       "maxSeconds": 140,
       "maxBytes": 536870912,
-      "format": "mp4 (H.264+AAC ONLY \u2014 HEVC/VP9/AV1 rejected)",
-      "notes": "30\u201360s plays best; 140s/512MB is the free-tier ceiling. 1:1 also allowed. Native upload, never a link post."
+      "format": "mp4 (H.264+AAC ONLY — HEVC/VP9/AV1 rejected)",
+      "notes": "30–60s plays best; 140s/512MB is the free-tier ceiling. 1:1 also allowed. Native upload, never a link post.",
+      "text": "allowed",
+      "safe": {
+        "x": 0.05,
+        "y": 0.08,
+        "w": 0.9,
+        "h": 0.84
+      }
     },
     {
       "channel": "shorts-linkedin",
@@ -35,7 +49,14 @@
       "minSeconds": 30,
       "maxSeconds": 90,
       "format": "mp4 (H.264+AAC)",
-      "notes": "Critical text inside a centered ~900\u00d71160 safe zone \u2014 platform chrome covers the rest. Serves YouTube Shorts and LinkedIn native vertical."
+      "notes": "Critical text inside a centered ~900×1160 safe zone — platform chrome covers the rest. Serves YouTube Shorts and LinkedIn native vertical.",
+      "text": "expected",
+      "safe": {
+        "x": 0.0833,
+        "y": 0.1979,
+        "w": 0.8333,
+        "h": 0.6042
+      }
     },
     {
       "channel": "github",
@@ -47,7 +68,14 @@
       "maxSeconds": 20,
       "maxBytes": 10485760,
       "format": "mp4 (H.264)",
-      "notes": "\u226410MB is the free-plan attachment ceiling; two-pass target bitrate from duration."
+      "notes": "≤10MB is the free-plan attachment ceiling; two-pass target bitrate from duration.",
+      "text": "none",
+      "safe": {
+        "x": 0.05,
+        "y": 0.08,
+        "w": 0.9,
+        "h": 0.84
+      }
     },
     {
       "channel": "youtube",
@@ -58,7 +86,14 @@
       "maxBytes": 2097152,
       "format": "png|jpg",
       "notes": "",
-      "genre": "card"
+      "genre": "card",
+      "text": "expected",
+      "safe": {
+        "x": 0.05,
+        "y": 0.08,
+        "w": 0.9,
+        "h": 0.84
+      }
     },
     {
       "channel": "cws",
@@ -68,8 +103,15 @@
       "h": 800,
       "count": "1-5",
       "format": "png|jpg",
-      "notes": "Real UX only \u2014 misleading listing images are a removal-grade violation. Full bleed, square corners.",
-      "genre": "screenshot"
+      "notes": "Real UX only — misleading listing images are a removal-grade violation. Full bleed, square corners.",
+      "genre": "screenshot",
+      "text": "none",
+      "safe": {
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 1
+      }
     },
     {
       "channel": "cws",
@@ -79,7 +121,14 @@
       "h": 280,
       "format": "png|jpg",
       "notes": "Listings without one rank lower. No text; fill the region; subject centered.",
-      "genre": "card"
+      "genre": "card",
+      "text": "none",
+      "safe": {
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 1
+      }
     },
     {
       "channel": "cws",
@@ -89,7 +138,14 @@
       "h": 560,
       "format": "png|jpg",
       "notes": "Carousel eligibility.",
-      "genre": "card"
+      "genre": "card",
+      "text": "allowed",
+      "safe": {
+        "x": 0.05,
+        "y": 0.08,
+        "w": 0.9,
+        "h": 0.84
+      }
     },
     {
       "channel": "cws",
@@ -98,7 +154,14 @@
       "w": 128,
       "h": 128,
       "format": "png",
-      "notes": "96\u00d796 art + 16px transparent padding."
+      "notes": "96×96 art + 16px transparent padding.",
+      "text": "none",
+      "safe": {
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 1
+      }
     },
     {
       "channel": "producthunt",
@@ -108,8 +171,15 @@
       "h": 240,
       "maxBytes": 3145728,
       "format": "gif|png",
-      "notes": "GIF animates on hover only \u2014 the first frame must stand alone.",
-      "genre": "card"
+      "notes": "GIF animates on hover only — the first frame must stand alone.",
+      "genre": "card",
+      "text": "none",
+      "safe": {
+        "x": 0.06,
+        "y": 0.06,
+        "w": 0.88,
+        "h": 0.88
+      }
     },
     {
       "channel": "producthunt",
@@ -120,7 +190,14 @@
       "count": "4-8",
       "format": "png|jpg|gif",
       "notes": "First image is the hero.",
-      "genre": "screenshot"
+      "genre": "screenshot",
+      "text": "none",
+      "safe": {
+        "x": 0,
+        "y": 0,
+        "w": 1,
+        "h": 1
+      }
     },
     {
       "channel": "x",
@@ -130,7 +207,14 @@
       "h": 675,
       "format": "png|jpg",
       "notes": "",
-      "genre": "card"
+      "genre": "card",
+      "text": "allowed",
+      "safe": {
+        "x": 0.05,
+        "y": 0.08,
+        "w": 0.9,
+        "h": 0.84
+      }
     },
     {
       "channel": "linkedin",
@@ -139,8 +223,15 @@
       "w": 1200,
       "h": 627,
       "format": "png|jpg",
-      "notes": "1080\u00d71350 vertical also performs in the mobile feed.",
-      "genre": "card"
+      "notes": "1080×1350 vertical also performs in the mobile feed.",
+      "genre": "card",
+      "text": "expected",
+      "safe": {
+        "x": 0.05,
+        "y": 0.08,
+        "w": 0.9,
+        "h": 0.84
+      }
     },
     {
       "channel": "og",
@@ -150,8 +241,15 @@
       "h": 630,
       "maxBytes": 1048576,
       "format": "png|jpg",
-      "notes": "Text in the center ~1080\u00d7600. Set twitter:card=summary_large_image explicitly \u2014 og:image alone gets the small card.",
-      "genre": "card"
+      "notes": "Text in the center ~1080×600. Set twitter:card=summary_large_image explicitly — og:image alone gets the small card.",
+      "genre": "card",
+      "text": "expected",
+      "safe": {
+        "x": 0.05,
+        "y": 0.0238,
+        "w": 0.9,
+        "h": 0.9524
+      }
     },
     {
       "channel": "github",
@@ -161,8 +259,15 @@
       "h": 640,
       "maxBytes": 1048576,
       "format": "png|jpg",
-      "notes": "Key text \u226550px from every edge.",
-      "genre": "card"
+      "notes": "Key text ≥50px from every edge.",
+      "genre": "card",
+      "text": "expected",
+      "safe": {
+        "x": 0.0391,
+        "y": 0.0781,
+        "w": 0.9219,
+        "h": 0.8438
+      }
     }
   ]
 }
