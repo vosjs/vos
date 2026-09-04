@@ -1,5 +1,13 @@
 # @vosjs/tween
 
+## 0.8.2
+
+### Patch Changes
+
+- 598cec7: READMEs rewritten against the current API: every example compiles against the exported signatures, each package lists its real exports, and stale package names and moved modules are gone.
+- Updated dependencies [598cec7]
+  - @vosjs/timeline@0.4.1
+
 ## 0.8.1
 
 ### Patch Changes

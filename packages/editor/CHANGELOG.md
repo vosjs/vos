@@ -1,5 +1,11 @@
 # @vosjs/editor
 
+## 1.3.1
+
+### Patch Changes
+
+- 598cec7: READMEs rewritten against the current API: every example compiles against the exported signatures, each package lists its real exports, and stale package names and moved modules are gone.
+
 ## 1.3.0
 
 ### Minor Changes
