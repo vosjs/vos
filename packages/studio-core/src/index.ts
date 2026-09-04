@@ -189,6 +189,14 @@ export {
 } from './look'
 export type { Look, LookBrand, LookKind, LookPlacement } from './look'
 export {
+  END_CARD_SECONDS,
+  ENTRANCE_SECONDS,
+  cardPoseTrack,
+  entranceSeconds,
+  expandEndCard,
+  withHolds,
+} from './lower/motion'
+export {
   BACKGROUND_Z,
   CAMERA_FAR,
   CAMERA_NEAR,

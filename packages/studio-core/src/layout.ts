@@ -55,6 +55,11 @@ export function computeCardLayout(
   video: { width: number; height: number },
   W: number,
   H: number,
+  /**
+   * The zoom track's current focus, for a frame whose cover crop FOLLOWS
+   * the camera (`focusFollow: 'camera'`); absent = the frame's own focus.
+   */
+  zoomFocus?: { cx: number; cy: number },
 ): CardLayout {
   const s = H / 1080 // scale design-px controls to comp px (same rule as ON_FRAME)
   const pad = (frame.padding || 0) * s
@@ -83,8 +88,9 @@ export function computeCardLayout(
     const sc = Math.max(availW / vw, availH / vh)
     const dw = vw * sc
     const dh = vh * sc
-    const fcx = clamp01(frame.focus?.cx ?? 0.5)
-    const fcy = clamp01(frame.focus?.cy ?? 0.5)
+    const follow = frame.focusFollow === 'camera' && zoomFocus ? zoomFocus : null
+    const fcx = clamp01(follow ? follow.cx : (frame.focus?.cx ?? 0.5))
+    const fcy = clamp01(follow ? follow.cy : (frame.focus?.cy ?? 0.5))
     const vTop = padT + barH
     const dx = Math.min(
       padL,

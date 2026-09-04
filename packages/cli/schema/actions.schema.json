@@ -2,9 +2,11 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://vos.so/schemas/actions.schema.json",
   "title": "vosso actions script",
-  "description": "Declarative browser flow executed by `vos record` \u2014 the recipe an agent writes after exploring a site. The recorder synthesizes the cursor track from these steps.",
+  "description": "Declarative browser flow executed by `vos record` — the recipe an agent writes after exploring a site. The recorder synthesizes the cursor track from these steps.",
   "type": "object",
-  "required": ["steps"],
+  "required": [
+    "steps"
+  ],
   "additionalProperties": false,
   "properties": {
     "url": {
@@ -14,7 +16,10 @@
     },
     "viewport": {
       "type": "object",
-      "required": ["width", "height"],
+      "required": [
+        "width",
+        "height"
+      ],
       "additionalProperties": false,
       "properties": {
         "width": {
@@ -36,7 +41,10 @@
         "oneOf": [
           {
             "type": "object",
-            "required": ["do", "ms"],
+            "required": [
+              "do",
+              "ms"
+            ],
             "additionalProperties": false,
             "properties": {
               "do": {
@@ -50,12 +58,20 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
+              },
+              "caption": {
+                "type": "string",
+                "maxLength": 80,
+                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on loops or stills"
               }
             }
           },
           {
             "type": "object",
-            "required": ["do", "selector"],
+            "required": [
+              "do",
+              "selector"
+            ],
             "additionalProperties": false,
             "properties": {
               "do": {
@@ -68,18 +84,26 @@
                 "type": "number",
                 "minimum": 0,
                 "default": 700,
-                "description": "Dwell \u2014 parked cursor becomes a zoom signal."
+                "description": "Dwell — parked cursor becomes a zoom signal."
               },
               "id": {
                 "type": "string",
                 "minLength": 1,
                 "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
+              },
+              "caption": {
+                "type": "string",
+                "maxLength": 80,
+                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on loops or stills"
               }
             }
           },
           {
             "type": "object",
-            "required": ["do", "selector"],
+            "required": [
+              "do",
+              "selector"
+            ],
             "additionalProperties": false,
             "properties": {
               "do": {
@@ -92,14 +116,23 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
+              },
+              "caption": {
+                "type": "string",
+                "maxLength": 80,
+                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on loops or stills"
               }
             }
           },
           {
             "type": "object",
-            "required": ["do", "selector", "text"],
+            "required": [
+              "do",
+              "selector",
+              "text"
+            ],
             "additionalProperties": false,
-            "description": "Typing is a zoom signal \u2014 a type step earns a held frame on its field (the click into it opens the span, the camera releases after the last character). ~0.6s+ of typing qualifies, so pace delayMs like a person (60-90ms) for a camera moment.",
+            "description": "Typing is a zoom signal — a type step earns a held frame on its field (the click into it opens the span, the camera releases after the last character). ~0.6s+ of typing qualifies, so pace delayMs like a person (60-90ms) for a camera moment.",
             "properties": {
               "do": {
                 "const": "type"
@@ -124,12 +157,20 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
+              },
+              "caption": {
+                "type": "string",
+                "maxLength": 80,
+                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on loops or stills"
               }
             }
           },
           {
             "type": "object",
-            "required": ["do", "dy"],
+            "required": [
+              "do",
+              "dy"
+            ],
             "additionalProperties": false,
             "properties": {
               "do": {
@@ -142,12 +183,21 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
+              },
+              "caption": {
+                "type": "string",
+                "maxLength": 80,
+                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on loops or stills"
               }
             }
           },
           {
             "type": "object",
-            "required": ["do", "x", "y"],
+            "required": [
+              "do",
+              "x",
+              "y"
+            ],
             "additionalProperties": false,
             "properties": {
               "do": {
@@ -165,12 +215,21 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
+              },
+              "caption": {
+                "type": "string",
+                "maxLength": 80,
+                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on loops or stills"
               }
             }
           },
           {
             "type": "object",
-            "required": ["do", "tx", "ty"],
+            "required": [
+              "do",
+              "tx",
+              "ty"
+            ],
             "additionalProperties": false,
             "description": "Press-move-release: drag an element, slide a range input, move a clip. Start = selector center when given, else (x, y); end = (tx, ty), eased over ms.",
             "properties": {
@@ -205,6 +264,11 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
+              },
+              "caption": {
+                "type": "string",
+                "maxLength": 80,
+                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on loops or stills"
               }
             }
           }

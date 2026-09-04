@@ -87,6 +87,14 @@ import { followFocusEvents } from './cursorFollow'
 import { cursorIdleFade } from './cursorIdle'
 import { STUDIO_ENTRY_ID, studioEntry } from './studioEntry'
 import {
+  cardPoseTrack,
+  entranceTiltKeyframes,
+  entranceZoomKeyframes,
+  expandEndCard,
+  prependEntrance,
+  withHolds,
+} from './motion'
+import {
   CLICK_FX_PRE,
   CLICK_HIGHLIGHT_FADE,
   CLICK_PULSE_DUR,
@@ -209,7 +217,9 @@ export function ratedSegments(doc: StudioDoc): Segment[] {
       ? doc.segments
       : [{ in: 0, out: doc.source.meta.durationMs / 1000 }]
     : [{ in: 0, out: programDuration(doc) }]
-  return splitBySpeed(segs, doc.speed ?? [])
+  // A held segment freezes on its last frame for its hold seconds; the
+  // freeze is a rated piece, so every reader of this list inherits it.
+  return withHolds(segs, splitBySpeed(segs, doc.speed ?? []))
 }
 
 function durationSec(doc: ProjectDoc, rated: Segment[]): number {
@@ -1414,6 +1424,15 @@ const ON_FRAME = `(ctx, content, dt) => {
   var fitCover = frame.fit === 'cover'
   var cf = fitCover ? 1 : Math.min(1, (W / H) / (vw / vh))
   var s2 = s * cf
+  // current zoom — a standard keyframe track in OUTPUT time (hold + arrival pairs
+  // expanded by the lowering), sampled with the shared deterministic interpolator.
+  // Sampled here, before the rect math, so a cover crop can follow it.
+  var lvl = 1, zx = 0.5, zy = 0.5
+  var zt = d.zoomTrack
+  if (zt && zt.keyframes && zt.keyframes.length) {
+    var z = TL.sample(zt, t, TL.lerpArray)
+    lvl = z[0]; zx = z[1]; zy = z[2]
+  }
   var barH = bar.kind && bar.kind !== 'none' ? (bar.height || 44) * s2 : 0
   var availW = Math.max(1, W - ipL - ipR), availH = Math.max(1, H - ipT - ipB - barH)
   var sc, dw, dh, dx, dy, cardX, cardY, cardW, cardH
@@ -1424,6 +1443,8 @@ const ON_FRAME = `(ctx, content, dt) => {
     var fcv = frame.focus || {}
     var fcx = fcv.cx == null ? 0.5 : Math.max(0, Math.min(1, fcv.cx))
     var fcy = fcv.cy == null ? 0.5 : Math.max(0, Math.min(1, fcv.cy))
+    // focusFollow: the crop keeps the camera's focus in frame (a 9:16 cut).
+    if (frame.focusFollow === 'camera' && zt && zt.keyframes && zt.keyframes.length) { fcx = zx; fcy = zy }
     var vTop = ipT + barH
     dx = Math.min(cardX, Math.max(cardX + availW - dw, cardX + availW / 2 - fcx * dw))
     dy = Math.min(vTop, Math.max(vTop + availH - dh, vTop + availH / 2 - fcy * dh))
@@ -1445,15 +1466,6 @@ const ON_FRAME = `(ctx, content, dt) => {
   var shHex = frame.shadowColor
   if (typeof shHex === 'string' && /^#[0-9a-fA-F]{6}$/.test(shHex)) {
     shRgb = parseInt(shHex.slice(1, 3), 16) + ',' + parseInt(shHex.slice(3, 5), 16) + ',' + parseInt(shHex.slice(5, 7), 16)
-  }
-
-  // current zoom — a standard keyframe track in OUTPUT time (hold + arrival pairs
-  // expanded by the lowering), sampled with the shared deterministic interpolator.
-  var lvl = 1, zx = 0.5, zy = 0.5
-  var zt = d.zoomTrack
-  if (zt && zt.keyframes && zt.keyframes.length) {
-    var z = TL.sample(zt, t, TL.lerpArray)
-    lvl = z[0]; zx = z[1]; zy = z[2]
   }
 
   function rr(x, y, w, h, rd, cx) {
@@ -1850,6 +1862,20 @@ const ON_FRAME = `(ctx, content, dt) => {
     }
     card.mesh.rotation.x = rx
     card.mesh.rotation.y = ry
+    // The card's pose through an entrance or an end card: [scale, dy,
+    // opacity]; absent = the rest pose, exactly as before the track existed.
+    var cpk = d.cardPoseTrack
+    var cpH = card.mesh.geometry && card.mesh.geometry.parameters ? card.mesh.geometry.parameters.height : 0
+    if (cpk && cpk.keyframes && cpk.keyframes.length && card.mesh.scale && card.mesh.position) {
+      var cpv = TL.sample(cpk, t, TL.lerpArray)
+      card.mesh.scale.x = cpv[0]; card.mesh.scale.y = cpv[0]
+      card.mesh.position.y = cpv[1] * cpH
+      if (card.mesh.material) card.mesh.material.opacity = cpv[2]
+    } else if (card.mesh.scale && card.mesh.position && ((card.mesh.scale.x !== undefined && card.mesh.scale.x !== 1) || (card.mesh.position.y !== undefined && card.mesh.position.y !== 0))) {
+      card.mesh.scale.x = 1; card.mesh.scale.y = 1
+      card.mesh.position.y = 0
+      if (card.mesh.material) card.mesh.material.opacity = 1
+    }
     var tilted = rx * rx + ry * ry > 1e-6
     if (card.texture && card.texture.generateMipmaps !== tilted) {
       var THREE2 = ctx.THREE
@@ -2073,7 +2099,12 @@ export function studioLayerData(
   }
 }
 
-export function lowerToComposition(doc: ProjectDoc): LoweredComposition {
+export function lowerToComposition(input: ProjectDoc): LoweredComposition {
+  // The end card expands first: it adds a hold and three overlays, and the
+  // hold changes the duration every track below is laid out against.
+  const before = durationSec(input, ratedSegments(input))
+  const expanded = expandEndCard(input, before)
+  const doc = expanded.doc
   const rated = ratedSegments(doc)
   const duration = durationSec(doc, rated)
   // clickSnap only when effects are on, so an effects-off doc's path (and its
@@ -2166,17 +2197,36 @@ export function lowerToComposition(doc: ProjectDoc): LoweredComposition {
     // intensities/colors become numbers HERE — ON_FRAME reads no registry).
     ...clickFxData(doc, rated),
     // Rated segments so zoom spans land at their speed-adjusted output times.
-    zoomTrack: zoomTrackFromDoc(zoomSpans, rated, zoomStyle),
+    // A pull-out entrance writes the track's head.
+    zoomTrack: prependEntrance(
+      zoomTrackFromDoc(zoomSpans, rated, zoomStyle),
+      entranceZoomKeyframes(doc.frame.entrance),
+    ),
     // Tilt spans: OUTPUT-time [rx, ry] degree track. The rest pose is
     // FLAT — there is no static card tilt any more — and the motion constants
     // come from the camera style's tilt personality ('drift' slows its
     // leans, 'keynote' matches the zoom ramps). Omitted when the doc has no
-    // spans — byte parity.
-    ...(doc.tilt && doc.tilt.length
-      ? {
-          tiltTrack: tiltTrackFromDoc(doc.tilt, rated, zoomStyle.tilt),
-        }
-      : {}),
+    // spans and no tilt-in entrance — byte parity. The entrance is a
+    // producer of this track, never a second pose.
+    ...(() => {
+      const head = entranceTiltKeyframes(doc.frame.entrance)
+      const spans =
+        doc.tilt && doc.tilt.length
+          ? tiltTrackFromDoc(doc.tilt, rated, zoomStyle.tilt)
+          : undefined
+      const track = prependEntrance(spans, head)
+      return track ? { tiltTrack: track } : {}
+    })(),
+    // The card's pose through the entrance and the end card: [scale, dy,
+    // opacity] in output seconds. Absent when neither exists.
+    ...(() => {
+      const track = cardPoseTrack(
+        doc.frame.entrance,
+        expanded.endStart,
+        expanded.seconds,
+      )
+      return track ? { cardPoseTrack: track } : {}
+    })(),
   }
 
   // The studio stack entry's OWN ctx.data (E0): the shared layers. The

@@ -46,6 +46,8 @@ import { bakeShot, encodePng } from './shotBake'
 import { fillTemplate, templateOf, templateProblems, textLimitProblems } from './template'
 import { templateByName } from './templates'
 import { posterValues } from './posterValues'
+import { LOOP_DESTINATIONS, planMotion } from './motionPlan'
+import type { MusicCatalog } from './motionPlan'
 import type { MomentCandidate } from './moments'
 import type { ReleaseWords } from './posterValues'
 import type { TextBox } from './kitPicture'
@@ -104,6 +106,12 @@ export interface DeliverOptions {
   words?: ReleaseWords
   /** The brand kit's frontmatter roles, when a BRAND.md sits beside the take. */
   brandRoles?: Record<string, string> | null
+  /** LAUNCH.md's roles beside the take (music, entrance, endCard, captions, clicks). */
+  launchRoles?: Record<string, string> | null
+  /** The platform's music catalog, read when a destination plays sound; null = silent. */
+  catalog?: MusicCatalog | null
+  /** actions.json captions by step, for the beat captions on feed cuts. */
+  captions?: { step: number; id?: string; caption: string }[]
   /**
    * Capture instant INSIDE the poster program's own timeline (its text
    * enters over the first seconds); default 90% through it. Not the take
@@ -517,19 +525,39 @@ export async function deliverTake(
     w: meta0.captureWidth ?? meta0.width,
     h: meta0.captureHeight ?? meta0.height,
   }
-  /** A video destination rides the look in the hero placement, camera kept. */
-  const videoOverrides = (d: Destination): DocOverrides | undefined => {
-    if (!opts.look) return opts.overrides
-    return {
-      ...opts.overrides,
-      set: [
+  /**
+   * A video destination rides the look in the hero placement, camera kept,
+   * then the destination's motion plan (entrance, end card, captions,
+   * sound, the vertical reframe), then the user's own sets, which win.
+   */
+  const videoOverrides = (
+    d: Destination,
+    range: [number, number] | undefined,
+  ): DocOverrides | undefined => {
+    const set: string[] = []
+    if (opts.look) {
+      set.push(
         ...lookOverrides(opts.look, 'hero', d.px, video, {
           still: false,
           keepMedia: opts.overrides?.background !== undefined,
         }),
-        ...(opts.overrides?.set ?? []),
-      ],
+      )
     }
+    const plan = planMotion({
+      destination: d,
+      doc,
+      range: range ?? [0, duration],
+      words: opts.words ?? {},
+      launch: opts.launchRoles ?? {},
+      captions: opts.captions ?? [],
+      catalog: opts.catalog ?? null,
+    })
+    set.push(...plan.set)
+    if (plan.notes.length) opts.onPhase?.(`${d.id}: ${plan.notes.join(', ')}`)
+    for (const s of plan.skipped) skipped.push(`note: ${s}`)
+    set.push(...(opts.overrides?.set ?? []))
+    if (!set.length) return opts.overrides
+    return { ...opts.overrides, set }
   }
 
   // The poster leg: card-genre stills COMPOSE by default. Each card
@@ -677,11 +705,24 @@ export async function deliverTake(
         )
         continue
       }
+      // A LOOP destination the take outruns takes the take's FIRST seconds
+      // up to its cap (a loop is a texture, not a story); a story
+      // destination is skipped with the reason, never cut blind.
+      let range = opts.range
+      let seconds = videoSeconds
       if (d.maxSeconds !== undefined && videoSeconds > d.maxSeconds) {
-        skipped.push(
-          `${label}: spec caps at ${d.maxSeconds}s, the take is ${videoSeconds.toFixed(0)}s — cut it (--range, or trim segments in doc.json)`,
-        )
-        continue
+        if (LOOP_DESTINATIONS.has(d.id) && !opts.range) {
+          range = [0, d.maxSeconds]
+          seconds = d.maxSeconds
+          opts.onPhase?.(
+            `note: ${label} takes the first ${d.maxSeconds}s of the ${videoSeconds.toFixed(0)}s take (a loop's cap)`,
+          )
+        } else {
+          skipped.push(
+            `${label}: spec caps at ${d.maxSeconds}s, the take is ${videoSeconds.toFixed(0)}s — cut it (--range, or trim segments in doc.json)`,
+          )
+          continue
+        }
       }
       opts.onPhase?.(`${label} (${specWords(d)})`)
       const outFile = join(outDir, `${d.id}.${d.format}`)
@@ -691,7 +732,7 @@ export async function deliverTake(
         d.maxBytes !== undefined
           ? Math.min(
               10_000_000,
-              Math.floor(((d.maxBytes * 8) / videoSeconds) * 0.85),
+              Math.floor(((d.maxBytes * 8) / seconds) * 0.85),
             )
           : undefined
       const result = await renderTake(browser, dir, outFile, {
@@ -699,9 +740,9 @@ export async function deliverTake(
         height: d.px.h,
         format: 'mp4',
         parallel: opts.parallel,
-        range: opts.range,
+        range,
         bitrate,
-        overrides: videoOverrides(d),
+        overrides: videoOverrides(d, range),
         onProgress: opts.onProgress,
       })
       if (d.maxBytes !== undefined && result.bytes > d.maxBytes) {

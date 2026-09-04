@@ -27,6 +27,7 @@ import {
   resolveLook,
 } from './deliver'
 import { templateByName } from './templates'
+import { fetchMusicCatalog } from './music'
 import { resolveStepTime } from './moments'
 import { formatFinding } from './kitPicture'
 import { validateKit } from './validateKit'
@@ -93,7 +94,7 @@ Take pipeline
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--background <slug|url|none>] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
-  vos deliver <take> --to cws,producthunt,x,linkedin,og,github,youtube (or all) [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--look plate|gradient|dark|none] [--brand BRAND.md] [--poster <split-cover|card-on-gradient|config.json|vosId|none>] [--shot-time <t>] [--poster-time <t>] [--composed] [--set path=value] [--release v2.1] [--out dir] [--times a,b] [--range a..b] [--parallel N] [--json]
+  vos deliver <take> --to cws,producthunt,x,linkedin,og,github,youtube (or all) [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|none] [--end-card none] [--captions none] [--clicks none] [--look plate|gradient|dark|none] [--brand BRAND.md] [--poster <split-cover|card-on-gradient|config.json|vosId|none>] [--shot-time <t>] [--poster-time <t>] [--composed] [--set path=value] [--release v2.1] [--out dir] [--times a,b] [--range a..b] [--parallel N] [--json]
   vos digest <take> [--out dir] [--full 960] [--crop 640] [--no-frames] [--transcript <file.json>] [--style <doc.json|vosId>] [--json]
   vos brand <url> [--out BRAND.md] [--json]
   vos open <take> [--studio <url>] [--print]
@@ -213,7 +214,19 @@ beside the take or --headline (with none, the headline templates stand
 down for card-on-gradient, said); --kicker overrides the wordmark plus
 --release line. --poster names a bundled template for every card, your
 own template (a config.json or a hosted vos id carrying a template
-block), or none to keep the take path. --shot-time <t> picks the take moment (OUTPUT seconds;
+block), or none to keep the take path.
+Every video cut but the README loop opens on an ENTRANCE (tilt-in by
+default: the card swings in from a perspective pose and settles) and
+closes on an END CARD (the last frame holds 2.5 s while the card recedes
+and the headline, the release line and the wordmark rise); LAUNCH.md's
+entrance and endCard roles, or --entrance and --end-card, change or
+switch them off. A step's caption in actions.json lands as a lower-third
+at the step's moment on cuts that take words (--captions none to skip).
+Destinations that play sound (the X cut, the YouTube demo, the vertical
+cut) take a music bed from LAUNCH.md's music role (a catalog slug or a
+mood; --music overrides) and a click sound on every press when the take
+has no mic (--clicks none). The 9:16 cut is a reframe, not a letterbox:
+the crop follows the camera. --shot-time <t> picks the take moment (OUTPUT seconds;
 default the first still time — pick a zoom apex, the cut's camera makes
 the shot the feature, not the whole page); --poster-time <t> is the instant
 inside the poster's OWN timeline (default 90% through it). Screenshot-genre
@@ -919,12 +932,49 @@ async function cmdDeliver(argv: string[]): Promise<number> {
     release: strFlag(flags, 'release') ?? null,
   }
   if (launch) r.log(`words: ${launch.file}`)
+  // The destinations' motion and sound: LAUNCH.md's roles, flags over them.
+  const launchRoles: Record<string, string> = { ...(launch?.roles ?? {}) }
+  for (const [flag, role] of [
+    ['music', 'music'],
+    ['entrance', 'entrance'],
+    ['end-card', 'endCard'],
+    ['captions', 'captions'],
+    ['clicks', 'clicks'],
+  ] as const) {
+    const v = strFlag(flags, flag)
+    if (v !== undefined) launchRoles[role] = v
+  }
+  const soundWanted = channels.some((c) =>
+    ['x', 'youtube', 'shorts-linkedin'].includes(c),
+  )
+  let catalog: Awaited<ReturnType<typeof fetchMusicCatalog>> | null = null
+  if (soundWanted && !/^(none|off|no|false)$/i.test(launchRoles.music ?? '') && !/^(none|off|no|false)$/i.test(launchRoles.clicks ?? '')) {
+    try {
+      catalog = await fetchMusicCatalog(
+        platformOrigin({
+          origin: strFlag(flags, 'origin'),
+          api: strFlag(flags, 'api'),
+        }),
+      )
+    } catch (e) {
+      r.log(`music catalog: ${e instanceof Error ? e.message : String(e)} — the cuts stay silent`)
+    }
+  }
+  const captions = (take.actions?.steps ?? []).flatMap((s, i) => {
+    const step = s as { id?: string; caption?: string }
+    return typeof step.caption === 'string' && step.caption.trim()
+      ? [{ step: i, id: step.id, caption: step.caption.trim() }]
+      : []
+  })
 
   const browser = await launchBrowser()
   try {
     const result = await deliverTake(browser, dir, {
       look: lookPick.look,
       brandRoles: lookPick.roles,
+      launchRoles,
+      catalog,
+      captions,
       words,
       channels,
       outDir: strFlag(flags, 'out'),
