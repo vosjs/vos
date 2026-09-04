@@ -55,9 +55,21 @@ export function computeCardLayout(
   video: { width: number; height: number },
   W: number,
   H: number,
+  /**
+   * The zoom track's current focus, for a frame whose cover crop FOLLOWS
+   * the camera (`focusFollow: 'camera'`); absent = the frame's own focus.
+   */
+  zoomFocus?: { cx: number; cy: number },
 ): CardLayout {
   const s = H / 1080 // scale design-px controls to comp px (same rule as ON_FRAME)
   const pad = (frame.padding || 0) * s
+  // Per-side placement (MIRRORS ON_FRAME): frame.inset fractions override
+  // the symmetric padding on the sides they name; a negative side bleeds.
+  const ins = frame.inset ?? {}
+  const padL = ins.left == null ? pad : ins.left * W
+  const padR = ins.right == null ? pad : ins.right * W
+  const padT = ins.top == null ? pad : ins.top * H
+  const padB = ins.bottom == null ? pad : ins.bottom * H
   const bar = frame.browserBar
   const vw = video.width || 16
   const vh = video.height || 9
@@ -68,20 +80,21 @@ export function computeCardLayout(
   const fitCover = frame.fit === 'cover'
   const cf = fitCover ? 1 : Math.min(1, W / H / (vw / vh))
   const barH = bar.kind !== 'none' ? (bar.height || 44) * s * cf : 0
-  const availW = Math.max(1, W - pad * 2)
-  const availH = Math.max(1, H - pad * 2 - barH)
+  const availW = Math.max(1, W - padL - padR)
+  const availH = Math.max(1, H - padT - padB - barH)
   if (fitCover) {
     // Cover (MIRRORS ON_FRAME): the padded area is the card; the video
     // cover-fills it, positioned by frame.focus and clamped gap-free.
     const sc = Math.max(availW / vw, availH / vh)
     const dw = vw * sc
     const dh = vh * sc
-    const fcx = clamp01(frame.focus?.cx ?? 0.5)
-    const fcy = clamp01(frame.focus?.cy ?? 0.5)
-    const vTop = pad + barH
+    const follow = frame.focusFollow === 'camera' && zoomFocus ? zoomFocus : null
+    const fcx = clamp01(follow ? follow.cx : (frame.focus?.cx ?? 0.5))
+    const fcy = clamp01(follow ? follow.cy : (frame.focus?.cy ?? 0.5))
+    const vTop = padT + barH
     const dx = Math.min(
-      pad,
-      Math.max(pad + availW - dw, pad + availW / 2 - fcx * dw),
+      padL,
+      Math.max(padL + availW - dw, padL + availW / 2 - fcx * dw),
     )
     const dy = Math.min(
       vTop,
@@ -94,8 +107,8 @@ export function computeCardLayout(
       dy,
       dw,
       dh,
-      cardX: pad,
-      cardY: pad,
+      cardX: padL,
+      cardY: padT,
       cardW: availW,
       cardH: availH + barH,
     }
@@ -103,8 +116,9 @@ export function computeCardLayout(
   const sc = Math.min(availW / vw, availH / vh)
   const dw = vw * sc
   const dh = vh * sc
-  const dx = (W - dw) / 2
-  const dy = (H - dh + barH) / 2
+  // Centred inside the inset area: (W - dw) / 2 when no side is inset.
+  const dx = padL + (availW - dw) / 2
+  const dy = padT + barH + (availH - dh) / 2
   return {
     W,
     H,

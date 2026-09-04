@@ -11,6 +11,15 @@ import type { SpeedParams } from './planner/autoSpeed'
 
 export type { Segment }
 
+/**
+ * A kept span with an optional HOLD: after its last frame, a freeze for
+ * `hold` output seconds (the beat before a cut, the ground for the end
+ * card). Lowered as a rated segment whose tiny source span plays for the
+ * hold, so every consumer of the rated list inherits it.
+ */
+export type DocSegment = Segment & { hold?: number }
+
+
 /** A single input event captured in the page, relative to the recording's t0. */
 export interface CursorEvent {
   /** ms since t0 (recording start). */
@@ -743,8 +752,35 @@ export interface FrameStyle {
   backgroundMedia?: BackgroundMedia | null
   padding: number
   radius: number
-  /** shadow strength 0..1. */
+  /**
+   * Ambient shadow strength 0..1: the wide, soft layer under the card
+   * (blur 60, offset 24 design px). The look presets set it with
+   * `shadowContact`; every existing doc keeps its single layer.
+   */
   shadow: number
+  /**
+   * Contact shadow strength 0..1: a second, tight layer (blur 10, offset 3
+   * design px) drawn over the ambient one. It is what makes a light card sit
+   * on a light ground, where a wide soft shadow alone reads as haze. Absent
+   * = 0 (no second layer; byte-identical to before the field existed).
+   */
+  shadowContact?: number
+  /**
+   * Shadow colour as a `#rrggbb` hex; the strengths are its alpha. Absent =
+   * black. A dark look lifts it toward its accent so the card glows instead
+   * of sinking.
+   */
+  shadowColor?: string
+  /**
+   * Per-side card placement as FRACTIONS of the frame (left/right of its
+   * width, top/bottom of its height), each overriding `padding` on its side
+   * when present. A negative side BLEEDS the card past the frame edge (the
+   * feature-clip grammar: headroom above, the window running off the
+   * bottom). Absent sides keep `padding`, so every existing doc is untouched.
+   * Under contain the card centres inside the inset area; under cover the
+   * inset area IS the card.
+   */
+  inset?: { top?: number; right?: number; bottom?: number; left?: number }
   /** stroke around the card, 0..1 alpha (0 = off). The switch AND the opacity. */
   border: number
   /**
@@ -780,6 +816,45 @@ export interface FrameStyle {
    * as the zoom camera moves (depth cue). 0/absent = static.
    */
   parallax?: number
+  /**
+   * How the card ENTERS at t = 0 (the feature-clip grammar: no clip opens
+   * on a static, centred, flat window). `tilt-in` swings in from a
+   * perspective pose while the card settles up and in; `pull-out` opens
+   * zoomed in and pulls out; `rise` settles up and in flat. Lowered into
+   * the tilt or zoom track's head and a card-pose track, so the card's only
+   * rotation is still the tilt track. Absent = none, byte-identical.
+   */
+  entrance?: FrameEntrance
+  /**
+   * Under `fit:'cover'`, follow the zoom track's focus with the crop
+   * (`'camera'`), so a 9:16 cut of a 16:9 take keeps the affordance in
+   * frame instead of the centre. Absent = `focus` (or the centre).
+   */
+  focusFollow?: 'camera'
+}
+
+export interface FrameEntrance {
+  kind: 'tilt-in' | 'pull-out' | 'rise' | 'none'
+  /** Seconds to settle (default 1.2, clamped 0.2..3). */
+  seconds?: number
+}
+
+/**
+ * The end card: the last frame holds for `seconds` while the card recedes
+ * and the words rise over it (the house title, caption and label presets,
+ * so they lower like any overlay). The clip's last frame is its poster.
+ */
+export interface EndCard {
+  seconds?: number
+  headline?: string
+  sub?: string
+  wordmark?: string
+  /**
+   * The words' colour (any CSS colour). The house presets are white for
+   * footage; over a light plate the brand's ink is what reads. Absent =
+   * the presets' own.
+   */
+  ink?: string
 }
 
 /**
@@ -1153,7 +1228,7 @@ export interface ProjectDoc {
    * their concatenation — trim/split/cut are all segment edits. Canonical form
    * is one full-source segment; an empty list is tolerated and means "untrimmed".
    */
-  segments: Segment[]
+  segments: DocSegment[]
   /**
    * Speed-change spans (SOURCE time, footage-anchored — see SpeedSpan).
    * Optional for backward compatibility with persisted docs; absent = all 1×.
@@ -1224,6 +1299,12 @@ export interface ProjectDoc {
    * Card presentation (tilt / entrance) — compositor v2. Optional: absent
    * lowers byte-identically to a pre-v2 doc and renders pixel-identically.
    */
+  /**
+   * The end card the clip closes on: a hold on the last frame, the card
+   * receding, the words rising. Absent = the clip ends where the footage
+   * ends.
+   */
+  endCard?: EndCard
   /**
    * Screen-space overlay clips (text; later image/video) — compositor v2.
    * OUTPUT-anchored spans on the overlay layer. Optional: absent lowers

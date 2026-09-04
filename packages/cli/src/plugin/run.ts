@@ -20,7 +20,17 @@ import {
   probeMediaUrls,
 } from './mediaProbe'
 import { framesTake, parseTimes, writeIndexJson } from './framesTake'
-import { deliverTake, resolveChannels } from './deliver'
+import {
+  deliverTake,
+  readLaunchBesideTake,
+  resolveChannels,
+  resolveLook,
+} from './deliver'
+import { templateByName } from './templates'
+import { fetchMusicCatalog } from './music'
+import { judgeKit, winRate } from './judge'
+import { resolveStepTime } from './moments'
+import { formatFinding } from './kitPicture'
 import { validateKit } from './validateKit'
 import { digestTake, parseTranscript } from './digestTake'
 import { apiJson, platformOrigin, resolveCredential } from './platform'
@@ -60,6 +70,7 @@ import type { ParsedArgs } from './args'
 const BOOLEAN_FLAGS = new Set([
   'json',
   'help',
+  'picture',
   'fresh',
   'reuse',
   'strict',
@@ -84,11 +95,12 @@ Take pipeline
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--background <slug|url|none>] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
-  vos deliver <take> --to cws,producthunt,x,linkedin,og,github,youtube (or all) [--poster <config.json|vosId>] [--shot-time <t>] [--poster-time <t>] [--composed] [--set path=value] [--release v2.1] [--out dir] [--times a,b] [--range a..b] [--parallel N] [--json]
+  vos deliver <take> --to cws,producthunt,x,linkedin,og,github,youtube (or all) [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|none] [--end-card none] [--captions none] [--clicks none] [--look plate|gradient|dark|none] [--brand BRAND.md] [--poster <split-cover|card-on-gradient|config.json|vosId|none>] [--shot-time <t>] [--poster-time <t>] [--composed] [--set path=value] [--release v2.1] [--out dir] [--times a,b] [--range a..b] [--parallel N] [--json]
   vos digest <take> [--out dir] [--full 960] [--crop 640] [--no-frames] [--transcript <file.json>] [--style <doc.json|vosId>] [--json]
   vos brand <url> [--out BRAND.md] [--json]
   vos open <take> [--studio <url>] [--print]
-  vos validate <actions.json|take> [--json]
+  vos validate <actions.json|take|kit.json> [--picture] [--json]
+  vos judge <kit.json> --against <MANIFEST.json> [--out dir] [--json]
   vos actions from-agent-browser <steps.jsonl> [--out actions.json] [--url <url>] [--viewport WxH] [--json]
 
 Platform (vos.so) — fetch, edit, push, pull, repeat
@@ -176,13 +188,47 @@ channel specs (schema/channel-specs.json, verified sizes for the Chrome
 Web Store, Product Hunt, X, LinkedIn, OG, GitHub, YouTube) drive stills at
 exact pixels and video cuts, every artifact is VERIFIED against its spec
 (px, bytes, duration; misses land in skipped[] with the reason), and
-kit.json beside the assets is the manifest. Still times default to the
-zoom apexes (--times overrides); --range cuts every video destination.
---poster <config.json|vosId> is the CARD half: card-genre destinations
-(OG, LinkedIn, X, YouTube thumbnail, the CWS tile + marquee, GitHub
-social preview) render from your poster PROGRAM — the split-cover family
-— with this release's shot baked into its image element (id "shot"), PNG
-at exact pixels. --shot-time <t> picks the take moment (OUTPUT seconds;
+kit.json beside the assets is the manifest. Still times come from the
+STORY: every step's end plus a 0.4 s settle (the response, not the
+travel), then the zoom apexes, then an even spread; each candidate is
+read once as the real page, blank ones (a wallpaper, an empty canvas) are
+dropped and two of one frame collapse to one, with every drop said in
+skipped[]. --times overrides with seconds, percents or step:<id>[+offset]
+(the id from actions.json); --range cuts every video destination.
+The LOOK presents the card: card-genre stills with no poster and every
+video cut sit on a ground (a cream plate, the house gradient, a dark plate
+with a light streak) at ~84% of the width with headroom, a soft ambient
+shadow plus a tight contact shadow, and a hairline when card and ground
+are both light; a wide frame runs the card off the bottom. --look picks a
+house look (or none for the pre-look crops); with no flag the BRAND.md
+beside the take (or --brand <file>) decides from its look role or its own
+ground (a paper site is a plate, a dark site is dark), and with no brand
+the house gradient. Screenshot-genre stills never take a look.
+Card-genre destinations (OG, LinkedIn, X, YouTube thumbnail, the CWS
+tile + marquee, GitHub social preview) COMPOSE by default: each renders
+from its destination's poster TEMPLATE (split-cover carries a headline
+column beside the shot; card-on-gradient is the shot alone on a mesh, the
+store's tile rule), filled with BRAND.md's colours and faces and the
+release's words, the shot baked as an object (padded, rounded, shadowed,
+a hairline on a light ground), PNG at exact pixels; kit.json records the
+template and the text boxes. The headline is LAUNCH.md's headline role
+beside the take or --headline (with none, the headline templates stand
+down for card-on-gradient, said); --kicker overrides the wordmark plus
+--release line. --poster names a bundled template for every card, your
+own template (a config.json or a hosted vos id carrying a template
+block), or none to keep the take path.
+Every video cut but the README loop opens on an ENTRANCE (tilt-in by
+default: the card swings in from a perspective pose and settles) and
+closes on an END CARD (the last frame holds 2.5 s while the card recedes
+and the headline, the release line and the wordmark rise); LAUNCH.md's
+entrance and endCard roles, or --entrance and --end-card, change or
+switch them off. A step's caption in actions.json lands as a lower-third
+at the step's moment on cuts that take words (--captions none to skip).
+Destinations that play sound (the X cut, the YouTube demo, the vertical
+cut) take a music bed from LAUNCH.md's music role (a catalog slug or a
+mood; --music overrides) and a click sound on every press when the take
+has no mic (--clicks none). The 9:16 cut is a reframe, not a letterbox:
+the crop follows the camera. --shot-time <t> picks the take moment (OUTPUT seconds;
 default the first still time — pick a zoom apex, the cut's camera makes
 the shot the feature, not the whole page); --poster-time <t> is the instant
 inside the poster's OWN timeline (default 90% through it). Screenshot-genre
@@ -192,7 +238,26 @@ policy); --composed keeps the cut's camera and chrome instead. --set
 path=value overrides the doc in memory for every render here (the user's
 sets apply last). Store uploads stay manual: hand the human the kit
 directory, then vos validate <kit.json> re-measures every asset from its
-bytes against the channel specs.
+bytes against the channel specs; --picture adds what each asset LOOKS
+like, read from its pixels: blank (a wallpaper or an empty canvas where
+the product should be), duplicate (two stills of one frame), subject (the
+card off the 60 to 92% band, or a crop where a card was asked for),
+separation (a light card on a light ground with no shadow), halfsize (a
+tile that loses its edges when the store shrinks it), and, where the kit
+records its text boxes, sliced, safe and contrast (APCA Lc 60/75); a
+video's first and last frames are read through ffmpeg. Every finding
+carries a code, a severity, a fix hint and a box; an error fails the
+verdict beside the spec problems.
+judge puts the kit beside its REFERENCES: for every still that has a
+reference of its role in the manifest (a template family, a card genre),
+two sheets at a common height (the asset left, then right, so order
+cannot bias the call) and the rubric in words, plus judge.json, a slot
+per pair the judge fills (win true, false or null for a tie, with the
+rule numbers). No model runs inside the verb: the skill judges the
+sheets pairwise, both orders, and the verb reports the win rate beside
+the spec and picture counts. The reference set is the maker's own
+fixture folder with a MANIFEST.json (id, file, role, layout, facts,
+rule per asset).
 brand writes the product's BRAND.md, witnessed: it reads /design.md when
 the site publishes one (the convention beside /llms.txt: fonts, logo assets,
 an avoid list), /llms.txt for the name and the claim, then the page itself
@@ -802,8 +867,15 @@ async function cmdDeliver(argv: string[]): Promise<number> {
   const timesRaw = strFlag(flags, 'times')
   let times: number[] | undefined
   if (timesRaw !== undefined) {
+    // Entries are seconds, percents, or `step:<id>[+offset]` against the
+    // take's step timeline (the still is the step's response, settled).
     try {
-      times = parseTimes(timesRaw, duration)
+      const doc = take.doc
+      times = timesRaw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => resolveStepTime(doc, s) ?? parseTimes(s, duration)[0])
     } catch (e) {
       throw new UsageError(e instanceof Error ? e.message : String(e))
     }
@@ -816,9 +888,13 @@ async function cmdDeliver(argv: string[]): Promise<number> {
   // The poster leg: card-genre destinations render from the maker's poster
   // program (a local config.json, or a hosted vos id read with the key
   // ladder) with this release's shot baked in.
-  let poster: { config: Record<string, unknown>; from: string } | undefined
+  let poster: { config: Record<string, unknown>; from: string } | null | undefined
   const posterRef = strFlag(flags, 'poster')
-  if (posterRef !== undefined) {
+  if (posterRef === 'none') {
+    poster = null
+  } else if (posterRef !== undefined && templateByName(posterRef)) {
+    poster = { from: `template ${posterRef}`, config: templateByName(posterRef)! }
+  } else if (posterRef !== undefined) {
     if (existsSync(posterRef)) {
       poster = {
         from: resolve(posterRef),
@@ -844,9 +920,74 @@ async function cmdDeliver(argv: string[]): Promise<number> {
     }
   }
 
+  let lookPick: Awaited<ReturnType<typeof resolveLook>>
+  try {
+    lookPick = await resolveLook(dir, {
+      look: strFlag(flags, 'look'),
+      brand: strFlag(flags, 'brand'),
+    })
+  } catch (e) {
+    throw new UsageError(e instanceof Error ? e.message : String(e))
+  }
+  r.log(`look: ${lookPick.from}`)
+  // The release's words: LAUNCH.md beside the take carries `headline` and
+  // `kicker` roles; flags override; --release is the kicker's second half.
+  const launch = await readLaunchBesideTake(dir, strFlag(flags, 'launch'))
+  // A literal \n in a frontmatter value or a flag is a line break: a headline
+  // is written over its lines on purpose.
+  const lines = (v: string | null | undefined) =>
+    v === null || v === undefined ? null : v.replace(/\\n/g, '\n')
+  const words = {
+    headline: lines(strFlag(flags, 'headline') ?? launch?.roles.headline),
+    kicker: lines(strFlag(flags, 'kicker') ?? launch?.roles.kicker),
+    brand: strFlag(flags, 'brand-name') ?? lookPick.roles?.wordmark ?? null,
+    release: strFlag(flags, 'release') ?? null,
+  }
+  if (launch) r.log(`words: ${launch.file}`)
+  // The destinations' motion and sound: LAUNCH.md's roles, flags over them.
+  const launchRoles: Record<string, string> = { ...(launch?.roles ?? {}) }
+  for (const [flag, role] of [
+    ['music', 'music'],
+    ['entrance', 'entrance'],
+    ['end-card', 'endCard'],
+    ['captions', 'captions'],
+    ['clicks', 'clicks'],
+  ] as const) {
+    const v = strFlag(flags, flag)
+    if (v !== undefined) launchRoles[role] = v
+  }
+  const soundWanted = channels.some((c) =>
+    ['x', 'youtube', 'shorts-linkedin'].includes(c),
+  )
+  let catalog: Awaited<ReturnType<typeof fetchMusicCatalog>> | null = null
+  if (soundWanted && !/^(none|off|no|false)$/i.test(launchRoles.music ?? '') && !/^(none|off|no|false)$/i.test(launchRoles.clicks ?? '')) {
+    try {
+      catalog = await fetchMusicCatalog(
+        platformOrigin({
+          origin: strFlag(flags, 'origin'),
+          api: strFlag(flags, 'api'),
+        }),
+      )
+    } catch (e) {
+      r.log(`music catalog: ${e instanceof Error ? e.message : String(e)} — the cuts stay silent`)
+    }
+  }
+  const captions = (take.actions?.steps ?? []).flatMap((s, i) => {
+    const step = s as { id?: string; caption?: string }
+    return typeof step.caption === 'string' && step.caption.trim()
+      ? [{ step: i, id: step.id, caption: step.caption.trim() }]
+      : []
+  })
+
   const browser = await launchBrowser()
   try {
     const result = await deliverTake(browser, dir, {
+      look: lookPick.look,
+      brandRoles: lookPick.roles,
+      launchRoles,
+      catalog,
+      captions,
+      words,
       channels,
       outDir: strFlag(flags, 'out'),
       release: strFlag(flags, 'release'),
@@ -1068,6 +1209,41 @@ async function cmdOpen(argv: string[]): Promise<number> {
   return EXIT_OK
 }
 
+async function cmdJudge(argv: string[]): Promise<number> {
+  const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
+  const target = positionals[0]
+  const against = strFlag(flags, 'against')
+  if (!target || !against)
+    throw new UsageError(
+      'vos judge <kit.json> --against <MANIFEST.json> [--out dir] [--json]\n(the manifest names the reference set: id, file, role, layout, facts, rule per asset)',
+    )
+  const r = createReporter(flags.json === true)
+  const kitFile = target.endsWith('kit.json') ? target : join(target, 'kit.json')
+  if (!existsSync(kitFile)) throw new UsageError(`${kitFile}: no kit manifest`)
+  if (!existsSync(against)) throw new UsageError(`${against}: no reference manifest`)
+  const result = await judgeKit(kitFile, against, strFlag(flags, 'out'))
+  const verdicts = (
+    JSON.parse(await readFile(result.verdictFile, 'utf8')) as {
+      verdicts: { win: boolean | null }[]
+    }
+  ).verdicts
+  const rate = winRate(verdicts)
+  const lines = result.sheets.map(
+    (s) => `${s.asset} vs ${s.reference}: ${s.sheetA}, ${s.sheetB}, ${s.rubric}`,
+  )
+  r.done(
+    { ...result, winRate: rate },
+    `Wrote ${result.sheets.length} sheet pair(s) to ${result.outDir}` +
+      (lines.length ? `\n  ${lines.join('\n  ')}` : '') +
+      (result.skipped.length ? `\n  skipped: ${result.skipped.join('\n  skipped: ')}` : '') +
+      `\nJudge each pair both ways (the rubric is beside it) and fill ${result.verdictFile}` +
+      (rate.judged
+        ? `\nWin rate so far: ${rate.wins}/${rate.judged} (${(rate.rate! * 100).toFixed(0)}%); parity with the references is 50%, the marketability bar is 40%`
+        : ''),
+  )
+  return EXIT_OK
+}
+
 async function cmdValidate(argv: string[]): Promise<number> {
   const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
   const target = positionals[0]
@@ -1081,14 +1257,24 @@ async function cmdValidate(argv: string[]): Promise<number> {
       ? join(target, 'kit.json')
       : null
   if (kitTarget) {
-    const verdict = await validateKit(kitTarget)
-    const tail = verdict.warnings.length
-      ? `\n  warnings:\n  ${verdict.warnings.join('\n  ')}`
-      : ''
+    const picture = flags.picture === true
+    const verdict = await validateKit(kitTarget, { picture })
+    const pictureLines = (verdict.picture ?? []).map(formatFinding)
+    const pictureErrors = (verdict.picture ?? []).filter(
+      (f) => f.severity === 'error',
+    ).length
+    const tail =
+      (verdict.warnings.length
+        ? `\n  warnings:\n  ${verdict.warnings.join('\n  ')}`
+        : '') +
+      (picture
+        ? `\n  picture: ${pictureErrors} problem(s), ${(verdict.picture ?? []).length - pictureErrors} note(s)` +
+          (pictureLines.length ? `\n  ${pictureLines.join('\n  ')}` : '')
+        : '')
     if (!verdict.valid) {
       r.done(
         { ...verdict, target: kitTarget },
-        `${kitTarget}:\n  ${verdict.problems.join('\n  ')}${tail}`,
+        `${kitTarget}:${verdict.problems.length ? `\n  ${verdict.problems.join('\n  ')}` : ''}${tail}`,
       )
       return EXIT_ERROR
     }
@@ -1280,6 +1466,8 @@ export async function run(argv: string[]): Promise<number> {
         return await cmdOpen(rest)
       case 'validate':
         return await cmdValidate(rest)
+      case 'judge':
+        return await cmdJudge(rest)
       case 'fetch':
         return await cmdFetch(rest)
       case 'duplicate':

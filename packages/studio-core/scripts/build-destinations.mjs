@@ -82,6 +82,13 @@ export function deriveDestination(spec) {
   // How footage meets an off-ratio frame: a still fills the region (the CWS
   // "full bleed" rule), a video renders at the spec's own ratio.
   row.fit = spec.kind === 'video' ? 'contain' : 'cover'
+  // The word policy and the safe rect the picture checks read: 'none' (the
+  // picture carries it alone), 'allowed', 'expected'; every text box must
+  // sit inside `safe` (fractions of the frame).
+  row.text = spec.text ?? 'allowed'
+  row.safe = spec.safe ?? { x: 0, y: 0, w: 1, h: 1 }
+  // The poster template a card destination renders from by default.
+  if (spec.template !== undefined) row.template = spec.template
   row.notes = spec.notes ?? ''
   return row
 }
@@ -130,6 +137,22 @@ export interface Destination {
   accepts: string
   /** How footage meets an off-ratio frame (a still fills, a video letterboxes). */
   fit: 'contain' | 'cover'
+  /**
+   * The destination's word policy: 'none' = the picture carries it alone (a
+   * tile, a store screenshot), 'allowed', 'expected' = a card that should
+   * say something. The picture checks read it.
+   */
+  text: 'none' | 'allowed' | 'expected'
+  /**
+   * The rect, as fractions of the frame, every text box must sit inside:
+   * the platform's own chrome or crop covers the rest.
+   */
+  safe: { x: number; y: number; w: number; h: number }
+  /**
+   * The poster template a card destination renders from by default (the
+   * family that ships with the CLI); absent on screenshots and videos.
+   */
+  template?: string
   notes: string
 }
 

@@ -176,6 +176,27 @@ export {
 } from './layout'
 export type { CamBubbleRect, CardLayout, FocusBounds } from './layout'
 export {
+  DARK_GROUND,
+  HOUSE_GRADIENT,
+  LOOK_KINDS,
+  PLATE_GROUND,
+  applyLook,
+  cardInset,
+  houseLook,
+  isLookKind,
+  lookFromBrand,
+  lookKindForGround,
+} from './look'
+export type { Look, LookBrand, LookKind, LookPlacement } from './look'
+export {
+  END_CARD_SECONDS,
+  ENTRANCE_SECONDS,
+  cardPoseTrack,
+  entranceSeconds,
+  expandEndCard,
+  withHolds,
+} from './lower/motion'
+export {
   BACKGROUND_Z,
   CAMERA_FAR,
   CAMERA_NEAR,

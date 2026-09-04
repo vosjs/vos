@@ -225,6 +225,34 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       }
     }
 
+  // --- holds and the end card: a freeze is output seconds, never long ---
+  for (const [i, seg] of (Array.isArray(doc.segments) ? (doc.segments as unknown[]) : []).entries()) {
+    const hold = (seg as { hold?: unknown }).hold
+    if (hold !== undefined && (!isNum(hold) || hold < 0 || hold > 10)) {
+      problems.push(
+        `segments[${i}].hold must be 0..10 output seconds (got ${String(hold)})`,
+      )
+    }
+  }
+  const endCard = (doc as { endCard?: unknown }).endCard
+  if (endCard !== undefined) {
+    if (typeof endCard !== 'object' || endCard === null) {
+      problems.push('endCard must be an object: {seconds?, headline?, sub?, wordmark?}')
+    } else {
+      const ec = endCard as { seconds?: unknown; headline?: unknown; sub?: unknown; wordmark?: unknown }
+      if (ec.seconds !== undefined && (!isNum(ec.seconds) || ec.seconds < 1 || ec.seconds > 8)) {
+        problems.push(`endCard.seconds must be 1..8 (got ${String(ec.seconds)}); absent = 2.5`)
+      }
+      for (const k of ['headline', 'sub', 'wordmark'] as const) {
+        if (ec[k] !== undefined && typeof ec[k] !== 'string') {
+          problems.push(`endCard.${k} must be a string`)
+        }
+      }
+      if (!['headline', 'sub', 'wordmark'].some((k) => typeof ec[k as keyof typeof ec] === 'string' && (ec[k as keyof typeof ec] as string).trim())) {
+        warnings.push('endCard carries no words: it holds the last frame and recedes the card over nothing')
+      }
+    }
+  }
     // --- segments (kept footage) ---
     if (doc.segments !== undefined && !Array.isArray(doc.segments)) {
       problems.push('segments must be an array of {in, out} spans')
@@ -495,9 +523,72 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       // wider than the padding renders cropped flat where the card meets the
       // frame (at padding 0, not at all on that axis). The doc still renders,
       // so this is honesty, not breakage.
+      // --- the second shadow layer and its colour ---
+      const sc = frame.shadowContact
+      if (sc !== undefined && (!isNum(sc) || sc < 0 || sc > 1)) {
+        problems.push(
+          `frame.shadowContact must be 0..1 (got ${String(sc)}); absent = no contact layer`,
+        )
+      }
+      const shc = frame.shadowColor
+      if (shc !== undefined && !/^#[0-9a-fA-F]{6}$/.test(String(shc))) {
+        problems.push(
+          `frame.shadowColor must be a #rrggbb hex (got ${String(shc)}); absent = black`,
+        )
+      }
+      // --- the entrance and the crop that follows the camera ---
+      const ent = frame.entrance
+      if (ent !== undefined) {
+        const kinds = ['tilt-in', 'pull-out', 'rise', 'none']
+        if (typeof ent !== 'object' || ent === null || !kinds.includes(String((ent as { kind?: unknown }).kind))) {
+          problems.push(
+            `frame.entrance.kind must be one of ${kinds.join(' | ')} (got ${JSON.stringify(ent)})`,
+          )
+        } else {
+          const secs = (ent as { seconds?: unknown }).seconds
+          if (secs !== undefined && (!isNum(secs) || secs < 0.2 || secs > 3)) {
+            problems.push(
+              `frame.entrance.seconds must be 0.2..3 (got ${String(secs)}); absent = 1.2`,
+            )
+          }
+        }
+      }
+      if (frame.focusFollow !== undefined && frame.focusFollow !== 'camera') {
+        problems.push(
+          `frame.focusFollow must be "camera" (got ${String(frame.focusFollow)}); it reads under fit: cover only`,
+        )
+      }
+      // --- per-side placement: fractions, a negative side bleeds ---
+      const ins = frame.inset
+      if (ins !== undefined) {
+        if (typeof ins !== 'object' || ins === null || Array.isArray(ins)) {
+          problems.push(
+            'frame.inset must be an object of {top, right, bottom, left} fractions',
+          )
+        } else {
+          const sides = ins as Record<string, unknown>
+          for (const side of ['top', 'right', 'bottom', 'left']) {
+            const v = sides[side]
+            if (v !== undefined && (!isNum(v) || v < -2 || v > 0.9)) {
+              problems.push(
+                `frame.inset.${side} must be a fraction of the frame in -2..0.9 (got ${String(v)}); negative bleeds the card past the edge`,
+              )
+            }
+          }
+          const l = isNum(sides.left) ? sides.left : 0
+          const r = isNum(sides.right) ? sides.right : 0
+          const t = isNum(sides.top) ? sides.top : 0
+          const b = isNum(sides.bottom) ? sides.bottom : 0
+          if (l + r >= 1 || t + b >= 1) {
+            problems.push(
+              `frame.inset leaves no room for the card (left+right ${l + r}, top+bottom ${t + b}; each pair must stay under 1)`,
+            )
+          }
+        }
+      }
       const ebw = isNum(bw) && bw > 0 && bw <= 24 ? bw : 1.5
       const pad = isNum(frame.padding) ? frame.padding : 0
-      if (frame.border && ebw > pad) {
+      if (frame.border && ebw > pad && ins === undefined) {
         warnings.push(
           `frame.borderWidth (${ebw}) is wider than frame.padding (${pad}) — the border grows outward from the card, so the frame edge crops it; raise the padding to at least the width to show the whole stroke`,
         )
