@@ -36,12 +36,14 @@ import {
   isLookKind,
   lookFromBrand,
   ratedSegments,
-  spanOutputExtent,
 } from '@vosjs/studio-core'
 import { loadTake } from './take'
 import { framesTake } from './framesTake'
 import { renderTake } from './renderTake'
 import { renderPosterStills } from './posterStill'
+import { momentCandidates, pickMoments } from './moments'
+import { decodePng, differenceHash, inkCoverage } from './picture'
+import type { MomentCandidate } from './moments'
 import type { Destination, Look, LookPlacement } from '@vosjs/studio-core'
 import type { DocOverrides } from './docOverride'
 import type { Browser } from 'playwright'
@@ -146,6 +148,8 @@ export interface KitManifest {
   produced: string
   /** channel-specs.json's own verified date — the spec sheet's freshness. */
   specsVerified: string
+  /** The still moments, in order, and where each came from. */
+  moments: MomentCandidate[]
   skipped: string[]
   assets: KitAsset[]
 }
@@ -260,28 +264,69 @@ export function lookOverrides(
   return set
 }
 
+/** The probe's width: enough to read ink and a hash, cheap to capture. */
+const PROBE_WIDTH = 640
+
 /**
- * Default still times: every zoom span's output-time apex (where quality
- * lives), else an even spread — the frames verb's own conventions. A span
- * trimmed out of the cut drops silently from the apex list, so the count
- * of dropped spans rides back for the phase note (the dogfood's "2 spans,
- * 1 still" surprise said nothing).
+ * The still moments of a take: candidates from the step timeline, the
+ * zoom apexes and the spread (moments.ts), captured ONCE at probe size as
+ * the real page (camera released, no chrome), then kept only when
+ * populated and distinct. What is dropped is said in `skipped`.
  */
-function defaultStillTimes(
+async function pickStillTimes(
+  browser: Browser,
+  dir: string,
   doc: NonNullable<Awaited<ReturnType<typeof loadTake>>['doc']>,
   duration: number,
-): { times: number[]; dropped: number } {
-  const rated = ratedSegments(doc)
-  const apexes: number[] = []
-  for (const z of doc.zoom) {
-    const ext = spanOutputExtent(rated, z.in, z.out)
-    if (ext) apexes.push((ext.start + ext.end) / 2)
-  }
-  const dropped = doc.zoom.length - apexes.length
-  if (apexes.length) return { times: apexes.sort((a, b) => a - b), dropped }
-  return {
-    times: [0.1, 0.3, 0.5, 0.7, 0.9].map((p) => p * duration),
-    dropped,
+  opts: DeliverOptions,
+): Promise<{ times: number[]; moments: MomentCandidate[]; notes: string[] }> {
+  const { candidates, dropped } = momentCandidates(doc, duration)
+  const notes: string[] = []
+  if (dropped > 0)
+    notes.push(
+      `${dropped} of ${doc.zoom.length} zoom apex(es) fall outside the cut`,
+    )
+  if (!candidates.length) return { times: [], moments: [], notes }
+  const meta = doc.source.meta
+  const vw = meta.captureWidth ?? meta.width
+  const vh = meta.captureHeight ?? meta.height
+  const probeDir = await mkdtemp(join(tmpdir(), 'vos-moments-'))
+  try {
+    const probe = await framesTake(browser, dir, {
+      times: candidates.map((c) => c.time),
+      width: PROBE_WIDTH,
+      height: Math.max(2, Math.round((PROBE_WIDTH * vh) / vw / 2) * 2),
+      outDir: probeDir,
+      overrides: {
+        ...opts.overrides,
+        set: [...SCREENSHOT_DEFAULTS, ...(opts.overrides?.set ?? [])],
+      },
+    })
+    const measured = []
+    for (let i = 0; i < probe.frames.length; i++) {
+      const img = decodePng(new Uint8Array(await readFile(probe.frames[i].file)))
+      if (!img) continue
+      const whole = { x: 0, y: 0, w: img.w, h: img.h }
+      measured.push({
+        time: candidates[i].time,
+        ink: inkCoverage(img, whole),
+        hash: differenceHash(img, whole),
+      })
+    }
+    const pick = pickMoments(measured)
+    const kept = candidates.filter((c) => pick.times.includes(c.time))
+    const bySource = (s: MomentCandidate['source']) =>
+      candidates.filter((c) => c.source === s).length
+    notes.push(
+      `${candidates.length} candidate(s): ${bySource('step')} from steps, ${bySource('zoom')} from zoom apexes, ${bySource('spread')} from the spread; ${kept.length} kept`,
+    )
+    return {
+      times: pick.times,
+      moments: kept,
+      notes: [...notes, ...pick.dropped.map((d) => `moment: ${d}`)],
+    }
+  } finally {
+    await rm(probeDir, { recursive: true, force: true })
   }
 }
 
@@ -366,25 +411,28 @@ export async function deliverTake(
   const videoSeconds = opts.range
     ? Math.min(opts.range[1], duration) - Math.min(opts.range[0], duration)
     : duration
-  let stillTimes: number[]
-  if (opts.times?.length) {
-    stillTimes = opts.times
-  } else {
-    const derived = defaultStillTimes(doc, duration)
-    stillTimes = derived.times
-    if (derived.dropped > 0) {
-      opts.onPhase?.(
-        `note: ${derived.dropped} of ${doc.zoom.length} zoom apex(es) fall outside the cut — pass --times for more moments`,
-      )
-    }
-  }
-
   const outDir = resolve(opts.outDir ?? join(dir, 'kit'))
   await mkdir(outDir, { recursive: true })
 
   const destinations = opts.channels.flatMap((c) => destinationsForChannel(c))
   const assets: KitAsset[] = []
   const skipped: string[] = []
+
+  let stillTimes: number[]
+  let moments: MomentCandidate[]
+  if (opts.times?.length) {
+    stillTimes = opts.times
+    moments = opts.times.map((time) => ({ time, source: 'times' as const }))
+  } else {
+    opts.onPhase?.('moments (the step timeline, the zoom apexes, the spread)')
+    const picked = await pickStillTimes(browser, dir, doc, duration, opts)
+    stillTimes = picked.times
+    moments = picked.moments
+    for (const n of picked.notes) {
+      if (n.startsWith('moment: ')) skipped.push(n)
+      else opts.onPhase?.(`note: ${n}`)
+    }
+  }
   const meta0 = doc.source.meta
   const video = {
     w: meta0.captureWidth ?? meta0.width,
@@ -649,6 +697,7 @@ export async function deliverTake(
     take: dir,
     produced: new Date().toISOString(),
     specsVerified: CHANNEL_SPECS_VERIFIED,
+    moments,
     skipped,
     assets,
   }

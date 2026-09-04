@@ -21,6 +21,7 @@ import {
 } from './mediaProbe'
 import { framesTake, parseTimes, writeIndexJson } from './framesTake'
 import { deliverTake, resolveChannels, resolveLook } from './deliver'
+import { resolveStepTime } from './moments'
 import { validateKit } from './validateKit'
 import { digestTake, parseTranscript } from './digestTake'
 import { apiJson, platformOrigin, resolveCredential } from './platform'
@@ -176,8 +177,13 @@ channel specs (schema/channel-specs.json, verified sizes for the Chrome
 Web Store, Product Hunt, X, LinkedIn, OG, GitHub, YouTube) drive stills at
 exact pixels and video cuts, every artifact is VERIFIED against its spec
 (px, bytes, duration; misses land in skipped[] with the reason), and
-kit.json beside the assets is the manifest. Still times default to the
-zoom apexes (--times overrides); --range cuts every video destination.
+kit.json beside the assets is the manifest. Still times come from the
+STORY: every step's end plus a 0.4 s settle (the response, not the
+travel), then the zoom apexes, then an even spread; each candidate is
+read once as the real page, blank ones (a wallpaper, an empty canvas) are
+dropped and two of one frame collapse to one, with every drop said in
+skipped[]. --times overrides with seconds, percents or step:<id>[+offset]
+(the id from actions.json); --range cuts every video destination.
 The LOOK presents the card: card-genre stills with no poster and every
 video cut sit on a ground (a cream plate, the house gradient, a dark plate
 with a light streak) at ~84% of the width with headroom, a soft ambient
@@ -811,8 +817,15 @@ async function cmdDeliver(argv: string[]): Promise<number> {
   const timesRaw = strFlag(flags, 'times')
   let times: number[] | undefined
   if (timesRaw !== undefined) {
+    // Entries are seconds, percents, or `step:<id>[+offset]` against the
+    // take's step timeline (the still is the step's response, settled).
     try {
-      times = parseTimes(timesRaw, duration)
+      const doc = take.doc
+      times = timesRaw
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .map((s) => resolveStepTime(doc, s) ?? parseTimes(s, duration)[0])
     } catch (e) {
       throw new UsageError(e instanceof Error ? e.message : String(e))
     }
