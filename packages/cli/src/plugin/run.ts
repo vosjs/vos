@@ -940,7 +940,7 @@ async function cmdDeliver(argv: string[]): Promise<number> {
   const words = {
     headline: lines(strFlag(flags, 'headline') ?? launch?.roles.headline),
     kicker: lines(strFlag(flags, 'kicker') ?? launch?.roles.kicker),
-    brand: strFlag(flags, 'brand-name') ?? null,
+    brand: strFlag(flags, 'brand-name') ?? lookPick.roles?.wordmark ?? null,
     release: strFlag(flags, 'release') ?? null,
   }
   if (launch) r.log(`words: ${launch.file}`)

@@ -344,6 +344,32 @@ export function lookOverrides(
   return set
 }
 
+/**
+ * The end card's ink: the brand's ink (or near-black) over a light ground,
+ * white over a dark one, decided from the look's ground.
+ */
+export function endCardInk(
+  look: Look | null | undefined,
+  brand: Record<string, string> | null | undefined,
+): string | null {
+  if (!look) return null
+  const ground = look.ground
+  const m = /#([0-9a-f]{6})/i.exec(ground)
+  const hex = m ? m[0] : null
+  const light = look.kind === 'plate' || (hex ? isLightHexGround(hex) : look.kind === 'gradient')
+  if (!light) return '#ffffff'
+  const ink = brand?.ink
+  return ink && /^#[0-9a-f]{6}$/i.test(ink) ? ink : '#111111'
+}
+
+function isLightHexGround(hex: string): boolean {
+  const n = parseInt(hex.slice(1), 16)
+  const r = (n >> 16) & 255
+  const g = (n >> 8) & 255
+  const b = n & 255
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 >= 0.6
+}
+
 /** The probe's width: enough to read ink and a hash, cheap to capture. */
 const PROBE_WIDTH = 640
 
@@ -551,6 +577,7 @@ export async function deliverTake(
       launch: opts.launchRoles ?? {},
       captions: opts.captions ?? [],
       catalog: opts.catalog ?? null,
+      ink: endCardInk(opts.look, opts.brandRoles),
     })
     set.push(...plan.set)
     if (plan.notes.length) opts.onPhase?.(`${d.id}: ${plan.notes.join(', ')}`)

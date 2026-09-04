@@ -849,6 +849,12 @@ export interface EndCard {
   headline?: string
   sub?: string
   wordmark?: string
+  /**
+   * The words' colour (any CSS colour). The house presets are white for
+   * footage; over a light plate the brand's ink is what reads. Absent =
+   * the presets' own.
+   */
+  ink?: string
 }
 
 /**

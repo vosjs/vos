@@ -197,6 +197,7 @@ export function expandEndCard(
     enter: 'rise',
     exit: 'none',
     align: 'center',
+    ...(card.ink ? { color: card.ink } : {}),
   })
   if (card.headline?.trim()) clips.push(text('endcard-title', card.headline.trim(), 'title', 0.44, 0.35))
   if (card.sub?.trim()) clips.push(text('endcard-sub', card.sub.trim(), 'caption', 0.57, 0.5))

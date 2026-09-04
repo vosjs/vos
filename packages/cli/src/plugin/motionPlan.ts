@@ -35,6 +35,8 @@ export interface MotionInput {
   words: ReleaseWords
   /** LAUNCH.md roles: music (a slug or mood), entrance, endCard, captions. */
   launch: Record<string, string>
+  /** The end card's ink: the brand's ink over a light ground, white over a dark one. */
+  ink?: string | null
   /** actions.json steps with their optional captions, by index. */
   captions: { step: number; id?: string; caption: string }[]
   catalog: MusicCatalog | null
@@ -111,6 +113,8 @@ export function planMotion(input: MotionInput): MotionPlan {
     const sub = [brand, (words.release ?? '').trim()].filter(Boolean).join(' ')
     if (headline || brand) {
       const card: Record<string, unknown> = { seconds: 2.5 }
+      // Over a light plate the presets' white would vanish: the brand's ink.
+      if (input.ink) card.ink = input.ink
       if (headline) card.headline = headline
       if (sub && sub !== headline) card.sub = sub
       if (brand) card.wordmark = brand
