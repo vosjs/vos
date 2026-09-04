@@ -206,9 +206,10 @@ ground (a paper site is a plate, a dark site is dark), and with no brand
 the house gradient. Screenshot-genre stills never take a look.
 Card-genre destinations (OG, LinkedIn, X, YouTube thumbnail, the CWS
 tile + marquee, GitHub social preview) COMPOSE by default: each renders
-from its destination's poster TEMPLATE (split-cover carries a headline
-column beside the shot; card-on-gradient is the shot alone on a mesh, the
-store's tile rule), filled with BRAND.md's colours and faces and the
+from its destination's poster TEMPLATE (split-cover is a STAGE, the
+take's own card leaning in perspective with its chrome and shadow beside
+a serif headline column, on the brand's ground; card-on-gradient is the
+shot alone on a mesh, the store's tile rule), filled with BRAND.md's colours and faces and the
 release's words, the shot baked as an object (padded, rounded, shadowed,
 a hairline on a light ground), PNG at exact pixels; kit.json records the
 template and the text boxes. The headline is LAUNCH.md's headline role
@@ -1224,7 +1225,7 @@ async function cmdJudge(argv: string[]): Promise<number> {
   const result = await judgeKit(kitFile, against, strFlag(flags, 'out'))
   const verdicts = (
     JSON.parse(await readFile(result.verdictFile, 'utf8')) as {
-      verdicts: { win: boolean | null }[]
+      verdicts: { win: boolean | null; reasons?: number[] }[]
     }
   ).verdicts
   const rate = winRate(verdicts)
@@ -1238,7 +1239,7 @@ async function cmdJudge(argv: string[]): Promise<number> {
       (result.skipped.length ? `\n  skipped: ${result.skipped.join('\n  skipped: ')}` : '') +
       `\nJudge each pair both ways (the rubric is beside it) and fill ${result.verdictFile}` +
       (rate.judged
-        ? `\nWin rate so far: ${rate.wins}/${rate.judged} (${(rate.rate! * 100).toFixed(0)}%); parity with the references is 50%, the marketability bar is 40%`
+        ? `\nWin rate so far: ${rate.wins} win(s), ${rate.ties} tie(s) of ${rate.judged} judged (${(rate.rate! * 100).toFixed(0)}%; a tie counts a half); parity with the references is 50%, the marketability bar is 40%`
         : ''),
   )
   return EXIT_OK

@@ -240,7 +240,7 @@ export async function validateKit(
       text: a.text,
       seconds,
       composed: a.composed,
-      shot: a.source === 'poster' ? a.shot : undefined,
+      shot: a.source === 'poster' || a.source === 'stage' ? a.shot : undefined,
     })
 
     if (!spec) {

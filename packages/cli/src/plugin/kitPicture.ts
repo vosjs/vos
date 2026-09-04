@@ -349,6 +349,8 @@ export function duplicateFindings(
     hash: string
     time: number | null
     genre?: 'screenshot' | 'card'
+    /** A poster or stage card: a composition, not a crop. */
+    composed?: boolean
   }[],
 ): PictureFinding[] {
   const groups: { destination: string; time: number | null }[][] = []
@@ -370,14 +372,22 @@ export function duplicateFindings(
     }
     if (g.length > 1) groups.push(g)
   }
-  return groups.map((g) => ({
-    code: 'duplicate' as const,
-    severity: g.length >= 3 ? ('error' as const) : ('warning' as const),
-    asset: g.map((s) => s.destination).join(', '),
-    message: `${g.length} assets share one frame${g[0].time !== null ? ` (${g[0].time.toFixed(2)}s)` : ''}: ${g.map((s) => s.destination).join(', ')}`,
-    fixHint:
-      'a kit is many moments: let deliver pick from the step timeline, or pass --times with one step per still; a poster template composes each card differently from one shot',
-  }))
+  return groups.map((g) => {
+    // Every member composed: one cover on several channels, which a release
+    // does on purpose; the failure this check exists for is the CROP of one
+    // frame at eight aspects.
+    const composed = g.every((s) => stills.find((x) => x.destination === s.destination)?.composed)
+    return {
+      code: 'duplicate' as const,
+      severity: composed ? ('info' as const) : g.length >= 3 ? ('error' as const) : ('warning' as const),
+      asset: g.map((s) => s.destination).join(', '),
+      message: composed
+        ? `${g.length} channels share one cover: ${g.map((s) => s.destination).join(', ')}`
+        : `${g.length} assets share one frame${g[0].time !== null ? ` (${g[0].time.toFixed(2)}s)` : ''}: ${g.map((s) => s.destination).join(', ')}`,
+      fixHint:
+        'a kit is many moments: let deliver pick from the step timeline, or pass --times with one step per still; a poster template composes each card differently from one shot',
+    }
+  })
 }
 
 /** One frame of a video through ffmpeg, as decoded pixels; null when unavailable. */
@@ -426,6 +436,7 @@ export async function pictureChecks(
     hash: string
     time: number | null
     genre?: 'screenshot' | 'card'
+    composed?: boolean
   }[] = []
   let ffmpeg: boolean | null = null
 
@@ -452,6 +463,7 @@ export async function pictureChecks(
           hash: m.hash,
           time: null,
           genre: a.spec?.genre,
+          composed: !!a.shot,
         })
       continue
     }

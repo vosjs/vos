@@ -46,6 +46,7 @@ import { bakeShot, encodePng } from './shotBake'
 import { fillTemplate, templateOf, templateProblems, textLimitProblems } from './template'
 import { templateByName } from './templates'
 import { posterValues } from './posterValues'
+import { stageSplitCover } from './stages'
 import { LOOP_DESTINATIONS, planMotion } from './motionPlan'
 import type { MusicCatalog } from './motionPlan'
 import type { MomentCandidate } from './moments'
@@ -158,8 +159,8 @@ export interface KitAsset {
   bytes: number
   seconds: number | null
   frameTime: number | null
-  /** Where the pixels came from: the take (absent = take) or the poster. */
-  source?: 'poster'
+  /** Where the pixels came from: the take (absent = take), a poster program, or a stage (the take's own card composed). */
+  source?: 'poster' | 'stage'
   /** The template family a poster card rendered from. */
   template?: string
   /** Where the words landed, as fractions of the asset (the picture checks read them). */
@@ -290,7 +291,7 @@ export async function resolveLook(
 export function templateForCard(
   d: Pick<Destination, 'id' | 'template'>,
   opts: Pick<DeliverOptions, 'poster' | 'words'>,
-): { config: Record<string, unknown>; from: string; note?: string } | null {
+): { config: Record<string, unknown>; from: string; note?: string; stage?: boolean } | null {
   if (opts.poster === null) return null
   if (opts.poster) return { config: opts.poster.config, from: opts.poster.from }
   if (!d.template) return null
@@ -304,6 +305,10 @@ export function templateForCard(
   }
   const config = templateByName(name)
   if (!config) return null
+  // The split cover composes as a STAGE by default: the take's own card in
+  // perspective with its chrome and shadow (the program template is one
+  // --poster away, for a maker who wants the grained ground).
+  if (name === 'split-cover') return { config, from: 'stage split-cover', note, stage: true }
   return { config, from: `template ${name}`, note }
 }
 
@@ -643,6 +648,53 @@ export async function deliverTake(
       const shotAspect = raw.w / raw.h
 
       for (const { d, plan } of cardPlans) {
+        if (plan.stage) {
+          const staged = stageSplitCover({
+            size: d.px,
+            values: fill.values,
+            sourceSeconds: meta.durationMs / 1000,
+            outputSeconds: duration,
+          })
+          opts.onPhase?.(`${d.channel} ${d.asset} (${specWords(d)}) from ${plan.from}`)
+          const shotDir = await mkdtemp(join(tmpdir(), 'vos-stage-'))
+          try {
+            const captured = await framesTake(browser, dir, {
+              times: [heroTime],
+              width: d.px.w,
+              height: d.px.h,
+              outDir: shotDir,
+              overrides: {
+                ...opts.overrides,
+                set: [...staged.set, ...(opts.overrides?.set ?? [])],
+              },
+            })
+            const to = join(outDir, `${d.id}.png`)
+            await rename(captured.frames[0].file, to)
+            const bytes = (await stat(to)).size
+            if (d.maxBytes !== undefined && bytes > d.maxBytes) {
+              skipped.push(`${d.channel} ${d.asset}: ${overCeiling(bytes, d.maxBytes)} (kept at ${to})`)
+              continue
+            }
+            assets.push({
+              channel: d.channel,
+              asset: d.asset,
+              destination: d.id,
+              path: relative(outDir, to),
+              w: d.px.w,
+              h: d.px.h,
+              bytes,
+              seconds: null,
+              frameTime: heroTime,
+              source: 'stage',
+              template: 'split-cover-stage',
+              text: staged.text,
+              shot: staged.shot,
+            })
+          } finally {
+            await rm(shotDir, { recursive: true, force: true })
+          }
+          continue
+        }
         const problems = templateProblems(plan.config)
         if (problems.length) {
           skipped.push(
