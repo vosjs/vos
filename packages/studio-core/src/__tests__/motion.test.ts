@@ -80,7 +80,8 @@ describe('the entrance', () => {
     expect(entranceTiltKeyframes({ kind: 'tilt-in' })[1].t).toBeCloseTo(1.2, 6)
     expect(entranceTiltKeyframes({ kind: 'rise' })).toEqual([])
     expect(entranceZoomKeyframes({ kind: 'pull-out', seconds: 2 })[1].t).toBe(2)
-    expect(entranceZoomKeyframes({ kind: 'tilt-in' })).toEqual([])
+    // A tilt-in rests the camera through the entrance.
+    expect(entranceZoomKeyframes({ kind: 'tilt-in' }).map((k) => k.value)).toEqual([[1, 0.5, 0.5], [1, 0.5, 0.5]])
     expect(entranceTiltKeyframes({ kind: 'none' })).toEqual([])
     expect(entranceTiltKeyframes(undefined)).toEqual([])
   })
@@ -98,7 +99,7 @@ describe('the entrance', () => {
   it('the pose track settles in and, with an end card, recedes', () => {
     expect(cardPoseTrack(undefined, null, 0)).toBeUndefined()
     const enter = cardPoseTrack({ kind: 'tilt-in' }, null, 0)!
-    expect(enter.keyframes[0].value).toEqual([0.94, 0.05, 0])
+    expect(enter.keyframes[0].value).toEqual([0.94, 0.05, 0.7])
     expect(enter.keyframes[1].value).toEqual([1, 0, 1])
     const both = cardPoseTrack({ kind: 'rise', seconds: 1 }, 10, 2.5)!
     expect(both.keyframes.map((k) => k.t)).toEqual([0, 1, 10, 10.7])

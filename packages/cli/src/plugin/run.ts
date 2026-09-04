@@ -28,6 +28,7 @@ import {
 } from './deliver'
 import { templateByName } from './templates'
 import { fetchMusicCatalog } from './music'
+import { judgeKit, winRate } from './judge'
 import { resolveStepTime } from './moments'
 import { formatFinding } from './kitPicture'
 import { validateKit } from './validateKit'
@@ -99,6 +100,7 @@ Take pipeline
   vos brand <url> [--out BRAND.md] [--json]
   vos open <take> [--studio <url>] [--print]
   vos validate <actions.json|take|kit.json> [--picture] [--json]
+  vos judge <kit.json> --against <MANIFEST.json> [--out dir] [--json]
   vos actions from-agent-browser <steps.jsonl> [--out actions.json] [--url <url>] [--viewport WxH] [--json]
 
 Platform (vos.so) — fetch, edit, push, pull, repeat
@@ -246,6 +248,16 @@ records its text boxes, sliced, safe and contrast (APCA Lc 60/75); a
 video's first and last frames are read through ffmpeg. Every finding
 carries a code, a severity, a fix hint and a box; an error fails the
 verdict beside the spec problems.
+judge puts the kit beside its REFERENCES: for every still that has a
+reference of its role in the manifest (a template family, a card genre),
+two sheets at a common height (the asset left, then right, so order
+cannot bias the call) and the rubric in words, plus judge.json, a slot
+per pair the judge fills (win true, false or null for a tie, with the
+rule numbers). No model runs inside the verb: the skill judges the
+sheets pairwise, both orders, and the verb reports the win rate beside
+the spec and picture counts. The reference set is the maker's own
+fixture folder with a MANIFEST.json (id, file, role, layout, facts,
+rule per asset).
 brand writes the product's BRAND.md, witnessed: it reads /design.md when
 the site publishes one (the convention beside /llms.txt: fonts, logo assets,
 an avoid list), /llms.txt for the name and the claim, then the page itself
@@ -1197,6 +1209,41 @@ async function cmdOpen(argv: string[]): Promise<number> {
   return EXIT_OK
 }
 
+async function cmdJudge(argv: string[]): Promise<number> {
+  const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
+  const target = positionals[0]
+  const against = strFlag(flags, 'against')
+  if (!target || !against)
+    throw new UsageError(
+      'vos judge <kit.json> --against <MANIFEST.json> [--out dir] [--json]\n(the manifest names the reference set: id, file, role, layout, facts, rule per asset)',
+    )
+  const r = createReporter(flags.json === true)
+  const kitFile = target.endsWith('kit.json') ? target : join(target, 'kit.json')
+  if (!existsSync(kitFile)) throw new UsageError(`${kitFile}: no kit manifest`)
+  if (!existsSync(against)) throw new UsageError(`${against}: no reference manifest`)
+  const result = await judgeKit(kitFile, against, strFlag(flags, 'out'))
+  const verdicts = (
+    JSON.parse(await readFile(result.verdictFile, 'utf8')) as {
+      verdicts: { win: boolean | null }[]
+    }
+  ).verdicts
+  const rate = winRate(verdicts)
+  const lines = result.sheets.map(
+    (s) => `${s.asset} vs ${s.reference}: ${s.sheetA}, ${s.sheetB}, ${s.rubric}`,
+  )
+  r.done(
+    { ...result, winRate: rate },
+    `Wrote ${result.sheets.length} sheet pair(s) to ${result.outDir}` +
+      (lines.length ? `\n  ${lines.join('\n  ')}` : '') +
+      (result.skipped.length ? `\n  skipped: ${result.skipped.join('\n  skipped: ')}` : '') +
+      `\nJudge each pair both ways (the rubric is beside it) and fill ${result.verdictFile}` +
+      (rate.judged
+        ? `\nWin rate so far: ${rate.wins}/${rate.judged} (${(rate.rate! * 100).toFixed(0)}%); parity with the references is 50%, the marketability bar is 40%`
+        : ''),
+  )
+  return EXIT_OK
+}
+
 async function cmdValidate(argv: string[]): Promise<number> {
   const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
   const target = positionals[0]
@@ -1419,6 +1466,8 @@ export async function run(argv: string[]): Promise<number> {
         return await cmdOpen(rest)
       case 'validate':
         return await cmdValidate(rest)
+      case 'judge':
+        return await cmdJudge(rest)
       case 'fetch':
         return await cmdFetch(rest)
       case 'duplicate':

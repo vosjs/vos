@@ -10,7 +10,6 @@
 import { sortKeyframes } from '@vosjs/timeline'
 import type { Keyframe, KeyframeTrack, Segment } from '@vosjs/timeline'
 import type {
-  EndCard,
   FrameEntrance,
   OverlayClip,
   ProjectDoc,
@@ -83,15 +82,25 @@ export function entranceTiltKeyframes(
   ]
 }
 
-/** Keyframes an entrance prepends to the zoom track ([level, cx, cy]), or none. */
+/**
+ * Keyframes an entrance prepends to the zoom track ([level, cx, cy]): the
+ * pull-out's own head, or, for the other kinds, a REST head, because the
+ * camera must not zoom into a card that is still arriving (a planner's
+ * cold-open span would otherwise fight the entrance). None for none.
+ */
 export function entranceZoomKeyframes(
   e: FrameEntrance | null | undefined,
 ): Keyframe<number[]>[] {
   const s = entranceSeconds(e)
-  if (!s || e?.kind !== 'pull-out') return []
+  if (!s) return []
+  if (e?.kind === 'pull-out')
+    return [
+      { t: 0, value: [PULL_OUT_LEVEL, 0.5, 0.42], ease: 'none' },
+      { t: s, value: [1, 0.5, 0.5], ease: 'power3.out' },
+    ]
   return [
-    { t: 0, value: [PULL_OUT_LEVEL, 0.5, 0.42], ease: 'none' },
-    { t: s, value: [1, 0.5, 0.5], ease: 'power3.out' },
+    { t: 0, value: [1, 0.5, 0.5], ease: 'none' },
+    { t: s, value: [1, 0.5, 0.5], ease: 'none' },
   ]
 }
 
@@ -125,12 +134,15 @@ export function cardPoseTrack(
   const keyframes: Keyframe<number[]>[] = []
   const s = entranceSeconds(e)
   if (s) {
+    // The first frame is what a feed shows: the card is VISIBLE at t = 0
+    // (the references open in perspective, never on nothing), so the pose
+    // settles from a smaller, lower, softened card, not from a blank.
     const from =
       e?.kind === 'rise'
-        ? [0.96, 0.08, 0]
+        ? [0.96, 0.08, 0.7]
         : e?.kind === 'pull-out'
-          ? [1, 0, 0]
-          : [0.94, 0.05, 0]
+          ? [1, 0, 1]
+          : [0.94, 0.05, 0.7]
     keyframes.push({ t: 0, value: from, ease: 'none' })
     keyframes.push({ t: s, value: [1, 0, 1], ease: 'power3.out' })
   }
