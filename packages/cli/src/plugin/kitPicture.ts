@@ -86,6 +86,12 @@ export interface PictureAsset {
   seconds?: number | null
   /** The manifest says this screenshot kept the cut's camera and chrome. */
   composed?: boolean
+  /**
+   * A poster card's shot placement (fractions; a bleed runs past 1): the
+   * composition is the template's, so the subject is the SHOT, and the
+   * ground is designed rather than a plate to find a card on.
+   */
+  shot?: { x: number; y: number; w: number; h: number }
 }
 
 /** The band the reference assets were measured to. */
@@ -143,9 +149,43 @@ export function stillFindings(
 ): PictureFinding[] {
   const out: PictureFinding[] = []
   const genre = a.spec?.genre
-  const subject = m.card ?? { x: 0, y: 0, w: img.w, h: img.h }
   const bledAll = m.bleed.length === 4
 
+  // A poster card: the subject is the shot the template placed. Its width
+  // sits in the band (a bleed past the frame is a layout, so the ceiling
+  // is loose), and the visible part of it carries ink.
+  if (a.shot) {
+    const sx = Math.max(0, a.shot.x) * img.w
+    const sy = Math.max(0, a.shot.y) * img.h
+    const sw = Math.min(1, a.shot.x + a.shot.w) * img.w - sx
+    const sh = Math.min(1, a.shot.y + a.shot.h) * img.h - sy
+    const rect = { x: sx, y: sy, w: Math.max(1, sw), h: Math.max(1, sh) }
+    const ink = inkCoverage(img, rect)
+    if (ink < BLANK_INK) {
+      out.push({
+        code: 'blank',
+        severity: 'error',
+        asset: a.destination,
+        message: `${pct(ink)} ink inside the shot: the moment shows a wallpaper, an empty canvas or a flat panel`,
+        fixHint: 'pick a moment after a gesture landed (--shot-time, or --times step:<id>) and stage the set before recording',
+        bbox: rect,
+      })
+    }
+    if (a.shot.w < 0.5 || a.shot.w > 1.2) {
+      out.push({
+        code: 'subject',
+        severity: 'error',
+        asset: a.destination,
+        message: `the shot is ${pct(a.shot.w)} of the width; a card sits at 60 to 92%, a bleed a little past the edge`,
+        fixHint: 'the template layout places the slot; fix its place for this aspect',
+        bbox: rect,
+      })
+    }
+    for (const f of textFindings(a, img)) out.push(f)
+    return out
+  }
+
+  const subject = m.card ?? { x: 0, y: 0, w: img.w, h: img.h }
   if (m.ink < BLANK_INK) {
     out.push({
       code: 'blank',
@@ -229,6 +269,13 @@ export function stillFindings(
     }
   }
 
+  for (const f of textFindings(a, img)) out.push(f)
+  return out
+}
+
+/** The word checks: sliced, safe, contrast, and words where none are wanted. */
+function textFindings(a: PictureAsset, img: Rgba): PictureFinding[] {
+  const out: PictureFinding[] = []
   for (const t of a.text ?? []) {
     const box: Rect = { x: t.x * img.w, y: t.y * img.h, w: t.w * img.w, h: t.h * img.h }
     const name = t.label ? `"${t.label}"` : 'a text box'

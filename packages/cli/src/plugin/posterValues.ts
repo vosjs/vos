@@ -103,7 +103,7 @@ export function posterValues(
   if (bgC) values.bgC = bgC
   if (ink) values.ink = ink
   if (accent) values.accent = accent
-  if (ink && bgA) values.inkSoft = mixHex(ink, bgA, 0.38)
+  if (ink && bgA) values.inkSoft = mixHex(ink, bgA, 0.28)
   if (accent) values.streak = rgba(accent, lightGround ? 0.12 : 0.18)
   if (bgA) values.grain = lightGround ? 10 : 22
   // The mesh: the accent and the highlight ground as blobs over the plate.

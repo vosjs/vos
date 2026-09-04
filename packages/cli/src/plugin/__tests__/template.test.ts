@@ -60,6 +60,7 @@ describe('fillTemplate', () => {
     const data = wide.config.data as Record<string, unknown>
     expect(data.headline).toBe(values.headline)
     expect(data.ink).toBe('#111111')
+    expect(data.kicker).toBe('VOSSO 1.7')
     const params = wide.config.params as { key: string; default: unknown }[]
     expect(params.find((p) => p.key === 'headline')!.default).toBe(values.headline)
     expect(wide.missing).toEqual([])

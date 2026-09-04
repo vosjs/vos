@@ -148,6 +148,8 @@ export interface FillResult {
   config: Config
   /** Where the words landed, as fractions of the frame, for the picture checks. */
   text: TextBox[]
+  /** Where each slot's CARD landed (the shot without its bake pad), fractions of the frame. */
+  slots: Record<string, { x: number; y: number; w: number; h: number }>
   aspect: TemplateAspect
   /** Data keys the template requires that were not supplied. */
   missing: string[]
@@ -179,6 +181,7 @@ export function fillTemplate(config: Config, input: FillInput): FillResult {
   const byId = new Map(elements.filter((e) => e.id).map((e) => [e.id as string, e]))
 
   // The slots: src + geometry from the layout's placement.
+  const slotRects: FillResult['slots'] = {}
   for (const s of t.slots) {
     const el = byId.get(s.id)
     const place = layout.slots[s.id]
@@ -186,6 +189,12 @@ export function fillTemplate(config: Config, input: FillInput): FillResult {
     if (!el || !place) continue
     if (src) el.src = src.src
     const pad = src?.pad ?? 0
+    slotRects[s.id] = {
+      x: place.x,
+      y: place.y,
+      w: place.w,
+      h: (place.w * (input.size.w / input.size.h)) / (src?.aspect ?? 16 / 9),
+    }
     const w = place.w * designW * (1 + 2 * pad)
     const x = place.x - place.w * pad
     const y = place.y - (place.w * pad * (input.size.w / input.size.h)) / (src?.aspect ?? 16 / 9)
@@ -208,8 +217,14 @@ export function fillTemplate(config: Config, input: FillInput): FillResult {
     const p = params.find((q) => q.key === k)
     if (p) p.default = input.values[k]
   }
+  // Every supplied value wins over the template's own default: the
+  // defaults are what a bare template shows, never what a filled one keeps.
   for (const [k, v] of Object.entries(input.values)) {
-    if (data[k] === undefined && v !== undefined && v !== null && v !== '') data[k] = v
+    if (v !== undefined && v !== null && v !== '') {
+      data[k] = v
+      const p = params.find((q) => q.key === k)
+      if (p) p.default = v
+    }
   }
   out.data = data
 
@@ -265,7 +280,7 @@ export function fillTemplate(config: Config, input: FillInput): FillResult {
     const el = byId.get(id)
     if (el && !t.text.some((x) => x.element === id)) el.opacity = 0
   }
-  return { config: out, text: boxes, aspect, missing }
+  return { config: out, text: boxes, slots: slotRects, aspect, missing }
 }
 
 /** A headline's shape against the template's own limits, in words. */

@@ -35,6 +35,8 @@ export interface KitAssetRecord {
   text?: TextBox[]
   /** A screenshot rendered with the cut's camera and chrome (--composed). */
   composed?: boolean
+  /** A poster card's shot placement, fractions of the asset. */
+  shot?: { x: number; y: number; w: number; h: number }
 }
 
 export interface KitRecord {
@@ -238,6 +240,7 @@ export async function validateKit(
       text: a.text,
       seconds,
       composed: a.composed,
+      shot: a.source === 'poster' ? a.shot : undefined,
     })
 
     if (!spec) {

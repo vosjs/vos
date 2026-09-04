@@ -156,6 +156,8 @@ export interface KitAsset {
   template?: string
   /** Where the words landed, as fractions of the asset (the picture checks read them). */
   text?: TextBox[]
+  /** Where the release's shot sits on a poster card, fractions of the asset (bleeds may exceed 1). */
+  shot?: { x: number; y: number; w: number; h: number }
   /**
    * A screenshot-genre still rendered with the cut's camera and chrome
    * (`--composed`), which store policy refuses; the picture checks read it.
@@ -649,6 +651,7 @@ export async function deliverTake(
           source: 'poster',
           template: templateOf(plan.config)?.family ?? plan.from,
           text: filled.text,
+          shot: filled.slots.shot,
         })
       }
     } finally {
