@@ -47,13 +47,18 @@ export interface Destination {
    * the platform's own chrome or crop covers the rest.
    */
   safe: { x: number; y: number; w: number; h: number }
+  /**
+   * The poster template a card destination renders from by default (the
+   * family that ships with the CLI); absent on screenshots and videos.
+   */
+  template?: string
   notes: string
 }
 
 export const CHANNEL_SPECS_VERIFIED = '2026-08-04'
 
 export const CHANNEL_SPECS_HASH =
-  'e2382b03d59d01a5d7ed20c928e60fd53267a8038cf686a5ba21758f86e50cb9'
+  'e48926c22737b5dfaabf5cb33916a50a5eccd4b93498c2059a1468bd963a0a86'
 
 export const DESTINATIONS: Destination[] = [
   {
@@ -185,6 +190,7 @@ export const DESTINATIONS: Destination[] = [
       w: 0.9,
       h: 0.84,
     },
+    template: 'split-cover',
     notes: '',
   },
   {
@@ -238,6 +244,7 @@ export const DESTINATIONS: Destination[] = [
       w: 1,
       h: 1,
     },
+    template: 'card-on-gradient',
     notes:
       'Listings without one rank lower. No text; fill the region; subject centered.',
   },
@@ -263,6 +270,7 @@ export const DESTINATIONS: Destination[] = [
       w: 0.9,
       h: 0.84,
     },
+    template: 'split-cover',
     notes: 'Carousel eligibility.',
   },
   {
@@ -311,6 +319,7 @@ export const DESTINATIONS: Destination[] = [
       w: 0.88,
       h: 0.88,
     },
+    template: 'card-on-gradient',
     notes: 'GIF animates on hover only — the first frame must stand alone.',
   },
   {
@@ -363,6 +372,7 @@ export const DESTINATIONS: Destination[] = [
       w: 0.9,
       h: 0.84,
     },
+    template: 'split-cover',
     notes: '',
   },
   {
@@ -387,6 +397,7 @@ export const DESTINATIONS: Destination[] = [
       w: 0.9,
       h: 0.84,
     },
+    template: 'split-cover',
     notes: '1080×1350 vertical also performs in the mobile feed.',
   },
   {
@@ -412,6 +423,7 @@ export const DESTINATIONS: Destination[] = [
       w: 0.9,
       h: 0.9524,
     },
+    template: 'split-cover',
     notes:
       'Text in the center ~1080×600. Set twitter:card=summary_large_image explicitly — og:image alone gets the small card.',
   },
@@ -438,6 +450,7 @@ export const DESTINATIONS: Destination[] = [
       w: 0.9219,
       h: 0.8438,
     },
+    template: 'card-on-gradient',
     notes: 'Key text ≥50px from every edge.',
   },
 ]

@@ -87,6 +87,8 @@ export function deriveDestination(spec) {
   // sit inside `safe` (fractions of the frame).
   row.text = spec.text ?? 'allowed'
   row.safe = spec.safe ?? { x: 0, y: 0, w: 1, h: 1 }
+  // The poster template a card destination renders from by default.
+  if (spec.template !== undefined) row.template = spec.template
   row.notes = spec.notes ?? ''
   return row
 }
@@ -146,6 +148,11 @@ export interface Destination {
    * the platform's own chrome or crop covers the rest.
    */
   safe: { x: number; y: number; w: number; h: number }
+  /**
+   * The poster template a card destination renders from by default (the
+   * family that ships with the CLI); absent on screenshots and videos.
+   */
+  template?: string
   notes: string
 }
 

@@ -20,7 +20,13 @@ import {
   probeMediaUrls,
 } from './mediaProbe'
 import { framesTake, parseTimes, writeIndexJson } from './framesTake'
-import { deliverTake, resolveChannels, resolveLook } from './deliver'
+import {
+  deliverTake,
+  readLaunchBesideTake,
+  resolveChannels,
+  resolveLook,
+} from './deliver'
+import { templateByName } from './templates'
 import { resolveStepTime } from './moments'
 import { formatFinding } from './kitPicture'
 import { validateKit } from './validateKit'
@@ -87,7 +93,7 @@ Take pipeline
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--background <slug|url|none>] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
-  vos deliver <take> --to cws,producthunt,x,linkedin,og,github,youtube (or all) [--look plate|gradient|dark|none] [--brand BRAND.md] [--poster <config.json|vosId>] [--shot-time <t>] [--poster-time <t>] [--composed] [--set path=value] [--release v2.1] [--out dir] [--times a,b] [--range a..b] [--parallel N] [--json]
+  vos deliver <take> --to cws,producthunt,x,linkedin,og,github,youtube (or all) [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--look plate|gradient|dark|none] [--brand BRAND.md] [--poster <split-cover|card-on-gradient|config.json|vosId|none>] [--shot-time <t>] [--poster-time <t>] [--composed] [--set path=value] [--release v2.1] [--out dir] [--times a,b] [--range a..b] [--parallel N] [--json]
   vos digest <take> [--out dir] [--full 960] [--crop 640] [--no-frames] [--transcript <file.json>] [--style <doc.json|vosId>] [--json]
   vos brand <url> [--out BRAND.md] [--json]
   vos open <take> [--studio <url>] [--print]
@@ -195,11 +201,19 @@ house look (or none for the pre-look crops); with no flag the BRAND.md
 beside the take (or --brand <file>) decides from its look role or its own
 ground (a paper site is a plate, a dark site is dark), and with no brand
 the house gradient. Screenshot-genre stills never take a look.
---poster <config.json|vosId> is the CARD half: card-genre destinations
-(OG, LinkedIn, X, YouTube thumbnail, the CWS tile + marquee, GitHub
-social preview) render from your poster PROGRAM — the split-cover family
-— with this release's shot baked into its image element (id "shot"), PNG
-at exact pixels. --shot-time <t> picks the take moment (OUTPUT seconds;
+Card-genre destinations (OG, LinkedIn, X, YouTube thumbnail, the CWS
+tile + marquee, GitHub social preview) COMPOSE by default: each renders
+from its destination's poster TEMPLATE (split-cover carries a headline
+column beside the shot; card-on-gradient is the shot alone on a mesh, the
+store's tile rule), filled with BRAND.md's colours and faces and the
+release's words, the shot baked as an object (padded, rounded, shadowed,
+a hairline on a light ground), PNG at exact pixels; kit.json records the
+template and the text boxes. The headline is LAUNCH.md's headline role
+beside the take or --headline (with none, the headline templates stand
+down for card-on-gradient, said); --kicker overrides the wordmark plus
+--release line. --poster names a bundled template for every card, your
+own template (a config.json or a hosted vos id carrying a template
+block), or none to keep the take path. --shot-time <t> picks the take moment (OUTPUT seconds;
 default the first still time — pick a zoom apex, the cut's camera makes
 the shot the feature, not the whole page); --poster-time <t> is the instant
 inside the poster's OWN timeline (default 90% through it). Screenshot-genre
@@ -849,9 +863,13 @@ async function cmdDeliver(argv: string[]): Promise<number> {
   // The poster leg: card-genre destinations render from the maker's poster
   // program (a local config.json, or a hosted vos id read with the key
   // ladder) with this release's shot baked in.
-  let poster: { config: Record<string, unknown>; from: string } | undefined
+  let poster: { config: Record<string, unknown>; from: string } | null | undefined
   const posterRef = strFlag(flags, 'poster')
-  if (posterRef !== undefined) {
+  if (posterRef === 'none') {
+    poster = null
+  } else if (posterRef !== undefined && templateByName(posterRef)) {
+    poster = { from: `template ${posterRef}`, config: templateByName(posterRef)! }
+  } else if (posterRef !== undefined) {
     if (existsSync(posterRef)) {
       poster = {
         from: resolve(posterRef),
@@ -887,11 +905,27 @@ async function cmdDeliver(argv: string[]): Promise<number> {
     throw new UsageError(e instanceof Error ? e.message : String(e))
   }
   r.log(`look: ${lookPick.from}`)
+  // The release's words: LAUNCH.md beside the take carries `headline` and
+  // `kicker` roles; flags override; --release is the kicker's second half.
+  const launch = await readLaunchBesideTake(dir, strFlag(flags, 'launch'))
+  // A literal \n in a frontmatter value or a flag is a line break: a headline
+  // is written over its lines on purpose.
+  const lines = (v: string | null | undefined) =>
+    v === null || v === undefined ? null : v.replace(/\\n/g, '\n')
+  const words = {
+    headline: lines(strFlag(flags, 'headline') ?? launch?.roles.headline),
+    kicker: lines(strFlag(flags, 'kicker') ?? launch?.roles.kicker),
+    brand: strFlag(flags, 'brand-name') ?? null,
+    release: strFlag(flags, 'release') ?? null,
+  }
+  if (launch) r.log(`words: ${launch.file}`)
 
   const browser = await launchBrowser()
   try {
     const result = await deliverTake(browser, dir, {
       look: lookPick.look,
+      brandRoles: lookPick.roles,
+      words,
       channels,
       outDir: strFlag(flags, 'out'),
       release: strFlag(flags, 'release'),

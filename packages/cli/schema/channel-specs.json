@@ -1,5 +1,5 @@
 {
-  "$comment": "Per-channel launch-asset specs — the data the launch-kit skill loops over (mirrored as references/channel-specs.md in vosjs/skills; update together). Verified against official platform docs 2026-08-04; platform specs drift, re-verify quarterly. Image specs carry `genre`: 'screenshot' = real UI from the take (store policy demands real UX); 'card' = a composed cover — rendered from the poster program when one is in hand. `text` is the destination's word policy: 'none' (the picture carries it alone: a tile, a store screenshot), 'allowed', 'expected' (a card that should say something). `safe` is the rect, as fractions of the frame, that every text box must sit inside (the platform's own chrome or crop covers the rest); the picture checks read both.",
+  "$comment": "Per-channel launch-asset specs — the data the launch-kit skill loops over (mirrored as references/channel-specs.md in vosjs/skills; update together). Verified against official platform docs 2026-08-04; platform specs drift, re-verify quarterly. Image specs carry `genre`: 'screenshot' = real UI from the take (store policy demands real UX); 'card' = a composed cover — rendered from the poster program when one is in hand. `text` is the destination's word policy: 'none' (the picture carries it alone: a tile, a store screenshot), 'allowed', 'expected' (a card that should say something). `safe` is the rect, as fractions of the frame, that every text box must sit inside (the platform's own chrome or crop covers the rest); the picture checks read both. `template` names the poster template a card destination renders from by default (the family that ships with the CLI: split-cover carries a headline, card-on-gradient carries none).",
   "version": 1,
   "verified": "2026-08-04",
   "specs": [
@@ -93,7 +93,8 @@
         "y": 0.08,
         "w": 0.9,
         "h": 0.84
-      }
+      },
+      "template": "split-cover"
     },
     {
       "channel": "cws",
@@ -128,7 +129,8 @@
         "y": 0,
         "w": 1,
         "h": 1
-      }
+      },
+      "template": "card-on-gradient"
     },
     {
       "channel": "cws",
@@ -145,7 +147,8 @@
         "y": 0.08,
         "w": 0.9,
         "h": 0.84
-      }
+      },
+      "template": "split-cover"
     },
     {
       "channel": "cws",
@@ -179,7 +182,8 @@
         "y": 0.06,
         "w": 0.88,
         "h": 0.88
-      }
+      },
+      "template": "card-on-gradient"
     },
     {
       "channel": "producthunt",
@@ -214,7 +218,8 @@
         "y": 0.08,
         "w": 0.9,
         "h": 0.84
-      }
+      },
+      "template": "split-cover"
     },
     {
       "channel": "linkedin",
@@ -231,7 +236,8 @@
         "y": 0.08,
         "w": 0.9,
         "h": 0.84
-      }
+      },
+      "template": "split-cover"
     },
     {
       "channel": "og",
@@ -249,7 +255,8 @@
         "y": 0.0238,
         "w": 0.9,
         "h": 0.9524
-      }
+      },
+      "template": "split-cover"
     },
     {
       "channel": "github",
@@ -267,7 +274,8 @@
         "y": 0.0781,
         "w": 0.9219,
         "h": 0.8438
-      }
+      },
+      "template": "card-on-gradient"
     }
   ]
 }
