@@ -54,7 +54,8 @@ export function rolesFor(asset: {
   template?: string
   path: string
 }): string[] {
-  if (asset.source === 'poster' && asset.template) return [asset.template]
+  if ((asset.source === 'poster' || asset.source === 'stage') && asset.template)
+    return [asset.template.replace(/-stage$/, '')]
   const spec = DESTINATIONS.find((d) => d.id === asset.destination)
   if (spec?.kind === 'video') {
     const portrait = spec.px.w < spec.px.h
@@ -260,9 +261,17 @@ export async function judgeKit(
   return { sheets, skipped, outDir: out, verdictFile }
 }
 
-/** The three numbers a kit reports: spec problems, picture problems, the win rate. */
-export function winRate(verdicts: { win: boolean | null }[]): { wins: number; judged: number; rate: number | null } {
-  const judged = verdicts.filter((v) => v.win !== null).length
-  const wins = verdicts.filter((v) => v.win === true).length
-  return { wins, judged, rate: judged ? wins / judged : null }
+/**
+ * The win rate: a win counts one, a tie (`win: null` with reasons) counts a
+ * half, the pairwise convention; a pair with no reasons was not judged and
+ * does not count. Parity with the references is 0.5.
+ */
+export function winRate(
+  verdicts: { win: boolean | null; reasons?: number[] }[],
+): { wins: number; ties: number; judged: number; rate: number | null } {
+  const judgedList = verdicts.filter((v) => v.win !== null || (v.reasons?.length ?? 0) > 0)
+  const wins = judgedList.filter((v) => v.win === true).length
+  const ties = judgedList.filter((v) => v.win === null).length
+  const judged = judgedList.length
+  return { wins, ties, judged, rate: judged ? (wins + ties / 2) / judged : null }
 }

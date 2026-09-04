@@ -65,7 +65,11 @@ export function isLightHex(hex: string): boolean {
 export function resolveFace(
   family: string | null | undefined,
   weights: number[],
-): { stack: string; fonts: { family: string; url: string; weight: number }[] } | null {
+): {
+  stack: string
+  category: string
+  fonts: { family: string; url: string; weight: number }[]
+} | null {
   if (!family) return null
   const first = family.split(',')[0].replace(/['"]/g, '').replace(/\s+variable$/i, '').trim()
   const entry = findFontFamily(first)
@@ -75,8 +79,11 @@ export function resolveFace(
     url: fontFaceUrl(entry.slug, w),
     weight: w,
   }))
-  return { stack: fontStack(entry), fonts }
+  return { stack: fontStack(entry), category: entry.category, fonts }
 }
+
+/** The house serif a split cover's headline takes when the brand's display face is not one. */
+export const HOUSE_SERIF = 'Fraunces'
 
 /**
  * Assemble a template's values from the brand roles and the release's
@@ -119,10 +126,14 @@ export function posterValues(
     : [wordmark, release].filter(Boolean).join('  ').toUpperCase()
 
   const fonts: PosterFill['fonts'] = []
+  // The split cover's headline is a SERIF (the reference grammar): the
+  // brand's display face when it is one, else the house serif. The brand's
+  // sans still carries the wordmark and the kicker through fontBody.
   const display = resolveFace(b.fontDisplay, [600, 700])
-  if (display) {
-    values.fontDisplay = display.stack
-    fonts.push(...display.fonts)
+  const serif = display && display.category === 'serif' ? display : resolveFace(HOUSE_SERIF, [600, 700])
+  if (serif) {
+    values.fontDisplay = serif.stack
+    fonts.push(...serif.fonts)
   }
   const body = resolveFace(b.fontBody, [700])
   if (body) {

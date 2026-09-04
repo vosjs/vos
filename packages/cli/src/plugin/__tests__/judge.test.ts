@@ -49,7 +49,8 @@ describe('roles and the win rate', () => {
   })
 
   it('the win rate counts judged pairs only', () => {
-    expect(winRate([{ win: true }, { win: false }, { win: null }, { win: true }])).toEqual({ wins: 2, judged: 3, rate: 2 / 3 })
-    expect(winRate([{ win: null }])).toEqual({ wins: 0, judged: 0, rate: null })
+    expect(winRate([{ win: true }, { win: false }, { win: null }, { win: true }])).toEqual({ wins: 2, ties: 0, judged: 3, rate: 2 / 3 })
+    expect(winRate([{ win: null, reasons: [2, 9] }, { win: false, reasons: [2] }])).toEqual({ wins: 0, ties: 1, judged: 2, rate: 0.25 })
+    expect(winRate([{ win: null }])).toEqual({ wins: 0, ties: 0, judged: 0, rate: null })
   })
 })
