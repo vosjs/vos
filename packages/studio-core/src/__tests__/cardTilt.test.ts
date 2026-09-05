@@ -8,6 +8,7 @@ import {
   BASE_FRAME_STYLE,
 } from '../types'
 import type { ProjectDoc, TiltSpan } from '../types'
+import { CARD_FOV, CARD_Z, cardOverscanFor, planeSizeAtDepth } from '../stage'
 
 // Stub-context run of the compiled ON_FRAME string with a real card MESH stub,
 // asserting the compositor-v2 card transform: the TILT TRACK → mesh
@@ -85,7 +86,13 @@ describe('card tilt track (compositor v2 V0)', () => {
   function runFrame(
     time: number,
     opts: { tilt?: TiltSpan[]; dataPatch?: Record<string, unknown> } = {},
-  ): { mesh: MeshStub } {
+  ): {
+    mesh: MeshStub
+    canvas: { width: number; height: number }
+    planes: number[][]
+    data: Record<string, unknown>
+  } {
+    const planes: number[][] = []
     const lowered = lowerToComposition(makeDoc(opts.tilt))
     const config = lowered.config
     const data = opts.dataPatch
@@ -118,9 +125,10 @@ describe('card tilt track (compositor v2 V0)', () => {
       },
     )
     const mesh = meshStub()
+    const cardCanvas = { width: 1920, height: 1080 }
     const layer = (m?: MeshStub) => ({
       c2d,
-      canvas: { width: 1920, height: 1080 },
+      canvas: m ? cardCanvas : { width: 1920, height: 1080 },
       texture: m ? m.texture : { needsUpdate: false, dispose: () => undefined },
       mesh: m,
     })
@@ -140,7 +148,18 @@ describe('card tilt track (compositor v2 V0)', () => {
       time,
       data,
       // no renderer capabilities → anisotropy path is skipped; THREE minimal
-      THREE: { LinearFilter: 'linear', LinearMipmapLinearFilter: 'mipmap' },
+      THREE: {
+        LinearFilter: 'linear',
+        LinearMipmapLinearFilter: 'mipmap',
+        PlaneGeometry: class {
+          parameters: { width: number; height: number }
+          constructor(width: number, height: number) {
+            this.parameters = { width, height }
+            planes.push([width, height])
+          }
+          dispose() {}
+        },
+      },
       renderer: undefined,
       resolution: {
         width: 1920,
@@ -153,7 +172,7 @@ describe('card tilt track (compositor v2 V0)', () => {
       refs: { bg: layer(), card: layer(mesh), ov: layer(), video, cam: null },
     }
     onFrame(ctx, content, 1 / 30)
-    return { mesh }
+    return { mesh, canvas: cardCanvas, planes, data }
   }
 
   it('lowers no `card` key at all (the field is gone)', () => {
@@ -213,5 +232,57 @@ describe('card tilt track (compositor v2 V0)', () => {
     })
     expect(mesh.rotation.x).toBe(0)
     expect(mesh.texture.generateMipmaps).toBe(false)
+  })
+
+  // --- card OVERSCAN: a leaning card shows the frame more plane than the
+  // frame is wide on its receding side, and a zoomed (or bled) card's
+  // content runs past the frame, so the card layer's canvas and plane grow
+  // by the extent the tracks can reach (stage.ts cardOverscanFor is the
+  // twin ON_FRAME must agree with).
+
+  it('keeps the card canvas and plane at the frame with no tilt spans', () => {
+    const { canvas, planes } = runFrame(1.0)
+    expect(canvas).toEqual({ width: 1920, height: 1080 })
+    expect(planes).toEqual([])
+  })
+
+  it("grows the card canvas and plane by the twin's budget when the card leans", () => {
+    const { canvas, planes, data } = runFrame(0.1, {
+      tilt: [{ id: 't0', in: 1, out: 2, rx: 6, ry: -9 }],
+    })
+    const [kx, ky] = cardOverscanFor(
+      data.tiltTrack as { keyframes: { value: number[] }[] },
+      data.cardPoseTrack as { keyframes: { value: number[] }[] } | undefined,
+      1920 / 1080,
+    )
+    expect(kx).toBeGreaterThan(1)
+    const cW = 1920 + 2 * Math.round((1920 * (kx - 1)) / 2)
+    const cH = 1080 + 2 * Math.round((1080 * (ky - 1)) / 2)
+    expect(canvas).toEqual({ width: cW, height: cH })
+    // The plane grows by exactly the canvas's ratio: a texel stays a pixel.
+    const frame = planeSizeAtDepth(CARD_Z, CARD_FOV, 1920 / 1080)
+    expect(planes).toHaveLength(1)
+    expect(planes[0][0]).toBeCloseTo((frame.width * cW) / 1920, 9)
+    expect(planes[0][1]).toBeCloseTo((frame.height * cH) / 1080, 9)
+  })
+
+  it('sizes the budget at the LIVE aspect (a wider frame recedes farther)', () => {
+    const a = runFrame(0.1, {
+      tilt: [{ id: 't0', in: 1, out: 2, rx: 0, ry: -20 }],
+    })
+    const wide = cardOverscanFor(
+      a.data.tiltTrack as { keyframes: { value: number[] }[] },
+      undefined,
+      1920 / 1080,
+    )
+    const square = cardOverscanFor(
+      a.data.tiltTrack as { keyframes: { value: number[] }[] },
+      undefined,
+      1,
+    )
+    expect(wide[0]).toBeGreaterThan(square[0])
+    expect(a.canvas.width).toBe(
+      1920 + 2 * Math.round((1920 * (wide[0] - 1)) / 2),
+    )
   })
 })

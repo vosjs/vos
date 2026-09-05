@@ -51,7 +51,8 @@ import {
   CAMERA_FAR,
   CAMERA_NEAR,
   CARD_FOV,
-  CARD_OVERSCAN,
+  CARD_OVERSCAN_MAX,
+  CARD_OVERSCAN_STEP,
   CARD_Z,
   OVERLAY_Z,
 } from '../stage'
@@ -1051,30 +1052,81 @@ const ON_FRAME = `(ctx, content, dt) => {
   // the GPU texture allocated at the original dims and re-uploads the new canvas
   // against stale dims → stretch/duplicate; dispose() forces a full realloc) and
   // rebuilding each frustum-filling plane at the new aspect + syncing the camera.
-  // Card OVERSCAN (stage.ts CARD_OVERSCAN): a frame whose inset bleeds the
-  // card past an edge paints it on a canvas and a plane larger than the
-  // frame by ck about the centre, so a tilt that turns the bled edge back
-  // toward the viewer shows card there, not the texture's edge. Every doc
-  // that keeps its card inside the frame (and the flat stub, which has no
-  // card layer) stays at 1: byte- and pixel-identical.
+  // Card OVERSCAN: the card's pose (the tilt track, the card-pose track)
+  // lets the frame see MORE plane than the frame is wide on a receding
+  // side, and the card's content (zoomed footage, a bled card, the shadow)
+  // runs past the frame, so a plane that ends at the frame edge shows its
+  // texture's edge, and the backdrop through it, as soon as it leans. The
+  // card layer's canvas and plane therefore grow about the frame's centre
+  // by the extent the two tracks can reach at the LIVE aspect: each frame
+  // corner's viewing ray meets the posed plane and reads back in plane
+  // units; the extremes of both tracks (largest lean per axis, smallest
+  // scale, largest rise, every sign) bound every interpolated frame. This
+  // is the twin of stage.ts cardVisibleExtent/cardOverscanFor (pinned by
+  // stage.test.ts + cardTilt.test.ts; change them together). A card that
+  // never moves, and the flat stub (no card layer), stay at 1: byte- and
+  // pixel-identical. The factor is quantised up in steps so a scrubbed
+  // pose grows the canvas a few times, not per tick.
   var d = ctx.data || {}
-  var ckIns = (d.frame && d.frame.inset) || {}
-  var ck = r.card && (ckIns.left < 0 || ckIns.right < 0 || ckIns.top < 0 || ckIns.bottom < 0) ? ${CARD_OVERSCAN} : 1
-  var cW = Math.round(W * ck), cH = Math.round(H * ck)
+  var okx = 1, oky = 1
+  if (r.card) {
+    var okT = d.tiltTrack, okP = d.cardPoseTrack, okKf, oki, okv
+    var okRx = 0, okRy = 0, okSc = 1, okDy = 0
+    okKf = okT && okT.keyframes || []
+    for (oki = 0; oki < okKf.length; oki++) { okv = okKf[oki].value || []; okRx = Math.max(okRx, Math.abs(okv[0] || 0)); okRy = Math.max(okRy, Math.abs(okv[1] || 0)) }
+    okKf = okP && okP.keyframes || []
+    for (oki = 0; oki < okKf.length; oki++) { okv = okKf[oki].value || []; okSc = Math.min(okSc, okv[0] == null ? 1 : okv[0]); okDy = Math.max(okDy, Math.abs(okv[1] || 0)) }
+    if (okRx || okRy || okSc < 1 || okDy) {
+      var okD = ${Math.abs(CARD_Z)}, okMax = ${CARD_OVERSCAN_MAX}, okStep = ${CARD_OVERSCAN_STEP}
+      var okHh = okD * Math.tan(${CARD_FOV} * Math.PI / 180 / 2), okHw = okHh * W / H
+      // [max |x|, max |y|] of the frame corners on the posed plane, in
+      // half-plane units (R = Rx · Ry, three.js Euler XYZ with rz = 0).
+      var okE = function (rxd, ryd, sc, dy) {
+        var rx = rxd * Math.PI / 180, ry = ryd * Math.PI / 180
+        var cx = Math.cos(rx), sx = Math.sin(rx), cy = Math.cos(ry), sy = Math.sin(ry)
+        var scl = Math.max(0.05, sc), py = dy * 2 * okHh
+        var n0 = sy, n1 = -sx * cy, n2 = cx * cy
+        var nPos = n1 * py - n2 * okD
+        var ex = 0, ey = 0
+        for (var kx = -1; kx <= 1; kx += 2) for (var ky = -1; ky <= 1; ky += 2) {
+          var d0 = kx * okHw, d1 = ky * okHh, d2 = -okD
+          var nd = n0 * d0 + n1 * d1 + n2 * d2
+          var lam = nd === 0 ? -1 : nPos / nd
+          if (!(lam > 0)) { ex = okMax; ey = okMax; continue }
+          var q0 = lam * d0, q1 = lam * d1 - py, q2 = lam * d2 + okD
+          ex = Math.max(ex, Math.abs((cy * q0 + sx * sy * q1 - cx * sy * q2) / scl / okHw))
+          ey = Math.max(ey, Math.abs((cx * q1 + sx * q2) / scl / okHh))
+        }
+        return [Math.min(okMax, ex), Math.min(okMax, ey)]
+      }
+      for (var okA = -1; okA <= 1; okA += 2) for (var okB = -1; okB <= 1; okB += 2) for (var okC = -1; okC <= 1; okC += 2) {
+        var okR = okE(okA * okRx, okB * okRy, okSc, okC * okDy)
+        okx = Math.max(okx, okR[0]); oky = Math.max(oky, okR[1])
+      }
+      var okQ = function (k) { if (!(k > 1)) return 1; var q = Math.ceil(Math.round((k + okStep / 10) * 1000) / (okStep * 1000)) * okStep; return Math.min(okMax, Math.round(q * 1000) / 1000) }
+      okx = okQ(okx); oky = okQ(oky)
+    }
+  }
+  // The canvas grows by an EVEN number of pixels on each axis so the frame
+  // region sits on whole pixels inside it (a half-pixel base translation
+  // would resample every draw).
+  var cW = W + 2 * Math.round(W * (okx - 1) / 2), cH = H + 2 * Math.round(H * (oky - 1) / 2)
   if (cv.width !== cW || cv.height !== cH) {
     var THREE = ctx.THREE
     var aspect = W / H
     var cm = ctx.camera
     if (cm && cm.isPerspectiveCamera) { cm.aspect = aspect; cm.updateProjectionMatrix() }
-    var lyr = [[bg, ${BACKGROUND_Z}, 1], [card, ${CARD_Z}, ck], [ov, ${OVERLAY_Z}, 1]]
+    // Each layer's canvas size and its plane's per-axis growth; the card's
+    // plane grows by exactly its canvas's ratio, so a texel stays a pixel.
+    var lyr = [[bg, ${BACKGROUND_Z}, W, H], [card, ${CARD_Z}, cW, cH], [ov, ${OVERLAY_Z}, W, H]]
     for (var Li = 0; Li < lyr.length; Li++) {
-      var Ly = lyr[Li][0], Lz = lyr[Li][1], Lk = lyr[Li][2]
-      if (Ly.canvas) { Ly.canvas.width = Math.round(W * Lk); Ly.canvas.height = Math.round(H * Lk) }
+      var Ly = lyr[Li][0], Lz = lyr[Li][1], Lw = lyr[Li][2], Lhp = lyr[Li][3]
+      if (Ly.canvas) { Ly.canvas.width = Lw; Ly.canvas.height = Lhp }
       if (Ly.texture && Ly.texture.dispose) Ly.texture.dispose()
       if (Ly.mesh && THREE) {
         if (Ly.mesh.geometry && Ly.mesh.geometry.dispose) Ly.mesh.geometry.dispose()
-        var Lh = 2 * Math.abs(Lz) * Math.tan(${CARD_FOV} * Math.PI / 180 / 2) * Lk
-        Ly.mesh.geometry = new THREE.PlaneGeometry(Lh * aspect, Lh)
+        var Lh = 2 * Math.abs(Lz) * Math.tan(${CARD_FOV} * Math.PI / 180 / 2)
+        Ly.mesh.geometry = new THREE.PlaneGeometry(Lh * aspect * (Lw / W), Lh * (Lhp / H))
       }
     }
   }
@@ -1398,9 +1450,10 @@ const ON_FRAME = `(ctx, content, dt) => {
   // the contain-fit card shows the background layer through the plane's alpha.
   // Under overscan the canvas is larger than the frame and every frame-space
   // draw below rides a base translation to its centre.
-  if (ck !== 1) c.setTransform(1, 0, 0, 1, 0, 0)
+  var okOn = cW !== W || cH !== H
+  if (okOn) c.setTransform(1, 0, 0, 1, 0, 0)
   c.clearRect(0, 0, cv.width, cv.height)
-  if (ck !== 1) c.setTransform(1, 0, 0, 1, (cW - W) / 2, (cH - H) / 2)
+  if (okOn) c.setTransform(1, 0, 0, 1, (cW - W) / 2, (cH - H) / 2)
   // Footage is nearly always drawn SMALLER than it was recorded (a 1920
   // recording in a padded 1080 card, or a 440-wide tile): the default
   // bilinear tap aliases and blurs a large downscale; 'high' resamples.
@@ -1911,8 +1964,10 @@ const ON_FRAME = `(ctx, content, dt) => {
     card.mesh.rotation.y = ry
     // The card's pose through an entrance or an end card: [scale, dy,
     // opacity]; absent = the rest pose, exactly as before the track existed.
+    // dy is a fraction of the FRAME plane's height (not the geometry's,
+    // which the overscan grows).
     var cpk = d.cardPoseTrack
-    var cpH = card.mesh.geometry && card.mesh.geometry.parameters ? card.mesh.geometry.parameters.height : 0
+    var cpH = 2 * ${Math.abs(CARD_Z)} * Math.tan(${CARD_FOV} * Math.PI / 180 / 2)
     if (cpk && cpk.keyframes && cpk.keyframes.length && card.mesh.scale && card.mesh.position) {
       var cpv = TL.sample(cpk, t, TL.lerpArray)
       card.mesh.scale.x = cpv[0]; card.mesh.scale.y = cpv[0]
