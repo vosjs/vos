@@ -19,7 +19,6 @@ export type { Segment }
  */
 export type DocSegment = Segment & { hold?: number }
 
-
 /** A single input event captured in the page, relative to the recording's t0. */
 export interface CursorEvent {
   /** ms since t0 (recording start). */
@@ -1415,6 +1414,20 @@ export const FRAME_BORDER_DEFAULT = 0.35
  */
 export const FRAME_BORDER_WIDTH_DEFAULT = 1.5
 export const FRAME_BORDER_COLOR_DEFAULT = '#ffffff'
+
+/**
+ * How far past the card's rounded clip the footage and the browser-bar fill
+ * are drawn, in device pixels, so the clip is the ONE edge the eye sees.
+ * A clipped drawImage whose destination rect lands exactly on the clip path
+ * anti-aliases that edge twice wherever it falls on a fractional device
+ * pixel (the studio canvas is the fitted box at device pixel ratio, and any
+ * zoom rescales everything about its focus), leaving a partially covered
+ * seam pixel along every straight edge that the arc, drawn by the clip
+ * alone, never has. One pixel covers the seam and changes the footage scale
+ * by less than a part in a thousand. Read by ON_FRAME; the layout tests
+ * expect the destination rect to be the mirror's grown by this much.
+ */
+export const CARD_EDGE_OVERDRAW = 1
 
 /**
  * The realistic browser-bar kind matching the recorder's OS — seeds Default

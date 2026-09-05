@@ -66,6 +66,7 @@ import {
 import { resolveText3dAsset } from '../text3d'
 import {
   CLICK_FX_INTENSITY,
+  CARD_EDGE_OVERDRAW,
   FRAME_BORDER_COLOR_DEFAULT,
   FRAME_BORDER_WIDTH_DEFAULT,
   MOTION_EASE,
@@ -1477,28 +1478,49 @@ const ON_FRAME = `(ctx, content, dt) => {
   c.save()
   // d.zoomSuppressed = editor aiming mode: the host merges it into ctx.data
   // while the focus overlay is up so the full frame renders. Never persisted.
+  // ceZs = the zoom transform's device scale, for the two values below that
+  // are sized in DEVICE pixels inside a scaled user space.
+  var ceZs = 1
   if (lvl > 1.001 && !d.zoomSuppressed) {
     var fx = dx + zx * dw, fy = dy + zy * dh
     c.translate(fx, fy); c.scale(lvl, lvl); c.translate(-fx, -fy)
+    ceZs = lvl
   }
+  // The card's shadows are cast by a body drawn OFF-CANVAS and brought back
+  // by shadowOffsetX alone. Shadow offsets are device space, untouched by
+  // the transform, so the body moves by shD / ceZs in user space and the
+  // offset is shD; shD clears the canvas by the card's own device size, so
+  // no part of the body lands on it at any zoom. Painting the body in place
+  // (opaque black under the footage) left a 1px dark seam along every
+  // straight card edge at a fractional coordinate: the fill's anti-aliased
+  // rim showed through where the clipped footage did not cover it, and the
+  // corners, drawn by the clip alone, hid theirs inside the arc.
+  var shD = ceZs * (cardW + cardH) + 2 * (W + H)
+  var shX = cardX - shD / ceZs
   // soft shadow behind the card (bar strip + video)
   if (shadow > 0) {
     c.save()
     c.shadowColor = 'rgba(' + shRgb + ',' + shadow + ')'
-    c.shadowBlur = 60 * s2; c.shadowOffsetY = 24 * s2
+    c.shadowBlur = 60 * s2; c.shadowOffsetX = shD; c.shadowOffsetY = 24 * s2
     c.fillStyle = '#000'
-    rr(cardX, cardY, cardW, cardH, radius); c.fill()
+    rr(shX, cardY, cardW, cardH, radius); c.fill()
     c.restore()
   }
   // contact shadow: tight and close, over the ambient layer
   if (shC > 0) {
     c.save()
     c.shadowColor = 'rgba(' + shRgb + ',' + shC + ')'
-    c.shadowBlur = 10 * s2; c.shadowOffsetY = 3 * s2
+    c.shadowBlur = 10 * s2; c.shadowOffsetX = shD; c.shadowOffsetY = 3 * s2
     c.fillStyle = '#000'
-    rr(cardX, cardY, cardW, cardH, radius); c.fill()
+    rr(shX, cardY, cardW, cardH, radius); c.fill()
     c.restore()
   }
+  // The footage and the bar fill overdraw the clip by one device pixel
+  // (CARD_EDGE_OVERDRAW) so the clip is the only edge: a destination rect
+  // that lands exactly on the clip path anti-aliases the edge twice at a
+  // fractional coordinate and leaves a half-covered seam pixel.
+  var ceOv = ${CARD_EDGE_OVERDRAW} / ceZs
+  var ceX = dx - ceOv, ceY = dy - ceOv, ceW = dw + 2 * ceOv, ceH = dh + 2 * ceOv
   // video, then bar, clipped to the card's rounded corners. The bar draws
   // AFTER the footage: under cover the video rect can overflow ABOVE the
   // bar strip (a vertical crop), and bar-first let the footage paint over
@@ -1511,9 +1533,9 @@ const ON_FRAME = `(ctx, content, dt) => {
     // dimension-checked at attach); false ⇒ element path (pre-first-seek,
     // or the provider never attached).
     var wcp3 = video.__voilaWc
-    if (!(wcp3 && wcp3.draw(c, crp, dx, dy, dw, dh))) {
-      if (crp) c.drawImage(video, crp.x, crp.y, crp.w, crp.h, dx, dy, dw, dh)
-      else c.drawImage(video, dx, dy, dw, dh)
+    if (!(wcp3 && wcp3.draw(c, crp, ceX, ceY, ceW, ceH))) {
+      if (crp) c.drawImage(video, crp.x, crp.y, crp.w, crp.h, ceX, ceY, ceW, ceH)
+      else c.drawImage(video, ceX, ceY, ceW, ceH)
     }
   } catch (e) {}
   if (barH > 0) {
@@ -1523,7 +1545,7 @@ const ON_FRAME = `(ctx, content, dt) => {
     // absent = the built-in graphite look
     var thm = (minimal && bar.theme) || null
     c.fillStyle = minimal ? (thm ? thm.bar : '#141417') : dark ? '#2a2a2e' : '#e9e9eb'
-    c.fillRect(cardX, cardY, cardW, barH)
+    c.fillRect(cardX - ceOv, cardY - ceOv, cardW + 2 * ceOv, barH + ceOv)
     c.fillStyle = dark || (minimal && !(thm && thm.light)) ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'
     c.fillRect(cardX, cardY + barH - s2, cardW, s2) // hairline above the video
     var midY = cardY + barH / 2

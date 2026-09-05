@@ -3,6 +3,7 @@ import { lerpArray, mapTime, sample } from '@vosjs/timeline'
 import { lowerToComposition } from '../lower/lowerToComposition'
 import { clampFocus, computeCardLayout, focusBounds } from '../layout'
 import {
+  CARD_EDGE_OVERDRAW,
   DEFAULT_BROWSER_BAR,
   DEFAULT_CAM_STYLE,
   DEFAULT_CURSOR_STYLE,
@@ -258,13 +259,15 @@ describe('ON_FRAME cover parity', () => {
       expect(cy).toBeCloseTo(l.cardY, 3)
       expect(cw).toBeCloseTo(l.cardW, 3)
       expect(ch).toBeCloseTo(l.cardH, 3)
-      // The footage draw is the last 4 args of drawImage (dest rect).
+      // The footage draw is the last 4 args of drawImage (dest rect): the
+      // mirror's rect grown by the one-pixel overdraw past the clip.
       expect(draws.length).toBeGreaterThan(0)
       const [dx, dy, dw, dh] = draws[draws.length - 1]
-      expect(dx).toBeCloseTo(l.dx, 3)
-      expect(dy).toBeCloseTo(l.dy, 3)
-      expect(dw).toBeCloseTo(l.dw, 3)
-      expect(dh).toBeCloseTo(l.dh, 3)
+      const ov = CARD_EDGE_OVERDRAW
+      expect(dx).toBeCloseTo(l.dx - ov, 3)
+      expect(dy).toBeCloseTo(l.dy - ov, 3)
+      expect(dw).toBeCloseTo(l.dw + 2 * ov, 3)
+      expect(dh).toBeCloseTo(l.dh + 2 * ov, 3)
     }
   })
 
@@ -280,10 +283,12 @@ describe('ON_FRAME cover parity', () => {
     })
     const l = computeCardLayout(frame, VIDEO, 1400, 560)
     const { fills } = runFrame(frame, 1400, 560)
-    // The bar fill is the first fillRect at the card's own width.
-    const bar = fills.find((f) => f[2] > 1000)
+    // The bar fill is the first fillRect at the card's own width (grown by
+    // the overdraw past the clip on each side) and the bar's height; the
+    // background's full-canvas fill is as wide, so width alone is not it.
+    const bar = fills.find((f) => f[2] > 1000 && f[3] < 200)
     expect(bar).toBeDefined()
-    expect(bar![0]).toBeCloseTo(l.cardX, 3)
-    expect(bar![2]).toBeCloseTo(l.cardW, 3)
+    expect(bar![0]).toBeCloseTo(l.cardX - CARD_EDGE_OVERDRAW, 3)
+    expect(bar![2]).toBeCloseTo(l.cardW + 2 * CARD_EDGE_OVERDRAW, 3)
   })
 })

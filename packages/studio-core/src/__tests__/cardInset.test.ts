@@ -3,6 +3,7 @@ import { lerpArray, mapTime, sample } from '@vosjs/timeline'
 import { lowerToComposition } from '../lower/lowerToComposition'
 import { computeCardLayout } from '../layout'
 import {
+  CARD_EDGE_OVERDRAW,
   DEFAULT_BROWSER_BAR,
   DEFAULT_CAM_STYLE,
   DEFAULT_CURSOR_STYLE,
@@ -104,7 +105,12 @@ function runFrame(
     time: 0.5,
     data,
     renderer: undefined,
-    resolution: { width: W, height: H, drawingBufferWidth: W, drawingBufferHeight: H },
+    resolution: {
+      width: W,
+      height: H,
+      drawingBufferWidth: W,
+      drawingBufferHeight: H,
+    },
   }
   const content = {
     refs: {
@@ -124,6 +130,14 @@ afterEach(() => {
   delete g.__vosTimeline
 })
 
+/** The footage rect ON_FRAME draws: the mirror's grown by the overdraw. */
+const grown = ([x, y, w, h]: number[]) => [
+  x - CARD_EDGE_OVERDRAW,
+  y - CARD_EDGE_OVERDRAW,
+  w + 2 * CARD_EDGE_OVERDRAW,
+  h + 2 * CARD_EDGE_OVERDRAW,
+]
+
 const near = (a: number[], b: number[]) => {
   expect(a.length).toBe(b.length)
   a.forEach((v, i) => expect(v).toBeCloseTo(b[i], 3))
@@ -131,7 +145,11 @@ const near = (a: number[], b: number[]) => {
 
 describe('frame.inset', () => {
   it('no inset lays out exactly as the symmetric padding did', () => {
-    const frame = { ...DEFAULT_FRAME_STYLE, padding: 48, browserBar: DEFAULT_BROWSER_BAR }
+    const frame = {
+      ...DEFAULT_FRAME_STYLE,
+      padding: 48,
+      browserBar: DEFAULT_BROWSER_BAR,
+    }
     const l = computeCardLayout(frame, VIDEO, 1920, 1080)
     expect(l.dx).toBeCloseTo((1920 - l.dw) / 2, 6)
     expect(l.dy).toBeCloseTo((1080 - l.dh) / 2, 6)
@@ -160,7 +178,7 @@ describe('frame.inset', () => {
     const r = runFrame(frame, W, H)
     expect(r.clips.length).toBeGreaterThan(0)
     near(r.clips[0], [l.cardX, l.cardY, l.cardW, l.cardH])
-    near(r.draws[0], [l.dx, l.dy, l.dw, l.dh])
+    near(r.draws[0], grown([l.dx, l.dy, l.dw, l.dh]))
   })
 
   it('cover: the inset area is the card', () => {
@@ -175,7 +193,7 @@ describe('frame.inset', () => {
     near([l.cardX, l.cardY, l.cardW, l.cardH], [100, 100, 800, 400])
     const r = runFrame(frame, 1000, 500)
     near(r.clips[0], [100, 100, 800, 400])
-    near(r.draws[0], [l.dx, l.dy, l.dw, l.dh])
+    near(r.draws[0], grown([l.dx, l.dy, l.dw, l.dh]))
   })
 
   it('a partial inset keeps padding on the sides it does not name', () => {
@@ -197,7 +215,12 @@ describe('the contact shadow', () => {
   it('is a second shadowed fill, drawn only when the field says so', () => {
     const base = { ...DEFAULT_FRAME_STYLE, browserBar: DEFAULT_BROWSER_BAR }
     expect(runFrame(base, 1920, 1080).shadowFills).toBe(1)
-    expect(runFrame({ ...base, shadowContact: 0.2 }, 1920, 1080).shadowFills).toBe(2)
-    expect(runFrame({ ...base, shadow: 0, shadowContact: 0.2 }, 1920, 1080).shadowFills).toBe(1)
+    expect(
+      runFrame({ ...base, shadowContact: 0.2 }, 1920, 1080).shadowFills,
+    ).toBe(2)
+    expect(
+      runFrame({ ...base, shadow: 0, shadowContact: 0.2 }, 1920, 1080)
+        .shadowFills,
+    ).toBe(1)
   })
 })
