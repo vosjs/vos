@@ -104,7 +104,11 @@ export const STUDIO_SETUP = `async (ctx) => {
   if (olv && olv.length && typeof FontFace !== 'undefined') {
     try {
       const faces = ctx.data.overlayFonts || ${JSON.stringify(OVERLAY_FONT_FACES)}
+      // Mark what SETUP registers, so ON_FRAME's live path (a text overlay
+      // arriving through SET_DATA) never adds the same face twice.
+      const ofSet = window.__voilaFontSet || (window.__voilaFontSet = {})
       const loads = faces.map((f) => {
+        ofSet[f.family + '|' + f.weight] = 1
         const ff = new FontFace(f.family, 'url(' + f.url + ')', { weight: String(f.weight) })
         document.fonts.add(ff)
         return ff.load()
@@ -568,19 +572,36 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
       continue
     }
     var olPx = ol.fs * olMS * s
-    // Live style edits: SET_DATA never re-runs SETUP, so an override face
-    // arriving mid-session lazy-loads here (fail-open; frames repaint as it
-    // lands). Cold loads (export) awaited the full list in SETUP already.
-    if (ol.face && typeof FontFace !== 'undefined') {
+    // Faces arriving LIVE: SET_DATA never re-runs SETUP, so the first text
+    // overlay a session gains registers the house faces here (a title added
+    // to a fresh document used to paint in the stack's system fallback until
+    // the next cold load), and an override face lazy-loads the same way.
+    // Keyed per window, so SETUP's cold-load faces and repeat frames never
+    // re-register; fail-open, frames repaint as each face lands.
+    if (typeof FontFace !== 'undefined') {
       var ofSet = window.__voilaFontSet || (window.__voilaFontSet = {})
-      var ofKey = ol.face.f + '|' + ol.face.w
-      if (!ofSet[ofKey]) {
-        ofSet[ofKey] = 1
+      var ofBase = d.overlayFonts || ${JSON.stringify(OVERLAY_FONT_FACES)}
+      for (var ofi = 0; ofi < ofBase.length; ofi++) {
+        var ofB = ofBase[ofi]
+        var ofBK = ofB.family + '|' + ofB.weight
+        if (ofSet[ofBK]) continue
+        ofSet[ofBK] = 1
         try {
-          var ofFace = new FontFace(ol.face.f, 'url(' + ol.face.u + ')', { weight: String(ol.face.w) })
-          document.fonts.add(ofFace)
-          ofFace.load().catch(function () {})
+          var ofBF = new FontFace(ofB.family, 'url(' + ofB.url + ')', { weight: String(ofB.weight) })
+          document.fonts.add(ofBF)
+          ofBF.load().catch(function () {})
         } catch (e) {}
+      }
+      if (ol.face) {
+        var ofKey = ol.face.f + '|' + ol.face.w
+        if (!ofSet[ofKey]) {
+          ofSet[ofKey] = 1
+          try {
+            var ofFace = new FontFace(ol.face.f, 'url(' + ol.face.u + ')', { weight: String(ol.face.w) })
+            document.fonts.add(ofFace)
+            ofFace.load().catch(function () {})
+          } catch (e) {}
+        }
       }
     }
     ovC.save()
