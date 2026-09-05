@@ -184,6 +184,9 @@ export function resolveOverlayStyle(
         }
       : {}),
     ...(clip.color ? { color: clip.color } : {}),
+    ...(clip.shadow !== undefined
+      ? { shadow: Math.min(1, Math.max(0, clip.shadow)) }
+      : {}),
     fontStyle: clip.italic ? 'italic' : 'normal',
     align: clip.align ?? 'center',
     letterSpacing: clip.letterSpacing ?? 0,

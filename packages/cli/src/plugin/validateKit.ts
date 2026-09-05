@@ -37,6 +37,8 @@ export interface KitAssetRecord {
   composed?: boolean
   /** A poster card's shot placement, fractions of the asset. */
   shot?: { x: number; y: number; w: number; h: number }
+  /** A tile: the shot is a close CROP of the page's hero, past the frame by design. */
+  crop?: boolean
 }
 
 export interface KitRecord {
@@ -241,6 +243,7 @@ export async function validateKit(
       seconds,
       composed: a.composed,
       shot: a.source === 'poster' || a.source === 'stage' ? a.shot : undefined,
+      crop: a.crop,
     })
 
     if (!spec) {

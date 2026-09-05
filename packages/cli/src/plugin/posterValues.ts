@@ -37,13 +37,24 @@ const rgb = (hex: string): [number, number, number] | null => {
 }
 
 const toHex = (c: [number, number, number]) =>
-  '#' + c.map((v) => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('')
+  '#' +
+  c
+    .map((v) =>
+      Math.max(0, Math.min(255, Math.round(v)))
+        .toString(16)
+        .padStart(2, '0'),
+    )
+    .join('')
 
 export function mixHex(a: string, b: string, t: number): string {
   const pa = rgb(a)
   const pb = rgb(b)
   if (!pa || !pb) return a
-  return toHex([pa[0] + (pb[0] - pa[0]) * t, pa[1] + (pb[1] - pa[1]) * t, pa[2] + (pb[2] - pa[2]) * t])
+  return toHex([
+    pa[0] + (pb[0] - pa[0]) * t,
+    pa[1] + (pb[1] - pa[1]) * t,
+    pa[2] + (pb[2] - pa[2]) * t,
+  ])
 }
 
 export function rgba(hex: string, alpha: number): string {
@@ -71,19 +82,22 @@ export function resolveFace(
   fonts: { family: string; url: string; weight: number }[]
 } | null {
   if (!family) return null
-  const first = family.split(',')[0].replace(/['"]/g, '').replace(/\s+variable$/i, '').trim()
+  const first = family
+    .split(',')[0]
+    .replace(/['"]/g, '')
+    .replace(/\s+variable$/i, '')
+    .trim()
   const entry = findFontFamily(first)
   if (!entry) return null
-  const fonts = [...new Set(weights.map((w) => nearestFontWeight(entry, w)))].map((w) => ({
+  const fonts = [
+    ...new Set(weights.map((w) => nearestFontWeight(entry, w))),
+  ].map((w) => ({
     family: entry.family,
     url: fontFaceUrl(entry.slug, w),
     weight: w,
   }))
   return { stack: fontStack(entry), category: entry.category, fonts }
 }
-
-/** The house serif a split cover's headline takes when the brand's display face is not one. */
-export const HOUSE_SERIF = 'Fraunces'
 
 /**
  * Assemble a template's values from the brand roles and the release's
@@ -116,7 +130,11 @@ export function posterValues(
   // The mesh: the accent and the highlight ground as blobs over the plate.
   if (accent) values.blobA = rgba(accent, lightGround ? 0.28 : 0.4)
   if (bgC) values.blobB = rgba(bgC, 0.75)
-  if (accent) values.blobC = rgba(mixHex(accent, '#ffffff', 0.55), lightGround ? 0.35 : 0.25)
+  if (accent)
+    values.blobC = rgba(
+      mixHex(accent, '#ffffff', 0.55),
+      lightGround ? 0.35 : 0.25,
+    )
   if (wordmark) values.brand = wordmark
   const headline = (words.headline ?? '').trim()
   if (headline) values.headline = headline
@@ -126,14 +144,13 @@ export function posterValues(
     : [wordmark, release].filter(Boolean).join('  ').toUpperCase()
 
   const fonts: PosterFill['fonts'] = []
-  // The split cover's headline is a SERIF (the reference grammar): the
-  // brand's display face when it is one, else the house serif. The brand's
-  // sans still carries the wordmark and the kicker through fontBody.
+  // The headline is the brand's DISPLAY face (a serif when the brand's is
+  // one; a modern sans otherwise, which is most brands). The template's
+  // own default stands when the brand names none.
   const display = resolveFace(b.fontDisplay, [600, 700])
-  const serif = display && display.category === 'serif' ? display : resolveFace(HOUSE_SERIF, [600, 700])
-  if (serif) {
-    values.fontDisplay = serif.stack
-    fonts.push(...serif.fonts)
+  if (display) {
+    values.fontDisplay = display.stack
+    fonts.push(...display.fonts)
   }
   const body = resolveFace(b.fontBody, [700])
   if (body) {

@@ -35,6 +35,17 @@ import type { Browser } from 'playwright'
 
 const VIDEO_TOKEN = '__VOILA_CLI_VIDEO__'
 
+/**
+ * The supersample factor a still renders at: small destinations (a 440
+ * px store tile, a 240 px thumbnail) render at two or three times their
+ * pixels and downscale once with the browser's high-quality resampler,
+ * so footage recorded at 1920 px is not one bilinear tap away from a
+ * 270 px card. A still already past 1800 px on its long side renders 1:1.
+ */
+export function stillSupersample(w: number, h: number): number {
+  return Math.min(3, Math.max(1, Math.ceil(1800 / Math.max(1, w, h))))
+}
+
 export interface FramesTakeOptions {
   /** OUTPUT-time seconds; each may also be given as a percent of duration upstream. */
   times: number[]
@@ -75,9 +86,13 @@ async function stillsInPage(opts: {
   videoUrl: string
   W: number
   H: number
+  /** Render at W*ss × H*ss, downscale to W × H for the PNG. */
+  ss: number
   shots: { time: number; name: string }[]
 }) {
   const w = window as unknown as Record<string, any>
+  const RW = opts.W * opts.ss
+  const RH = opts.H * opts.ss
   try {
     const vblob = await (await fetch(opts.videoUrl)).blob()
     const vurl = URL.createObjectURL(vblob)
@@ -95,11 +110,11 @@ async function stillsInPage(opts: {
       THREE: w.__THREE__,
       gsap: w.__gsap__,
       resolution: {
-        width: opts.W,
-        height: opts.H,
+        width: RW,
+        height: RH,
         pixelRatio: 1,
-        drawingBufferWidth: opts.W,
-        drawingBufferHeight: opts.H,
+        drawingBufferWidth: RW,
+        drawingBufferHeight: RH,
       },
       preserveDrawingBuffer: true,
     }
@@ -110,22 +125,35 @@ async function stillsInPage(opts: {
     timeline.seek(0, false)
 
     const canvas = document.querySelector('canvas') as HTMLCanvasElement
-    canvas.width = opts.W
-    canvas.height = opts.H
-    canvas.style.width = opts.W + 'px'
-    canvas.style.height = opts.H + 'px'
+    canvas.width = RW
+    canvas.height = RH
+    canvas.style.width = RW + 'px'
+    canvas.style.height = RH + 'px'
+    // The downscale target, when supersampled.
+    const out = document.createElement('canvas')
+    out.width = opts.W
+    out.height = opts.H
 
     const raf = () => new Promise((r) => requestAnimationFrame(r))
     const wvr = () =>
       w.__vos__?.waitForVideosReady ? w.__vos__.waitForVideosReady() : null
     const pending = () => w.__vos__?.pendingDecodes?.size ?? 0
     const toPng = () =>
-      new Promise<Blob>((res, rej) =>
-        canvas.toBlob(
+      new Promise<Blob>((res, rej) => {
+        let src = canvas
+        if (opts.ss > 1) {
+          const g = out.getContext('2d')!
+          g.imageSmoothingEnabled = true
+          g.imageSmoothingQuality = 'high'
+          g.clearRect(0, 0, opts.W, opts.H)
+          g.drawImage(canvas, 0, 0, opts.W, opts.H)
+          src = out
+        }
+        src.toBlob(
           (b) => (b ? res(b) : rej(new Error('toBlob failed'))),
           'image/png',
-        ),
-      )
+        )
+      })
 
     // Every still is a COLD seek — html5-path videos update currentTime
     // asynchronously, so wait for a completed, stable seek before capturing
@@ -254,7 +282,10 @@ export async function framesTake(
   const server = await startTakeServer(dir, {
     '/render.html': renderPageHtml(),
   })
-  const context = await browser.newContext({ viewport: { width, height } })
+  const ss = stillSupersample(width, height)
+  const context = await browser.newContext({
+    viewport: { width: width * ss, height: height * ss },
+  })
   try {
     const page = await context.newPage()
     page.on('console', (m) => {
@@ -275,6 +306,7 @@ export async function framesTake(
         videoUrl: `/${RECORDING_NAME}`,
         W: width,
         H: height,
+        ss,
         shots: named.map(({ time, name }) => ({ time, name })),
       })
       .catch(() => {})

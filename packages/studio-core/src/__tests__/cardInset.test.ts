@@ -211,16 +211,17 @@ describe('frame.inset', () => {
   })
 })
 
-describe('the contact shadow', () => {
-  it('is a second shadowed fill, drawn only when the field says so', () => {
+describe('the card shadow', () => {
+  it('is three layered fills, plus a contact fill only when the field says so', () => {
     const base = { ...DEFAULT_FRAME_STYLE, browserBar: DEFAULT_BROWSER_BAR }
-    expect(runFrame(base, 1920, 1080).shadowFills).toBe(1)
+    expect(runFrame(base, 1920, 1080).shadowFills).toBe(3)
     expect(
       runFrame({ ...base, shadowContact: 0.2 }, 1920, 1080).shadowFills,
-    ).toBe(2)
+    ).toBe(4)
     expect(
       runFrame({ ...base, shadow: 0, shadowContact: 0.2 }, 1920, 1080)
         .shadowFills,
     ).toBe(1)
+    expect(runFrame({ ...base, shadow: 0 }, 1920, 1080).shadowFills).toBe(0)
   })
 })

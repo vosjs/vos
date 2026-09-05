@@ -127,7 +127,7 @@ describe('the look on card stills and video cuts', () => {
     applyDocOverrides(d, o)
     expect(d.frame.fit).toBe('contain')
     expect(d.frame.inset?.left).toBeCloseTo(0.08, 6)
-    expect(d.frame.shadowContact).toBeGreaterThan(0)
+    expect(d.frame.shadowContact).toBe(0)
     expect(d.frame.borderWidth).toBe(1)
     expect(d.zoom).toEqual([])
   })
@@ -154,7 +154,10 @@ describe('the look on card stills and video cuts', () => {
   it('a --background keeps the media under the look', () => {
     const o = stillOverridesFor(
       { fit: 'cover', genre: 'card', px: { w: 1200, h: 630 } },
-      { look: houseLook('dark'), overrides: { background: 'https://x/loop.webm' } },
+      {
+        look: houseLook('dark'),
+        overrides: { background: 'https://x/loop.webm' },
+      },
       VIDEO,
     )!
     expect(o.set).not.toContain('frame.backgroundMedia=null')
@@ -162,13 +165,21 @@ describe('the look on card stills and video cuts', () => {
   })
 
   it('a video cut keeps its camera and cursor in the hero placement', () => {
-    const set = lookOverrides(houseLook('gradient'), 'hero', { w: 1920, h: 1080 }, VIDEO, {
-      still: false,
-    })
+    const set = lookOverrides(
+      houseLook('gradient'),
+      'hero',
+      { w: 1920, h: 1080 },
+      VIDEO,
+      {
+        still: false,
+      },
+    )
     expect(set).not.toContain('zoom=[]')
     expect(set).not.toContain('cursor.visible=false')
     const inset = JSON.parse(
-      set.find((s) => s.startsWith('frame.inset='))!.slice('frame.inset='.length),
+      set
+        .find((s) => s.startsWith('frame.inset='))!
+        .slice('frame.inset='.length),
     ) as { top: number; bottom: number }
     expect(inset.top).toBeCloseTo(0.16, 6)
     expect(inset.bottom).toBeLessThan(0)

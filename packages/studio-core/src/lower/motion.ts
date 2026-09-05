@@ -56,7 +56,8 @@ export function withHolds(
     for (const p of pending) {
       if (p.used) continue
       const endsHere = Math.abs(piece.out - p.out) < 1e-9
-      const nextContinues = next && Math.abs(next.in - p.out) < 1e-9 && next.out > p.out
+      const nextContinues =
+        next && Math.abs(next.in - p.out) < 1e-9 && next.out > p.out
       if (endsHere && !nextContinues) {
         out.push({
           in: p.out - HOLD_SOURCE_SPAN,
@@ -198,10 +199,14 @@ export function expandEndCard(
     exit: 'none',
     align: 'center',
     ...(card.ink ? { color: card.ink } : {}),
+    shadow: 0,
   })
-  if (card.headline?.trim()) clips.push(text('endcard-title', card.headline.trim(), 'title', 0.44, 0.35))
-  if (card.sub?.trim()) clips.push(text('endcard-sub', card.sub.trim(), 'caption', 0.57, 0.5))
-  if (card.wordmark?.trim()) clips.push(text('endcard-mark', card.wordmark.trim(), 'label', 0.88, 0.65))
+  if (card.headline?.trim())
+    clips.push(text('endcard-title', card.headline.trim(), 'title', 0.44, 0.35))
+  if (card.sub?.trim())
+    clips.push(text('endcard-sub', card.sub.trim(), 'caption', 0.57, 0.5))
+  if (card.wordmark?.trim())
+    clips.push(text('endcard-mark', card.wordmark.trim(), 'label', 0.88, 0.65))
   const overlays: OverlayClip[] = [...(doc.overlays ?? []), ...clips]
   return { doc: { ...doc, segments, overlays }, endStart, seconds }
 }
