@@ -23,7 +23,13 @@ export const SOUND_DESTINATIONS = new Set([
 export const LOOP_DESTINATIONS = new Set(['github-readme-loop'])
 
 export interface MusicCatalog {
-  tracks: { slug: string; title: string; mood?: string; duration: number; url: string }[]
+  tracks: {
+    slug: string
+    title: string
+    mood?: string
+    duration: number
+    url: string
+  }[]
   sfx: { slug: string; title: string; duration: number; url: string }[]
 }
 
@@ -37,6 +43,8 @@ export interface MotionInput {
   launch: Record<string, string>
   /** The end card's ink: the brand's ink over a light ground, white over a dark one. */
   ink?: string | null
+  /** The brand's mark for the end card's ground (a take-dir key and its aspect), or none. */
+  mark?: { key: string; aspect: number } | null
   /** actions.json steps with their optional captions, by index. */
   captions: { step: number; id?: string; caption: string }[]
   catalog: MusicCatalog | null
@@ -50,7 +58,8 @@ export interface MotionPlan {
   skipped: string[]
 }
 
-const off = (v: string | undefined) => v !== undefined && /^(none|off|false|no)$/i.test(v.trim())
+const off = (v: string | undefined) =>
+  v !== undefined && /^(none|off|false|no)$/i.test(v.trim())
 
 /**
  * The bed: LAUNCH.md names a track slug or a mood; a mood picks the first
@@ -100,7 +109,10 @@ export function planMotion(input: MotionInput): MotionPlan {
   // The entrance: every clip but a loop opens on a move.
   const entrance = launch.entrance
   if (!loop && !off(entrance)) {
-    const kind = entrance && /^(tilt-in|pull-out|rise)$/.test(entrance.trim()) ? entrance.trim() : 'tilt-in'
+    const kind =
+      entrance && /^(tilt-in|pull-out|rise)$/.test(entrance.trim())
+        ? entrance.trim()
+        : 'tilt-in'
     set.push(`frame.entrance={"kind":"${kind}"}`)
     notes.push(`entrance ${kind}`)
   }
@@ -118,21 +130,31 @@ export function planMotion(input: MotionInput): MotionPlan {
       if (headline) card.headline = headline
       if (sub && sub !== headline) card.sub = sub
       if (brand) card.wordmark = brand
+      if (input.mark) card.mark = input.mark
       set.push(`endCard=${JSON.stringify(card)}`)
       notes.push('end card')
     } else {
-      skipped.push(`${d.id}: no end card (no headline or wordmark in LAUNCH.md, BRAND.md or the flags)`)
+      skipped.push(
+        `${d.id}: no end card (no headline or wordmark in LAUNCH.md, BRAND.md or the flags)`,
+      )
     }
   }
 
   // Captions per beat: a step's caption lands at the step's settled
   // moment as a lower-third, where the channel takes words.
-  if (!loop && d.text !== 'none' && input.captions.length && !off(launch.captions)) {
+  if (
+    !loop &&
+    d.text !== 'none' &&
+    input.captions.length &&
+    !off(launch.captions)
+  ) {
     const rated = ratedSegments(doc)
     const steps = doc.source.meta.steps ?? []
     const clips: Record<string, unknown>[] = []
     for (const c of input.captions) {
-      const step = steps.find((s) => (c.id !== undefined && s.id === c.id) || s.step === c.step)
+      const step = steps.find(
+        (s) => (c.id !== undefined && s.id === c.id) || s.step === c.step,
+      )
       if (!step || step.skipped) continue
       const t = stepOutputTime(rated, step, 0.2)
       if (t === null || t < range[0] || t > range[1] - 1) continue
@@ -143,7 +165,7 @@ export function planMotion(input: MotionInput): MotionPlan {
         text: c.caption,
         preset: 'caption',
         start,
-        duration: Math.min(3.5, Math.max(2.5, (range[1] - t) - 0.2)),
+        duration: Math.min(3.5, Math.max(2.5, range[1] - t - 0.2)),
         transform: { x: 0.5, y: portrait ? 0.8 : 0.86, scale: 1, rotation: 0 },
         enter: 'rise',
         exit: 'fade',
@@ -182,7 +204,9 @@ export function planMotion(input: MotionInput): MotionPlan {
       })
       notes.push(`bed ${track.slug}`)
     } else if (launch.music && !off(launch.music)) {
-      skipped.push(`${d.id}: music "${launch.music}" is not a catalog track or mood${catalog ? '' : ' (the catalog could not be read)'}`)
+      skipped.push(
+        `${d.id}: music "${launch.music}" is not a catalog track or mood${catalog ? '' : ' (the catalog could not be read)'}`,
+      )
     }
     const click = catalog?.sfx.find((s) => s.slug === 'sfx-click')
     if (click && !doc.source.micKey && !off(launch.clicks)) {

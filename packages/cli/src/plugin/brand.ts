@@ -42,6 +42,8 @@ export interface BrandKit {
   fontDisplay: string
   fontBody: string
   logoUrl: string | null
+  /** The mark for dark grounds (a design.md asset named on-dark or white), when the site publishes one. */
+  logoOnDarkUrl: string | null
   iconUrl: string | null
   ogImage: string | null
   wordmark: string
@@ -393,7 +395,19 @@ export function composeBrand(input: {
   const fontBody = designBody ?? firstFamily(w.body.fontFamily)
   p.fontBody = designBody ? `named in design.md` : `the body's computed face`
 
-  const logoUrl = design?.logos.find((u) => /wordmark|logo/i.test(u)) ?? null
+  // The mark to PLACE: a design.md asset named mark, logo or wordmark that
+  // is not an icon (a favicon or app icon carries a tile) and not the
+  // on-dark twin, which is recorded beside it.
+  const isIcon = (u: string) => /favicon|apple-touch|icon/i.test(u)
+  const onDark = (u: string) => /on-dark|white/i.test(u)
+  const logoUrl =
+    design?.logos.find(
+      (u) => /wordmark|logo|mark/i.test(u) && !isIcon(u) && !onDark(u),
+    ) ?? null
+  const logoOnDarkUrl =
+    design?.logos.find(
+      (u) => /wordmark|logo|mark/i.test(u) && !isIcon(u) && onDark(u),
+    ) ?? null
   const iconUrl =
     w.icons.find((u) => /apple-touch/i.test(u)) ??
     (w.icons.length ? w.icons[0] : null)
@@ -428,6 +442,7 @@ export function composeBrand(input: {
     fontDisplay,
     fontBody,
     logoUrl: logoUrl ?? iconUrl,
+    logoOnDarkUrl,
     iconUrl,
     ogImage: w.ogImage,
     wordmark,
@@ -462,6 +477,7 @@ export function renderBrandMd(
     `fontDisplay: ${q(k.fontDisplay)}`,
     `fontBody: ${q(k.fontBody)}`,
     `logoUrl: ${q(k.logoUrl)}`,
+    `logoOnDarkUrl: ${q(k.logoOnDarkUrl)}`,
     `iconUrl: ${q(k.iconUrl)}`,
     `ogImage: ${q(k.ogImage)}`,
     `wordmark: ${q(k.wordmark)}`,
@@ -491,7 +507,7 @@ export function renderBrandMd(
     '',
     '## Use',
     '',
-    `The poster family binds these roles: \`bgA/bgB/bgC\` for the ground, \`ink\` for type, \`fontDisplay\` for the headline (if it is not in the hosted catalog, \`vos check\` warns and the nearest hosted serif or sans stands in), \`logoUrl\` for the mark. A take's frame ground is a gradient of \`accent\` toward \`bgC\` unless the brand is paper, in which case \`bgB\` toward \`bgC\`.`,
+    `The poster family binds these roles: \`bgA/bgB/bgC\` for the ground, \`ink\` for type, \`fontDisplay\` for the headline (if it is not in the hosted catalog, \`vos check\` warns and the nearest hosted serif or sans stands in), \`logoUrl\` for the mark (placed beside the wordmark on the cards and the end card; \`logoOnDarkUrl\` stands in on a dark ground). A site that publishes only a favicon or an app icon gets the icon here, tile and all: publish a bare mark and name it in design.md. A take's frame ground is a gradient of \`accent\` toward \`bgC\` unless the brand is paper, in which case \`bgB\` toward \`bgC\`.`,
   ]
   if (c.avoid.length) {
     lines.push('', '## Avoid (the site says)', '')

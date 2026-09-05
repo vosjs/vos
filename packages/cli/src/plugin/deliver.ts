@@ -45,6 +45,7 @@ import {
 import { templateByName } from './templates'
 import { posterValues } from './posterValues'
 import { isTileSize, stageSplitCover, stageTile } from './stages'
+import { fetchBrandMarks } from './markAsset'
 import { LOOP_DESTINATIONS, planMotion } from './motionPlan'
 import type { MusicCatalog } from './motionPlan'
 import type { MomentCandidate } from './moments'
@@ -554,6 +555,18 @@ export async function deliverTake(
   if (!take.doc) throw new Error(`${dir} has no doc.json — run plan first`)
   const doc = take.doc
 
+  // The brand's mark, fetched once into the take's brand/ folder: the
+  // stage's lockup (mark beside wordmark) and the end card place it. The
+  // ground decides which twin: BRAND.md's logoUrl on a light ground, its
+  // logoOnDarkUrl on a dark one; a dark ground with no on-dark mark keeps
+  // the wordmark in words rather than an invisible ink mark.
+  const marks = await fetchBrandMarks(dir, opts.brandRoles)
+  for (const n of marks.notes) opts.onPhase?.(`note: ${n}`)
+  const darkGround = opts.look?.kind === 'dark'
+  const mark = darkGround ? marks.dark : marks.light
+  if (mark)
+    opts.onPhase?.(`brand mark: ${mark.key} (${mark.aspect.toFixed(2)}:1)`)
+
   const duration = totalDuration(ratedSegments(doc))
   const videoSeconds = opts.range
     ? Math.min(opts.range[1], duration) - Math.min(opts.range[0], duration)
@@ -612,6 +625,7 @@ export async function deliverTake(
       captions: opts.captions ?? [],
       catalog: opts.catalog ?? null,
       ink: endCardInk(opts.look, opts.brandRoles),
+      mark,
     })
     set.push(...plan.set)
     if (plan.notes.length) opts.onPhase?.(`${d.id}: ${plan.notes.join(', ')}`)
@@ -651,6 +665,10 @@ export async function deliverTake(
     const heroTime =
       opts.shotTime ?? (stillTimes.length ? stillTimes[0] : duration / 2)
     const fill = posterValues(opts.brandRoles, opts.words ?? {})
+    if (mark) {
+      fill.values.logoKey = mark.key
+      fill.values.logoAspect = mark.aspect
+    }
     opts.onPhase?.(
       `poster shot (full bleed at ${heroTime.toFixed(2)}s), baked as an object`,
     )

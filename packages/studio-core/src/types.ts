@@ -849,6 +849,12 @@ export interface EndCard {
   sub?: string
   wordmark?: string
   /**
+   * The brand's MARK as an image (a take-dir path or a URL the render page
+   * can load), with its aspect (width over height), drawn above the
+   * wordmark; a wide mark (a stylised wordmark asset) stands alone.
+   */
+  mark?: { key: string; aspect: number }
+  /**
    * The words' colour (any CSS colour). The house presets are white for
    * footage; over a light plate the brand's ink is what reads. Absent =
    * the presets' own.

@@ -10,6 +10,11 @@ const MIME: Record<string, string> = {
   '.json': 'application/json',
   '.jpg': 'image/jpeg',
   '.png': 'image/png',
+  // A brand mark or an image overlay: an <img> refuses an SVG served as an
+  // octet stream, so the kinds a doc can key are named.
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
   '.webm': 'video/webm',
   '.mp4': 'video/mp4',
   // Take-dir audio (doc.audio keys like "/music.mp3") — decode goes through

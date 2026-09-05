@@ -169,6 +169,53 @@ describe('the split cover as a stage', () => {
     ).toBe('vosso')
   })
 
+  it('places the brand mark beside the wordmark, and a wide mark alone', () => {
+    const fill = posterValues(brand, { headline: 'Ship it' })
+    const withMark = stageSplitCover({
+      size: { w: 1400, h: 560 },
+      values: { ...fill.values, logoKey: '/brand/mark.svg', logoAspect: 1 },
+      sourceSeconds: 35,
+      outputSeconds: 35,
+    })
+    const d = doc()
+    applyAndValidate(d, { set: withMark.set })
+    const img = d.overlays!.find((o) => o.id === 'stage-mark') as {
+      kind: string
+      key: string
+      width: number
+      transform: { x: number; y: number }
+    }
+    const word = d.overlays!.find((o) => o.id === 'stage-brand') as {
+      transform: { x: number; y: number }
+    }
+    expect(img.kind).toBe('image')
+    expect(img.key).toBe('/brand/mark.svg')
+    expect(img.transform.y).toBe(word.transform.y)
+    expect(word.transform.x).toBeGreaterThan(img.transform.x + img.width / 2)
+    const wide = stageSplitCover({
+      size: { w: 1400, h: 560 },
+      values: { ...fill.values, logoKey: '/brand/mark.png', logoAspect: 4 },
+      sourceSeconds: 35,
+      outputSeconds: 35,
+    })
+    const d2 = doc()
+    applyAndValidate(d2, { set: wide.set })
+    expect(d2.overlays!.some((o) => o.id === 'stage-brand')).toBe(false)
+    expect(d2.overlays!.some((o) => o.id === 'stage-mark')).toBe(true)
+    // The wordless tile carries the mark alone.
+    const tile = stageTile({
+      size: { w: 440, h: 280 },
+      values: { ...fill.values, logoKey: '/brand/mark.svg', logoAspect: 1 },
+      sourceSeconds: 35,
+      outputSeconds: 35,
+      text: 'none',
+    })
+    const d3 = doc()
+    applyAndValidate(d3, { set: tile.set })
+    expect(d3.overlays!.map((o) => o.id)).toEqual(['stage-mark'])
+    expect(tile.text).toEqual([])
+  })
+
   it('square and portrait stack the words over the card and drop the lean', () => {
     const fill = posterValues(brand, { headline: 'Ship it' })
     const tall = stageSplitCover({

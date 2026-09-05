@@ -109,6 +109,7 @@ export function stageSplitCover(input: StageInput): StageResult {
     color: string,
     extra: Record<string, unknown>,
     role: TextBox['role'],
+    x0 = left,
   ) => {
     if (!text) return
     const lines = text.split('\n')
@@ -130,7 +131,7 @@ export function stageSplitCover(input: StageInput): StageResult {
       align: 'left',
       maxWidth: column,
       lineHeight: lh,
-      transform: { x: left + widest / 2, y, scale: 1, rotation: 0 },
+      transform: { x: x0 + widest / 2, y, scale: 1, rotation: 0 },
       // Words on the ground carry no footage shadow: a drop shadow under a
       // headline on a plate is the old-web tell.
       shadow: 0,
@@ -141,7 +142,7 @@ export function stageSplitCover(input: StageInput): StageResult {
       ...extra,
     })
     boxes.push({
-      x: left,
+      x: x0,
       y: y - h / 2,
       w: widest,
       h,
@@ -149,6 +150,32 @@ export function stageSplitCover(input: StageInput): StageResult {
       role,
       label: text.length > 24 ? `${text.slice(0, 24)}…` : text,
     })
+  }
+  // The brand's MARK as an image beside the wordmark (the site's own
+  // lockup: the mark at 1.3 times the word's size, a gap of half the
+  // size); a wide mark (a stylised wordmark asset) is the wordmark.
+  const markKey = str(v.logoKey, '')
+  const markAspect =
+    typeof v.logoAspect === 'number' && v.logoAspect > 0 ? v.logoAspect : 1
+  const wideMark = !!markKey && markAspect > 2.2
+  const lockup = (px: number, y: number): number => {
+    if (!markKey) return left
+    const hPx = wideMark ? px * 1.6 : px * 1.3
+    const w = Math.min(column, (hPx * markAspect) / designW)
+    clips.push({
+      id: 'stage-mark',
+      kind: 'image',
+      key: markKey,
+      width: +w.toFixed(4),
+      radius: 0,
+      shadow: 'none',
+      transform: { x: left + w / 2, y, scale: 1, rotation: 0 },
+      start: 0,
+      duration: +input.outputSeconds.toFixed(3),
+      enter: 'none',
+      exit: 'none',
+    })
+    return left + w + (px * 0.5) / designW
   }
   const kickerY = portrait ? 0.1 : square ? 0.12 : 0.24
   const titleY = portrait ? 0.24 : square ? 0.28 : 0.46
@@ -177,17 +204,20 @@ export function stageSplitCover(input: StageInput): StageResult {
     { weight: 600, letterSpacing: -Math.round(size * 0.02) },
     'headline',
   )
-  word(
-    'stage-brand',
-    brand,
-    'label',
-    body,
-    25,
-    brandY,
-    ink,
-    { weight: 700, letterSpacing: 1 },
-    'body',
-  )
+  const brandX = lockup(25, brandY)
+  if (!wideMark)
+    word(
+      'stage-brand',
+      brand,
+      'label',
+      body,
+      25,
+      brandY,
+      ink,
+      { weight: 700, letterSpacing: 1 },
+      'body',
+      brandX,
+    )
   set.push(`overlays=${JSON.stringify(clips)}`)
   return { set, text: boxes, shot }
 }
@@ -291,7 +321,35 @@ export function stageTile(input: StageInput): StageResult {
     exit: 'none',
   }
   if (wordless) {
-    set.push('overlays=[]')
+    // A mark is not text: the wordless tile carries the brand's mark alone
+    // in the band above the crop, at half the band's height.
+    const markKey = str(v.logoKey, '')
+    const markAspect =
+      typeof v.logoAspect === 'number' && v.logoAspect > 0 ? v.logoAspect : 1
+    if (markKey) {
+      const hFrac = top * 0.5
+      const w = Math.min(
+        0.8,
+        (hFrac * input.size.h * markAspect) / input.size.w,
+      )
+      set.push(
+        `overlays=${JSON.stringify([
+          {
+            id: 'stage-mark',
+            kind: 'image',
+            key: markKey,
+            width: +w.toFixed(4),
+            radius: 0,
+            shadow: 'none',
+            transform: { x: left + w / 2, y: top / 2, scale: 1, rotation: 0 },
+            start: 0,
+            duration: +input.outputSeconds.toFixed(3),
+            enter: 'none',
+            exit: 'none',
+          },
+        ])}`,
+      )
+    } else set.push('overlays=[]')
     return { set, text: [], shot }
   }
   set.push(`overlays=${JSON.stringify([clip])}`)
