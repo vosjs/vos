@@ -65,6 +65,25 @@ export interface RenderTemplateOptions {
      */
     uploadUrl?: string
     /**
+     * Run the program's frame-prep hooks (capture-video mode; default true).
+     * A program may register `window.__vos__.framePrep` (a Map of hooks by
+     * id) so that, once the timeline is seeked and before the frame is
+     * painted, it can request the decodes the frame needs and put them on
+     * `pendingDecodes`. The loop awaits them and paints ONCE; without hooks
+     * (older programs, or `false` here) it keeps the two-phase settle,
+     * where the first paint issues the request and a second paint draws
+     * the result. `false` exists for A/B measurement.
+     */
+    prepareFrame?: boolean
+    /**
+     * Block on `gl.finish()` before every captured frame (capture-video
+     * mode; default true). `false` is a measurement seam: the capture reads
+     * the canvas through `new VideoFrame(canvas)`, ordered after the frame's
+     * GL commands on the same context, and a harness may want to know what
+     * the explicit sync costs on its GPU before deciding.
+     */
+    drainGpu?: boolean
+    /**
      * Passed to `initVos(container, deps)` as `deps.data` (JSON-serialized
      * into the page). Compositions that read `ctx.data` at runtime — the
      * interpreter pattern, where the program is constant and inputs travel
@@ -899,23 +918,46 @@ ${audioFeed}
             const runFrame = result.renderFrame
               ? () => { result.renderFrame(); return Promise.resolve(); }
               : () => new Promise(r => requestAnimationFrame(r));
+            // Frame prep: programs that know which source moment a frame
+            // needs (a screen recording's card) register the decode BEFORE
+            // the paint, so the first paint draws the right frame. Read
+            // once after init — the program registered its hooks in setup.
+            const framePrep = ${capture.prepareFrame === false ? 'null' : '(window.__vos__ && window.__vos__.framePrep) || null'};
 
+            // Where the loop's wall clock goes, per phase, in ms — reported
+            // beside progress so a host can tell a decode-bound render from
+            // a paint-bound one from an encode-bound one (the main thread's
+            // sampler cannot: every one of these is a wait on another
+            // thread). seek = timeline + frame prep; settle = decodes;
+            // paint = the engine tick(s); drain = gl.finish; encode =
+            // readback + encoder backpressure.
+            const loop = { seek: 0, settle: 0, paint: 0, drain: 0, encode: 0, frames: 0 };
             for (let frame = startFrame; frame < endFrame; frame++) {
               const time = frame / ${fps};
+              let tp = performance.now();
               timeline.seek(time, false);
+              if (framePrep) for (const prep of framePrep.values()) prep(time);
+              let tn = performance.now(); loop.seek += tn - tp; tp = tn;
               // Two-phase video settle (same as the client exporter): wait for
               // seeked decodes, render, then re-check decodes the render
-              // itself triggered.
+              // itself triggered (none, when frame prep met them).
               await wvr();
+              tn = performance.now(); loop.settle += tn - tp; tp = tn;
               await runFrame();
+              tn = performance.now(); loop.paint += tn - tp; tp = tn;
               if (pendingDecodes() > 0) {
                 await wvr();
+                tn = performance.now(); loop.settle += tn - tp; tp = tn;
                 await runFrame();
+                tn = performance.now(); loop.paint += tn - tp; tp = tn;
               }
-              if (gl) gl.finish();
+              if (gl && ${capture.drainGpu === false ? 'false' : 'true'}) gl.finish();
+              tn = performance.now(); loop.drain += tn - tp; tp = tn;
 
               await videoSource.add((frame - startFrame) / ${fps}, 1 / ${fps});
-              window.__renderProgress = { framesDone: frame - startFrame + 1, totalFrames: endFrame - startFrame };
+              tn = performance.now(); loop.encode += tn - tp;
+              loop.frames = frame - startFrame + 1;
+              window.__renderProgress = { framesDone: frame - startFrame + 1, totalFrames: endFrame - startFrame, loop };
             }
 
             await output.finalize();
