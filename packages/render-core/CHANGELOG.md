@@ -1,5 +1,11 @@
 # @vosjs/render-core
 
+## 0.2.2
+
+### Patch Changes
+
+- 9292f58: The audio mix page imports `@vosjs/core/audio` at 0.23.3, the current engine.
+
 ## 0.2.1
 
 ### Patch Changes
