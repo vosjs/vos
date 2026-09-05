@@ -51,6 +51,7 @@ import {
   CAMERA_FAR,
   CAMERA_NEAR,
   CARD_FOV,
+  CARD_OVERSCAN,
   CARD_Z,
   OVERLAY_Z,
 } from '../stage'
@@ -1050,24 +1051,33 @@ const ON_FRAME = `(ctx, content, dt) => {
   // the GPU texture allocated at the original dims and re-uploads the new canvas
   // against stale dims → stretch/duplicate; dispose() forces a full realloc) and
   // rebuilding each frustum-filling plane at the new aspect + syncing the camera.
-  if (cv.width !== W || cv.height !== H) {
+  // Card OVERSCAN (stage.ts CARD_OVERSCAN): a frame whose inset bleeds the
+  // card past an edge paints it on a canvas and a plane larger than the
+  // frame by ck about the centre, so a tilt that turns the bled edge back
+  // toward the viewer shows card there, not the texture's edge. Every doc
+  // that keeps its card inside the frame (and the flat stub, which has no
+  // card layer) stays at 1: byte- and pixel-identical.
+  var d = ctx.data || {}
+  var ckIns = (d.frame && d.frame.inset) || {}
+  var ck = r.card && (ckIns.left < 0 || ckIns.right < 0 || ckIns.top < 0 || ckIns.bottom < 0) ? ${CARD_OVERSCAN} : 1
+  var cW = Math.round(W * ck), cH = Math.round(H * ck)
+  if (cv.width !== cW || cv.height !== cH) {
     var THREE = ctx.THREE
     var aspect = W / H
     var cm = ctx.camera
     if (cm && cm.isPerspectiveCamera) { cm.aspect = aspect; cm.updateProjectionMatrix() }
-    var lyr = [[bg, ${BACKGROUND_Z}], [card, ${CARD_Z}], [ov, ${OVERLAY_Z}]]
+    var lyr = [[bg, ${BACKGROUND_Z}, 1], [card, ${CARD_Z}, ck], [ov, ${OVERLAY_Z}, 1]]
     for (var Li = 0; Li < lyr.length; Li++) {
-      var Ly = lyr[Li][0], Lz = lyr[Li][1]
-      if (Ly.canvas) { Ly.canvas.width = W; Ly.canvas.height = H }
+      var Ly = lyr[Li][0], Lz = lyr[Li][1], Lk = lyr[Li][2]
+      if (Ly.canvas) { Ly.canvas.width = Math.round(W * Lk); Ly.canvas.height = Math.round(H * Lk) }
       if (Ly.texture && Ly.texture.dispose) Ly.texture.dispose()
       if (Ly.mesh && THREE) {
         if (Ly.mesh.geometry && Ly.mesh.geometry.dispose) Ly.mesh.geometry.dispose()
-        var Lh = 2 * Math.abs(Lz) * Math.tan(${CARD_FOV} * Math.PI / 180 / 2)
+        var Lh = 2 * Math.abs(Lz) * Math.tan(${CARD_FOV} * Math.PI / 180 / 2) * Lk
         Ly.mesh.geometry = new THREE.PlaneGeometry(Lh * aspect, Lh)
       }
     }
   }
-  var d = ctx.data || {}
   var frame = d.frame || {}
   var TL = globalThis.__vosTimeline
   // Output-timeline seconds (engine-fed master clock) → source seconds on screen.
@@ -1386,7 +1396,15 @@ const ON_FRAME = `(ctx, content, dt) => {
 
   // The CARD layer canvas starts transparent each frame — the padding around
   // the contain-fit card shows the background layer through the plane's alpha.
-  c.clearRect(0, 0, W, H)
+  // Under overscan the canvas is larger than the frame and every frame-space
+  // draw below rides a base translation to its centre.
+  if (ck !== 1) c.setTransform(1, 0, 0, 1, 0, 0)
+  c.clearRect(0, 0, cv.width, cv.height)
+  if (ck !== 1) c.setTransform(1, 0, 0, 1, (cW - W) / 2, (cH - H) / 2)
+  // Footage is nearly always drawn SMALLER than it was recorded (a 1920
+  // recording in a padded 1080 card, or a 440-wide tile): the default
+  // bilinear tap aliases and blurs a large downscale; 'high' resamples.
+  c.imageSmoothingQuality = 'high'
 
   // video destination rect (contain within the padded area). The optional browser-bar
   // strip is part of the card: it takes barH from the available height and the video
@@ -1497,14 +1515,21 @@ const ON_FRAME = `(ctx, content, dt) => {
   // corners, drawn by the clip alone, hid theirs inside the arc.
   var shD = ceZs * (cardW + cardH) + 2 * (W + H)
   var shX = cardX - shD / ceZs
-  // soft shadow behind the card (bar strip + video)
+  // The card shadow is LAYERED: three shadows whose blur and offset grow
+  // while each stays at a low alpha (shadow is the strength they share),
+  // so the card reads as lifted a little off the ground. One wide layer at
+  // the full strength was the old paint, and at the default 0.4 it read as
+  // a dark pool under the card.
   if (shadow > 0) {
-    c.save()
-    c.shadowColor = 'rgba(' + shRgb + ',' + shadow + ')'
-    c.shadowBlur = 60 * s2; c.shadowOffsetX = shD; c.shadowOffsetY = 24 * s2
-    c.fillStyle = '#000'
-    rr(shX, cardY, cardW, cardH, radius); c.fill()
-    c.restore()
+    var shL = [[3, 1, 0.2], [14, 6, 0.22], [48, 22, 0.3]]
+    for (var shI = 0; shI < shL.length; shI++) {
+      c.save()
+      c.shadowColor = 'rgba(' + shRgb + ',' + +(shadow * shL[shI][2]).toFixed(3) + ')'
+      c.shadowBlur = shL[shI][0] * s2; c.shadowOffsetX = shD; c.shadowOffsetY = shL[shI][1] * s2
+      c.fillStyle = '#000'
+      rr(shX, cardY, cardW, cardH, radius); c.fill()
+      c.restore()
+    }
   }
   // contact shadow: tight and close, over the ambient layer
   if (shC > 0) {

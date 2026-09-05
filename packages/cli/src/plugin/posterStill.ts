@@ -10,6 +10,7 @@
  * itself.
  */
 import { compileVosConfig } from '@vosjs/core'
+import { stillSupersample } from './framesTake'
 import { renderPageHtml } from './renderAnimation'
 import { startTakeServer, waitForPageDone } from './server'
 import type { Browser } from 'playwright'
@@ -26,10 +27,14 @@ async function posterStillInPage(opts: {
   animationCode: string
   W: number
   H: number
+  /** Render at W*ss × H*ss, downscale to W × H for the PNG. */
+  ss: number
   time: number
   outName: string
 }) {
   const w = window as unknown as Record<string, any>
+  const RW = opts.W * opts.ss
+  const RH = opts.H * opts.ss
   try {
     const mod = await import(
       /* @vite-ignore */ URL.createObjectURL(
@@ -42,11 +47,11 @@ async function posterStillInPage(opts: {
       THREE: w.__THREE__,
       gsap: w.__gsap__,
       resolution: {
-        width: opts.W,
-        height: opts.H,
+        width: RW,
+        height: RH,
         pixelRatio: 1,
-        drawingBufferWidth: opts.W,
-        drawingBufferHeight: opts.H,
+        drawingBufferWidth: RW,
+        drawingBufferHeight: RH,
       },
       preserveDrawingBuffer: true,
     }
@@ -56,18 +61,29 @@ async function posterStillInPage(opts: {
     timeline.pause()
     timeline.seek(opts.time, false)
     const canvas = document.querySelector('canvas') as HTMLCanvasElement
-    canvas.width = opts.W
-    canvas.height = opts.H
-    canvas.style.width = opts.W + 'px'
-    canvas.style.height = opts.H + 'px'
+    canvas.width = RW
+    canvas.height = RH
+    canvas.style.width = RW + 'px'
+    canvas.style.height = RH + 'px'
     // A few frames for element rasters (text canvases, the shot texture)
     // to land — assetsReady covers loads, the rAFs cover the first draw.
     const raf = () => new Promise((r) => requestAnimationFrame(r))
     await raf()
     await raf()
     await raf()
+    let src = canvas
+    if (opts.ss > 1) {
+      const out = document.createElement('canvas')
+      out.width = opts.W
+      out.height = opts.H
+      const g = out.getContext('2d')!
+      g.imageSmoothingEnabled = true
+      g.imageSmoothingQuality = 'high'
+      g.drawImage(canvas, 0, 0, opts.W, opts.H)
+      src = out
+    }
     const png = await new Promise<Blob | null>((res) =>
-      canvas.toBlob((b) => res(b), 'image/png'),
+      src.toBlob((b) => res(b), 'image/png'),
     )
     if (!png) throw new Error('toBlob returned null')
     await fetch('/save?name=' + opts.outName, { method: 'POST', body: png })
@@ -97,8 +113,9 @@ export async function renderPosterStills(
   })
   try {
     for (const shot of shots) {
+      const ss = stillSupersample(shot.width, shot.height)
       const context = await browser.newContext({
-        viewport: { width: shot.width, height: shot.height },
+        viewport: { width: shot.width * ss, height: shot.height * ss },
       })
       try {
         const page = await context.newPage()
@@ -118,6 +135,7 @@ export async function renderPosterStills(
             animationCode,
             W: shot.width,
             H: shot.height,
+            ss,
             time,
             outName: shot.name,
           })

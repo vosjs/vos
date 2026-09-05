@@ -42,6 +42,16 @@ export const OVERLAY_Z = -2
 export const CARD_Z = -4
 export const BACKGROUND_Z = -6
 
+/**
+ * The card layer's OVERSCAN when the frame bleeds the card past an edge
+ * (a negative `frame.inset` side): its canvas and its plane grow by this
+ * factor about the frame's centre, so a tilt that turns the bled edge back
+ * toward the viewer shows card there, not the texture's edge. A card kept
+ * inside the frame stays at 1, pixel-identical. 1.25 covers a lean of
+ * about 15 degrees on the receding side.
+ */
+export const CARD_OVERSCAN = 1.25
+
 export const CAMERA_NEAR = 0.1
 export const CAMERA_FAR = 100
 

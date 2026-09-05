@@ -986,6 +986,12 @@ export interface TextOverlayClip extends OverlayClipBase {
   letterSpacing?: number
   /** Line height multiplier (default OVERLAY_LINE_HEIGHT). */
   lineHeight?: number
+  /**
+   * Legibility shadow strength 0..1 (the preset's when absent; 0 = none).
+   * Words on a plate ground carry none: the shadow exists for words over
+   * footage.
+   */
+  shadow?: number
   /** Text outline, drawn under the fill. */
   stroke?: TextOverlayStroke
   /** Background pill behind the text block (absent = none). */

@@ -516,7 +516,7 @@
               "type": "number",
               "minimum": 0,
               "maximum": 1,
-              "description": "ambient shadow strength: the wide soft layer under the card (blur 60, offset 24 design px)"
+              "description": "the card shadow's strength 0..1, shared by three layered shadows whose blur and offset grow (3/1, 14/6, 48/22 design px) while each stays at a low alpha, so the card reads as lifted rather than sitting in a dark pool"
             },
             "shadowContact": {
               "type": "number",
@@ -915,12 +915,21 @@
             "description": "text kind: wrap budget as a FRACTION of the frame width (greedy word wrap at measured widths; absent = lines break only on \\n; no intra-word breaks)"
           },
           "shadow": {
-            "enum": [
-              "none",
-              "soft",
-              "strong"
+            "oneOf": [
+              {
+                "enum": [
+                  "none",
+                  "soft",
+                  "strong"
+                ]
+              },
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
             ],
-            "description": "media kinds: the card shadow. Absent = 'soft' (the house picture-in-picture look); 'strong' floats harder; 'none' is a flat cutout"
+            "description": "media kinds: the card shadow, 'none' | 'soft' | 'strong' (absent = 'soft', the house picture-in-picture look). Text kind: the legibility shadow STRENGTH 0..1 (absent = the preset's; 0 = none, which words on a plate ground want)"
           },
           "border": {
             "type": "object",

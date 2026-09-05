@@ -14,18 +14,28 @@ export interface BakeOptions {
   margin?: number
   /** Corner radius as a fraction of the shot's width (0.014). */
   radius?: number
-  /** Shadow alpha 0..1 (0.38); 0 = no shadow. */
+  /**
+   * Shadow strength 0..1 (0.3); 0 = no shadow. Two layers share it: a
+   * tight one at the edge and a wide one below, each at a low alpha, so
+   * the shot reads as lifted rather than sitting in a dark pool.
+   */
   shadow?: number
-  /** Shadow blur radius as a fraction of the shot's width (0.03). */
+  /** The wide layer's blur radius as a fraction of the shot's width (0.05). */
   blur?: number
-  /** Shadow offset downward as a fraction of the shot's width (0.012). */
+  /** The wide layer's offset downward as a fraction of the shot's width (0.02). */
   offsetY?: number
   /** A hairline around the shot, alpha 0..1 (0 = none), for light shots on light grounds. */
   hairline?: number
 }
 
 /** Box blur one channel of a w×h float plane, radius r, in place; three passes. */
-function blurPlane(src: Float32Array, w: number, h: number, r: number, passes = 3) {
+function blurPlane(
+  src: Float32Array,
+  w: number,
+  h: number,
+  r: number,
+  passes = 3,
+) {
   if (r < 1) return
   const tmp = new Float32Array(src.length)
   for (let p = 0; p < passes; p++) {
@@ -33,7 +43,8 @@ function blurPlane(src: Float32Array, w: number, h: number, r: number, passes = 
     for (let y = 0; y < h; y++) {
       let acc = 0
       const row = y * w
-      for (let x = -r; x <= r; x++) acc += src[row + Math.min(w - 1, Math.max(0, x))]
+      for (let x = -r; x <= r; x++)
+        acc += src[row + Math.min(w - 1, Math.max(0, x))]
       for (let x = 0; x < w; x++) {
         tmp[row + x] = acc / (2 * r + 1)
         const add = src[row + Math.min(w - 1, x + r + 1)]
@@ -44,7 +55,8 @@ function blurPlane(src: Float32Array, w: number, h: number, r: number, passes = 
     // vertical
     for (let x = 0; x < w; x++) {
       let acc = 0
-      for (let y = -r; y <= r; y++) acc += tmp[Math.min(h - 1, Math.max(0, y)) * w + x]
+      for (let y = -r; y <= r; y++)
+        acc += tmp[Math.min(h - 1, Math.max(0, y)) * w + x]
       for (let y = 0; y < h; y++) {
         src[y * w + x] = acc / (2 * r + 1)
         const add = tmp[Math.min(h - 1, y + r + 1) * w + x]
@@ -67,7 +79,13 @@ function roundedCoverage(
     for (const dx of [0.25, 0.75]) {
       const px = x + dx
       const py = y + dy
-      if (px < rect.x || py < rect.y || px > rect.x + rect.w || py > rect.y + rect.h) continue
+      if (
+        px < rect.x ||
+        py < rect.y ||
+        px > rect.x + rect.w ||
+        py > rect.y + rect.h
+      )
+        continue
       const cx = Math.min(Math.max(px, rect.x + r), rect.x + rect.w - r)
       const cy = Math.min(Math.max(py, rect.y + r), rect.y + rect.h - r)
       if ((px - cx) ** 2 + (py - cy) ** 2 <= r * r) inside++
@@ -80,9 +98,9 @@ function roundedCoverage(
 export function bakeShot(shot: Rgba, opts: BakeOptions = {}): Rgba {
   const margin = Math.round(shot.w * (opts.margin ?? 0.06))
   const radius = shot.w * (opts.radius ?? 0.014)
-  const shadowA = opts.shadow ?? 0.38
-  const blur = Math.round(shot.w * (opts.blur ?? 0.03))
-  const offsetY = Math.round(shot.w * (opts.offsetY ?? 0.012))
+  const shadowA = opts.shadow ?? 0.3
+  const blur = Math.round(shot.w * (opts.blur ?? 0.05))
+  const offsetY = Math.round(shot.w * (opts.offsetY ?? 0.02))
   const hair = opts.hairline ?? 0
   const w = shot.w + margin * 2
   const h = shot.h + margin * 2
@@ -90,15 +108,28 @@ export function bakeShot(shot: Rgba, opts: BakeOptions = {}): Rgba {
   const rect = { x: margin, y: margin, w: shot.w, h: shot.h }
 
   if (shadowA > 0) {
-    const mask = new Float32Array(w * h)
-    for (let y = 0; y < h; y++)
-      for (let x = 0; x < w; x++) {
-        const c = roundedCoverage(x, y - offsetY, rect, radius)
-        if (c > 0) mask[y * w + x] = c
-      }
-    blurPlane(mask, w, h, Math.max(1, Math.round(blur / 2)))
+    // Two layers: tight at the edge (a quarter of the blur, a fifth of the
+    // offset, 0.4 of the strength) and wide below (0.6 of the strength).
+    const layers: [number, number, number][] = [
+      [Math.max(1, Math.round(blur / 4)), Math.round(offsetY / 5), 0.4],
+      [blur, offsetY, 0.6],
+    ]
+    const acc = new Float32Array(w * h)
+    for (const [lb, lo, share] of layers) {
+      const mask = new Float32Array(w * h)
+      for (let y = 0; y < h; y++)
+        for (let x = 0; x < w; x++) {
+          const c = roundedCoverage(x, y - lo, rect, radius)
+          if (c > 0) mask[y * w + x] = c
+        }
+      blurPlane(mask, w, h, Math.max(1, Math.round(lb / 2)))
+      const a = shadowA * share
+      // Layers composite over each other: 1 - (1-a1)(1-a2).
+      for (let i = 0; i < w * h; i++)
+        acc[i] = 1 - (1 - acc[i]) * (1 - mask[i] * a)
+    }
     for (let i = 0; i < w * h; i++) {
-      const a = mask[i] * shadowA
+      const a = acc[i]
       if (a <= 0.002) continue
       out[i * 4] = 0
       out[i * 4 + 1] = 0
@@ -120,8 +151,12 @@ export function bakeShot(shot: Rgba, opts: BakeOptions = {}): Rgba {
       let b = shot.data[si + 2]
       // A hairline at the edge: the outer 1.5 px darkened.
       if (hair > 0) {
-        const edge =
-          Math.min(x - rect.x, rect.x + rect.w - x, y - rect.y, rect.y + rect.h - y)
+        const edge = Math.min(
+          x - rect.x,
+          rect.x + rect.w - x,
+          y - rect.y,
+          rect.y + rect.h - y,
+        )
         if (edge < 1.5) {
           r = Math.round(r * (1 - hair))
           g = Math.round(g * (1 - hair))

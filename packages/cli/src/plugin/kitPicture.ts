@@ -92,6 +92,12 @@ export interface PictureAsset {
    * ground is designed rather than a plate to find a card on.
    */
   shot?: { x: number; y: number; w: number; h: number }
+  /**
+   * A tile: the shot is a close CROP of the page's hero, wider than the
+   * frame by design (the subject band does not apply) and mostly the
+   * page's own plate (a hero region is half as inky as a populated card).
+   */
+  crop?: boolean
 }
 
 /** The band the reference assets were measured to. */
@@ -161,23 +167,25 @@ export function stillFindings(
     const sh = Math.min(1, a.shot.y + a.shot.h) * img.h - sy
     const rect = { x: sx, y: sy, w: Math.max(1, sw), h: Math.max(1, sh) }
     const ink = inkCoverage(img, rect)
-    if (ink < BLANK_INK) {
+    if (ink < (a.crop ? BLANK_INK / 2 : BLANK_INK)) {
       out.push({
         code: 'blank',
         severity: 'error',
         asset: a.destination,
         message: `${pct(ink)} ink inside the shot: the moment shows a wallpaper, an empty canvas or a flat panel`,
-        fixHint: 'pick a moment after a gesture landed (--shot-time, or --times step:<id>) and stage the set before recording',
+        fixHint:
+          'pick a moment after a gesture landed (--shot-time, or --times step:<id>) and stage the set before recording',
         bbox: rect,
       })
     }
-    if (a.shot.w < 0.5 || a.shot.w > 1.2) {
+    if (!a.crop && (a.shot.w < 0.5 || a.shot.w > 1.2)) {
       out.push({
         code: 'subject',
         severity: 'error',
         asset: a.destination,
         message: `the shot is ${pct(a.shot.w)} of the width; a card sits at 60 to 92%, a bleed a little past the edge`,
-        fixHint: 'the template layout places the slot; fix its place for this aspect',
+        fixHint:
+          'the template layout places the slot; fix its place for this aspect',
         bbox: rect,
       })
     }
@@ -216,14 +224,19 @@ export function stillFindings(
         severity: 'error',
         asset: a.destination,
         message: `the card is ${pct(m.widthPct)} of the width; the references sit at ${pct(SUBJECT_BAND.min)} to ${pct(SUBJECT_BAND.max)}`,
-        fixHint: 'the look places the card at 84% (frame.inset); a poster template sets its own placement',
+        fixHint:
+          'the look places the card at 84% (frame.inset); a poster template sets its own placement',
         bbox: m.card ?? undefined,
       })
     }
     if (m.card && !bledAll) {
       const sep = m.separation ?? 0
       const shadow = m.shadow ?? 0
-      if (sep < SEPARATION_L && shadow < SHADOW_PRESENT && m.edge < EDGE_PRESENT) {
+      if (
+        sep < SEPARATION_L &&
+        shadow < SHADOW_PRESENT &&
+        m.edge < EDGE_PRESENT
+      ) {
         out.push({
           code: 'separation',
           severity: 'error',
@@ -242,13 +255,19 @@ export function stillFindings(
   // alone cannot prove a screenshot was composed. The manifest can: the
   // deliver verb records `composed` on a screenshot it rendered with the
   // cut's camera and chrome, and that is what this reads.
-  if (genre === 'screenshot' && a.composed && m.card && (m.widthPct ?? 0) < 0.98) {
+  if (
+    genre === 'screenshot' &&
+    a.composed &&
+    m.card &&
+    (m.widthPct ?? 0) < 0.98
+  ) {
     out.push({
       code: 'subject',
       severity: 'error',
       asset: a.destination,
       message: `a store screenshot must be the real page full bleed; this one shows a ${pct(m.widthPct ?? 0)} card on a ground`,
-      fixHint: 'drop --composed: the screenshot genre renders the page with no chrome and no padding',
+      fixHint:
+        'drop --composed: the screenshot genre renders the page with no chrome and no padding',
       bbox: m.card,
     })
   }
@@ -277,15 +296,26 @@ export function stillFindings(
 function textFindings(a: PictureAsset, img: Rgba): PictureFinding[] {
   const out: PictureFinding[] = []
   for (const t of a.text ?? []) {
-    const box: Rect = { x: t.x * img.w, y: t.y * img.h, w: t.w * img.w, h: t.h * img.h }
+    const box: Rect = {
+      x: t.x * img.w,
+      y: t.y * img.h,
+      w: t.w * img.w,
+      h: t.h * img.h,
+    }
     const name = t.label ? `"${t.label}"` : 'a text box'
-    if (box.x < 0 || box.y < 0 || box.x + box.w > img.w + 0.5 || box.y + box.h > img.h + 0.5) {
+    if (
+      box.x < 0 ||
+      box.y < 0 ||
+      box.x + box.w > img.w + 0.5 ||
+      box.y + box.h > img.h + 0.5
+    ) {
       out.push({
         code: 'sliced',
         severity: 'error',
         asset: a.destination,
         message: `${name} crosses the frame edge: cut mid-word`,
-        fixHint: 'shorten the line, or let the template recompose (headline lines at 12 to 14% of the height, inside the safe rect)',
+        fixHint:
+          'shorten the line, or let the template recompose (headline lines at 12 to 14% of the height, inside the safe rect)',
         bbox: box,
       })
     }
@@ -295,13 +325,19 @@ function textFindings(a: PictureAsset, img: Rgba): PictureFinding[] {
       const sy = s.y * img.h
       const sw = s.w * img.w
       const sh = s.h * img.h
-      if (box.x < sx - 0.5 || box.y < sy - 0.5 || box.x + box.w > sx + sw + 0.5 || box.y + box.h > sy + sh + 0.5) {
+      if (
+        box.x < sx - 0.5 ||
+        box.y < sy - 0.5 ||
+        box.x + box.w > sx + sw + 0.5 ||
+        box.y + box.h > sy + sh + 0.5
+      ) {
         out.push({
           code: 'safe',
           severity: 'warning',
           asset: a.destination,
           message: `${name} sits outside the destination's safe rect (${pct(s.w)}x${pct(s.h)} at ${pct(s.x)},${pct(s.y)}): the platform's chrome or crop covers it`,
-          fixHint: 'move the text inside the safe rect; the template reads channel-specs safe',
+          fixHint:
+            'move the text inside the safe rect; the template reads channel-specs safe',
           bbox: box,
         })
       }
@@ -317,7 +353,8 @@ function textFindings(a: PictureAsset, img: Rgba): PictureFinding[] {
           severity: 'warning',
           asset: a.destination,
           message: `${name} reads APCA Lc ${lc.toFixed(0)} on its ground; ${t.role === 'body' ? 'body' : 'a headline'} wants ${floor}`,
-          fixHint: 'darken the ink or lighten the ground under the text (BRAND.md ink on bgA/bgB, never on the shot)',
+          fixHint:
+            'darken the ink or lighten the ground under the text (BRAND.md ink on bgA/bgB, never on the shot)',
           bbox: box,
         })
       }
@@ -328,8 +365,10 @@ function textFindings(a: PictureAsset, img: Rgba): PictureFinding[] {
       code: 'safe',
       severity: 'warning',
       asset: a.destination,
-      message: 'this destination wants no text (the picture carries it alone) and the kit put words on it',
-      fixHint: 'render the tile from the card-on-gradient template with no headline',
+      message:
+        'this destination wants no text (the picture carries it alone) and the kit put words on it',
+      fixHint:
+        'render the tile from the card-on-gradient template with no headline',
     })
   }
   return out
@@ -355,7 +394,10 @@ export function duplicateFindings(
 ): PictureFinding[] {
   const groups: { destination: string; time: number | null }[][] = []
   const seen = new Set<number>()
-  const comparable = (a: (typeof stills)[number], b: (typeof stills)[number]) =>
+  const comparable = (
+    a: (typeof stills)[number],
+    b: (typeof stills)[number],
+  ) =>
     a.genre === 'screenshot' || b.genre === 'screenshot'
       ? a.destination === b.destination
       : true
@@ -376,10 +418,16 @@ export function duplicateFindings(
     // Every member composed: one cover on several channels, which a release
     // does on purpose; the failure this check exists for is the CROP of one
     // frame at eight aspects.
-    const composed = g.every((s) => stills.find((x) => x.destination === s.destination)?.composed)
+    const composed = g.every(
+      (s) => stills.find((x) => x.destination === s.destination)?.composed,
+    )
     return {
       code: 'duplicate' as const,
-      severity: composed ? ('info' as const) : g.length >= 3 ? ('error' as const) : ('warning' as const),
+      severity: composed
+        ? ('info' as const)
+        : g.length >= 3
+          ? ('error' as const)
+          : ('warning' as const),
       asset: g.map((s) => s.destination).join(', '),
       message: composed
         ? `${g.length} channels share one cover: ${g.map((s) => s.destination).join(', ')}`
@@ -399,7 +447,21 @@ async function videoFrame(
   try {
     const { stdout } = await execFileP(
       ffmpeg,
-      ['-v', 'error', '-ss', at.toFixed(3), '-i', file, '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'png', '-'],
+      [
+        '-v',
+        'error',
+        '-ss',
+        at.toFixed(3),
+        '-i',
+        file,
+        '-frames:v',
+        '1',
+        '-f',
+        'image2pipe',
+        '-vcodec',
+        'png',
+        '-',
+      ],
       { encoding: 'buffer', maxBuffer: 64 * 1024 * 1024 },
     )
     return decodePng(new Uint8Array(stdout))
@@ -423,9 +485,7 @@ async function onPath(bin: string): Promise<boolean> {
  * PNGs; videos read their first and last frame through ffmpeg. Returns the
  * findings and, per asset, what was measured.
  */
-export async function pictureChecks(
-  assets: PictureAsset[],
-): Promise<{
+export async function pictureChecks(assets: PictureAsset[]): Promise<{
   findings: PictureFinding[]
   measured: { destination: string; measure: StillMeasure | null }[]
 }> {
@@ -449,7 +509,8 @@ export async function pictureChecks(
           severity: 'info',
           asset: a.destination,
           message: `${a.path} is not an 8-bit non-interlaced PNG; the picture checks cannot read it`,
-          fixHint: 'render stills through vos deliver or vos frames, which write readable PNGs',
+          fixHint:
+            'render stills through vos deliver or vos frames, which write readable PNGs',
         })
         measured.push({ destination: a.destination, measure: null })
         continue
@@ -474,7 +535,8 @@ export async function pictureChecks(
           code: 'firstlast',
           severity: 'info',
           asset: a.destination,
-          message: 'ffmpeg is not on PATH, so the first and last frames were not read',
+          message:
+            'ffmpeg is not on PATH, so the first and last frames were not read',
           fixHint: 'install ffmpeg to have the video checks run',
         })
         measured.push({ destination: a.destination, measure: null })
@@ -482,14 +544,19 @@ export async function pictureChecks(
       }
       const seconds = a.seconds ?? 0
       const first = await videoFrame(a.file, 0, 'ffmpeg')
-      const last = await videoFrame(a.file, Math.max(0, seconds - 0.1), 'ffmpeg')
+      const last = await videoFrame(
+        a.file,
+        Math.max(0, seconds - 0.1),
+        'ffmpeg',
+      )
       for (const [name, img] of [
         ['first', first],
         ['last', last],
       ] as const) {
         if (!img) continue
         const m = measureStill(img)
-        if (name === 'first') measured.push({ destination: a.destination, measure: m })
+        if (name === 'first')
+          measured.push({ destination: a.destination, measure: m })
         const subject = m.card ?? { x: 0, y: 0, w: img.w, h: img.h }
         const ink = inkCoverage(img, subject)
         if (ink < BLANK_INK) {
@@ -510,7 +577,8 @@ export async function pictureChecks(
             severity: 'warning',
             asset: a.destination,
             message: `the ${name} frame fills the frame on all four sides: no ground, no room`,
-            fixHint: 'present the cut in a look (vos deliver reads BRAND.md or --look)',
+            fixHint:
+              'present the cut in a look (vos deliver reads BRAND.md or --look)',
           })
         }
       }
@@ -518,7 +586,11 @@ export async function pictureChecks(
     }
   }
   findings.push(...duplicateFindings(stills))
-  const order: Record<PictureFinding['severity'], number> = { error: 0, warning: 1, info: 2 }
+  const order: Record<PictureFinding['severity'], number> = {
+    error: 0,
+    warning: 1,
+    info: 2,
+  }
   findings.sort((a, b) => order[a.severity] - order[b.severity])
   return { findings, measured }
 }

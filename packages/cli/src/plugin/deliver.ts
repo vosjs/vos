@@ -12,14 +12,7 @@
  * manual by policy — the verb hands the human a kit directory, it never
  * pushes to a store.
  */
-import {
-  mkdir,
-  mkdtemp,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from 'node:fs/promises'
+import { mkdir, mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import { totalDuration } from '@vosjs/timeline'
@@ -43,10 +36,15 @@ import { renderPosterStills } from './posterStill'
 import { momentCandidates, pickMoments } from './moments'
 import { decodePng, differenceHash, inkCoverage } from './picture'
 import { bakeShot, encodePng } from './shotBake'
-import { fillTemplate, templateOf, templateProblems, textLimitProblems } from './template'
+import {
+  fillTemplate,
+  templateOf,
+  templateProblems,
+  textLimitProblems,
+} from './template'
 import { templateByName } from './templates'
 import { posterValues } from './posterValues'
-import { stageSplitCover } from './stages'
+import { isTileSize, stageSplitCover, stageTile } from './stages'
 import { LOOP_DESTINATIONS, planMotion } from './motionPlan'
 import type { MusicCatalog } from './motionPlan'
 import type { MomentCandidate } from './moments'
@@ -259,7 +257,11 @@ export async function readLaunchBesideTake(
 export async function resolveLook(
   dir: string,
   opts: { look?: string; brand?: string },
-): Promise<{ look: Look | null; from: string; roles: Record<string, string> | null }> {
+): Promise<{
+  look: Look | null
+  from: string
+  roles: Record<string, string> | null
+}> {
   const brand = await readBrandBesideTake(dir, opts.brand)
   const roles = brand?.roles ?? null
   if (opts.look === 'none') return { look: null, from: '--look none', roles }
@@ -289,12 +291,25 @@ export async function resolveLook(
  * falls to card-on-gradient, said in words.
  */
 export function templateForCard(
-  d: Pick<Destination, 'id' | 'template'>,
+  d: Pick<Destination, 'id' | 'template' | 'px'>,
   opts: Pick<DeliverOptions, 'poster' | 'words'>,
-): { config: Record<string, unknown>; from: string; note?: string; stage?: boolean } | null {
+): {
+  config: Record<string, unknown>
+  from: string
+  note?: string
+  stage?: 'split-cover' | 'tile'
+} | null {
   if (opts.poster === null) return null
   if (opts.poster) return { config: opts.poster.config, from: opts.poster.from }
   if (!d.template) return null
+  // A TILE (long side under TILE_MAX_PX) composes as a stage whatever its
+  // template names: a headline over a close crop of the page's hero. The
+  // whole page in a 370 px card is unreadable by construction.
+  if (isTileSize(d.px)) {
+    const config =
+      templateByName(d.template) ?? templateByName('card-on-gradient')
+    if (config) return { config, from: 'stage tile', stage: 'tile' }
+  }
   let name = d.template
   let note: string | undefined
   const wants = templateOf(templateByName(name) ?? {})
@@ -308,7 +323,8 @@ export function templateForCard(
   // The split cover composes as a STAGE by default: the take's own card in
   // perspective with its chrome and shadow (the program template is one
   // --poster away, for a maker who wants the grained ground).
-  if (name === 'split-cover') return { config, from: 'stage split-cover', note, stage: true }
+  if (name === 'split-cover')
+    return { config, from: 'stage split-cover', note, stage: 'split-cover' }
   return { config, from: `template ${name}`, note }
 }
 
@@ -344,7 +360,12 @@ export function lookOverrides(
   }
   if (!opts.keepMedia) set.push('frame.backgroundMedia=null')
   if (opts.still) {
-    set.push('zoom=[]', 'tilt=[]', 'cursor.visible=false', 'cursor.clickFx.style=none')
+    set.push(
+      'zoom=[]',
+      'tilt=[]',
+      'cursor.visible=false',
+      'cursor.clickFx.style=none',
+    )
   }
   return set
 }
@@ -361,7 +382,9 @@ export function endCardInk(
   const ground = look.ground
   const m = /#([0-9a-f]{6})/i.exec(ground)
   const hex = m ? m[0] : null
-  const light = look.kind === 'plate' || (hex ? isLightHexGround(hex) : look.kind === 'gradient')
+  const light =
+    look.kind === 'plate' ||
+    (hex ? isLightHexGround(hex) : look.kind === 'gradient')
   if (!light) return '#ffffff'
   const ink = brand?.ink
   return ink && /^#[0-9a-f]{6}$/i.test(ink) ? ink : '#111111'
@@ -494,7 +517,13 @@ export function stillOverridesFor(
   if (d.genre === 'screenshot' && !opts.composed) {
     if (d.fit === 'cover') set.push('frame.fit=cover')
     set.push(...SCREENSHOT_DEFAULTS)
-  } else if (d.genre === 'card' && !opts.composed && opts.look && video && d.px) {
+  } else if (
+    d.genre === 'card' &&
+    !opts.composed &&
+    opts.look &&
+    video &&
+    d.px
+  ) {
     // A card with no poster program is the whole window on the look's
     // ground: centred with room around it, or, on a frame too wide to hold
     // it, given headroom and run off the bottom (the feature-clip grammar).
@@ -600,11 +629,22 @@ export async function deliverTake(
   // filled per destination: the shot placed for that aspect, the brand's
   // colours and faces, the release's words. PNG from our own page.
   const cardPlans = destinations
-    .filter((d) => d.kind !== 'video' && d.genre === 'card' && !NOT_FROM_FOOTAGE[d.id])
+    .filter(
+      (d) =>
+        d.kind !== 'video' && d.genre === 'card' && !NOT_FROM_FOOTAGE[d.id],
+    )
     .map((d) => ({ d, plan: templateForCard(d, opts) }))
-    .filter((p): p is { d: Destination; plan: NonNullable<ReturnType<typeof templateForCard>> } => p.plan !== null)
+    .filter(
+      (
+        p,
+      ): p is {
+        d: Destination
+        plan: NonNullable<ReturnType<typeof templateForCard>>
+      } => p.plan !== null,
+    )
   const posterCardIds = new Set(cardPlans.map((p) => p.d.id))
-  for (const p of cardPlans) if (p.plan.note) skipped.push(`note: ${p.plan.note}`)
+  for (const p of cardPlans)
+    if (p.plan.note) skipped.push(`note: ${p.plan.note}`)
 
   if (cardPlans.length) {
     const meta = doc.source.meta
@@ -642,20 +682,27 @@ export async function deliverTake(
       const baked = bakeShot(raw, {
         margin: PAD,
         hairline: fill.lightGround ? 0.14 : 0,
-        shadow: fill.lightGround ? 0.32 : 0.45,
+        shadow: fill.lightGround ? 0.28 : 0.4,
       })
       await writeFile(join(serveDir, 'shot.png'), encodePng(baked))
       const shotAspect = raw.w / raw.h
 
       for (const { d, plan } of cardPlans) {
         if (plan.stage) {
-          const staged = stageSplitCover({
+          const stageInput = {
             size: d.px,
             values: fill.values,
             sourceSeconds: meta.durationMs / 1000,
             outputSeconds: duration,
-          })
-          opts.onPhase?.(`${d.channel} ${d.asset} (${specWords(d)}) from ${plan.from}`)
+            text: d.text,
+          }
+          const staged =
+            plan.stage === 'tile'
+              ? stageTile(stageInput)
+              : stageSplitCover(stageInput)
+          opts.onPhase?.(
+            `${d.channel} ${d.asset} (${specWords(d)}) from ${plan.from}`,
+          )
           const shotDir = await mkdtemp(join(tmpdir(), 'vos-stage-'))
           try {
             const captured = await framesTake(browser, dir, {
@@ -672,7 +719,9 @@ export async function deliverTake(
             await rename(captured.frames[0].file, to)
             const bytes = (await stat(to)).size
             if (d.maxBytes !== undefined && bytes > d.maxBytes) {
-              skipped.push(`${d.channel} ${d.asset}: ${overCeiling(bytes, d.maxBytes)} (kept at ${to})`)
+              skipped.push(
+                `${d.channel} ${d.asset}: ${overCeiling(bytes, d.maxBytes)} (kept at ${to})`,
+              )
               continue
             }
             assets.push({
@@ -686,9 +735,10 @@ export async function deliverTake(
               seconds: null,
               frameTime: heroTime,
               source: 'stage',
-              template: 'split-cover-stage',
+              template: `${plan.stage}-stage`,
               text: staged.text,
               shot: staged.shot,
+              ...(plan.stage === 'tile' ? { crop: true } : {}),
             })
           } finally {
             await rm(shotDir, { recursive: true, force: true })
@@ -719,15 +769,20 @@ export async function deliverTake(
         }
         const config = filled.config
         if (fill.fonts.length) {
-          const declared = Array.isArray(config.fonts) ? (config.fonts as unknown[]) : []
+          const declared = Array.isArray(config.fonts)
+            ? (config.fonts as unknown[])
+            : []
           config.fonts = [...declared, ...fill.fonts]
         }
-        const posterDuration = typeof config.duration === 'number' ? config.duration : 6
+        const posterDuration =
+          typeof config.duration === 'number' ? config.duration : 6
         const time = Math.min(
           opts.posterTime ?? posterDuration * 0.9,
           Math.max(0, posterDuration - 0.05),
         )
-        opts.onPhase?.(`${d.channel} ${d.asset} (${specWords(d)}) from ${plan.from}, ${filled.aspect}`)
+        opts.onPhase?.(
+          `${d.channel} ${d.asset} (${specWords(d)}) from ${plan.from}, ${filled.aspect}`,
+        )
         await renderPosterStills(
           browser,
           config,
@@ -887,7 +942,9 @@ export async function deliverTake(
         bytes,
         seconds: null,
         frameTime: frame.time,
-        ...(d.genre === 'screenshot' && opts.composed ? { composed: true } : {}),
+        ...(d.genre === 'screenshot' && opts.composed
+          ? { composed: true }
+          : {}),
       })
     }
     if (d.count && captured.frames.length < d.count.min) {

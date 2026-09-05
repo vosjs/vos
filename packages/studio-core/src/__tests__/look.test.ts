@@ -23,7 +23,12 @@ const LANDSCAPE = { w: 1600, h: 900 }
 
 describe('cardInset', () => {
   it('hero on a 16:9 frame: 84% wide, 16% headroom, bled off the bottom', () => {
-    const i = cardInset(houseLook('gradient'), { w: 1920, h: 1080 }, LANDSCAPE, 'hero')
+    const i = cardInset(
+      houseLook('gradient'),
+      { w: 1920, h: 1080 },
+      LANDSCAPE,
+      'hero',
+    )
     expect(i.left).toBeCloseTo(0.08, 6)
     expect(i.right).toBeCloseTo(0.08, 6)
     expect(i.top).toBeCloseTo(0.16, 6)
@@ -33,14 +38,24 @@ describe('cardInset', () => {
   })
 
   it('hero on a 5:2 marquee: the card runs a third off the bottom', () => {
-    const i = cardInset(houseLook('plate'), { w: 1400, h: 560 }, LANDSCAPE, 'hero')
+    const i = cardInset(
+      houseLook('plate'),
+      { w: 1400, h: 560 },
+      LANDSCAPE,
+      'hero',
+    )
     // card height = 0.84 × 2.5 / 1.778 = 1.18 of the frame
     expect(i.bottom!).toBeLessThan(-0.3)
     expect(i.top).toBeCloseTo(0.16, 6)
   })
 
   it('card on an 11:7 tile: centred with even room around it', () => {
-    const i = cardInset(houseLook('gradient'), { w: 440, h: 280 }, LANDSCAPE, 'card')
+    const i = cardInset(
+      houseLook('gradient'),
+      { w: 440, h: 280 },
+      LANDSCAPE,
+      'card',
+    )
     expect(i.left).toBeCloseTo(0.08, 6)
     expect(i.top).toBeCloseTo(i.bottom!, 6)
     expect(i.top!).toBeGreaterThan(0.1)
@@ -48,7 +63,12 @@ describe('cardInset', () => {
   })
 
   it('card on a frame too wide for the card falls back to hero', () => {
-    const i = cardInset(houseLook('gradient'), { w: 1400, h: 560 }, LANDSCAPE, 'card')
+    const i = cardInset(
+      houseLook('gradient'),
+      { w: 1400, h: 560 },
+      LANDSCAPE,
+      'card',
+    )
     expect(i.top).toBeCloseTo(0.16, 6)
     expect(i.bottom!).toBeLessThan(0)
   })
@@ -85,7 +105,6 @@ describe('the card placement under a look measures inside the reference band', (
       expect(l.cardY / h).toBeGreaterThanOrEqual(0.08)
       expect(l.cardY / h).toBeLessThanOrEqual(0.28)
       expect(frame.shadow).toBeGreaterThan(0)
-      expect(frame.shadowContact).toBeGreaterThan(0)
     })
   }
 })
@@ -107,15 +126,25 @@ describe('house looks and the brand', () => {
   })
 
   it('the look role wins, then the kit colours the house look', () => {
-    const plate = lookFromBrand({ look: 'plate', bgA: '#000000', bgB: '#eef0f3' })
+    const plate = lookFromBrand({
+      look: 'plate',
+      bgA: '#000000',
+      bgB: '#eef0f3',
+    })
     expect(plate.kind).toBe('plate')
     expect(plate.ground).toBe('#eef0f3')
-    const grad = lookFromBrand({ bgA: '#3a5fcd', accent: '#ff5148', bgC: '#ffe0dc' })
+    const grad = lookFromBrand({
+      bgA: '#3a5fcd',
+      accent: '#ff5148',
+      bgC: '#ffe0dc',
+    })
     expect(grad.kind).toBe('gradient')
     expect(grad.ground).toBe('linear-gradient(135deg, #ff5148, #ffe0dc)')
     const dark = lookFromBrand({ bgA: '#0a0a0c', accent: '#ff5148' })
     expect(dark.kind).toBe('dark')
-    expect(dark.ground).toMatch(/^radial-gradient\(ellipse at 82% 0%, #[0-9a-f]{6}, #0a0a0c\)$/)
+    expect(dark.ground).toMatch(
+      /^radial-gradient\(ellipse at 82% 0%, #[0-9a-f]{6}, #0a0a0c\)$/,
+    )
     const own = lookFromBrand({ look: 'gradient', ground: '#123456' })
     expect(own.ground).toBe('#123456')
     expect(lookFromBrand(null).ground).toBe(HOUSE_GRADIENT)

@@ -169,7 +169,7 @@ describe('the card edge', () => {
     const l = computeCardLayout(FRAME, VIDEO, W, H)
     const r = runFrame(makeDoc(FRAME), W, H)
     expect(r.scale).toBe(1)
-    expect(r.shadowBodies).toHaveLength(2) // ambient + contact
+    expect(r.shadowBodies).toHaveLength(4) // three layered + contact
     for (const body of r.shadowBodies) {
       const [x, y, w, h] = body.rect
       // The body is the card's own shape ...
