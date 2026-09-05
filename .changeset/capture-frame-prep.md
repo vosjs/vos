@@ -1,5 +1,5 @@
 ---
-'@vosjs/core': minor
+'@vosjs/core': patch
 '@vosjs/studio-core': minor
 ---
 
