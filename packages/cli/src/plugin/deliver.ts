@@ -695,6 +695,9 @@ export async function deliverTake(
             sourceSeconds: meta.durationMs / 1000,
             outputSeconds: duration,
             text: d.text,
+            footageAspect:
+              (meta.captureWidth ?? meta.width) /
+              (meta.captureHeight ?? meta.height),
           }
           const staged =
             plan.stage === 'tile'
