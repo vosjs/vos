@@ -1,6 +1,6 @@
 {
   "name": "@vosjs/studio-core",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "The studio's editing model: the ProjectDoc schema, the element-aware auto-zoom planner and cursor smoothing, the lowering from a document to a vos composition, and the timeline lane adapters. Generic editing mechanisms live in @vosjs/editor.",
   "license": "MIT",
   "author": "vosso",
