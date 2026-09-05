@@ -23,6 +23,8 @@ export interface StageInput {
    * thumbnail the picture carries alone) gets the crop only, larger.
    */
   text?: 'none' | 'allowed' | 'expected'
+  /** The footage's aspect (width over height; 16:9 when unknown), so a tile's crop box matches it and cover crops nothing it meant to show. */
+  footageAspect?: number
 }
 
 export interface StageResult {
@@ -219,13 +221,25 @@ export function stageTile(input: StageInput): StageResult {
   const display = firstFamily(str(v.fontDisplay, 'Lexend'))
   const headline = str(v.headline, '') || str(v.brand, 'Release')
   const wordless = input.text === 'none'
-  const inset = wordless
-    ? square
-      ? { left: 0.08, right: -0.8, top: 0.1, bottom: -1.3 }
-      : { left: 0.07, right: -0.55, top: 0.12, bottom: -1.1 }
-    : square
-      ? { left: 0.08, right: -0.8, top: 0.42, bottom: -1 }
-      : { left: 0.07, right: -0.55, top: 0.47, bottom: -0.8 }
+  // The crop box is the FOOTAGE's aspect, so cover crops nothing the box
+  // meant to show, and its width is set by how much of the page should be
+  // visible: wordless, the page's own hero is the words, so about four
+  // fifths of it (two thirds on a square); under a headline, less.
+  const aspect =
+    input.footageAspect && input.footageAspect > 0
+      ? input.footageAspect
+      : 16 / 9
+  const left = square ? 0.08 : 0.07
+  const top = wordless ? (square ? 0.1 : 0.12) : square ? 0.42 : 0.47
+  const visible = wordless ? (square ? 0.66 : 0.8) : square ? 0.56 : 0.62
+  const cardW = (1 - left) / visible
+  const cardH = (cardW * R) / aspect
+  const inset = {
+    left,
+    right: +(1 - left - cardW).toFixed(4),
+    top,
+    bottom: +(1 - top - cardH).toFixed(4),
+  }
   const shot = {
     x: inset.left,
     y: inset.top,
@@ -249,7 +263,6 @@ export function stageTile(input: StageInput): StageResult {
   ]
   const designW = (1080 * input.size.w) / input.size.h
   const column = square ? 0.84 : 0.86
-  const left = inset.left
   const px = square ? 96 : 108
   const lines = headline.split('\n')
   const longest = Math.max(...lines.map((l) => l.length))

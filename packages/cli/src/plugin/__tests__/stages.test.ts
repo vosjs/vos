@@ -141,6 +141,17 @@ describe('the split cover as a stage', () => {
     })
     expect(mute.text).toEqual([])
     expect(mute.shot.y).toBeLessThan(0.2)
+    // The crop box keeps the footage's aspect: cover crops nothing it framed.
+    expect((mute.shot.w * 240) / (mute.shot.h * 240)).toBeCloseTo(16 / 9, 2)
+    const tall = stageTile({
+      size: { w: 440, h: 280 },
+      values: fill.values,
+      sourceSeconds: 35,
+      outputSeconds: 35,
+      text: 'none',
+      footageAspect: 1.6,
+    })
+    expect((tall.shot.w * 440) / (tall.shot.h * 280)).toBeCloseTo(1.6, 2)
     expect(mute.set).toContain('overlays=[]')
     // No headline: the wordmark carries the tile.
     const bare = stageTile({
