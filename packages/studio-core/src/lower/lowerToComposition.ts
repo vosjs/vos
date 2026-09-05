@@ -737,6 +737,67 @@ export function objectMotionPoseAt(
   return [...sample(track, t, lerpArray)]
 }
 
+// The paused-frame steps: ONE source, inlined into SETUP (where the frame-prep
+// hook runs it) and into ON_FRAME (where syncVid runs it), so a capture
+// harness and the paint can never disagree on a target. `stepPaused` asks a
+// WebCodecs provider (capture pages) by PTS at decode speed, else seeks the
+// element and puts its 'seeked' promise (250ms fallback) on pendingDecodes for
+// the export loop to await. `stepBg` is the background loop's seek, COALESCED:
+// a scrub moves t every frame and re-assigning currentTime ABORTS the in-flight
+// seek — on a remote (assets.vos.so) source that keeps the element mid-seek for
+// the whole drag, so no frame ever decodes and the background pops in seconds
+// late — so a seek is issued only when none is in flight; the frame after
+// 'seeked' fires corrects toward the latest target, so seeks run serially and
+// converge on the release point. Both read `ns` from the enclosing scope.
+export const FRAME_STEP_SRC = `
+  function stepPaused(vid, srcT) {
+    if (!vid.paused) vid.pause()
+    // A WebCodecs provider (capture pages) services the frame by PTS at
+    // decode speed — no element seek, no 250ms settle cap. The element stays
+    // paused as the dimension source and fallback.
+    var wcp = vid.__voilaWc
+    if (wcp) {
+      var wcT = Math.min(srcT, wcp.duration || srcT)
+      if (wcp.req !== wcT) {
+        var wdp = wcp.seek(wcT)
+        if (ns.pendingDecodes) {
+          ns.pendingDecodes.add(wdp)
+          wdp.finally(function () { ns.pendingDecodes.delete(wdp) })
+        }
+      }
+      return
+    }
+    var target = Math.min(srcT, vid.duration || srcT)
+    if (vid.readyState >= 1 && Math.abs(vid.currentTime - target) > 0.02) {
+      if (ns.pendingDecodes) {
+        var dp = new Promise(function (resolve) {
+          var done = function () { vid.removeEventListener('seeked', done); resolve() }
+          vid.addEventListener('seeked', done)
+          setTimeout(done, 250) // fallback so a missed 'seeked' can't hang the export
+        })
+        ns.pendingDecodes.add(dp)
+        dp.finally(function () { ns.pendingDecodes.delete(dp) })
+      }
+      vid.currentTime = target
+    }
+  }
+  function stepBg(bgEl, bgT) {
+    if (!bgEl.paused) bgEl.pause()
+    var bgTarget = Math.min(bgT, bgEl.duration || bgT)
+    if (bgEl.readyState >= 1 && !bgEl.seeking && Math.abs(bgEl.currentTime - bgTarget) > 0.02) {
+      if (ns.pendingDecodes) {
+        var bgDp = new Promise(function (resolve) {
+          var bgDone = function () { bgEl.removeEventListener('seeked', bgDone); resolve() }
+          bgEl.addEventListener('seeked', bgDone)
+          setTimeout(bgDone, 250) // fallback so a missed 'seeked' can't hang the export
+        })
+        ns.pendingDecodes.add(bgDp)
+        bgDp.finally(function () { ns.pendingDecodes.delete(bgDp) })
+      }
+      bgEl.currentTime = bgTarget
+    }
+  }`
+
 // Load the recording as an HTMLVideoElement (any container/codec the browser plays).
 // Warm-swap asset reuse: cache the decoded <video> by src on window.__vos__ so a
 // program swap reuses the already-decoded element instead of reloading it — no
@@ -758,6 +819,7 @@ const SETUP = `async (ctx) => {
   if (!ns.waitForVideosReady) ns.waitForVideosReady = async () => {
     if (ns.pendingDecodes.size) await Promise.all([...ns.pendingDecodes])
   }
+  ${FRAME_STEP_SRC}
   const cache = ns.videoCache || (ns.videoCache = new Map())
   // Server capture pages opt into BLOB-backed elements (data.videoFetchMode,
   // merged in by the render queue — never stored in a doc or config): a
@@ -951,6 +1013,36 @@ const SETUP = `async (ctx) => {
       else (await load(bgm.key, true)).loop = true
     } catch (e) { console.warn('[voila] background media failed to load', e) }
   }
+  // Frame prep: a capture harness calls every ns.framePrep hook right after
+  // seeking the timeline and before the first paint, then awaits
+  // waitForVideosReady. The footage for the frame is requested HERE, so the
+  // paint that follows draws the right frame the first time. Without the
+  // hook the request could only be issued from inside ON_FRAME (the only
+  // place that knew the source time), so every take frame painted twice:
+  // once with the previous footage, then again after the decode. The steps
+  // are the SAME functions ON_FRAME's syncVid runs (one source, inlined in
+  // both scopes), so the paint finds its target already met and registers
+  // nothing. Keyed by program so a warm LOAD re-registers instead of
+  // chaining; playback never calls it; a harness without it keeps the
+  // two-phase loop and stays correct.
+  ns.framePrep = ns.framePrep || new Map()
+  ns.framePrep.set('voila.card', (t) => {
+    if (ns.isPaused === false) return
+    const d = ctx.data
+    const TL = globalThis.__vosTimeline
+    const srcT = TL.mapTime(d.segments || [], t)
+    if (video.play) stepPaused(video, srcT)
+    if (cam) stepPaused(cam, srcT)
+    if (mic) stepPaused(mic, srcT)
+    const bg2 = d.frame && d.frame.backgroundMedia
+    if (bg2 && bg2.key && bg2.kind !== 'image') {
+      const bgEl2 = cache.get(bg2.key)
+      if (bgEl2 && bgEl2.play) {
+        const bgDur2 = bg2.duration || bgEl2.duration || 0
+        stepBg(bgEl2, bgDur2 > 0 ? t % bgDur2 : 0)
+      }
+    }
+  })
   return { video: video, cam: cam, mic: mic }
 }`
 
@@ -1152,6 +1244,7 @@ const ON_FRAME = `(ctx, content, dt) => {
   // correction covers cut-boundary jumps), else step to the exact frame (registering a
   // decode promise so the deterministic export awaits it). Shared by the screen video
   // and the webcam so both stay frame-accurate and in sync.
+  ${FRAME_STEP_SRC}
   function syncVid(vid) {
     try {
       if (playing) {
@@ -1197,35 +1290,11 @@ const ON_FRAME = `(ctx, content, dt) => {
           vid.__voilaAutoMuted = false
         }
       } else {
-        if (!vid.paused) vid.pause()
-        // A WebCodecs provider (capture pages) services the frame by
-        // PTS at decode speed — no element seek, no 250ms settle cap. The
-        // element stays paused as the dimension source and fallback.
-        var wcp = vid.__voilaWc
-        if (wcp) {
-          var wcT = Math.min(srcT, wcp.duration || srcT)
-          if (wcp.req !== wcT) {
-            var wdp = wcp.seek(wcT)
-            if (ns.pendingDecodes) {
-              ns.pendingDecodes.add(wdp)
-              wdp.finally(function () { ns.pendingDecodes.delete(wdp) })
-            }
-          }
-          return
-        }
-        var target = Math.min(srcT, vid.duration || srcT)
-        if (vid.readyState >= 1 && Math.abs(vid.currentTime - target) > 0.02) {
-          if (ns.pendingDecodes) {
-            var dp = new Promise(function (resolve) {
-              var done = function () { vid.removeEventListener('seeked', done); resolve() }
-              vid.addEventListener('seeked', done)
-              setTimeout(done, 250) // fallback so a missed 'seeked' can't hang the export
-            })
-            ns.pendingDecodes.add(dp)
-            dp.finally(function () { ns.pendingDecodes.delete(dp) })
-          }
-          vid.currentTime = target
-        }
+        // The paused step (FRAME_STEP_SRC): the provider by PTS, else the
+        // element seek. A capture harness that ran the frame-prep hook has
+        // already met this target, so nothing registers and the paint is
+        // the one that counts.
+        stepPaused(vid, srcT)
       }
     } catch (e) {}
   }
@@ -1319,27 +1388,9 @@ const ON_FRAME = `(ctx, content, dt) => {
           if (bgDur > 0 && !bgEl.seeking && bgDrift > 0.3 && bgDur - bgDrift > 0.3) bgEl.currentTime = bgT
           if (bgEl.paused) { var bgP = bgEl.play(); if (bgP && bgP.catch) bgP.catch(function () {}) }
         } else {
-          if (!bgEl.paused) bgEl.pause()
-          var bgTarget = Math.min(bgT, bgEl.duration || bgT)
-          // COALESCE seeks: a scrub moves t every frame, and re-assigning
-          // currentTime ABORTS the in-flight seek — on a remote (assets.vos.so)
-          // source that keeps the element mid-seek for the whole drag, so no
-          // frame ever decodes and the background pops in seconds late. Issue
-          // a seek only when none is in flight; the frame after 'seeked' fires
-          // corrects toward the latest target, so seeks run serially and
-          // converge on the release point.
-          if (bgEl.readyState >= 1 && !bgEl.seeking && Math.abs(bgEl.currentTime - bgTarget) > 0.02) {
-            if (ns.pendingDecodes) {
-              var bgDp = new Promise(function (resolve) {
-                var bgDone = function () { bgEl.removeEventListener('seeked', bgDone); resolve() }
-                bgEl.addEventListener('seeked', bgDone)
-                setTimeout(bgDone, 250) // fallback so a missed 'seeked' can't hang the export
-              })
-              ns.pendingDecodes.add(bgDp)
-              bgDp.finally(function () { ns.pendingDecodes.delete(bgDp) })
-            }
-            bgEl.currentTime = bgTarget
-          }
+          // The background step (FRAME_STEP_SRC): a coalesced seek, met
+          // already when a capture harness ran the frame-prep hook.
+          stepBg(bgEl, bgT)
         }
       } catch (e) {}
     }

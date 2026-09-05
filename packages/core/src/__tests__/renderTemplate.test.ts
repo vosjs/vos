@@ -245,6 +245,33 @@ describe('generateRenderTemplate', () => {
       expect(html).toContain('waitForVideosReady')
       expect(html).toContain('window.__vos__.isPaused = true')
     })
+
+    it('runs the program frame-prep hooks before the paint, unless told not to', () => {
+      const html = generateRenderTemplate(sampleCode, {
+        mode: 'capture-video',
+        capture,
+      })
+      // Read once after init, run right after the seek, before the first
+      // paint — the request for the frame's footage precedes the paint.
+      expect(html).toContain(
+        'const framePrep = (window.__vos__ && window.__vos__.framePrep) || null;',
+      )
+      expect(html).toContain(
+        'if (framePrep) for (const prep of framePrep.values()) prep(time);',
+      )
+      const seekAt = html.indexOf('timeline.seek(time, false);')
+      const prepAt = html.indexOf('for (const prep of framePrep.values())')
+      const paintAt = html.indexOf('await runFrame();')
+      expect(seekAt).toBeGreaterThan(-1)
+      expect(prepAt).toBeGreaterThan(seekAt)
+      expect(paintAt).toBeGreaterThan(prepAt)
+
+      const off = generateRenderTemplate(sampleCode, {
+        mode: 'capture-video',
+        capture: { ...capture, prepareFrame: false },
+      })
+      expect(off).toContain('const framePrep = null;')
+    })
   })
 
   describe('Three.js version customization', () => {
