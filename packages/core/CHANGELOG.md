@@ -1,5 +1,11 @@
 # @vosjs/core
 
+## 0.23.4
+
+### Patch Changes
+
+- 7cbd25e: `capture.encoder.contentHint` passes a WebCodecs content hint (`'text'` for screen content) to the capture-video encoder, so a software encoder can pick its screen-content tools.
+
 ## 0.23.3
 
 ### Patch Changes
