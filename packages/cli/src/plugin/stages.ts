@@ -44,8 +44,8 @@ const firstFamily = (stack: string) =>
 /**
  * The split cover as a stage. Landscape: the card at 60% of the width in
  * the right column, leaning (top edge and left edge toward the camera),
- * bled off the right and the bottom (the engine overscans the card layer
- * for a bled frame, so the lean never shows the texture's edge),
+ * bled off the right and the bottom (the card layer overscans by what a
+ * lean can show, so the lean never reveals the texture's edge),
  * cover-cropped to the page's top-left; the kicker, the headline (the
  * brand's display face) and the wordmark at 7%. Square and portrait:
  * the words above, the card below, bled off the bottom.
