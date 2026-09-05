@@ -674,6 +674,16 @@
             },
             "wordmark": {
               "type": "string"
+            },
+            "mark": {
+              "type": "object",
+              "required": ["key", "aspect"],
+              "additionalProperties": false,
+              "properties": {
+                "key": { "type": "string" },
+                "aspect": { "type": "number", "exclusiveMinimum": 0 }
+              },
+              "description": "the brand's mark as an image (a take-dir path or a URL the render page can load) with its width-over-height, drawn above the wordmark; a wide mark (a stylised wordmark asset) stands alone. vos deliver fetches BRAND.md's logoUrl into the take's brand/ folder and sets this"
             }
           },
           "description": "the end card the clip closes on: a hold on the last frame (default 2.5 s) while the card recedes and the words rise as the house title, caption and label overlays. The clip's last frame is its poster"

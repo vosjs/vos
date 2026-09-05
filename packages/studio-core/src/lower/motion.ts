@@ -13,8 +13,10 @@ import type {
   FrameEntrance,
   OverlayClip,
   ProjectDoc,
+  MediaOverlayClip,
   TextOverlayClip,
 } from '../types'
+import { resolveExportSize } from '../types'
 
 /** The entrance's default length, seconds. */
 export const ENTRANCE_SECONDS = 1.2
@@ -205,8 +207,41 @@ export function expandEndCard(
     clips.push(text('endcard-title', card.headline.trim(), 'title', 0.44, 0.35))
   if (card.sub?.trim())
     clips.push(text('endcard-sub', card.sub.trim(), 'caption', 0.57, 0.5))
-  if (card.wordmark?.trim())
-    clips.push(text('endcard-mark', card.wordmark.trim(), 'label', 0.88, 0.65))
+  // The mark: a square-ish one sits above the wordmark at 1.3 times the
+  // label's cap height; a wide one (a stylised wordmark asset) is the
+  // wordmark. Width is a fraction of the FRAME width, so it needs the
+  // frame's aspect; height is design px over 1080.
+  const mark = card.mark
+  const wide = !!mark && mark.aspect > 2.2
+  if (mark && mark.key) {
+    const size = resolveExportSize(doc)
+    const designW = (1080 * size.width) / Math.max(1, size.height)
+    const hPx = wide ? 44 : 30
+    const clip: MediaOverlayClip = {
+      id: 'endcard-markimg',
+      kind: 'image',
+      key: mark.key,
+      width: Math.min(0.9, (hPx * Math.max(0.2, mark.aspect)) / designW),
+      radius: 0,
+      shadow: 'none',
+      start: endStart + 0.65,
+      duration: Math.max(0.3, seconds - 0.65),
+      transform: { x: 0.5, y: wide ? 0.88 : 0.835, scale: 1, rotation: 0 },
+      enter: 'rise',
+      exit: 'none',
+    }
+    clips.push(clip as unknown as TextOverlayClip)
+  }
+  if (card.wordmark?.trim() && !wide)
+    clips.push(
+      text(
+        'endcard-mark',
+        card.wordmark.trim(),
+        'label',
+        mark && mark.key ? 0.895 : 0.88,
+        0.65,
+      ),
+    )
   const overlays: OverlayClip[] = [...(doc.overlays ?? []), ...clips]
   return { doc: { ...doc, segments, overlays }, endStart, seconds }
 }
