@@ -91,7 +91,8 @@ describe('webcodecs provider wiring', () => {
   })
 
   it('draws the provider sample at the card draw site, element as fallback', () => {
-    expect(program).toMatch(/wcp3 && wcp3\.draw\(c, crp, dx, dy, dw, dh\)/)
+    // The provider takes the same overdrawn rect the element path draws.
+    expect(program).toMatch(/wcp3 && wcp3\.draw\(c, crp, ceX, ceY, ceW, ceH\)/)
   })
 
   it('keeps the blob for the provider when blob-fetch runs', () => {

@@ -3,6 +3,7 @@ import { lerpArray, mapTime, sample } from '@vosjs/timeline'
 import { computeCardLayout } from '../layout'
 import { lowerToComposition } from '../lower/lowerToComposition'
 import {
+  CARD_EDGE_OVERDRAW,
   DEFAULT_CAM_STYLE,
   DEFAULT_CURSOR_STYLE,
   DEFAULT_FRAME_STYLE,
@@ -133,10 +134,12 @@ describe('ON_FRAME viewport crop', () => {
       1920,
       1080,
     )
-    expect(args[4]).toBeCloseTo(l.dx)
-    expect(args[5]).toBeCloseTo(l.dy)
-    expect(args[6]).toBeCloseTo(l.dw)
-    expect(args[7]).toBeCloseTo(l.dh)
+    // Grown by the one-pixel overdraw past the clip on every side.
+    const ov = CARD_EDGE_OVERDRAW
+    expect(args[4]).toBeCloseTo(l.dx - ov)
+    expect(args[5]).toBeCloseTo(l.dy - ov)
+    expect(args[6]).toBeCloseTo(l.dw + 2 * ov)
+    expect(args[7]).toBeCloseTo(l.dh + 2 * ov)
   })
 
   it('keeps the 4-arg full-frame draw when there is no crop', () => {
@@ -148,7 +151,7 @@ describe('ON_FRAME viewport crop', () => {
       1920,
       1080,
     )
-    expect(args[2]).toBeCloseTo(l.dw)
-    expect(args[3]).toBeCloseTo(l.dh)
+    expect(args[2]).toBeCloseTo(l.dw + 2 * CARD_EDGE_OVERDRAW)
+    expect(args[3]).toBeCloseTo(l.dh + 2 * CARD_EDGE_OVERDRAW)
   })
 })

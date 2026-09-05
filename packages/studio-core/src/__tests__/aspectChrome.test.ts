@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { lerpArray, mapTime, sample } from '@vosjs/timeline'
 import { computeCardLayout } from '../layout'
 import {
+  CARD_EDGE_OVERDRAW,
   DEFAULT_BROWSER_BAR,
   DEFAULT_CAM_STYLE,
   DEFAULT_CURSOR_STYLE,
@@ -163,7 +164,10 @@ describe('ON_FRAME chrome + overlays at a narrow aspect (stub)', () => {
     return { fills, translates }
   }
 
-  /** The bar strip is the first card-layer fillRect (bar bg) — height = barH. */
+  /**
+   * The bar strip is the first card-layer fillRect (bar bg) — height = barH
+   * plus the one-pixel overdraw past the clip above it.
+   */
   const barFill = (fills: { tag: string; args: number[] }[]) =>
     fills.find(
       (f) => f.tag === 'card' && f.args.length === 4 && f.args[3] < 200,
@@ -172,12 +176,12 @@ describe('ON_FRAME chrome + overlays at a narrow aspect (stub)', () => {
   it('native canvas draws the bar at 44·s; 9:16 canvas shrinks it by cf', () => {
     const native = barFill(runFrame(1920, 1080).fills)
     expect(native).toBeDefined()
-    expect(native!.args[3]).toBeCloseTo(44, 4)
+    expect(native!.args[3]).toBeCloseTo(44 + CARD_EDGE_OVERDRAW, 4)
 
     const tall = barFill(runFrame(608, 1080).fills)
     const cf = 608 / 1080 / (1600 / 900)
     expect(tall).toBeDefined()
-    expect(tall!.args[3]).toBeCloseTo(44 * cf, 4)
+    expect(tall!.args[3]).toBeCloseTo(44 * cf + CARD_EDGE_OVERDRAW, 4)
   })
 
   it('overlay anchors follow the frame fraction at any aspect', () => {
