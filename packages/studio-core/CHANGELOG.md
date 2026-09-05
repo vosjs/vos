@@ -1,5 +1,11 @@
 # @vosjs/studio-core
 
+## 0.8.0
+
+### Minor Changes
+
+- 48b0f03: A tilted card no longer shows the backdrop through its own edge when the camera is zoomed (or the card is bled past the frame, or it recedes under an end card). The card layer's canvas and plane now grow by exactly how far the pose lets the frame see past its edges, derived from the stage geometry at the live aspect from the tilt and card-pose tracks (`cardVisibleExtent`, `cardOverscanFor` in `@vosjs/studio-core`), replacing the fixed 1.25 overscan that applied only to bled insets.
+
 ## 0.7.1
 
 ### Patch Changes
