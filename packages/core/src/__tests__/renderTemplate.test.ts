@@ -217,6 +217,16 @@ describe('generateRenderTemplate', () => {
       expect(html).toContain('codec: "vp8"')
       expect(html).toContain('bitrate: 5000000')
       expect(html).not.toContain('bitrate: QUALITY_HIGH')
+      // No hint unless asked: the encoder's own default stays the default.
+      expect(html).not.toContain('contentHint')
+      const hinted = generateRenderTemplate(sampleCode, {
+        mode: 'capture-video',
+        capture: {
+          ...capture,
+          encoder: { codec: 'avc' as const, bitrate: 5_000_000, contentHint: 'text' },
+        },
+      })
+      expect(hinted).toContain('contentHint: "text"')
     })
 
     it('PUTs to uploadUrl when provided, embeds base64 otherwise', () => {

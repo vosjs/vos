@@ -54,6 +54,14 @@ export interface RenderTemplateOptions {
       codec?: 'avc' | 'hevc' | 'vp8' | 'vp9' | 'av1'
       /** Bits per second (default: mediabunny's QUALITY_HIGH). */
       bitrate?: number
+      /**
+       * The WebCodecs encoder's content hint (`'text'` for screen content,
+       * `'motion'`, `'detail'`), passed through to `VideoEncoder.configure`.
+       * Software encoders use it to pick screen-content tools such as
+       * static-block skipping; hardware encoders mostly read it as a quality
+       * preference. Omitted by default.
+       */
+      contentHint?: string
     }
     /**
      * PUT the finished capture bytes to this URL instead of embedding them
@@ -774,7 +782,12 @@ function generateCaptureVideoBody(
             });
             const videoSource = new CanvasSource(canvas, {
               codec: ${JSON.stringify(codec)},
-              bitrate: ${bitrate},
+              bitrate: ${bitrate},${
+                capture.encoder?.contentHint
+                  ? `
+              contentHint: ${JSON.stringify(capture.encoder.contentHint)},`
+                  : ''
+              }
             });`
   const mimeType = isMp4 ? 'video/mp4' : 'video/webm'
 
