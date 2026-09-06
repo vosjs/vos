@@ -61,7 +61,7 @@
     "@vosjs/studio-core": "workspace:^",
     "@vosjs/timeline": "workspace:^",
     "@vosjs/tween": "workspace:^",
-    "mediabunny": "^1.27.3",
+    "mediabunny": "^1.55.7",
     "playwright": "^1.49.0"
   },
   "devDependencies": {
