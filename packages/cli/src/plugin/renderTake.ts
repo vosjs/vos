@@ -94,9 +94,21 @@ export async function renderTake(
   opts.onPhase?.('compile')
   doc.source.videoKey = VIDEO_TOKEN
   const lowered = lowerToComposition(doc)
-  const animationCode = compileVosConfig(lowered.config as never, {
-    tweenEngine: 'vos',
-  })
+  // Render-page modes, never stored in the doc: the recording's frames come
+  // from the WebCodecs sequential decoder by PTS instead of an element seek
+  // and a settle wait per frame, and the page keeps the recording as a Blob
+  // so the decoder reads the bytes the element already holds. The lowering
+  // fails open at every rung (no VideoDecoder, an undecodable track, a
+  // dimension mismatch), so a browser without the path keeps the old one.
+  const captureData = {
+    ...lowered.data,
+    videoDecodeMode: 'webcodecs',
+    videoFetchMode: 'blob',
+  }
+  const animationCode = compileVosConfig(
+    { ...lowered.config, data: captureData } as never,
+    { tweenEngine: 'vos' },
+  )
   const duration = lowered.duration
   const clicks = Array.isArray(lowered.data.clicks)
     ? (lowered.data.clicks as unknown[]).length
