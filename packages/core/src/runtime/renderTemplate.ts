@@ -188,7 +188,7 @@ export function generateRenderTemplate(
   Object.assign(importmapEntries, additionalImportmapEntries)
 
   if (mode === 'capture-video') {
-    importmapEntries['mediabunny'] = 'https://esm.sh/mediabunny@1.27.3'
+    importmapEntries['mediabunny'] = 'https://esm.sh/mediabunny@1.55.7'
   }
 
   const importmap = JSON.stringify({ imports: importmapEntries }, null, 6)

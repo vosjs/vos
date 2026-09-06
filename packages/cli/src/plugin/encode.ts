@@ -7,7 +7,7 @@ import { startTakeServer, waitForPageDone } from './server'
 import { RECORDING_NAME } from './take'
 import type { Browser } from 'playwright'
 
-const MEDIABUNNY_URL = 'https://esm.sh/mediabunny@1.27.3?target=es2022'
+const MEDIABUNNY_URL = 'https://esm.sh/mediabunny@1.55.7?target=es2022'
 
 const ENCODE_HTML = `<!doctype html><html><head><meta charset="utf-8"></head><body>
 <script type="module">
