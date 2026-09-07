@@ -1,8 +1,7 @@
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { totalDuration } from '@vosjs/timeline'
-import { migrateHostedDoc, ratedSegments } from '@vosjs/studio-core'
+import { docOutputDuration, migrateHostedDoc } from '@vosjs/studio-core'
 import { UsageError, hasFlag, numFlag, parseArgs, strFlag } from './args'
 import {
   EXIT_ERROR,
@@ -28,6 +27,7 @@ import {
 } from './deliver'
 import { fetchBrandMarks } from './markAsset'
 import { endCardInk } from './motionPlan'
+import type { MotionAnchor, MotionTemplate } from './motionPlan'
 import { fetchMusicCatalog } from './music'
 import { judgeKit, winRate } from './judge'
 import { resolveStepTime } from './moments'
@@ -94,7 +94,7 @@ const HELP = `vos — record a browser flow, plan effects, render a product vide
 Take pipeline
   vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--max-duration <s>] [--background <slug|url|none>] [render flags] [--json]
   vos record --actions actions.json [--url <url>] [--out take] [--strict] [--max-duration <s>] [--background <slug|url|none>] [--json]
-  vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|none] [--end-card none] [--captions none] [--clicks none] [--release v2.1] [--json]
+  vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|none] [--end-card on|none|<doc.json|vosId>] [--captions none] [--clicks none] [--release v2.1] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
   vos deliver <take> --to cws,producthunt,x,linkedin,og,github,youtube (or all) [--launch LAUNCH.md] [--look plate|gradient|dark|none] [--brand BRAND.md] [--composed] [--set path=value] [--release v2.1] [--out dir] [--times a,b] [--range a..b] [--parallel N] [--json]
@@ -223,19 +223,27 @@ made with plan --style <poster>, which copies a poster's layout onto a
 take (its card placement, its stage clips with the release's words
 patched in from LAUNCH.md's headline and kicker roles or --headline and
 --kicker, its rest lean, its hold), or by hand in doc.json.
-The cut's MOTION is the document's too. plan proposes it on a fresh plan
-(--motion re-proposes onto an existing doc.json, replacing only its own
-proposals): the card's ENTRANCE (tilt-in by default: the card swings in
-from a perspective pose and settles), the END CARD (the last frame holds
-2.5 s while the card recedes and the headline, the release line and the
-wordmark rise; the brand's mark from BRAND.md logoUrl above them), a
-CAPTION per actions.json step at the step's moment, a music BED from
-LAUNCH.md's music role (a catalog slug or a mood) and a click sound on
-every press when the take has no mic. LAUNCH.md's entrance, endCard,
-captions, music and clicks roles, or the flags, change or switch each
-off; a deleted proposal stays deleted on a refresh. deliver applies each
-destination's MECHANICS and nothing more: the README loop plays no
-entrance, end card or sound; a channel that autoplays muted drops the
+The cut's MOTION is the document's too, in ONE vocabulary: every visual
+thing (the card, a text, image or video clip, a prop) carries anim.enter,
+anim.exit and anim.idle; the output lasts until the last clip ends, and
+past its footage the card holds its last frame at the pose its exit
+settled into. There is no end-card field and no entrance field: a
+COMPONENT is a TEMPLATE, a plain take on a shelf whose clips carry stable
+ids, laid onto the take at an anchor (LAUNCH.md with: <ref>[@end|@start|
+@step:<id>|@<s>], comma list; --with the same, repeatable; endCard: <ref>
+names one at the end), its clips stamped with where they came from
+(from). plan proposes on a fresh plan (--motion re-proposes, replacing
+only its own work): the card's ENTER (tilt-in by default), the templates
+named, the house END CARD when endCard is on or absent (clips after the
+footage: the headline, the release line, the wordmark, the mark from
+BRAND.md logoUrl, over a card that recedes; from: endcard), a CAPTION per
+actions.json step at the step's moment, a music BED from LAUNCH.md's music
+role (a catalog slug or a mood) and a click sound on every press when the
+take has no mic. LAUNCH.md's entrance, endCard, captions, music and clicks
+roles, or the flags, change or switch each off; a deleted proposal stays
+deleted on a refresh. deliver applies each destination's MECHANICS and
+nothing more: the README loop drops the card's motion, every clip a
+template placed and every sound; a channel that autoplays muted drops the
 bed; the 9:16 cut is a reframe, not a letterbox, and the crop follows
 the camera. Screenshot-genre
 destinations (CWS screenshots, the PH gallery) are the real page at that
@@ -610,11 +618,15 @@ async function cmdCreate(argv: string[]): Promise<number> {
 }
 
 async function cmdPlan(argv: string[]): Promise<number> {
-  const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
+  const { positionals, flags, multi } = parseArgs(
+    argv,
+    BOOLEAN_FLAGS,
+    new Set(['with']),
+  )
   const dir = positionals[0]
   if (!dir)
     throw new UsageError(
-      'vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--motion] [--headline "…"] [--launch LAUNCH.md] [--brand BRAND.md]',
+      'vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<seconds>]]... [--motion] [--headline "…"] [--launch LAUNCH.md] [--brand BRAND.md]',
     )
   const r = createReporter(flags.json === true)
   if (flags.fresh === true) {
@@ -646,7 +658,7 @@ async function cmdPlan(argv: string[]): Promise<number> {
   // flags over them): the words patch a layout's stage clips and name the
   // end card; the roles decide the motion proposals; the brand's mark is
   // fetched into the take's brand/ folder for the layout and the end card.
-  const release = await releaseInputs(dir, flags, r)
+  const release = await releaseInputs(dir, flags, r, multi.with ?? [])
   const motionWanted = !hasDoc || flags.motion === true || flags.fresh === true
   const s = await planTake(dir, {
     ...(style ? { style } : {}),
@@ -663,6 +675,7 @@ async function cmdPlan(argv: string[]): Promise<number> {
             mark: release.mark,
             captions: release.captions,
             catalog: release.catalog,
+            templates: release.templates,
             again: flags.motion === true,
           },
         }
@@ -726,6 +739,7 @@ async function releaseInputs(
   dir: string,
   flags: ParsedArgs['flags'],
   r: ReturnType<typeof createReporter>,
+  withRefs: string[] = [],
 ): Promise<{
   words: {
     headline: string | null
@@ -738,6 +752,7 @@ async function releaseInputs(
   mark: { key: string; aspect: number } | null
   captions: { step: number; id?: string; caption: string }[]
   catalog: Awaited<ReturnType<typeof fetchMusicCatalog>> | null
+  templates: MotionTemplate[]
 }> {
   let lookPick: Awaited<ReturnType<typeof resolveLook>>
   try {
@@ -802,6 +817,41 @@ async function releaseInputs(
       ? [{ step: i, id: step.id, caption: step.caption.trim() }]
       : []
   })
+  // The templates: `--with <ref>[@anchor]` (repeatable), LAUNCH.md's
+  // `with:` role (a comma list of the same), and an `endCard:` role that
+  // names a document instead of on/none (anchored at the end). A ref is a
+  // doc.json, a take dir, or a vos id read with the key ladder.
+  const refs: { ref: string; at: MotionAnchor }[] = []
+  const parseRef = (raw: string, fallback: MotionAnchor) => {
+    const m = /^(.*?)(?:@(end|start|step:[^@\s]+|\d+(?:\.\d+)?))?$/.exec(
+      raw.trim(),
+    )
+    const ref = m?.[1]?.trim() ?? raw.trim()
+    const anchor = m?.[2]
+    const at: MotionAnchor = !anchor
+      ? fallback
+      : anchor === 'end' || anchor === 'start'
+        ? anchor
+        : anchor.startsWith('step:')
+          ? { step: anchor.slice(5) }
+          : Number(anchor)
+    if (ref) refs.push({ ref, at })
+  }
+  for (const raw of withRefs) parseRef(raw, 'end')
+  for (const raw of (launchRoles.with ?? '').split(','))
+    if (raw.trim()) parseRef(raw, 'end')
+  const endCardRole = launchRoles.endCard
+  if (
+    endCardRole &&
+    !/^(none|off|no|false|on|yes|true)$/i.test(endCardRole.trim())
+  )
+    parseRef(endCardRole, 'end')
+  const templates: MotionTemplate[] = []
+  for (const { ref, at } of refs) {
+    const found = await resolveDocRef(ref, flags, '--with')
+    templates.push({ from: found.from, doc: found.doc, at })
+    r.log(`template: ${found.from}`)
+  }
   return {
     words,
     launchRoles,
@@ -809,6 +859,7 @@ async function releaseInputs(
     mark,
     captions,
     catalog,
+    templates,
   }
 }
 
@@ -912,8 +963,9 @@ async function cmdFrames(argv: string[]): Promise<number> {
     size = { width: Number(m[1]), height: Number(m[2]) }
   }
 
-  // Duration for % times: output-time total (trims/speed applied).
-  const duration = totalDuration(ratedSegments(take.doc))
+  // Duration for % times: the output's end (trims, speed and the clips
+  // after the footage applied).
+  const duration = docOutputDuration(take.doc)
   const frameRaw = strFlag(flags, 'frame')
   const timesRaw = strFlag(flags, 'times')
   const atZooms = flags['at-zooms'] === true
@@ -1008,7 +1060,7 @@ async function cmdDeliver(argv: string[]): Promise<number> {
   }
   const take = await loadTake(dir)
   if (!take.doc) throw new UsageError(`${dir} has no doc.json — run plan first`)
-  const duration = totalDuration(ratedSegments(take.doc))
+  const duration = docOutputDuration(take.doc)
   const timesRaw = strFlag(flags, 'times')
   let times: number[] | undefined
   if (timesRaw !== undefined) {
@@ -1107,6 +1159,21 @@ async function resolveStyleRef(
 ): Promise<{ from: string; doc: ProjectDoc } | null> {
   const styleRef = strFlag(flags, 'style')
   if (!styleRef) return null
+  return resolveDocRef(styleRef, flags, '--style')
+}
+
+/**
+ * A document reference: a doc.json or a take dir on disk, else a hosted
+ * take's head doc read with the key ladder. What a template, a style seed
+ * and a digest's reference all are. A local file is read into the current
+ * vocabulary too.
+ */
+async function resolveDocRef(
+  ref: string,
+  flags: ParsedArgs['flags'],
+  what: string,
+): Promise<{ from: string; doc: ProjectDoc }> {
+  const styleRef = ref
   const file = existsSync(styleRef)
     ? resolve(
         styleRef,
@@ -1116,7 +1183,9 @@ async function resolveStyleRef(
   if (file && existsSync(file)) {
     return {
       from: file,
-      doc: JSON.parse(await readFile(file, 'utf8')) as ProjectDoc,
+      doc: migrateHostedDoc(
+        JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>,
+      ) as unknown as ProjectDoc,
     }
   }
   const origin = platformOrigin({
@@ -1129,7 +1198,7 @@ async function resolveStyleRef(
     ?.currentVersionId
   if (meta.status !== 200 || !head)
     throw new UsageError(
-      `--style: ${styleRef} is neither a doc.json nor a vos I can read`,
+      `${what}: ${styleRef} is neither a doc.json nor a vos I can read`,
     )
   const doc = await apiJson(
     origin,
@@ -1137,7 +1206,7 @@ async function resolveStyleRef(
     { key },
   )
   if (doc.status !== 200)
-    throw new UsageError(`--style: ${styleRef} carries no doc (is it a take?)`)
+    throw new UsageError(`${what}: ${styleRef} carries no doc (is it a take?)`)
   return {
     from: `${origin}/vos/${styleRef}`,
     doc: migrateHostedDoc(doc.body) as unknown as ProjectDoc,

@@ -6,6 +6,7 @@ import {
   endCardInk,
   pickTrack,
   proposeMotion,
+  templateWords,
 } from '../motionPlan'
 import { applyDocOverrides } from '../docOverride'
 import { lintDoc } from '../validateDoc'
@@ -123,19 +124,37 @@ describe('proposeMotion (the cut’s motion as data on the document)', () => {
       captions: [{ step: 1, id: 'hover', caption: 'Every program is a video' }],
       catalog,
     })
-    expect(p.doc.frame.entrance).toEqual({ kind: 'tilt-in' })
-    expect(p.doc.endCard).toEqual({
-      seconds: 2.5,
-      headline: 'Ship it',
-      sub: 'vosso 1.7',
-      wordmark: 'vosso',
+    // The card enters and, as its footage ends, recedes under the end
+    // card: the one vocabulary, no field of its own for either.
+    expect(p.doc.frame.anim).toEqual({
+      enter: 'tilt-in',
+      exit: { kind: 'recede', seconds: 0.7 },
     })
-    expect(p.doc.overlays).toHaveLength(1)
-    expect(p.doc.overlays?.[0]).toMatchObject({
-      id: 'caption-1',
+    expect(p.doc.endCard).toBeUndefined()
+    expect(p.doc.frame.entrance).toBeUndefined()
+    // The end card is clips after the footage, stamped where they came from.
+    expect(p.doc.overlays?.map((o) => o.id)).toEqual([
+      'endcard-title',
+      'endcard-sub',
+      'endcard-mark',
+      'caption-1',
+    ])
+    const title = p.doc.overlays!.find((o) => o.id === 'endcard-title')!
+    expect(title).toMatchObject({
+      kind: 'text',
+      text: 'Ship it',
+      from: 'endcard',
+      anim: { enter: 'rise', exit: 'none' },
+    })
+    expect(title.start).toBeCloseTo(34.35, 3)
+    const sub = p.doc.overlays!.find((o) => o.id === 'endcard-sub')!
+    expect((sub as { text: string }).text).toBe('vosso 1.7')
+    const caption = p.doc.overlays!.find((o) => o.id === 'caption-1')!
+    expect(caption).toMatchObject({
       text: 'Every program is a video',
+      anim: { enter: 'rise', exit: 'fade' },
     })
-    expect(p.doc.overlays?.[0].start).toBeCloseTo(3.7, 3)
+    expect(caption.start).toBeCloseTo(3.7, 3)
     expect(p.doc.audio[0]).toMatchObject({
       id: 'bed',
       key: 'https://x/fresh.mp3',
@@ -145,12 +164,14 @@ describe('proposeMotion (the cut’s motion as data on the document)', () => {
       p.doc.audio.filter((a) => a.id.startsWith('click-')).map((a) => a.start),
     ).toEqual([4, 9])
     expect(p.notes).toEqual([
-      'entrance tilt-in',
+      'enter tilt-in',
       'end card',
       '1 caption(s)',
       'bed fresh-focus',
       '2 click sound(s)',
     ])
+    // The bed fills the whole output, the end card included.
+    expect(p.doc.audio[0].out).toBeCloseTo(36.5, 3)
     // The document it writes is a document the lint accepts.
     expect(lintDoc(p.doc).problems).toEqual([])
     // Pure: the input is untouched.
@@ -194,7 +215,12 @@ describe('proposeMotion (the cut’s motion as data on the document)', () => {
       captions: [{ step: 1, caption: 'one' }],
       catalog,
     }).doc
-    expect(again.overlays?.map((o) => o.id)).toEqual(['mine'])
+    // The maker's clip stays; the end card's clips are re-laid after it.
+    expect(again.overlays?.map((o) => o.id)).toEqual([
+      'mine',
+      'endcard-sub',
+      'endcard-mark',
+    ])
     expect(again.audio.map((a) => a.id)).toEqual([
       'voice',
       'bed',
@@ -218,8 +244,8 @@ describe('proposeMotion (the cut’s motion as data on the document)', () => {
       captions: [],
       catalog,
     })
-    expect(p.doc.frame.entrance).toBeUndefined()
-    expect(p.doc.endCard).toBeUndefined()
+    expect(p.doc.frame.anim).toBeUndefined()
+    expect(p.doc.overlays).toBeUndefined()
     expect(p.doc.audio).toEqual([])
     expect(p.skipped[0]).toMatch(
       /music "jazz-that-is-not-there" is not a catalog track or mood/,
@@ -237,14 +263,76 @@ describe('proposeMotion (the cut’s motion as data on the document)', () => {
       captions: [],
       catalog,
     })
+    // 60 s of footage plus the 2.5 s end card the wordmark earns.
     expect(p.doc.audio[0]).toMatchObject({
       id: 'bed',
       loop: true,
-      loopLen: 60,
+      loopLen: 62.5,
       duck: true,
       gain: 0.35,
     })
     expect(p.doc.audio.filter((a) => a.id.startsWith('click-'))).toHaveLength(0)
+  })
+
+  it('a template the recipe names is laid at its anchor and takes the release words', () => {
+    const template: ProjectDoc = {
+      ...doc(),
+      segments: [{ in: 0, out: 4 }],
+      frame: {
+        ...doc().frame,
+        anim: { exit: { kind: 'fade', seconds: 0.5 } },
+      },
+      overlays: [
+        {
+          id: 'endcard-title',
+          kind: 'text',
+          text: 'placeholder',
+          preset: 'title',
+          start: 4.2,
+          duration: 2.3,
+          transform: { x: 0.5, y: 0.5, scale: 1, rotation: 0 },
+        },
+      ],
+    }
+    const p = proposeMotion(doc(), {
+      words: { headline: 'Ship it', brand: 'vosso' },
+      launch: { endCard: 'vos-t', entrance: 'none' },
+      captions: [],
+      catalog: null,
+      templates: [{ from: 'vos-t', doc: template, at: 'end' }],
+    })
+    // The named template stands in for the house end card.
+    expect(p.doc.overlays?.map((o) => o.id)).toEqual(['endcard-title'])
+    expect(p.doc.overlays?.[0]).toMatchObject({
+      from: 'vos-t',
+      text: 'Ship it',
+    })
+    expect(p.doc.overlays?.[0].start).toBeCloseTo(34.2, 3)
+    expect(p.doc.frame.anim).toEqual({ exit: { kind: 'fade', seconds: 0.5 } })
+    expect(p.notes).toEqual(['vos-t at the end'])
+    // A step anchor lands at the step's settle; an unknown step is said.
+    const atStep = proposeMotion(doc(), {
+      words: {},
+      launch: { endCard: 'none', entrance: 'none' },
+      captions: [],
+      catalog: null,
+      templates: [
+        { from: 'vos-t', doc: template, at: { step: 'open' } },
+        { from: 'vos-u', doc: template, at: { step: 'nope' } },
+      ],
+    })
+    expect(atStep.doc.overlays?.[0].start).toBeCloseTo(4.4 + 4.2, 3)
+    expect(atStep.skipped).toEqual(['vos-u: step nope was not recorded'])
+    expect(
+      templateWords({ headline: 'A', kicker: 'K', brand: 'B', release: '2' }),
+    ).toEqual({
+      'stage-title': 'A',
+      'endcard-title': 'A',
+      'stage-kicker': 'K',
+      'stage-brand': 'B',
+      'endcard-mark': 'B',
+      'endcard-sub': 'B 2',
+    })
   })
 
   it('pickTrack and clickTimes', () => {
@@ -286,16 +374,18 @@ describe('destinationMechanics (what the spec does at render time)', () => {
     expect(m.unset).toEqual([])
   })
 
-  it('a loop drops the entrance, the end card, the captions and the sound, and the result lints', () => {
+  it("a loop drops the card's motion, every template clip, the captions and the sound, and the result lints", () => {
     const m = destinationMechanics(loop, proposed)
     const d = structuredClone(proposed)
     applyDocOverrides(d, { set: m.set, unset: m.unset })
-    expect(d.frame.entrance).toBeUndefined()
-    expect(d.endCard).toBeUndefined()
+    expect(d.frame.anim).toBeUndefined()
     expect(d.audio).toEqual([])
     expect(d.overlays).toEqual([])
     expect(lintDoc(d).problems).toEqual([])
-    expect(m.notes).toEqual(['loop: no entrance, no end card', 'no captions'])
+    expect(m.notes).toEqual([
+      'loop: no card motion',
+      'no template clips, no captions',
+    ])
   })
 
   it('a silent channel mutes the bed and keeps the words', () => {

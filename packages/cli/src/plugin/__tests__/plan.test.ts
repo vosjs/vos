@@ -274,19 +274,28 @@ describe('planTake', () => {
       catalog: null,
     }
     const fresh = await planTake(dir, { motion })
-    expect(fresh.motion?.notes).toEqual(['entrance tilt-in', 'end card'])
-    expect(fresh.doc.frame.entrance).toEqual({ kind: 'tilt-in' })
-    expect(fresh.doc.endCard?.headline).toBe('Ship it')
+    expect(fresh.motion?.notes).toEqual(['enter tilt-in', 'end card'])
+    expect(fresh.doc.frame.anim).toEqual({
+      enter: 'tilt-in',
+      exit: { kind: 'recede', seconds: 0.7 },
+    })
+    const endTitle = (d: ProjectDoc) =>
+      d.overlays?.find((o) => o.id === 'endcard-title') as
+        | { text: string }
+        | undefined
+    expect(endTitle(fresh.doc)?.text).toBe('Ship it')
 
+    // The human deletes the end card's clips in the studio: a refresh keeps
+    // that; --motion proposes them again on purpose.
     const edited = await readJson<ProjectDoc>(join(dir, 'doc.json'))
-    delete edited.endCard
+    edited.overlays = edited.overlays?.filter((o) => o.from !== 'endcard')
     await writeJson(join(dir, 'doc.json'), edited)
     const refreshed = await planTake(dir, { motion })
     expect(refreshed.motion).toBeUndefined()
-    expect(refreshed.doc.endCard).toBeUndefined()
+    expect(endTitle(refreshed.doc)).toBeUndefined()
 
     const again = await planTake(dir, { motion: { ...motion, again: true } })
-    expect(again.doc.endCard?.headline).toBe('Ship it')
+    expect(endTitle(again.doc)?.text).toBe('Ship it')
   })
 
   it('--reuse carries the previous cut’s hold and end card onto the new footage', async () => {
@@ -298,6 +307,12 @@ describe('planTake', () => {
       reuse: { from: 'prev', doc: prev },
     })
     expect(s.doc.segments.at(-1)?.hold).toBe(2)
-    expect(s.doc.endCard).toEqual({ headline: 'Ship it' })
+    // A legacy end card on the previous cut arrives in the vocabulary:
+    // clips after the footage and the card's exit.
+    expect(s.doc.endCard).toBeUndefined()
+    expect(s.doc.overlays?.find((o) => o.id === 'endcard-title')).toMatchObject(
+      { text: 'Ship it', from: 'endcard' },
+    )
+    expect(s.doc.frame.anim?.exit).toEqual({ kind: 'recede', seconds: 0.7 })
   })
 })

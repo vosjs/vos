@@ -3,23 +3,44 @@
  * spec MECHANICS a destination applies at render time. Two halves, drawn
  * once:
  *
- * TASTE lives in the document. `proposeMotion` writes the card's entrance,
- * the end card, a caption per beat, a music bed and click sounds onto the
- * cut's doc.json (`vos plan`), keyed on the recipe's roles (LAUNCH.md) and
- * never on measured audio, so the studio shows exactly what the kit will
- * render and a human's deletion stays deleted (a re-plan never re-proposes
- * onto a document that already carries a cut).
+ * TASTE lives in the document, in the one vocabulary. `proposeMotion`
+ * writes the card's `anim.enter`, lays the templates the recipe names at
+ * their anchors (a template is a vos; its clips come stamped `from`), the
+ * house end card as clips after the footage plus a card exit, a caption
+ * per beat, a music bed and click sounds onto the cut's doc.json (`vos
+ * plan`), keyed on the recipe's roles (LAUNCH.md) and never on measured
+ * audio, so the studio shows exactly what the kit will render and a
+ * human's deletion stays deleted (a re-plan never re-proposes onto a
+ * document that already carries a cut).
  *
  * MECHANICS live in the spec. `destinationMechanics` is what a VIDEO
  * destination does to a document at render time and nothing more: a loop
- * plays no entrance, no end card, no words and no sound (it must be
- * seamless); a silent channel mutes the bed; a 9:16 destination reframes
- * the card (a cover crop that follows the camera, not a letterbox). Pure;
- * the catalog and the words come in as data.
+ * drops the card's motion, every clip a template placed and every sound
+ * (it must be seamless); a silent channel mutes the bed; a 9:16
+ * destination reframes the card (a cover crop that follows the camera,
+ * not a letterbox). Pure; the catalog and the words come in as data.
  */
-import { ratedSegments, spanOutputExtent } from '@vosjs/studio-core'
+import {
+  END_CARD_FROM,
+  END_CARD_RECEDE,
+  END_CARD_SECONDS,
+  applyTemplate,
+  docOutputDuration,
+  dropTemplate,
+  endCardClips,
+  migrateMotion,
+  ratedSegments,
+  spanOutputExtent,
+} from '@vosjs/studio-core'
 import { stepOutputTime } from './moments'
-import type { Destination, Look, ProjectDoc } from '@vosjs/studio-core'
+import type {
+  AnimKind,
+  Destination,
+  EndCard,
+  Look,
+  ProjectDoc,
+  TemplateAnchor,
+} from '@vosjs/studio-core'
 import type { ReleaseWords } from './posterValues'
 
 /** Destinations that play sound (a feed autoplays muted; a demo has a speaker). */
@@ -59,6 +80,8 @@ export interface MotionProposalInput {
   /** actions.json steps with their optional captions, by index. */
   captions: { step: number; id?: string; caption: string }[]
   catalog: MusicCatalog | null
+  /** The templates the recipe or the flags named, resolved, in order. */
+  templates?: MotionTemplate[]
 }
 
 export interface MotionProposals {
@@ -112,58 +135,160 @@ const outputLength = (doc: ProjectDoc) =>
     return acc + (s.out - s.in) / rate
   }, 0)
 
+/** Where a template lands: the studio-core anchor, or a recorded step's settle. */
+export type MotionAnchor = TemplateAnchor | { step: string }
+
+/** A template the recipe or a flag named, resolved to its document. */
+export interface MotionTemplate {
+  /** What its clips say they came from (the vos id or the path it was read from). */
+  from: string
+  doc: ProjectDoc
+  at: MotionAnchor
+}
+
 /**
- * Propose the cut's motion onto a copy of the document. Every proposal
- * writes a STABLE id (`bed`, `click-<n>`, `caption-<step>`) or a named
- * field (`frame.entrance`, `endCard`), and replaces only its own earlier
- * proposal, so a maker's clips survive a second pass.
+ * The words a template's clips take, by the ids the house templates use:
+ * a poster's `stage-*` clips and an end card's `endcard-*` clips. A
+ * template with other ids keeps its own words.
+ */
+export function templateWords(words: ReleaseWords): Record<string, string> {
+  const headline = (words.headline ?? '').trim()
+  const kicker = (words.kicker ?? '').trim()
+  const brand = (words.brand ?? '').trim()
+  const sub = [brand, (words.release ?? '').trim()].filter(Boolean).join(' ')
+  const out: Record<string, string> = {}
+  if (headline) {
+    out['stage-title'] = headline
+    out['endcard-title'] = headline
+  }
+  if (kicker) out['stage-kicker'] = kicker
+  if (brand) {
+    out['stage-brand'] = brand
+    out['endcard-mark'] = brand
+  }
+  if (sub && sub !== headline) out['endcard-sub'] = sub
+  return out
+}
+
+function resolveAnchor(
+  doc: ProjectDoc,
+  at: MotionAnchor,
+): TemplateAnchor | null {
+  if (typeof at !== 'object') return at
+  const steps = doc.source.meta.steps ?? []
+  const step = steps.find((s) => s.id === at.step || String(s.step) === at.step)
+  if (!step || step.skipped) return null
+  const t = stepOutputTime(ratedSegments(doc), step, 0.2)
+  return t === null ? null : +t.toFixed(3)
+}
+
+const anchorWord = (at: MotionAnchor): string =>
+  typeof at === 'object'
+    ? `step ${at.step}`
+    : typeof at === 'number'
+      ? `${at}s`
+      : `the ${at}`
+
+const onWord = (v: string | undefined) =>
+  v === undefined || /^(on|yes|true)$/i.test(v.trim())
+
+/**
+ * Propose the cut's motion onto a copy of the document, in the one
+ * vocabulary: the card's `anim.enter`, the templates the recipe names
+ * laid at their anchors (stamped `from`), the house end card as clips
+ * after the footage plus a card exit (`from: 'endcard'`, the migration's
+ * shape, until a shelf template replaces it), a caption per beat, a bed
+ * and click sounds. Every proposal writes a STABLE id or a `from`, and
+ * replaces only its own earlier work, so a maker's clips survive a second
+ * pass. A legacy document is read into the vocabulary first.
  */
 export function proposeMotion(
   input: ProjectDoc,
   opts: MotionProposalInput,
 ): MotionProposals {
-  const doc = structuredClone(input)
+  let doc = migrateMotion(structuredClone(input))
   const { words, launch, catalog } = opts
   const notes: string[] = []
   const skipped: string[] = []
-  const length = outputLength(doc)
-  const range: [number, number] = [0, length]
+  const footage = outputLength(doc)
+  const range: [number, number] = [0, footage]
 
-  // The entrance: the clip opens on a move.
+  // The card's enter: the clip opens on a move.
   const entrance = launch.entrance
+  delete doc.frame.entrance
   if (!off(entrance)) {
     const kind =
-      entrance && /^(tilt-in|pull-out|rise)$/.test(entrance.trim())
-        ? (entrance.trim() as 'tilt-in' | 'pull-out' | 'rise')
+      entrance && /^(tilt-in|pull-out|rise|fade)$/.test(entrance.trim())
+        ? (entrance.trim() as AnimKind)
         : 'tilt-in'
-    doc.frame.entrance = { kind }
-    notes.push(`entrance ${kind}`)
-  } else {
-    delete doc.frame.entrance
+    doc.frame.anim = { ...(doc.frame.anim ?? {}), enter: kind }
+    notes.push(`enter ${kind}`)
+  } else if (doc.frame.anim?.enter !== undefined) {
+    const { enter: _enter, ...rest } = doc.frame.anim
+    if (Object.keys(rest).length) doc.frame.anim = rest
+    else delete doc.frame.anim
   }
 
-  // The end card: the last frame holds, the words rise.
-  if (!off(launch.endCard)) {
+  // The templates the recipe or the flags named, at their anchors: a
+  // template is a vos, its clips come stamped with where they came from.
+  const tWords = templateWords(words)
+  const keys = opts.mark
+    ? { 'stage-mark': opts.mark.key, 'endcard-markimg': opts.mark.key }
+    : undefined
+  for (const t of opts.templates ?? []) {
+    const at = resolveAnchor(doc, t.at)
+    if (at === null) {
+      skipped.push(`${t.from}: ${anchorWord(t.at)} was not recorded`)
+      continue
+    }
+    const applied = applyTemplate(t.doc, doc, {
+      at,
+      from: t.from,
+      words: tWords,
+      keys,
+    })
+    doc = applied.doc
+    notes.push(`${t.from} at ${anchorWord(t.at)}`)
+    for (const n of applied.notes) skipped.push(`${t.from}: ${n}`)
+  }
+
+  // The end card: on (or absent) is the house shape, clips after the
+  // footage and a card exit; a named template took its place above; off
+  // drops it.
+  const endCardRole = launch.endCard
+  doc = dropTemplate(doc, END_CARD_FROM)
+  if (off(endCardRole)) {
+    if (doc.frame.anim?.exit !== undefined) {
+      const { exit: _exit, ...rest } = doc.frame.anim
+      if (Object.keys(rest).length) doc.frame.anim = rest
+      else delete doc.frame.anim
+    }
+  } else if (onWord(endCardRole)) {
     const headline = (words.headline ?? '').trim()
     const brand = (words.brand ?? '').trim()
     const sub = [brand, (words.release ?? '').trim()].filter(Boolean).join(' ')
     if (headline || brand) {
-      const card: NonNullable<ProjectDoc['endCard']> = { seconds: 2.5 }
+      const card: EndCard = { seconds: END_CARD_SECONDS }
       // Over a light plate the presets' white would vanish: the brand's ink.
       if (opts.ink) card.ink = opts.ink
       if (headline) card.headline = headline
       if (sub && sub !== headline) card.sub = sub
       if (brand) card.wordmark = brand
       if (opts.mark) card.mark = opts.mark
-      doc.endCard = card
+      doc.overlays = [
+        ...(doc.overlays ?? []),
+        ...endCardClips(card, doc, outputLength(doc)),
+      ]
+      doc.frame.anim = {
+        ...(doc.frame.anim ?? {}),
+        exit: { kind: 'recede', seconds: END_CARD_RECEDE },
+      }
       notes.push('end card')
     } else {
       skipped.push(
         'no end card (no headline or wordmark in LAUNCH.md, BRAND.md or the flags)',
       )
     }
-  } else {
-    delete doc.endCard
   }
 
   // Captions per beat: a step's caption lands at the step's settled moment
@@ -181,17 +306,16 @@ export function proposeMotion(
       )
       if (!step || step.skipped) continue
       const t = stepOutputTime(rated, step, 0.2)
-      if (t === null || t < 0 || t > length - 1) continue
+      if (t === null || t < 0 || t > footage - 1) continue
       captionClips.push({
         id: `${CAPTION_ID_PREFIX}${c.step}`,
         kind: 'text',
         text: c.caption,
         preset: 'caption',
         start: +t.toFixed(3),
-        duration: Math.min(3.5, Math.max(2.5, length - t - 0.2)),
+        duration: Math.min(3.5, Math.max(2.5, footage - t - 0.2)),
         transform: { x: 0.5, y: 0.86, scale: 1, rotation: 0 },
-        enter: 'rise',
-        exit: 'fade',
+        anim: { enter: 'rise', exit: 'fade' },
         align: 'center',
         box: { color: 'rgba(17,17,17,0.72)' },
       })
@@ -204,7 +328,9 @@ export function proposeMotion(
 
   // Sound: a bed and click sounds. A destination that plays no sound mutes
   // them at render time (`destinationMechanics`); the document carries
-  // them, so the studio plays what the demo will.
+  // them, so the studio plays what the demo will. The bed fills the whole
+  // OUTPUT, the clips after the footage included.
+  const length = docOutputDuration(doc)
   const clips = (doc.audio ?? []).filter(
     (a) => a.id !== BED_ID && !a.id.startsWith(CLICK_ID_PREFIX),
   )
@@ -274,23 +400,25 @@ export function destinationMechanics(
   const portrait = d.px.w / d.px.h < 0.9
 
   if (loop) {
-    // Seamless by contract: nothing arrives, nothing ends, nothing plays.
-    unset.push('frame.entrance', 'endCard')
-    notes.push('loop: no entrance, no end card')
+    // Seamless by contract: the card neither arrives nor leaves, nothing a
+    // template placed plays, nothing sounds. The two legacy spellings go
+    // with it for a document read unmigrated.
+    unset.push('frame.anim', 'frame.entrance', 'endCard')
+    notes.push('loop: no card motion')
   }
   if (loop || !sound) {
     set.push('audio=[]')
     if (!loop) notes.push('silent channel')
   }
   if (loop || d.text === 'none') {
-    // A destination that takes no words drops the beat captions; a maker's
-    // own titles stay theirs.
+    // A destination that takes no words drops the beat captions; a loop
+    // drops every clip a template placed too. A maker's own titles stay.
     const kept = (doc.overlays ?? []).filter(
-      (o) => !o.id.startsWith(CAPTION_ID_PREFIX),
+      (o) => !o.id.startsWith(CAPTION_ID_PREFIX) && !(loop && o.from),
     )
     if (kept.length !== (doc.overlays ?? []).length) {
       set.push(`overlays=${JSON.stringify(kept)}`)
-      notes.push('no captions')
+      notes.push(loop ? 'no template clips, no captions' : 'no captions')
     }
   }
   if (portrait) {

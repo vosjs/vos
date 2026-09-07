@@ -15,7 +15,6 @@
 import { mkdir, mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
-import { totalDuration } from '@vosjs/timeline'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { parseFrontmatter } from '@vosjs/shared/frontmatter'
@@ -27,7 +26,7 @@ import {
   houseLook,
   isLookKind,
   lookFromBrand,
-  ratedSegments,
+  docOutputDuration,
 } from '@vosjs/studio-core'
 import { loadTake } from './take'
 import { framesTake } from './framesTake'
@@ -447,7 +446,9 @@ export async function deliverTake(
   if (!take.doc) throw new Error(`${dir} has no doc.json — run plan first`)
   const doc = take.doc
 
-  const duration = totalDuration(ratedSegments(doc))
+  // The output's end: the clips after the footage count, so an end card
+  // is inside every cut and the loop's cap reads the whole picture.
+  const duration = docOutputDuration(doc)
   const videoSeconds = opts.range
     ? Math.min(opts.range[1], duration) - Math.min(opts.range[0], duration)
     : duration
@@ -525,7 +526,7 @@ export async function deliverTake(
     }
     posterCardIds.add(d.id)
     const label = `${d.channel} ${d.asset}`
-    const posterDuration = totalDuration(ratedSegments(ref.doc))
+    const posterDuration = docOutputDuration(ref.doc)
     const time = posterStillTime(ref.doc, posterDuration)
     opts.onPhase?.(
       `${label} (${specWords(d)}) from ${ref.from}${ref.vosId ? ` ${ref.vosId}` : ''}, the rest at ${time.toFixed(2)}s`,

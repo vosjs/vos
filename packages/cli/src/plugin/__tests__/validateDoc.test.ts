@@ -362,8 +362,7 @@ describe('lintDoc', () => {
         text: 'Ship it',
         preset: 'title',
         transform: { x: 0.5, y: 0.82, scale: 1, rotation: 0 },
-        enter: 'rise',
-        exit: 'fade',
+        anim: { enter: 'rise', exit: 'fade' },
       },
     ])
     expect(r.problems).toEqual([])

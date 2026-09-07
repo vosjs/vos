@@ -356,6 +356,9 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
     }
     const endCard = (doc as { endCard?: unknown }).endCard
     if (endCard !== undefined) {
+      warnings.push(
+        'endCard is a legacy spelling, read as clips after the footage plus a card exit (frame.anim.exit); vos plan writes that shape',
+      )
       if (typeof endCard !== 'object' || endCard === null) {
         problems.push(
           'endCard must be an object: {seconds?, headline?, sub?, wordmark?}',
@@ -679,6 +682,9 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       // --- the entrance and the crop that follows the camera ---
       const ent = frame.entrance
       if (ent !== undefined) {
+        warnings.push(
+          'frame.entrance is a legacy spelling; write frame.anim.enter',
+        )
         const kinds = ['tilt-in', 'pull-out', 'rise', 'none']
         if (
           typeof ent !== 'object' ||
@@ -1024,6 +1030,10 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
         problems.push(`${name}.${key} must be one of ${TRANSITIONS.join('|')}`)
       }
     }
+    if (o.enter !== undefined || o.exit !== undefined || o.fx !== undefined)
+      warnings.push(
+        `${name}: enter, exit and fx are legacy spellings; write anim.enter / anim.exit`,
+      )
     lintAnim(
       name,
       o.anim,
@@ -1202,6 +1212,8 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
     ) {
       problems.push(`${name}.animation must be "spin" | "float" | null`)
     }
+    if (o.animation !== undefined)
+      warnings.push(`${name}.animation is a legacy spelling; write anim.idle`)
     lintAnim(
       name,
       o.anim,
