@@ -39,7 +39,7 @@
  * holds it to the installed package): render-core has no engine dependency.
  */
 export const CORE_AUDIO_CDN_URL =
-  'https://esm.sh/@vosjs/core@0.23.5/audio?target=es2022'
+  'https://esm.sh/@vosjs/core@0.23.6/audio?target=es2022'
 
 /**
  * A sampled audio plan, structurally `@vosjs/core/audio`'s `AudioPlan` (and

@@ -100,6 +100,16 @@ export interface RenderTemplateOptions {
      */
     data?: Record<string, unknown>
     /**
+     * Passed to `initVos(container, deps)` as `deps.stack`: each stack
+     * entry's data by entry id, the same shape the bridge's LOAD carries. A
+     * host that resolves the main data's media URLs for a capture page (an
+     * absolute origin, a render token) has to resolve the entries' too, or
+     * a program's own layers keep the keys baked into the module and a
+     * relative one never loads on the page's origin. Omitted, the entries
+     * run on their baked data.
+     */
+    stack?: Record<string, Record<string, unknown>>
+    /**
      * Host-supplied audio producer (capture-video mode): JavaScript source
      * evaluated in the page that must define
      * `window.__vosAudioProducer__ = async ({ data, duration, sampleRate })
@@ -792,6 +802,7 @@ function generateCaptureVideoBody(
   const mimeType = isMp4 ? 'video/mp4' : 'video/webm'
 
   const dataJson = capture.data ? JSON.stringify(capture.data) : 'null'
+  const stackJson = capture.stack ? JSON.stringify(capture.stack) : 'null'
   const audioProducerBlock = capture.audioProducerCode
     ? `
         // Host-supplied audio producer (defines window.__vosAudioProducer__)
@@ -847,6 +858,7 @@ ${audioProducerBlock}
 
         // Runtime inputs for data-dependent compositions (ctx.data).
         const __captureData = ${dataJson};
+        const __captureStack = ${stackJson};
 
         // Override window dimensions
         Object.defineProperty(window, 'innerWidth', { value: ${width}, configurable: true });
@@ -875,6 +887,7 @@ ${audioProducerBlock}
               }
             };
             if (__captureData != null) deps.data = __captureData;
+            if (__captureStack != null) deps.stack = __captureStack;
 
             // Initialize animation
             const initFn = window.initVos || window.initAnimation;
@@ -1046,6 +1059,7 @@ function generateCaptureThumbnailBody(
   const { width, height } = capture
   const thumbnailTime = capture.thumbnailTime ?? 0.5
   const dataJson = capture.data ? JSON.stringify(capture.data) : 'null'
+  const stackJson = capture.stack ? JSON.stringify(capture.stack) : 'null'
   const transformedCode = transformModuleCode(animationCode, 'server')
 
   return `
@@ -1082,7 +1096,9 @@ ${elementsBlock}
               }
             };
             const __captureData = ${dataJson};
+            const __captureStack = ${stackJson};
             if (__captureData != null) deps.data = __captureData;
+            if (__captureStack != null) deps.stack = __captureStack;
 
             // Initialize animation
             const initFn = window.initVos || window.initAnimation;

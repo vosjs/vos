@@ -223,7 +223,11 @@ describe('generateRenderTemplate', () => {
         mode: 'capture-video',
         capture: {
           ...capture,
-          encoder: { codec: 'avc' as const, bitrate: 5_000_000, contentHint: 'text' },
+          encoder: {
+            codec: 'avc' as const,
+            bitrate: 5_000_000,
+            contentHint: 'text',
+          },
         },
       })
       expect(hinted).toContain('contentHint: "text"')
@@ -322,6 +326,33 @@ describe('capture-video: data injection and audio producer', () => {
     })
     expect(thumb).toContain('"videoSrc":"x.webm"')
     expect(thumb).toContain('deps.data = __captureData')
+  })
+
+  it('injects capture.stack as deps.stack, by entry id (both modes)', () => {
+    const stack = {
+      'vosso.studio': {
+        overlays: [{ id: 'mark', kind: 'image', key: 'https://x/mark.svg' }],
+      },
+    }
+    const video = generateRenderTemplate(sampleCode, {
+      mode: 'capture-video',
+      capture: { ...capture, data: { videoSrc: 'x.webm' }, stack },
+    })
+    expect(video).toContain('"key":"https://x/mark.svg"')
+    expect(video).toContain(
+      'if (__captureStack != null) deps.stack = __captureStack;',
+    )
+    const thumb = generateRenderTemplate(sampleCode, {
+      mode: 'capture-thumbnail',
+      capture: { ...capture, stack },
+    })
+    expect(thumb).toContain('"key":"https://x/mark.svg"')
+    expect(thumb).toContain('deps.stack = __captureStack')
+    const bare = generateRenderTemplate(sampleCode, {
+      mode: 'capture-thumbnail',
+      capture,
+    })
+    expect(bare).toContain('const __captureStack = null;')
   })
 
   it('defaults to null data (compositions fall back to baked config data)', () => {
