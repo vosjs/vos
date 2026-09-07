@@ -32,24 +32,18 @@ import {
 import { loadTake } from './take'
 import { framesTake } from './framesTake'
 import { renderTake } from './renderTake'
-import { renderPosterStills } from './posterStill'
 import { momentCandidates, pickMoments } from './moments'
 import { decodePng, differenceHash, inkCoverage } from './picture'
-import { bakeShot, encodePng } from './shotBake'
+import { LOOP_DESTINATIONS, destinationMechanics } from './motionPlan'
 import {
-  fillTemplate,
-  templateOf,
-  templateProblems,
-  textLimitProblems,
-} from './template'
-import { templateByName } from './templates'
-import { posterValues } from './posterValues'
-import { isTileSize, stageSplitCover, stageTile } from './stages'
-import { fetchBrandMarks } from './markAsset'
-import { LOOP_DESTINATIONS, planMotion } from './motionPlan'
-import type { MusicCatalog } from './motionPlan'
+  findPosterDocs,
+  posterClassFor,
+  posterShotRect,
+  posterStillTime,
+  posterTextBoxes,
+} from './posterDoc'
+import type { PosterClass } from './posterDoc'
 import type { MomentCandidate } from './moments'
-import type { ReleaseWords } from './posterValues'
 import type { TextBox } from './kitPicture'
 import type { Destination, Look, LookPlacement } from '@vosjs/studio-core'
 import type { DocOverrides } from './docOverride'
@@ -88,43 +82,12 @@ export interface DeliverOptions {
   /** In-memory doc overrides (--set / --background); lint-gated. */
   overrides?: DocOverrides
   /**
-   * The maker's poster program (the split-cover family). With one in hand,
-   * CARD-genre destinations (OG, LinkedIn, X, YouTube thumbnail, the CWS
-   * tile + marquee, GitHub social preview) render from the POSTER — the
-   * verdict: the cover is a composition, never a raw frame — with this
-   * release's full-bleed shot baked in as the poster's image element.
-   * Screenshot-genre destinations always stay real take frames (store
-   * policy demands real UX).
+   * LAUNCH.md's roles beside the take. The POSTER roles name the document a
+   * card destination renders from (`poster: <path>`, `poster-landscape`,
+   * `poster-square`, `poster-portrait`, `poster-tile`); the folder
+   * convention `poster/<class>/doc.json` needs no role.
    */
-  poster?: { config: Record<string, unknown>; from: string } | null
-  /**
-   * The release's words for the templates: the headline (LAUNCH.md's
-   * `headline` role or --headline), an optional kicker, the wordmark. With
-   * no headline, destinations whose template carries one fall to the
-   * headline-less template, said in words.
-   */
-  words?: ReleaseWords
-  /** The brand kit's frontmatter roles, when a BRAND.md sits beside the take. */
-  brandRoles?: Record<string, string> | null
-  /** LAUNCH.md's roles beside the take (music, entrance, endCard, captions, clicks). */
   launchRoles?: Record<string, string> | null
-  /** The platform's music catalog, read when a destination plays sound; null = silent. */
-  catalog?: MusicCatalog | null
-  /** actions.json captions by step, for the beat captions on feed cuts. */
-  captions?: { step: number; id?: string; caption: string }[]
-  /**
-   * Capture instant INSIDE the poster program's own timeline (its text
-   * enters over the first seconds); default 90% through it. Not the take
-   * moment — that is `shotTime`.
-   */
-  posterTime?: number
-  /**
-   * The take moment (OUTPUT seconds) baked into the poster as its shot;
-   * default the first still time. A zoom apex is the natural pick: the
-   * cut's camera composes the frame, so the shot is the feature, not the
-   * whole page.
-   */
-  shotTime?: number
   /**
    * Keep the cut's camera and the frame chrome on SCREENSHOT-genre stills.
    * By default a store screenshot is the real page at that moment, full
@@ -158,14 +121,16 @@ export interface KitAsset {
   bytes: number
   seconds: number | null
   frameTime: number | null
-  /** Where the pixels came from: the take (absent = take), a poster program, or a stage (the take's own card composed). */
-  source?: 'poster' | 'stage'
-  /** The template family a poster card rendered from. */
-  template?: string
+  /** Where the pixels came from: the take (absent = take), or a poster DOCUMENT beside it. */
+  source?: 'poster'
+  /** The poster document a card rendered from: its class, its file (relative to the take), the vos it tracks. */
+  poster?: { class: PosterClass; file: string; vosId?: string }
   /** Where the words landed, as fractions of the asset (the picture checks read them). */
   text?: TextBox[]
-  /** Where the release's shot sits on a poster card, fractions of the asset (bleeds may exceed 1). */
+  /** Where the card sits on a poster, fractions of the asset (a bleed runs past the edge). */
   shot?: { x: number; y: number; w: number; h: number }
+  /** The card runs past both edges: a close crop of the subject (a tile), so the picture checks skip the card band. */
+  crop?: boolean
   /**
    * A screenshot-genre still rendered with the cut's camera and chrome
    * (`--composed`), which store policy refuses; the picture checks read it.
@@ -285,51 +250,6 @@ export async function resolveLook(
 }
 
 /**
- * The template each card destination renders from: an explicit --poster
- * config for every card; null (`--poster none`) for the take path; else
- * the destination's own default from the channel specs, by name from the
- * bundled family. A headline-carrying template with no headline in hand
- * falls to card-on-gradient, said in words.
- */
-export function templateForCard(
-  d: Pick<Destination, 'id' | 'template' | 'px'>,
-  opts: Pick<DeliverOptions, 'poster' | 'words'>,
-): {
-  config: Record<string, unknown>
-  from: string
-  note?: string
-  stage?: 'split-cover' | 'tile'
-} | null {
-  if (opts.poster === null) return null
-  if (opts.poster) return { config: opts.poster.config, from: opts.poster.from }
-  if (!d.template) return null
-  // A TILE (long side under TILE_MAX_PX) composes as a stage whatever its
-  // template names: a headline over a close crop of the page's hero. The
-  // whole page in a 370 px card is unreadable by construction.
-  if (isTileSize(d.px)) {
-    const config =
-      templateByName(d.template) ?? templateByName('card-on-gradient')
-    if (config) return { config, from: 'stage tile', stage: 'tile' }
-  }
-  let name = d.template
-  let note: string | undefined
-  const wants = templateOf(templateByName(name) ?? {})
-  const needsHeadline = wants?.text.some((t) => t.role === 'headline')
-  if (needsHeadline && !opts.words?.headline?.trim()) {
-    name = 'card-on-gradient'
-    note = `${d.id}: no headline (LAUNCH.md headline: or --headline), so the ${d.template} template stands down for card-on-gradient`
-  }
-  const config = templateByName(name)
-  if (!config) return null
-  // The split cover composes as a STAGE by default: the take's own card in
-  // perspective with its chrome and shadow (the program template is one
-  // --poster away, for a maker who wants the grained ground).
-  if (name === 'split-cover')
-    return { config, from: 'stage split-cover', note, stage: 'split-cover' }
-  return { config, from: `template ${name}`, note }
-}
-
-/**
  * The overrides that present the card in a look at one destination size:
  * the ground, the placement (inset from the footage's aspect), the radius,
  * both shadow layers and the hairline; a still also releases the camera
@@ -369,34 +289,6 @@ export function lookOverrides(
     )
   }
   return set
-}
-
-/**
- * The end card's ink: the brand's ink (or near-black) over a light ground,
- * white over a dark one, decided from the look's ground.
- */
-export function endCardInk(
-  look: Look | null | undefined,
-  brand: Record<string, string> | null | undefined,
-): string | null {
-  if (!look) return null
-  const ground = look.ground
-  const m = /#([0-9a-f]{6})/i.exec(ground)
-  const hex = m ? m[0] : null
-  const light =
-    look.kind === 'plate' ||
-    (hex ? isLightHexGround(hex) : look.kind === 'gradient')
-  if (!light) return '#ffffff'
-  const ink = brand?.ink
-  return ink && /^#[0-9a-f]{6}$/i.test(ink) ? ink : '#111111'
-}
-
-function isLightHexGround(hex: string): boolean {
-  const n = parseInt(hex.slice(1), 16)
-  const r = (n >> 16) & 255
-  const g = (n >> 8) & 255
-  const b = n & 255
-  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255 >= 0.6
 }
 
 /** The probe's width: enough to read ink and a hash, cheap to capture. */
@@ -555,18 +447,6 @@ export async function deliverTake(
   if (!take.doc) throw new Error(`${dir} has no doc.json — run plan first`)
   const doc = take.doc
 
-  // The brand's mark, fetched once into the take's brand/ folder: the
-  // stage's lockup (mark beside wordmark) and the end card place it. The
-  // ground decides which twin: BRAND.md's logoUrl on a light ground, its
-  // logoOnDarkUrl on a dark one; a dark ground with no on-dark mark keeps
-  // the wordmark in words rather than an invisible ink mark.
-  const marks = await fetchBrandMarks(dir, opts.brandRoles)
-  for (const n of marks.notes) opts.onPhase?.(`note: ${n}`)
-  const darkGround = opts.look?.kind === 'dark'
-  const mark = darkGround ? marks.dark : marks.light
-  if (mark)
-    opts.onPhase?.(`brand mark: ${mark.key} (${mark.aspect.toFixed(2)}:1)`)
-
   const duration = totalDuration(ratedSegments(doc))
   const videoSeconds = opts.range
     ? Math.min(opts.range[1], duration) - Math.min(opts.range[0], duration)
@@ -600,13 +480,13 @@ export async function deliverTake(
   }
   /**
    * A video destination rides the look in the hero placement, camera kept,
-   * then the destination's motion plan (entrance, end card, captions,
-   * sound, the vertical reframe), then the user's own sets, which win.
+   * then the destination's MECHANICS (a loop plays no entrance, end card
+   * or sound; a silent channel mutes the bed; a 9:16 destination reframes
+   * the card), then the user's own sets, which win. The cut's motion
+   * (entrance, end card, captions, bed, clicks) is the DOCUMENT's, written
+   * by `vos plan`; nothing is composed here.
    */
-  const videoOverrides = (
-    d: Destination,
-    range: [number, number] | undefined,
-  ): DocOverrides | undefined => {
+  const videoOverrides = (d: Destination): DocOverrides | undefined => {
     const set: string[] = []
     if (opts.look) {
       set.push(
@@ -616,230 +496,89 @@ export async function deliverTake(
         }),
       )
     }
-    const plan = planMotion({
-      destination: d,
-      doc,
-      range: range ?? [0, duration],
-      words: opts.words ?? {},
-      launch: opts.launchRoles ?? {},
-      captions: opts.captions ?? [],
-      catalog: opts.catalog ?? null,
-      ink: endCardInk(opts.look, opts.brandRoles),
-      mark,
-    })
-    set.push(...plan.set)
-    if (plan.notes.length) opts.onPhase?.(`${d.id}: ${plan.notes.join(', ')}`)
-    for (const s of plan.skipped) skipped.push(`note: ${s}`)
+    const mech = destinationMechanics(d, doc)
+    set.push(...mech.set)
+    if (mech.notes.length) opts.onPhase?.(`${d.id}: ${mech.notes.join(', ')}`)
     set.push(...(opts.overrides?.set ?? []))
-    if (!set.length) return opts.overrides
-    return { ...opts.overrides, set }
+    if (!set.length && !mech.unset.length) return opts.overrides
+    return { ...opts.overrides, set, unset: mech.unset }
   }
 
-  // The poster leg: card-genre stills COMPOSE by default. Each card
-  // destination names its template (an explicit --poster config wins;
-  // --poster none keeps the take path), the release's full-bleed shot is
-  // captured once at the hero moment, baked into an object (padded,
-  // rounded, shadowed, a hairline on a light ground), and the template is
-  // filled per destination: the shot placed for that aspect, the brand's
-  // colours and faces, the release's words. PNG from our own page.
-  const cardPlans = destinations
-    .filter(
-      (d) =>
-        d.kind !== 'video' && d.genre === 'card' && !NOT_FROM_FOOTAGE[d.id],
-    )
-    .map((d) => ({ d, plan: templateForCard(d, opts) }))
-    .filter(
-      (
-        p,
-      ): p is {
-        d: Destination
-        plan: NonNullable<ReturnType<typeof templateForCard>>
-      } => p.plan !== null,
-    )
-  const posterCardIds = new Set(cardPlans.map((p) => p.d.id))
-  for (const p of cardPlans)
-    if (p.plan.note) skipped.push(`note: ${p.plan.note}`)
-
-  if (cardPlans.length) {
-    const meta = doc.source.meta
-    const heroTime =
-      opts.shotTime ?? (stillTimes.length ? stillTimes[0] : duration / 2)
-    const fill = posterValues(opts.brandRoles, opts.words ?? {})
-    if (mark) {
-      fill.values.logoKey = mark.key
-      fill.values.logoAspect = mark.aspect
+  // The poster leg: a CARD destination renders from the POSTER DOCUMENT of
+  // its aspect class, found beside the take (poster/<class>/doc.json, or
+  // named in LAUNCH.md), at the document's REST (the trailing hold's
+  // start), so the still is a frame of the poster's own video by
+  // construction. Deliver renders and verifies; the composition is the
+  // document's, written by an agent or the studio. A class with no
+  // document falls to the take's own frame, said once in words.
+  const posters = await findPosterDocs(dir, opts.launchRoles)
+  const posterCardIds = new Set<string>()
+  const missing = new Set<PosterClass>()
+  for (const d of destinations) {
+    if (d.kind === 'video' || d.genre !== 'card' || NOT_FROM_FOOTAGE[d.id])
+      continue
+    const cls = posterClassFor(d.px)
+    const ref = posters[cls]
+    if (!ref) {
+      missing.add(cls)
+      continue
     }
+    posterCardIds.add(d.id)
+    const label = `${d.channel} ${d.asset}`
+    const posterDuration = totalDuration(ratedSegments(ref.doc))
+    const time = posterStillTime(ref.doc, posterDuration)
     opts.onPhase?.(
-      `poster shot (full bleed at ${heroTime.toFixed(2)}s), baked as an object`,
+      `${label} (${specWords(d)}) from ${ref.from}${ref.vosId ? ` ${ref.vosId}` : ''}, the rest at ${time.toFixed(2)}s`,
     )
-    const serveDir = await mkdtemp(join(tmpdir(), 'vos-poster-'))
+    const shotDir = await mkdtemp(join(tmpdir(), 'vos-poster-'))
     try {
-      const shot = await framesTake(browser, dir, {
-        times: [heroTime],
-        width: meta.captureWidth ?? meta.width,
-        height: meta.captureHeight ?? meta.height,
-        outDir: serveDir,
-        overrides: {
-          ...opts.overrides,
-          set: [
-            'frame.fit=contain',
-            'frame.padding=0',
-            'frame.radius=0',
-            'frame.shadow=0',
-            'frame.border=0',
-            'frame.browserBar.kind=none',
-            'cursor.visible=false',
-            'cursor.clickFx.style=none',
-            ...(opts.overrides?.set ?? []),
-          ],
-        },
+      const captured = await framesTake(browser, ref.takeDir, {
+        times: [time],
+        width: d.px.w,
+        height: d.px.h,
+        outDir: shotDir,
+        doc: ref.doc,
+        overrides: opts.overrides,
       })
-      const raw = decodePng(new Uint8Array(await readFile(shot.frames[0].file)))
-      if (!raw) throw new Error('the poster shot could not be decoded')
-      const PAD = 0.06
-      const baked = bakeShot(raw, {
-        margin: PAD,
-        hairline: fill.lightGround ? 0.14 : 0,
-        shadow: fill.lightGround ? 0.28 : 0.4,
-      })
-      await writeFile(join(serveDir, 'shot.png'), encodePng(baked))
-      const shotAspect = raw.w / raw.h
-
-      for (const { d, plan } of cardPlans) {
-        if (plan.stage) {
-          const stageInput = {
-            size: d.px,
-            values: fill.values,
-            sourceSeconds: meta.durationMs / 1000,
-            outputSeconds: duration,
-            text: d.text,
-            footageAspect:
-              (meta.captureWidth ?? meta.width) /
-              (meta.captureHeight ?? meta.height),
-          }
-          const staged =
-            plan.stage === 'tile'
-              ? stageTile(stageInput)
-              : stageSplitCover(stageInput)
-          opts.onPhase?.(
-            `${d.channel} ${d.asset} (${specWords(d)}) from ${plan.from}`,
-          )
-          const shotDir = await mkdtemp(join(tmpdir(), 'vos-stage-'))
-          try {
-            const captured = await framesTake(browser, dir, {
-              times: [heroTime],
-              width: d.px.w,
-              height: d.px.h,
-              outDir: shotDir,
-              overrides: {
-                ...opts.overrides,
-                set: [...staged.set, ...(opts.overrides?.set ?? [])],
-              },
-            })
-            const to = join(outDir, `${d.id}.png`)
-            await rename(captured.frames[0].file, to)
-            const bytes = (await stat(to)).size
-            if (d.maxBytes !== undefined && bytes > d.maxBytes) {
-              skipped.push(
-                `${d.channel} ${d.asset}: ${overCeiling(bytes, d.maxBytes)} (kept at ${to})`,
-              )
-              continue
-            }
-            assets.push({
-              channel: d.channel,
-              asset: d.asset,
-              destination: d.id,
-              path: relative(outDir, to),
-              w: d.px.w,
-              h: d.px.h,
-              bytes,
-              seconds: null,
-              frameTime: heroTime,
-              source: 'stage',
-              template: `${plan.stage}-stage`,
-              text: staged.text,
-              shot: staged.shot,
-              ...(plan.stage === 'tile' ? { crop: true } : {}),
-            })
-          } finally {
-            await rm(shotDir, { recursive: true, force: true })
-          }
-          continue
-        }
-        const problems = templateProblems(plan.config)
-        if (problems.length) {
-          skipped.push(
-            `${d.channel} ${d.asset}: ${plan.from} is not a valid template (${problems[0]}) — kept from the take`,
-          )
-          posterCardIds.delete(d.id)
-          continue
-        }
-        const filled = fillTemplate(plan.config, {
-          size: d.px,
-          slots: { shot: { src: '/shot.png', aspect: shotAspect, pad: PAD } },
-          values: fill.values,
-        })
-        const limits = textLimitProblems(templateOf(plan.config)!, fill.values)
-        for (const l of limits) skipped.push(`note: ${d.id}: ${l}`)
-        if (filled.missing.length) {
-          skipped.push(
-            `${d.channel} ${d.asset}: ${plan.from} needs ${filled.missing.join(', ')} — kept from the take`,
-          )
-          posterCardIds.delete(d.id)
-          continue
-        }
-        const config = filled.config
-        if (fill.fonts.length) {
-          const declared = Array.isArray(config.fonts)
-            ? (config.fonts as unknown[])
-            : []
-          config.fonts = [...declared, ...fill.fonts]
-        }
-        const posterDuration =
-          typeof config.duration === 'number' ? config.duration : 6
-        const time = Math.min(
-          opts.posterTime ?? posterDuration * 0.9,
-          Math.max(0, posterDuration - 0.05),
+      const to = join(outDir, `${d.id}.png`)
+      await rename(captured.frames[0].file, to)
+      const bytes = (await stat(to)).size
+      if (d.maxBytes !== undefined && bytes > d.maxBytes) {
+        skipped.push(
+          `${label}: ${overCeiling(bytes, d.maxBytes)} (kept at ${to})`,
         )
-        opts.onPhase?.(
-          `${d.channel} ${d.asset} (${specWords(d)}) from ${plan.from}, ${filled.aspect}`,
-        )
-        await renderPosterStills(
-          browser,
-          config,
-          serveDir,
-          [{ name: `${d.id}.png`, width: d.px.w, height: d.px.h }],
-          time,
-        )
-        const from = join(serveDir, `${d.id}.png`)
-        const to = join(outDir, `${d.id}.png`)
-        await rename(from, to)
-        const bytes = (await stat(to)).size
-        if (d.maxBytes !== undefined && bytes > d.maxBytes) {
-          skipped.push(
-            `${d.channel} ${d.asset}: ${overCeiling(bytes, d.maxBytes)} (kept at ${to})`,
-          )
-          continue
-        }
-        assets.push({
-          channel: d.channel,
-          asset: d.asset,
-          destination: d.id,
-          path: relative(outDir, to),
-          w: d.px.w,
-          h: d.px.h,
-          bytes,
-          seconds: null,
-          frameTime: heroTime,
-          source: 'poster',
-          template: templateOf(plan.config)?.family ?? plan.from,
-          text: filled.text,
-          shot: filled.slots.shot,
-        })
+        continue
       }
+      const shot = posterShotRect(ref.doc, d.px)
+      assets.push({
+        channel: d.channel,
+        asset: d.asset,
+        destination: d.id,
+        path: relative(outDir, to),
+        w: d.px.w,
+        h: d.px.h,
+        bytes,
+        seconds: null,
+        frameTime: time,
+        source: 'poster',
+        poster: {
+          class: cls,
+          file: relative(dir, ref.file),
+          ...(ref.vosId ? { vosId: ref.vosId } : {}),
+        },
+        text: posterTextBoxes(ref.doc, d.px, time),
+        shot,
+        ...(shot.x < 0 && shot.x + shot.w > 1 ? { crop: true } : {}),
+      })
     } finally {
-      await rm(serveDir, { recursive: true, force: true })
+      await rm(shotDir, { recursive: true, force: true })
     }
+  }
+  if (missing.size) {
+    const classes = [...missing].sort().join(', ')
+    skipped.push(
+      `note: no poster document for the ${classes} class${missing.size > 1 ? 'es' : ''} beside the take (poster/<class>/doc.json, or LAUNCH.md poster:), so those cards are the take's own frame`,
+    )
   }
 
   for (const d of destinations) {
@@ -897,7 +636,7 @@ export async function deliverTake(
         parallel: opts.parallel,
         range,
         bitrate,
-        overrides: videoOverrides(d, range),
+        overrides: videoOverrides(d),
         onProgress: opts.onProgress,
       })
       if (d.maxBytes !== undefined && result.bytes > d.maxBytes) {

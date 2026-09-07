@@ -28,6 +28,8 @@ export { BACKGROUND_DEFAULT_DURATION, isBackdropSlug } from './backdrops'
 export interface DocOverrides {
   /** raw `path=value` expressions from repeated --set. */
   set?: string[]
+  /** Top-level or nested paths to REMOVE after the sets (a destination's mechanics drop a field a null could not express). */
+  unset?: string[]
   /** --frame alias → frame.browserBar.kind. */
   frame?: string
   /** --background alias → frame.backgroundMedia (kind inferred from the URL,
@@ -70,6 +72,7 @@ export async function resolveBackdropSlug(o: DocOverrides): Promise<void> {
 export function hasOverrides(o: DocOverrides): boolean {
   return !!(
     o.set?.length ||
+    o.unset?.length ||
     o.frame !== undefined ||
     o.background !== undefined
   )
@@ -212,6 +215,23 @@ export function applyDocOverrides(doc: ProjectDoc, o: DocOverrides): string[] {
     const value = coerceValue(expr.slice(eq + 1))
     setPath(d, path, value)
     applied.push(`${path} = ${JSON.stringify(value)}`)
+  }
+
+  for (const path of o.unset ?? []) {
+    const segs = parsePath(path)
+    let node: unknown = d
+    for (
+      let i = 0;
+      i < segs.length - 1 && node && typeof node === 'object';
+      i++
+    )
+      node = (node as Record<string | number, unknown>)[segs[i].key]
+    if (node && typeof node === 'object') {
+      delete (node as Record<string | number, unknown>)[
+        segs[segs.length - 1].key
+      ]
+      applied.push(`${path} removed`)
+    }
   }
 
   return applied

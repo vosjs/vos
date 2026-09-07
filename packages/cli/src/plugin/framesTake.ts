@@ -61,6 +61,11 @@ export interface FramesTakeOptions {
   outDir?: string
   /** In-memory doc overrides (--set / --frame / --background); lint-gated. */
   overrides?: DocOverrides
+  /**
+   * Render THIS document over the take's footage instead of its doc.json
+   * (a poster document beside the take). Cloned before any override.
+   */
+  doc?: ProjectDoc
 }
 
 export interface CapturedFrame {
@@ -218,8 +223,8 @@ export async function framesTake(
   opts: FramesTakeOptions,
 ): Promise<FramesTakeResult> {
   const take = await loadTake(dir)
-  if (!take.doc) throw new Error(`${dir} has no doc.json — run plan first`)
-  const doc = take.doc
+  const doc = opts.doc ? structuredClone(opts.doc) : take.doc
+  if (!doc) throw new Error(`${dir} has no doc.json — run plan first`)
 
   // Product-surface overrides (--set/--frame/--background): patch + lint the doc
   // in memory (doc.json untouched) so a still can preview any presentation.
@@ -258,7 +263,7 @@ export async function framesTake(
     }
   }
   if (opts.atMoments) {
-    for (const m of await momentsFor(dir, take.doc)) {
+    for (const m of await momentsFor(dir, doc)) {
       if (m.outputAt === null) continue
       shots.push({ time: clamp(m.outputAt), kind: 'moment', momentId: m.id })
     }

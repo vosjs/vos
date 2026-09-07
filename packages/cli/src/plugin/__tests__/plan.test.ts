@@ -196,5 +196,108 @@ describe('planTake', () => {
     expect(doc.zoom.find((z) => z.id === 'u1')).toBeUndefined()
     // and the autos re-planned under the copied camera ('none' plans nothing)
     expect(doc.zoom.filter((z) => z.source === 'auto')).toEqual([])
+    expect(s.layout).toBeUndefined() // a seed with no layout carries none
+  })
+
+  // A layout is a POSTER document on a shelf: --style carries its card
+  // placement, its stage clips (the release's words patched in), its rest
+  // lean and its hold, and reports what it left alone.
+  it('--style from a poster carries the layout, patches the words, and says what it left alone', async () => {
+    const seedDir = await makeTake()
+    const seed = (await planTake(seedDir)).doc
+    seed.frame.inset = { left: 0.44, right: -0.06, top: 0.3, bottom: -0.12 }
+    seed.tilt = [{ id: 'rest', in: 0, out: 8, rx: 3, ry: 10 }]
+    seed.segments = [{ in: 0, out: 4, hold: 3 }]
+    seed.overlays = [
+      {
+        id: 'stage-title',
+        kind: 'text',
+        start: 0,
+        duration: 7,
+        text: 'Headline goes here',
+        preset: 'title',
+        transform: { x: 0.25, y: 0.46, scale: 1, rotation: 0 },
+      },
+      {
+        id: 'stage-mark',
+        kind: 'image',
+        key: 'brand/seed.svg',
+        width: 0.08,
+        radius: 0,
+        shadow: 'none',
+        start: 0,
+        duration: 7,
+        transform: { x: 0.1, y: 0.86, scale: 1, rotation: 0 },
+      },
+    ]
+    const dir = await makeTake()
+    const s = await planTake(dir, {
+      style: { from: 'poster', doc: seed },
+      words: { headline: 'Ship it', brand: 'vosso' },
+    })
+    expect(s.layout).toMatchObject({
+      clips: ['stage-title', 'stage-mark'],
+      lean: true,
+      hold: true,
+    })
+    expect(s.layout?.notes.join(' ')).toMatch(/stage-mark/)
+    const doc = await readJson<ProjectDoc>(join(dir, 'doc.json'))
+    expect(doc.frame.inset).toEqual(seed.frame.inset)
+    expect(doc.overlays?.map((o) => o.id)).toEqual(['stage-title'])
+    expect(doc.overlays?.[0].kind === 'text' && doc.overlays[0].text).toBe(
+      'Ship it',
+    )
+    expect(doc.tilt).toEqual([
+      { id: 'rest', in: 0, out: 8, rx: 3, ry: 10, source: 'manual' },
+    ])
+    expect(doc.segments.at(-1)?.hold).toBe(3)
+    // with a mark in hand the image clip comes along on that key
+    const s2 = await planTake(await makeTake(), {
+      style: { from: 'poster', doc: seed },
+      mark: { key: 'brand/mine.svg', aspect: 1 },
+    })
+    const mark = s2.doc.overlays?.find((o) => o.id === 'stage-mark')
+    expect(mark && mark.kind === 'image' ? mark.key : null).toBe(
+      'brand/mine.svg',
+    )
+    expect(s2.layout?.notes).toEqual([])
+  })
+
+  // The cut's motion is proposed on a fresh plan and never on a refresh:
+  // a document that carries a cut is the maker's.
+  it('proposes the motion on a fresh plan, keeps a refresh’s document, and re-proposes on --motion', async () => {
+    const dir = await makeTake()
+    const motion = {
+      words: { headline: 'Ship it', brand: 'vosso' },
+      launch: {},
+      captions: [],
+      catalog: null,
+    }
+    const fresh = await planTake(dir, { motion })
+    expect(fresh.motion?.notes).toEqual(['entrance tilt-in', 'end card'])
+    expect(fresh.doc.frame.entrance).toEqual({ kind: 'tilt-in' })
+    expect(fresh.doc.endCard?.headline).toBe('Ship it')
+
+    const edited = await readJson<ProjectDoc>(join(dir, 'doc.json'))
+    delete edited.endCard
+    await writeJson(join(dir, 'doc.json'), edited)
+    const refreshed = await planTake(dir, { motion })
+    expect(refreshed.motion).toBeUndefined()
+    expect(refreshed.doc.endCard).toBeUndefined()
+
+    const again = await planTake(dir, { motion: { ...motion, again: true } })
+    expect(again.doc.endCard?.headline).toBe('Ship it')
+  })
+
+  it('--reuse carries the previous cut’s hold and end card onto the new footage', async () => {
+    const dir = await makeTake()
+    const prev = (await planTake(dir)).doc
+    prev.segments = [{ in: 0, out: 6, hold: 2 }]
+    prev.endCard = { headline: 'Ship it' }
+    const s = await planTake(await makeTake(), {
+      reuse: { from: 'prev', doc: prev },
+    })
+    expect(s.doc.segments.at(-1)?.hold).toBe(2)
+    expect(s.doc.endCard).toEqual({ headline: 'Ship it' })
   })
 })
