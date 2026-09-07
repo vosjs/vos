@@ -26,7 +26,8 @@ import {
   resolveChannels,
   resolveLook,
 } from './deliver'
-import { templateByName } from './templates'
+import { fetchBrandMarks } from './markAsset'
+import { endCardInk } from './motionPlan'
 import { fetchMusicCatalog } from './music'
 import { judgeKit, winRate } from './judge'
 import { resolveStepTime } from './moments'
@@ -83,6 +84,7 @@ const BOOLEAN_FLAGS = new Set([
   'yes',
   'composed',
   'check',
+  'motion',
 ])
 /** Repeatable value flags (accumulate): --set path=value on render/frames, --override id on push. */
 const MULTI_FLAGS = new Set(['set', 'override'])
@@ -92,10 +94,10 @@ const HELP = `vos — record a browser flow, plan effects, render a product vide
 Take pipeline
   vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--max-duration <s>] [--background <slug|url|none>] [render flags] [--json]
   vos record --actions actions.json [--url <url>] [--out take] [--strict] [--max-duration <s>] [--background <slug|url|none>] [--json]
-  vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--background <slug|url|none>] [--json]
+  vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|none] [--end-card none] [--captions none] [--clicks none] [--release v2.1] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
-  vos deliver <take> --to cws,producthunt,x,linkedin,og,github,youtube (or all) [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|none] [--end-card none] [--captions none] [--clicks none] [--look plate|gradient|dark|none] [--brand BRAND.md] [--poster <split-cover|card-on-gradient|config.json|vosId|none>] [--shot-time <t>] [--poster-time <t>] [--composed] [--set path=value] [--release v2.1] [--out dir] [--times a,b] [--range a..b] [--parallel N] [--json]
+  vos deliver <take> --to cws,producthunt,x,linkedin,og,github,youtube (or all) [--launch LAUNCH.md] [--look plate|gradient|dark|none] [--brand BRAND.md] [--composed] [--set path=value] [--release v2.1] [--out dir] [--times a,b] [--range a..b] [--parallel N] [--json]
   vos digest <take> [--out dir] [--full 960] [--crop 640] [--no-frames] [--transcript <file.json>] [--style <doc.json|vosId>] [--json]
   vos brand <url> [--out BRAND.md] [--json]
   vos open <take> [--studio <url>] [--print]
@@ -195,44 +197,47 @@ read once as the real page, blank ones (a wallpaper, an empty canvas) are
 dropped and two of one frame collapse to one, with every drop said in
 skipped[]. --times overrides with seconds, percents or step:<id>[+offset]
 (the id from actions.json); --range cuts every video destination.
-The LOOK presents the card: card-genre stills with no poster and every
-video cut sit on a ground (a cream plate, the house gradient, a dark plate
-with a light streak) at ~84% of the width with headroom, a soft ambient
-shadow plus a tight contact shadow, and a hairline when card and ground
-are both light; a wide frame runs the card off the bottom. --look picks a
-house look (or none for the pre-look crops); with no flag the BRAND.md
-beside the take (or --brand <file>) decides from its look role or its own
-ground (a paper site is a plate, a dark site is dark), and with no brand
-the house gradient. Screenshot-genre stills never take a look.
-Card-genre destinations (OG, LinkedIn, X, YouTube thumbnail, the CWS
-tile + marquee, GitHub social preview) COMPOSE by default: each renders
-from its destination's poster TEMPLATE (split-cover is a STAGE, the
-take's own card leaning in perspective with its chrome and shadow beside
-a serif headline column, on the brand's ground; card-on-gradient is the
-shot alone on a mesh, the store's tile rule), filled with BRAND.md's colours and faces and the
-release's words, the shot baked as an object (padded, rounded, shadowed,
-a hairline on a light ground), PNG at exact pixels; kit.json records the
-template and the text boxes. The headline is LAUNCH.md's headline role
-beside the take or --headline (with none, the headline templates stand
-down for card-on-gradient, said); --kicker overrides the wordmark plus
---release line. --poster names a bundled template for every card, your
-own template (a config.json or a hosted vos id carrying a template
-block), or none to keep the take path.
-Every video cut but the README loop opens on an ENTRANCE (tilt-in by
-default: the card swings in from a perspective pose and settles) and
-closes on an END CARD (the last frame holds 2.5 s while the card recedes
-and the headline, the release line and the wordmark rise); LAUNCH.md's
-entrance and endCard roles, or --entrance and --end-card, change or
-switch them off. A step's caption in actions.json lands as a lower-third
-at the step's moment on cuts that take words (--captions none to skip).
-Destinations that play sound (the X cut, the YouTube demo, the vertical
-cut) take a music bed from LAUNCH.md's music role (a catalog slug or a
-mood; --music overrides) and a click sound on every press when the take
-has no mic (--clicks none). The 9:16 cut is a reframe, not a letterbox:
-the crop follows the camera. --shot-time <t> picks the take moment (OUTPUT seconds;
-default the first still time — pick a zoom apex, the cut's camera makes
-the shot the feature, not the whole page); --poster-time <t> is the instant
-inside the poster's OWN timeline (default 90% through it). Screenshot-genre
+The LOOK presents the card: card-genre stills with no poster document
+and every video cut sit on a ground (a cream plate, the house gradient, a
+dark plate with a light streak) at ~84% of the width with headroom, a
+soft ambient shadow plus a tight contact shadow, and a hairline when card
+and ground are both light; a wide frame runs the card off the bottom.
+--look picks a house look (or none for the pre-look crops); with no flag
+the BRAND.md beside the take (or --brand <file>) decides from its look
+role or its own ground, and with no brand the house gradient.
+Screenshot-genre stills never take a look.
+A POSTER is a document, never a template: a plain take whose card sits
+where the poster wants it (frame.inset), leans (the tilt track), carries
+the words and the mark as clips (ids stage-title, stage-kicker,
+stage-brand, stage-mark) and ends on a trailing hold whose start is the
+still. Card-genre destinations (OG, LinkedIn, X, YouTube thumbnail, the
+CWS tile + marquee, GitHub social preview) render from the poster
+document of their aspect CLASS (landscape, square, portrait, tile), found
+beside the take as poster/<class>/doc.json (poster/doc.json serves every
+class) or named in LAUNCH.md (poster: <path>, poster-landscape: …), at
+the document's rest; kit.json records source poster, the class, the file,
+the vos it tracks, the shot rect and the text boxes read FROM the
+document. A class with no document is the take's own frame, said once.
+deliver renders and verifies; it composes nothing. The composition is
+made with plan --style <poster>, which copies a poster's layout onto a
+take (its card placement, its stage clips with the release's words
+patched in from LAUNCH.md's headline and kicker roles or --headline and
+--kicker, its rest lean, its hold), or by hand in doc.json.
+The cut's MOTION is the document's too. plan proposes it on a fresh plan
+(--motion re-proposes onto an existing doc.json, replacing only its own
+proposals): the card's ENTRANCE (tilt-in by default: the card swings in
+from a perspective pose and settles), the END CARD (the last frame holds
+2.5 s while the card recedes and the headline, the release line and the
+wordmark rise; the brand's mark from BRAND.md logoUrl above them), a
+CAPTION per actions.json step at the step's moment, a music BED from
+LAUNCH.md's music role (a catalog slug or a mood) and a click sound on
+every press when the take has no mic. LAUNCH.md's entrance, endCard,
+captions, music and clicks roles, or the flags, change or switch each
+off; a deleted proposal stays deleted on a refresh. deliver applies each
+destination's MECHANICS and nothing more: the README loop plays no
+entrance, end card or sound; a channel that autoplays muted drops the
+bed; the 9:16 cut is a reframe, not a letterbox, and the crop follows
+the camera. Screenshot-genre
 destinations (CWS screenshots, the PH gallery) are the real page at that
 moment, FULL BLEED: no zoom, no tilt, no browser bar, no padding (store
 policy); --composed keeps the cut's camera and chrome instead. --set
@@ -609,7 +614,7 @@ async function cmdPlan(argv: string[]): Promise<number> {
   const dir = positionals[0]
   if (!dir)
     throw new UsageError(
-      'vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>]',
+      'vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--motion] [--headline "…"] [--launch LAUNCH.md] [--brand BRAND.md]',
     )
   const r = createReporter(flags.json === true)
   if (flags.fresh === true) {
@@ -635,14 +640,52 @@ async function cmdPlan(argv: string[]): Promise<number> {
   const style = await resolveStyleRef(flags)
   // A refresh keeps the doc's own frame; only a FRESH doc opens on the
   // house backdrop, so the set is read only when there is no doc.json.
-  const backdrop = existsSync(join(dir, 'doc.json'))
-    ? null
-    : await takeBackdrop(flags, r)
+  const hasDoc = existsSync(join(dir, 'doc.json'))
+  const backdrop = hasDoc ? null : await takeBackdrop(flags, r)
+  // The release's words and roles (LAUNCH.md and BRAND.md beside the take,
+  // flags over them): the words patch a layout's stage clips and name the
+  // end card; the roles decide the motion proposals; the brand's mark is
+  // fetched into the take's brand/ folder for the layout and the end card.
+  const release = await releaseInputs(dir, flags, r)
+  const motionWanted = !hasDoc || flags.motion === true || flags.fresh === true
   const s = await planTake(dir, {
     ...(style ? { style } : {}),
     ...(reuse ? { reuse } : {}),
     backdrop,
+    words: release.words,
+    mark: release.mark,
+    ...(motionWanted
+      ? {
+          motion: {
+            words: release.words,
+            launch: release.launchRoles,
+            ink: release.ink,
+            mark: release.mark,
+            captions: release.captions,
+            catalog: release.catalog,
+            again: flags.motion === true,
+          },
+        }
+      : {}),
   })
+  const layoutLines = s.layout
+    ? `\n  layout from ${s.styleFrom}: ${[
+        s.layout.clips.length ? `${s.layout.clips.length} stage clip(s)` : '',
+        s.layout.lean ? 'the rest lean' : '',
+        s.layout.hold ? 'the hold' : '',
+      ]
+        .filter(Boolean)
+        .join(', ')}` +
+      (s.layout.notes.length ? `\n    ${s.layout.notes.join('\n    ')}` : '')
+    : ''
+  const motionLines = s.motion
+    ? (s.motion.notes.length
+        ? `\n  proposed: ${s.motion.notes.join(', ')}`
+        : '') +
+      (s.motion.skipped.length
+        ? `\n  not proposed: ${s.motion.skipped.join('; ')}`
+        : '')
+    : ''
   const reuseLines = s.reuse
     ? `\n  reused ${s.reuse.from}: ${s.reuse.anchored} anchored + ${s.reuse.mapped} mapped span(s)` +
       (s.reuse.flagged.length
@@ -661,11 +704,112 @@ async function cmdPlan(argv: string[]): Promise<number> {
       ...(s.styleFrom
         ? { styleFrom: s.styleFrom, styleFields: s.styleFields }
         : {}),
+      ...(s.layout ? { layout: s.layout } : {}),
+      ...(s.motion ? { motion: s.motion } : {}),
       ...(s.reuse ? { reuse: s.reuse } : {}),
     },
-    `${s.reuse ? 'Reused' : s.fresh ? 'Planned' : 'Refreshed'} ${join(dir, 'doc.json')}: ${s.zoomAuto} auto + ${s.zoomManual} manual zoom spans${s.cursorKept ? '' : ' (cursor track dropped)'}${reuseLines}`,
+    `${s.reuse ? 'Reused' : s.fresh ? 'Planned' : 'Refreshed'} ${join(dir, 'doc.json')}: ${s.zoomAuto} auto + ${s.zoomManual} manual zoom spans${s.cursorKept ? '' : ' (cursor track dropped)'}${layoutLines}${motionLines}${reuseLines}`,
   )
   return EXIT_OK
+}
+
+/**
+ * The release's inputs beside a take, for `plan`: the words (LAUNCH.md's
+ * headline and kicker roles, BRAND.md's wordmark; flags override), the
+ * motion roles (LAUNCH.md's music, entrance, endCard, captions, clicks;
+ * flags override), the end card's ink from the brand's look, the brand's
+ * mark fetched into `<take>/brand/`, the step captions from actions.json,
+ * and the music catalog when a bed is asked for (one network read, only
+ * then).
+ */
+async function releaseInputs(
+  dir: string,
+  flags: ParsedArgs['flags'],
+  r: ReturnType<typeof createReporter>,
+): Promise<{
+  words: {
+    headline: string | null
+    kicker: string | null
+    brand: string | null
+    release: string | null
+  }
+  launchRoles: Record<string, string>
+  ink: string | null
+  mark: { key: string; aspect: number } | null
+  captions: { step: number; id?: string; caption: string }[]
+  catalog: Awaited<ReturnType<typeof fetchMusicCatalog>> | null
+}> {
+  let lookPick: Awaited<ReturnType<typeof resolveLook>>
+  try {
+    lookPick = await resolveLook(dir, {
+      look: strFlag(flags, 'look'),
+      brand: strFlag(flags, 'brand'),
+    })
+  } catch (e) {
+    throw new UsageError(e instanceof Error ? e.message : String(e))
+  }
+  const launch = await readLaunchBesideTake(dir, strFlag(flags, 'launch'))
+  // A literal \n in a frontmatter value or a flag is a line break: a headline
+  // is written over its lines on purpose.
+  const lines = (v: string | null | undefined) =>
+    v === null || v === undefined ? null : v.replace(/\\n/g, '\n')
+  const words = {
+    headline: lines(strFlag(flags, 'headline') ?? launch?.roles.headline),
+    kicker: lines(strFlag(flags, 'kicker') ?? launch?.roles.kicker),
+    brand: strFlag(flags, 'brand-name') ?? lookPick.roles?.wordmark ?? null,
+    release: strFlag(flags, 'release') ?? null,
+  }
+  if (launch) r.log(`words: ${launch.file}`)
+  const launchRoles: Record<string, string> = { ...(launch?.roles ?? {}) }
+  for (const [flag, role] of [
+    ['music', 'music'],
+    ['entrance', 'entrance'],
+    ['end-card', 'endCard'],
+    ['captions', 'captions'],
+    ['clicks', 'clicks'],
+  ] as const) {
+    const v = strFlag(flags, flag)
+    if (v !== undefined) launchRoles[role] = v
+  }
+  // The brand's mark: BRAND.md's logoUrl on a light ground, its
+  // logoOnDarkUrl on a dark one; a dark ground with no on-dark mark keeps
+  // the wordmark in words rather than an invisible ink mark.
+  const marks = await fetchBrandMarks(dir, lookPick.roles)
+  for (const n of marks.notes) r.log(`note: ${n}`)
+  const mark = lookPick.look?.kind === 'dark' ? marks.dark : marks.light
+  if (mark) r.log(`brand mark: ${mark.key} (${mark.aspect.toFixed(2)}:1)`)
+  const off = (v: string | undefined) =>
+    v !== undefined && /^(none|off|no|false)$/i.test(v)
+  let catalog: Awaited<ReturnType<typeof fetchMusicCatalog>> | null = null
+  if (launchRoles.music && !off(launchRoles.music)) {
+    try {
+      catalog = await fetchMusicCatalog(
+        platformOrigin({
+          origin: strFlag(flags, 'origin'),
+          api: strFlag(flags, 'api'),
+        }),
+      )
+    } catch (e) {
+      r.log(
+        `music catalog: ${e instanceof Error ? e.message : String(e)} — no bed`,
+      )
+    }
+  }
+  const take = await loadTake(dir)
+  const captions = (take.actions?.steps ?? []).flatMap((st, i) => {
+    const step = st as { id?: string; caption?: string }
+    return typeof step.caption === 'string' && step.caption.trim()
+      ? [{ step: i, id: step.id, caption: step.caption.trim() }]
+      : []
+  })
+  return {
+    words,
+    launchRoles,
+    ink: endCardInk(lookPick.look, lookPick.roles),
+    mark,
+    captions,
+    catalog,
+  }
 }
 
 async function cmdRender(argv: string[]): Promise<number> {
@@ -886,41 +1030,6 @@ async function cmdDeliver(argv: string[]): Promise<number> {
     throw new UsageError('--parallel expects an integer between 1 and 16')
   }
 
-  // The poster leg: card-genre destinations render from the maker's poster
-  // program (a local config.json, or a hosted vos id read with the key
-  // ladder) with this release's shot baked in.
-  let poster: { config: Record<string, unknown>; from: string } | null | undefined
-  const posterRef = strFlag(flags, 'poster')
-  if (posterRef === 'none') {
-    poster = null
-  } else if (posterRef !== undefined && templateByName(posterRef)) {
-    poster = { from: `template ${posterRef}`, config: templateByName(posterRef)! }
-  } else if (posterRef !== undefined) {
-    if (existsSync(posterRef)) {
-      poster = {
-        from: resolve(posterRef),
-        config: JSON.parse(await readFile(posterRef, 'utf8')) as Record<
-          string,
-          unknown
-        >,
-      }
-    } else {
-      const origin = platformOrigin({
-        origin: strFlag(flags, 'origin'),
-        api: strFlag(flags, 'api'),
-      })
-      const key = await resolveCredential(strFlag(flags, 'key'))
-      const res = (await apiJson(origin, `/api/vos/${posterRef}/config`, {
-        key,
-      })) as { config?: Record<string, unknown> }
-      if (!res.config)
-        throw new UsageError(
-          `--poster ${posterRef}: not a file on disk and the platform returned no config`,
-        )
-      poster = { from: posterRef, config: res.config }
-    }
-  }
-
   let lookPick: Awaited<ReturnType<typeof resolveLook>>
   try {
     lookPick = await resolveLook(dir, {
@@ -931,77 +1040,23 @@ async function cmdDeliver(argv: string[]): Promise<number> {
     throw new UsageError(e instanceof Error ? e.message : String(e))
   }
   r.log(`look: ${lookPick.from}`)
-  // The release's words: LAUNCH.md beside the take carries `headline` and
-  // `kicker` roles; flags override; --release is the kicker's second half.
+  // LAUNCH.md beside the take: its poster roles name the documents the
+  // card destinations render from. The words and the motion are the
+  // document's own since `vos plan` wrote them.
   const launch = await readLaunchBesideTake(dir, strFlag(flags, 'launch'))
-  // A literal \n in a frontmatter value or a flag is a line break: a headline
-  // is written over its lines on purpose.
-  const lines = (v: string | null | undefined) =>
-    v === null || v === undefined ? null : v.replace(/\\n/g, '\n')
-  const words = {
-    headline: lines(strFlag(flags, 'headline') ?? launch?.roles.headline),
-    kicker: lines(strFlag(flags, 'kicker') ?? launch?.roles.kicker),
-    brand: strFlag(flags, 'brand-name') ?? lookPick.roles?.wordmark ?? null,
-    release: strFlag(flags, 'release') ?? null,
-  }
-  if (launch) r.log(`words: ${launch.file}`)
-  // The destinations' motion and sound: LAUNCH.md's roles, flags over them.
-  const launchRoles: Record<string, string> = { ...(launch?.roles ?? {}) }
-  for (const [flag, role] of [
-    ['music', 'music'],
-    ['entrance', 'entrance'],
-    ['end-card', 'endCard'],
-    ['captions', 'captions'],
-    ['clicks', 'clicks'],
-  ] as const) {
-    const v = strFlag(flags, flag)
-    if (v !== undefined) launchRoles[role] = v
-  }
-  const soundWanted = channels.some((c) =>
-    ['x', 'youtube', 'shorts-linkedin'].includes(c),
-  )
-  let catalog: Awaited<ReturnType<typeof fetchMusicCatalog>> | null = null
-  if (soundWanted && !/^(none|off|no|false)$/i.test(launchRoles.music ?? '') && !/^(none|off|no|false)$/i.test(launchRoles.clicks ?? '')) {
-    try {
-      catalog = await fetchMusicCatalog(
-        platformOrigin({
-          origin: strFlag(flags, 'origin'),
-          api: strFlag(flags, 'api'),
-        }),
-      )
-    } catch (e) {
-      r.log(`music catalog: ${e instanceof Error ? e.message : String(e)} — the cuts stay silent`)
-    }
-  }
-  const captions = (take.actions?.steps ?? []).flatMap((s, i) => {
-    const step = s as { id?: string; caption?: string }
-    return typeof step.caption === 'string' && step.caption.trim()
-      ? [{ step: i, id: step.id, caption: step.caption.trim() }]
-      : []
-  })
+  if (launch) r.log(`launch: ${launch.file}`)
 
   const browser = await launchBrowser()
   try {
     const result = await deliverTake(browser, dir, {
       look: lookPick.look,
-      brandRoles: lookPick.roles,
-      launchRoles,
-      catalog,
-      captions,
-      words,
+      launchRoles: launch?.roles ?? null,
       channels,
       outDir: strFlag(flags, 'out'),
       release: strFlag(flags, 'release'),
       times,
       range,
       parallel,
-      poster,
-      posterTime: hasFlag(flags, 'poster-time')
-        ? numFlag(flags, 'poster-time', 0)
-        : undefined,
-      shotTime: hasFlag(flags, 'shot-time')
-        ? numFlag(flags, 'shot-time', 0)
-        : undefined,
       composed: hasFlag(flags, 'composed'),
       overrides: {
         set: multi.set,
@@ -1021,7 +1076,7 @@ async function cmdDeliver(argv: string[]): Promise<number> {
     const { kit } = result
     const assetLines = kit.assets.map(
       (a) =>
-        `${a.destination} → ${a.path} (${a.w}x${a.h}, ${(a.bytes / 1024).toFixed(0)} KB${a.seconds !== null ? `, ${a.seconds.toFixed(1)}s` : ''}${a.frameTime !== null ? `, frame ${a.frameTime.toFixed(2)}s` : ''}${a.source === 'poster' ? ', poster' : ''})`,
+        `${a.destination} → ${a.path} (${a.w}x${a.h}, ${(a.bytes / 1024).toFixed(0)} KB${a.seconds !== null ? `, ${a.seconds.toFixed(1)}s` : ''}${a.frameTime !== null ? `, frame ${a.frameTime.toFixed(2)}s` : ''}${a.poster ? `, poster ${a.poster.class}` : ''})`,
     )
     const skippedLines = kit.skipped.map((s) => `skipped: ${s}`)
     r.done(
@@ -1219,9 +1274,12 @@ async function cmdJudge(argv: string[]): Promise<number> {
       'vos judge <kit.json> --against <MANIFEST.json> [--out dir] [--json]\n(the manifest names the reference set: id, file, role, layout, facts, rule per asset)',
     )
   const r = createReporter(flags.json === true)
-  const kitFile = target.endsWith('kit.json') ? target : join(target, 'kit.json')
+  const kitFile = target.endsWith('kit.json')
+    ? target
+    : join(target, 'kit.json')
   if (!existsSync(kitFile)) throw new UsageError(`${kitFile}: no kit manifest`)
-  if (!existsSync(against)) throw new UsageError(`${against}: no reference manifest`)
+  if (!existsSync(against))
+    throw new UsageError(`${against}: no reference manifest`)
   const result = await judgeKit(kitFile, against, strFlag(flags, 'out'))
   const verdicts = (
     JSON.parse(await readFile(result.verdictFile, 'utf8')) as {
@@ -1230,13 +1288,16 @@ async function cmdJudge(argv: string[]): Promise<number> {
   ).verdicts
   const rate = winRate(verdicts)
   const lines = result.sheets.map(
-    (s) => `${s.asset} vs ${s.reference}: ${s.sheetA}, ${s.sheetB}, ${s.rubric}`,
+    (s) =>
+      `${s.asset} vs ${s.reference}: ${s.sheetA}, ${s.sheetB}, ${s.rubric}`,
   )
   r.done(
     { ...result, winRate: rate },
     `Wrote ${result.sheets.length} sheet pair(s) to ${result.outDir}` +
       (lines.length ? `\n  ${lines.join('\n  ')}` : '') +
-      (result.skipped.length ? `\n  skipped: ${result.skipped.join('\n  skipped: ')}` : '') +
+      (result.skipped.length
+        ? `\n  skipped: ${result.skipped.join('\n  skipped: ')}`
+        : '') +
       `\nJudge each pair both ways (the rubric is beside it) and fill ${result.verdictFile}` +
       (rate.judged
         ? `\nWin rate so far: ${rate.wins} win(s), ${rate.ties} tie(s) of ${rate.judged} judged (${(rate.rate! * 100).toFixed(0)}%; a tie counts a half); parity with the references is 50%, the marketability bar is 40%`
@@ -1386,9 +1447,15 @@ async function cmdPush(argv: string[]): Promise<number> {
     },
     r,
   )
+  // The links name the origin the push went to, so a local dev push does
+  // not point at the public site.
+  const pushedTo = platformOrigin({
+    origin: strFlag(flags, 'origin'),
+    api: strFlag(flags, 'api'),
+  }).replace(/\/+$/, '')
   r.done(
     { ...result },
-    `pushed v${result.versionNumber} → vos ${result.vosId}\n  review: https://vos.so/vos/${result.vosId}\n  studio: https://vos.so/studio?vos=${result.vosId}`,
+    `pushed v${result.versionNumber} → vos ${result.vosId}\n  review: ${pushedTo}/vos/${result.vosId}\n  studio: ${pushedTo}/studio?vos=${result.vosId}`,
   )
   return EXIT_OK
 }

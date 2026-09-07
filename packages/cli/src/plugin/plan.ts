@@ -4,6 +4,16 @@
  * honor the wand contract: `source:'manual'` zoom spans (and every other doc
  * edit) are preserved; only `source:'auto'` spans are regenerated, and new
  * suggestions overlapping a manual span are dropped.
+ *
+ * Two more things a plan writes, both DATA on the document so the studio
+ * shows what the kit will render: a LAYOUT copied from a poster document
+ * (`--style` carries the seed's card placement, its stage clips by id, its
+ * rest lean and its trailing hold, with the release's words patched into
+ * the stage clips), and the cut's MOTION as planner proposals (the card's
+ * entrance, the end card, a caption per beat, a music bed and click
+ * sounds, from LAUNCH.md's roles). Motion is proposed on a FRESH plan and
+ * on `--motion`, never on a refresh: a document that carries a cut is the
+ * maker's, and a deleted end card stays deleted.
  */
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
@@ -11,8 +21,11 @@ import { join } from 'node:path'
 import {
   DEFAULT_FRAME_STYLE,
   STYLE_FIELDS,
+  copyLayout,
   copyStyle,
   isRejected,
+  isStageClip,
+  layoutOf,
   planAutoSpeed,
   planAutoZoom,
   projectFromArtifact,
@@ -20,9 +33,13 @@ import {
 } from '@vosjs/studio-core'
 import { RECORDING_NAME, loadTake, writeJson } from './take'
 import { retimeCut } from './reuse'
+import { proposeMotion } from './motionPlan'
+import type { MotionProposalInput } from './motionPlan'
 import type { ReuseReport } from './reuse'
+import type { ReleaseWords } from './posterValues'
 import type {
   Backdrop,
+  LayoutParts,
   ProjectDoc,
   RecordingArtifact,
   ZoomSpan,
@@ -39,6 +56,10 @@ export interface PlanSummary {
   /** The style fields copied from `--style`'s reference, when given. */
   styleFrom?: string
   styleFields?: readonly string[]
+  /** The layout the reference carried and what the copy left alone. */
+  layout?: LayoutParts & { notes: string[] }
+  /** The motion proposed onto the document, and what could not be. */
+  motion?: { notes: string[]; skipped: string[] }
   /** `--reuse`: what the re-anchor did and what it could not. */
   reuse?: ReuseReport & { from: string }
 }
@@ -50,6 +71,8 @@ export interface PlanOptions {
    * copied onto this take BEFORE the planners run, so the auto spans are
    * proposed under the series' camera. The cut (spans, overlays, audio) is
    * never touched; a field absent on the reference is removed here too.
+   * A reference that is a POSTER carries its layout too: the stage clips
+   * by id, the rest lean where this take has no spans, the trailing hold.
    */
   style?: { from: string; doc: ProjectDoc }
   /**
@@ -67,6 +90,20 @@ export interface PlanOptions {
    * frame, which still wins. Null or absent: the bare frame.
    */
   backdrop?: Backdrop | null
+  /**
+   * The release's words, patched into the stage clips a layout carries
+   * (`stage-title` ← headline, `stage-kicker` ← kicker, `stage-brand` ←
+   * the wordmark) and read by the end card.
+   */
+  words?: ReleaseWords
+  /** The brand's mark (a take-dir key + aspect): the layout's `stage-mark` and the end card's mark. */
+  mark?: { key: string; aspect: number } | null
+  /**
+   * Propose the cut's motion (entrance, end card, captions, bed, clicks)
+   * from these roles. Applied on a fresh plan; `again` re-proposes onto an
+   * existing document (replacing only the proposals' own ids and fields).
+   */
+  motion?: MotionProposalInput & { again?: boolean }
 }
 
 const overlaps = (a: ZoomSpan, b: ZoomSpan) => a.in < b.out && b.in < a.out
@@ -90,6 +127,40 @@ async function readDigestActivity(
   }
 }
 
+/**
+ * The release's words into the stage clips a layout carries: a headline
+ * into `stage-title`, a kicker into `stage-kicker`, the wordmark into
+ * `stage-brand`. A word that is absent leaves the clip's own words (the
+ * exemplar's placeholder, or what the maker typed). In place.
+ */
+export function patchStageWords(doc: ProjectDoc, words: ReleaseWords): void {
+  const map: Record<string, string | null | undefined> = {
+    'stage-title': words.headline,
+    'stage-kicker': words.kicker,
+    'stage-brand': words.brand,
+  }
+  for (const clip of doc.overlays ?? []) {
+    if (clip.kind !== 'text' || !isStageClip(clip)) continue
+    const v = map[clip.id]
+    if (typeof v === 'string' && v.trim()) clip.text = v.trim()
+  }
+}
+
+/** `copyStyle` with the layout, the words and the mark applied. */
+function applyStyle(
+  seed: ProjectDoc,
+  doc: ProjectDoc,
+  opts: PlanOptions,
+): { doc: ProjectDoc; layout: PlanSummary['layout'] } {
+  const parts = layoutOf(seed)
+  const carries = parts.clips.length > 0 || parts.lean || parts.hold
+  if (!carries) return { doc: copyStyle(seed, doc), layout: undefined }
+  const keys = opts.mark ? { 'stage-mark': opts.mark.key } : undefined
+  const { doc: next, notes } = copyLayout(seed, copyStyle(seed, doc), { keys })
+  if (opts.words) patchStageWords(next, opts.words)
+  return { doc: next, layout: { ...parts, notes } }
+}
+
 export async function planTake(
   dir: string,
   opts: PlanOptions = {},
@@ -108,6 +179,7 @@ export async function planTake(
 
   let doc: ProjectDoc
   let fresh: boolean
+  let layout: PlanSummary['layout']
   if (opts.reuse) {
     // The re-render loop: fresh ingest of the NEW footage, the
     // previous cut's style + human work re-timed onto it, autos re-planned.
@@ -121,6 +193,12 @@ export async function planTake(
     doc = copyStyle(prev, doc)
     const rt = retimeCut(prev, meta.steps ?? [], meta.durationMs)
     doc.segments = rt.segments
+    // The previous cut's rest survives the re-record: the hold is the
+    // poster's still, and the new footage ends where the old one did.
+    const prevHold = prev.segments.at(-1)?.hold
+    const last = doc.segments.at(-1)
+    if (typeof prevHold === 'number' && prevHold > 0 && last)
+      last.hold = prevHold
     // The previous cut's deletions come along too: a proposal the human
     // rejected stays rejected on the new footage.
     if (rt.rejected.length) doc.rejected = rt.rejected
@@ -150,6 +228,8 @@ export async function planTake(
     if (prev.objects?.length) doc.objects = prev.objects
     if (prev.audio.length) doc.audio = prev.audio
     if (prev.camMotion?.length) doc.camMotion = prev.camMotion
+    // The end card is the cut's ending; it rides along like its overlays.
+    if (prev.endCard) doc.endCard = structuredClone(prev.endCard)
 
     await writeJson(take.paths.doc, doc, true)
     return {
@@ -162,7 +242,13 @@ export async function planTake(
     }
   }
   if (take.doc) {
-    doc = opts.style ? copyStyle(opts.style.doc, take.doc) : take.doc
+    if (opts.style) {
+      const applied = applyStyle(opts.style.doc, take.doc, opts)
+      doc = applied.doc
+      layout = applied.layout
+    } else {
+      doc = take.doc
+    }
     fresh = false
     const manual = doc.zoom.filter((z) => z.source === 'manual')
     const auto = planAutoZoom(doc.source.cursor, {
@@ -192,7 +278,11 @@ export async function planTake(
       meta,
     }
     doc = projectFromArtifact(artifact, RECORDING_NAME, ingest).doc
-    if (opts.style) doc = copyStyle(opts.style.doc, doc)
+    if (opts.style) {
+      const applied = applyStyle(opts.style.doc, doc, opts)
+      doc = applied.doc
+      layout = applied.layout
+    }
     doc.zoom = planAutoZoom(doc.source.cursor, {
       width: doc.source.meta.width,
       height: doc.source.meta.height,
@@ -205,6 +295,14 @@ export async function planTake(
       activity,
     })
     fresh = true
+  }
+
+  // The motion proposals ride a fresh document, or an explicit re-ask.
+  let motion: PlanSummary['motion']
+  if (opts.motion && (fresh || opts.motion.again)) {
+    const proposed = proposeMotion(doc, opts.motion)
+    doc = proposed.doc
+    motion = { notes: proposed.notes, skipped: proposed.skipped }
   }
 
   await writeJson(take.paths.doc, doc, true)
@@ -225,5 +323,7 @@ export async function planTake(
           ),
         }
       : {}),
+    ...(layout ? { layout } : {}),
+    ...(motion ? { motion } : {}),
   }
 }

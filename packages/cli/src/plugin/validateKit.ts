@@ -39,6 +39,8 @@ export interface KitAssetRecord {
   shot?: { x: number; y: number; w: number; h: number }
   /** A tile: the shot is a close CROP of the page's hero, past the frame by design. */
   crop?: boolean
+  /** The poster document a card rendered from: its class, its file, the vos it tracks. */
+  poster?: { class: string; file: string; vosId?: string }
 }
 
 export interface KitRecord {

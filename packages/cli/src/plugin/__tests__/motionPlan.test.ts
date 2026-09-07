@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_CAM_STYLE, DEFAULT_CURSOR_STYLE } from '@vosjs/studio-core'
-import { clickTimes, pickTrack, planMotion } from '../motionPlan'
+import {
+  clickTimes,
+  destinationMechanics,
+  endCardInk,
+  pickTrack,
+  proposeMotion,
+} from '../motionPlan'
 import { applyDocOverrides } from '../docOverride'
+import { lintDoc } from '../validateDoc'
 import type { MusicCatalog } from '../motionPlan'
 import type { ProjectDoc } from '@vosjs/studio-core'
 
@@ -44,7 +51,13 @@ function doc(): ProjectDoc {
       shadow: 0.4,
       border: 0,
       aspectRatio: 'native',
-      browserBar: { kind: 'none', url: '', showUrl: true, showControls: true, height: 44 },
+      browserBar: {
+        kind: 'none',
+        url: '',
+        showUrl: true,
+        showControls: true,
+        height: 44,
+      },
     },
     export: { resolution: '1080p', fps: 30, format: 'mp4' },
   }
@@ -52,105 +65,186 @@ function doc(): ProjectDoc {
 
 const catalog: MusicCatalog = {
   tracks: [
-    { slug: 'fresh-focus', title: 'Fresh Focus', mood: 'upbeat', duration: 124, url: 'https://x/fresh.mp3' },
-    { slug: 'slow-tide', title: 'Slow Tide', mood: 'calm', duration: 40, url: 'https://x/tide.mp3' },
+    {
+      slug: 'fresh-focus',
+      title: 'Fresh Focus',
+      mood: 'upbeat',
+      duration: 124,
+      url: 'https://x/fresh.mp3',
+    },
+    {
+      slug: 'slow-tide',
+      title: 'Slow Tide',
+      mood: 'calm',
+      duration: 40,
+      url: 'https://x/tide.mp3',
+    },
   ],
-  sfx: [{ slug: 'sfx-click', title: 'Click', duration: 0.07, url: 'https://x/click.wav' }],
+  sfx: [
+    {
+      slug: 'sfx-click',
+      title: 'Click',
+      duration: 0.07,
+      url: 'https://x/click.wav',
+    },
+  ],
 }
 
-const feed = { id: 'x-feed-cut', kind: 'video' as const, px: { w: 1920, h: 1080 }, text: 'allowed' as const }
-const loop = { id: 'github-readme-loop', kind: 'video' as const, px: { w: 1920, h: 1080 }, text: 'none' as const }
-const vertical = { id: 'shorts-linkedin-vertical-cut', kind: 'video' as const, px: { w: 1080, h: 1920 }, text: 'expected' as const }
+const feed = {
+  id: 'x-feed-cut',
+  kind: 'video' as const,
+  px: { w: 1920, h: 1080 },
+  text: 'allowed' as const,
+}
+const loop = {
+  id: 'github-readme-loop',
+  kind: 'video' as const,
+  px: { w: 1920, h: 1080 },
+  text: 'none' as const,
+}
+const silent = {
+  id: 'linkedin-feed-cut',
+  kind: 'video' as const,
+  px: { w: 1920, h: 1080 },
+  text: 'allowed' as const,
+}
+const vertical = {
+  id: 'shorts-linkedin-vertical-cut',
+  kind: 'video' as const,
+  px: { w: 1080, h: 1920 },
+  text: 'expected' as const,
+}
 
-describe('planMotion', () => {
-  it('a feed cut enters, ends on a card, carries captions, a bed and clicks', () => {
-    const plan = planMotion({
-      destination: feed,
-      doc: doc(),
-      range: [0, 34],
+describe('proposeMotion (the cut’s motion as data on the document)', () => {
+  it('writes the entrance, the end card, a caption per beat, a bed and clicks onto the document', () => {
+    const p = proposeMotion(doc(), {
       words: { headline: 'Ship it', brand: 'vosso', release: '1.7' },
       launch: { music: 'upbeat' },
       captions: [{ step: 1, id: 'hover', caption: 'Every program is a video' }],
       catalog,
     })
-    expect(plan.set).toContain('frame.entrance={"kind":"tilt-in"}')
-    const end = plan.set.find((s) => s.startsWith('endCard='))!
-    expect(JSON.parse(end.slice(8))).toEqual({ seconds: 2.5, headline: 'Ship it', sub: 'vosso 1.7', wordmark: 'vosso' })
-    const overlays = JSON.parse(plan.set.find((s) => s.startsWith('overlays='))!.slice(9)) as { text: string; start: number }[]
-    expect(overlays).toHaveLength(1)
-    expect(overlays[0].text).toBe('Every program is a video')
-    expect(overlays[0].start).toBeCloseTo(3.7, 3)
-    const audio = JSON.parse(plan.set.find((s) => s.startsWith('audio='))!.slice(6)) as { id: string; key: string; start: number }[]
-    expect(audio[0]).toMatchObject({ id: 'bed', key: 'https://x/fresh.mp3', start: 0 })
-    expect(audio.filter((a) => a.id.startsWith('click-')).map((a) => a.start)).toEqual([4, 9])
-    // The overrides apply to a doc and pass the lint's shape.
-    const d = doc()
-    applyDocOverrides(d, { set: plan.set })
-    expect(d.frame.entrance?.kind).toBe('tilt-in')
-    expect(d.endCard?.headline).toBe('Ship it')
-    expect(d.audio).toHaveLength(3)
-  })
-
-  it('a loop takes nothing: no entrance, no end card, no sound, no words', () => {
-    const plan = planMotion({
-      destination: loop,
-      doc: doc(),
-      range: [0, 20],
-      words: { headline: 'Ship it', brand: 'vosso' },
-      launch: { music: 'upbeat' },
-      captions: [{ step: 1, caption: 'x' }],
-      catalog,
+    expect(p.doc.frame.entrance).toEqual({ kind: 'tilt-in' })
+    expect(p.doc.endCard).toEqual({
+      seconds: 2.5,
+      headline: 'Ship it',
+      sub: 'vosso 1.7',
+      wordmark: 'vosso',
     })
-    expect(plan.set).toEqual([])
+    expect(p.doc.overlays).toHaveLength(1)
+    expect(p.doc.overlays?.[0]).toMatchObject({
+      id: 'caption-1',
+      text: 'Every program is a video',
+    })
+    expect(p.doc.overlays?.[0].start).toBeCloseTo(3.7, 3)
+    expect(p.doc.audio[0]).toMatchObject({
+      id: 'bed',
+      key: 'https://x/fresh.mp3',
+      start: 0,
+    })
+    expect(
+      p.doc.audio.filter((a) => a.id.startsWith('click-')).map((a) => a.start),
+    ).toEqual([4, 9])
+    expect(p.notes).toEqual([
+      'entrance tilt-in',
+      'end card',
+      '1 caption(s)',
+      'bed fresh-focus',
+      '2 click sound(s)',
+    ])
+    // The document it writes is a document the lint accepts.
+    expect(lintDoc(p.doc).problems).toEqual([])
+    // Pure: the input is untouched.
+    expect(doc().endCard).toBeUndefined()
   })
 
-  it('the vertical cut reframes and follows the camera', () => {
-    const plan = planMotion({
-      destination: vertical,
-      doc: doc(),
-      range: [0, 34],
+  it('replaces only its own proposals on a second pass and keeps the maker’s clips', () => {
+    const first = proposeMotion(doc(), {
       words: { brand: 'vosso' },
-      launch: {},
-      captions: [],
-      catalog: null,
+      launch: { music: 'calm' },
+      captions: [{ step: 1, caption: 'one' }],
+      catalog,
+    }).doc
+    first.overlays = [
+      ...(first.overlays ?? []),
+      {
+        id: 'mine',
+        kind: 'text',
+        text: 'my title',
+        preset: 'title',
+        start: 0,
+        duration: 2,
+        transform: { x: 0.5, y: 0.5, scale: 1, rotation: 0 },
+      },
+    ]
+    first.audio.push({
+      id: 'voice',
+      key: 'https://x/voice.mp3',
+      name: 'voice',
+      start: 1,
+      in: 0,
+      out: 3,
+      duration: 3,
+      gain: 1,
+      fadeIn: 0,
+      fadeOut: 0,
     })
-    expect(plan.set).toContain('frame.fit=cover')
-    expect(plan.set).toContain('frame.focusFollow=camera')
-    expect(plan.set.some((s) => s.startsWith('frame.inset='))).toBe(true)
+    const again = proposeMotion(first, {
+      words: { brand: 'vosso' },
+      launch: { music: 'upbeat', captions: 'none' },
+      captions: [{ step: 1, caption: 'one' }],
+      catalog,
+    }).doc
+    expect(again.overlays?.map((o) => o.id)).toEqual(['mine'])
+    expect(again.audio.map((a) => a.id)).toEqual([
+      'voice',
+      'bed',
+      'click-0',
+      'click-1',
+    ])
+    expect(again.audio.find((a) => a.id === 'bed')?.key).toBe(
+      'https://x/fresh.mp3',
+    )
   })
 
-  it('roles switch things off and say what could not be added', () => {
-    const plan = planMotion({
-      destination: feed,
-      doc: doc(),
-      range: [0, 34],
+  it('roles switch things off and say what could not be proposed', () => {
+    const p = proposeMotion(doc(), {
       words: {},
-      launch: { entrance: 'none', endCard: 'none', music: 'jazz-that-is-not-there', clicks: 'none' },
+      launch: {
+        entrance: 'none',
+        endCard: 'none',
+        music: 'jazz-that-is-not-there',
+        clicks: 'none',
+      },
       captions: [],
       catalog,
     })
-    expect(plan.set.some((s) => s.startsWith('frame.entrance'))).toBe(false)
-    expect(plan.set.some((s) => s.startsWith('endCard'))).toBe(false)
-    expect(plan.set.some((s) => s.startsWith('audio'))).toBe(false)
-    expect(plan.skipped[0]).toMatch(/music "jazz-that-is-not-there" is not a catalog track or mood/)
+    expect(p.doc.frame.entrance).toBeUndefined()
+    expect(p.doc.endCard).toBeUndefined()
+    expect(p.doc.audio).toEqual([])
+    expect(p.skipped[0]).toMatch(
+      /music "jazz-that-is-not-there" is not a catalog track or mood/,
+    )
   })
 
-  it('a bed loops to fill a longer cut and a mic ducks it', () => {
+  it('a bed loops to fill a longer cut and a mic ducks it; no clicks under a mic', () => {
     const d = doc()
     d.source.micKey = 'blob:mic'
-    const plan = planMotion({
-      destination: feed,
-      doc: d,
-      range: [0, 60],
+    d.segments = [{ in: 0, out: 60 }]
+    d.source.meta.durationMs = 60000
+    const p = proposeMotion(d, {
       words: { brand: 'vosso' },
       launch: { music: 'slow-tide' },
       captions: [],
       catalog,
     })
-    const audio = JSON.parse(plan.set.find((s) => s.startsWith('audio='))!.slice(6)) as Record<string, unknown>[]
-    expect(audio[0]).toMatchObject({ loop: true, loopLen: 60, duck: true, gain: 0.35 })
-    // No click sounds under a mic.
-    expect(audio.filter((a) => String(a.id).startsWith('click-'))).toHaveLength(0)
+    expect(p.doc.audio[0]).toMatchObject({
+      id: 'bed',
+      loop: true,
+      loopLen: 60,
+      duck: true,
+      gain: 0.35,
+    })
+    expect(p.doc.audio.filter((a) => a.id.startsWith('click-'))).toHaveLength(0)
   })
 
   it('pickTrack and clickTimes', () => {
@@ -158,5 +252,75 @@ describe('planMotion', () => {
     expect(pickTrack(catalog, 'none')).toBeNull()
     expect(pickTrack(null, 'upbeat')).toBeNull()
     expect(clickTimes(doc(), [3, 34])).toEqual([1, 6])
+  })
+
+  it('the end card’s ink follows the ground', () => {
+    expect(endCardInk(null, null)).toBeNull()
+    expect(
+      endCardInk({ kind: 'dark', ground: '#07080b' } as never, {
+        ink: '#123456',
+      }),
+    ).toBe('#ffffff')
+    expect(
+      endCardInk({ kind: 'plate', ground: '#f0f2f4' } as never, {
+        ink: '#123456',
+      }),
+    ).toBe('#123456')
+    expect(
+      endCardInk({ kind: 'plate', ground: '#f0f2f4' } as never, null),
+    ).toBe('#111111')
+  })
+})
+
+describe('destinationMechanics (what the spec does at render time)', () => {
+  const proposed = proposeMotion(doc(), {
+    words: { headline: 'Ship it', brand: 'vosso' },
+    launch: { music: 'upbeat' },
+    captions: [{ step: 1, caption: 'x' }],
+    catalog,
+  }).doc
+
+  it('a feed cut that plays sound keeps the document as it is', () => {
+    const m = destinationMechanics(feed, proposed)
+    expect(m.set).toEqual([])
+    expect(m.unset).toEqual([])
+  })
+
+  it('a loop drops the entrance, the end card, the captions and the sound, and the result lints', () => {
+    const m = destinationMechanics(loop, proposed)
+    const d = structuredClone(proposed)
+    applyDocOverrides(d, { set: m.set, unset: m.unset })
+    expect(d.frame.entrance).toBeUndefined()
+    expect(d.endCard).toBeUndefined()
+    expect(d.audio).toEqual([])
+    expect(d.overlays).toEqual([])
+    expect(lintDoc(d).problems).toEqual([])
+    expect(m.notes).toEqual(['loop: no entrance, no end card', 'no captions'])
+  })
+
+  it('a silent channel mutes the bed and keeps the words', () => {
+    const m = destinationMechanics(silent, proposed)
+    expect(m.set).toEqual(['audio=[]'])
+    expect(m.unset).toEqual([])
+  })
+
+  it('the vertical cut reframes and follows the camera', () => {
+    const m = destinationMechanics(vertical, proposed)
+    expect(m.set).toContain('frame.fit=cover')
+    expect(m.set).toContain('frame.focusFollow=camera')
+    expect(m.set.some((s) => s.startsWith('frame.inset='))).toBe(true)
+  })
+
+  it('a still is not a video destination', () => {
+    const m = destinationMechanics(
+      {
+        id: 'og-card',
+        kind: 'still',
+        px: { w: 1200, h: 630 },
+        text: 'allowed',
+      },
+      proposed,
+    )
+    expect(m).toEqual({ set: [], unset: [], notes: [] })
   })
 })

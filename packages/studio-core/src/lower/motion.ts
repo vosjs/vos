@@ -17,6 +17,33 @@ import type {
   TextOverlayClip,
 } from '../types'
 import { resolveExportSize } from '../types'
+import { splitBySpeed, totalDuration } from '@vosjs/timeline'
+
+/**
+ * THE REST of a take: the one output time its still is taken at. A poster
+ * ends on a trailing `hold` (its last segment freezes on its last frame),
+ * and the rest is where that hold BEGINS — the composed frame before
+ * nothing moves. Null when the take has no trailing hold, and null with an
+ * end card: the end card grows that hold at lowering and its words rise
+ * over the receding card during it, so the frame where it begins is
+ * footage under a fading title, not a poster. One convention for every
+ * still-taking surface (an export, a thumbnail, a kit), so they agree.
+ */
+export function docRestTime(doc: ProjectDoc): number | null {
+  if (doc.endCard) return null
+  const last = doc.segments.at(-1)
+  const hold = last?.hold
+  if (typeof hold !== 'number' || !(hold > 0)) return null
+  const segs = doc.segments.length
+    ? doc.segments
+    : [{ in: 0, out: doc.source.meta.durationMs / 1000 }]
+  const total = totalDuration(
+    withHolds(segs, splitBySpeed(segs, doc.speed ?? [])),
+  )
+  const rest = total - hold
+  if (!(rest >= 0)) return null
+  return Math.round(rest * 1000) / 1000
+}
 
 /** The entrance's default length, seconds. */
 export const ENTRANCE_SECONDS = 1.2

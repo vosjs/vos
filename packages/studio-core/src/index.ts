@@ -60,8 +60,25 @@ export type {
 export { SCENE_MOTION, SCENE_QUIET, sceneChanges } from './digest/scenes'
 export { zoomCoversRect, zoomWindow } from './digest/framing'
 export type { ZoomWindow } from './digest/framing'
-export { STYLE_FIELDS, copyStyle, pickStyle } from './digest/style'
-export type { StyleField } from './digest/style'
+export {
+  LAYOUT_FRAME_FIELDS,
+  REST_TILT_ID,
+  STAGE_CLIP_PREFIX,
+  STYLE_FIELDS,
+  copyLayout,
+  copyStyle,
+  isStageClip,
+  layoutOf,
+  pickStyle,
+  restLeanOf,
+} from './digest/style'
+export type {
+  CopiedLayout,
+  CopyLayoutOptions,
+  CopyStyleOptions,
+  LayoutParts,
+  StyleField,
+} from './digest/style'
 export {
   CROP_MAX_PX,
   CROP_MIN_FRAC,
@@ -192,6 +209,7 @@ export {
   END_CARD_SECONDS,
   ENTRANCE_SECONDS,
   cardPoseTrack,
+  docRestTime,
   entranceSeconds,
   expandEndCard,
   withHolds,

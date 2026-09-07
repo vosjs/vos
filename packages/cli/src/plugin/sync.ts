@@ -25,7 +25,12 @@ import { basename, join } from 'node:path'
 import { lowerToComposition, migrateHostedDoc } from '@vosjs/studio-core'
 import { RECORDING_NAME, loadTake, writeJson } from './take'
 import { lintDoc } from './validateDoc'
-import { pullMedia } from './media'
+import {
+  docMediaRefs,
+  mediaContentType,
+  pullMedia,
+  takeRelativeFile,
+} from './media'
 import { listFolders, resolveFolder } from './folder'
 import {
   apiJson,
@@ -220,6 +225,40 @@ export async function pushTake(
   ) {
     r.log('  mic track is local-only — dropped from the push')
     delete docForPush.source.micKey
+  }
+  // The document's other media, keyed beside the recording (a poster's
+  // mark in brand/, a pasted ground): each file rides the same
+  // content-addressed door, so a re-push reuses it, and the hosted
+  // document keys the asset. A key whose file is missing is said and
+  // left as it is (the hosted render will 404 on it, honestly).
+  for (const ref of docMediaRefs(docForPush)) {
+    const file = join(dir, takeRelativeFile(ref.key))
+    if (!existsSync(file)) {
+      r.log(`  ${ref.where}: ${ref.key} is not in the take — left as is`)
+      continue
+    }
+    const media = await readFile(file)
+    const mediaHash = createHash('sha256').update(media).digest('hex')
+    const type = mediaContentType(file)
+    const put = await api(ctx, '/assets/recording', {
+      method: 'POST',
+      headers: {
+        'Content-Type': type,
+        'Content-Length': String(media.length),
+        'X-Filename': basename(file),
+        'X-Content-Hash': mediaHash,
+      },
+      raw: new Uint8Array(media),
+    })
+    if (put.status !== 201 && put.status !== 200) {
+      throw new Error(
+        `${ref.where} upload failed (${put.status}): ${String(put.json.error ?? '')}`,
+      )
+    }
+    ref.set(String(put.json.url))
+    r.log(
+      `  ${ref.where}: ${ref.key} → asset ${String(put.json.id)}${put.json.reused === true ? ' (reused)' : ''}`,
+    )
   }
   const lowered = lowerToComposition(docForPush)
   const config = { ...lowered.config, data: lowered.data }
