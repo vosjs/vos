@@ -90,13 +90,17 @@ import { followFocusEvents } from './cursorFollow'
 import { cursorIdleFade } from './cursorIdle'
 import { STUDIO_ENTRY_ID, studioEntry } from './studioEntry'
 import {
+  cardEnter,
+  cardExit,
   cardPoseTrack,
   entranceTiltKeyframes,
   entranceZoomKeyframes,
-  expandEndCard,
+  migrateMotion,
+  outputEnd,
   prependEntrance,
   withHolds,
 } from './motion'
+import { enterKey, exitKey, idleKey } from '../anim'
 import {
   CLICK_FX_PRE,
   CLICK_HIGHLIGHT_FADE,
@@ -2113,7 +2117,7 @@ export function studioLayerData(
             ry: round(o.transform3d.ry),
             rz: round(o.transform3d.rz),
             scale: round(o.transform3d.scale || OBJECT_DEFAULT_SCALE),
-            anim: o.animation ?? null,
+            anim: idleKey(o),
             // Pose keyframes: clip-local [x,y,z,rx,ry,rz,scale] track,
             // sampled at t − span.start. Omitted when absent — parity.
             ...(() => {
@@ -2150,8 +2154,8 @@ export function studioLayerData(
               y: round(o.transform.y),
               scale: round(o.transform.scale || 1),
               rot: round(o.transform.rotation || 0),
-              enter: o.enter ?? 'rise',
-              exit: o.exit ?? 'fade',
+              enter: enterKey(o),
+              exit: exitKey(o),
               // Pose keyframes: a CLIP-LOCAL [x, y, scale, rot, opacity]
               // track, sampled in ON_FRAME at t − start. Omitted when the clip
               // has no motion — data byte parity.
@@ -2253,13 +2257,15 @@ export function studioLayerData(
 }
 
 export function lowerToComposition(input: ProjectDoc): LoweredComposition {
-  // The end card expands first: it adds a hold and three overlays, and the
-  // hold changes the duration every track below is laid out against.
-  const before = durationSec(input, ratedSegments(input))
-  const expanded = expandEndCard(input, before)
-  const doc = expanded.doc
+  // One vocabulary first: a legacy entrance, end card or clip spelling is
+  // read into `anim` (the end card into clips after the footage plus a
+  // card exit), so every track below is laid out against one shape.
+  const doc = migrateMotion(input)
   const rated = ratedSegments(doc)
-  const duration = durationSec(doc, rated)
+  // The footage's end, holds included; the output lasts until the last
+  // visual clip ends, and past its footage the card holds its last frame.
+  const footageEnd = durationSec(doc, rated)
+  const duration = outputEnd(doc, footageEnd)
   // clickSnap only when effects are on, so an effects-off doc's path (and its
   // lowered data) stays byte-identical to the pre-click-effects lowering.
   const fx = doc.cursor.clickFx
@@ -2353,7 +2359,7 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
     // A pull-out entrance writes the track's head.
     zoomTrack: prependEntrance(
       zoomTrackFromDoc(zoomSpans, rated, zoomStyle),
-      entranceZoomKeyframes(doc.frame.entrance),
+      entranceZoomKeyframes(cardEnter(doc.frame)),
     ),
     // Tilt spans: OUTPUT-time [rx, ry] degree track. The rest pose is
     // FLAT — there is no static card tilt any more — and the motion constants
@@ -2362,7 +2368,7 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
     // spans and no tilt-in entrance — byte parity. The entrance is a
     // producer of this track, never a second pose.
     ...(() => {
-      const head = entranceTiltKeyframes(doc.frame.entrance)
+      const head = entranceTiltKeyframes(cardEnter(doc.frame))
       const spans =
         doc.tilt && doc.tilt.length
           ? tiltTrackFromDoc(doc.tilt, rated, zoomStyle.tilt)
@@ -2370,13 +2376,14 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
       const track = prependEntrance(spans, head)
       return track ? { tiltTrack: track } : {}
     })(),
-    // The card's pose through the entrance and the end card: [scale, dy,
-    // opacity] in output seconds. Absent when neither exists.
+    // The card's pose through its enter and its exit: [scale, dy, opacity]
+    // in output seconds. Absent when the card carries neither.
     ...(() => {
       const track = cardPoseTrack(
-        doc.frame.entrance,
-        expanded.endStart,
-        expanded.seconds,
+        cardEnter(doc.frame),
+        cardExit(doc.frame),
+        footageEnd,
+        duration,
       )
       return track ? { cardPoseTrack: track } : {}
     })(),

@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   LAYOUT_FRAME_FIELDS,
   REST_TILT_ID,
+  applyTemplate,
+  clipsFrom,
   copyLayout,
   copyStyle,
+  dropTemplate,
   layoutOf,
 } from '../digest/style'
 import { docRestTime } from '../lower/motion'
@@ -75,7 +78,7 @@ const exemplar = take({
     radius: 16,
     shadow: 0.5,
     shadowContact: 0.2,
-    entrance: { kind: 'tilt-in' },
+    anim: { enter: 'tilt-in' },
     browserBar: {
       ...DEFAULT_FRAME_STYLE.browserBar,
       kind: 'mac-dark',
@@ -106,7 +109,7 @@ describe('copyLayout', () => {
     expect(doc.frame.inset).toEqual(exemplar.frame.inset)
     expect(doc.frame.radius).toBe(16)
     expect(doc.frame.shadowContact).toBe(0.2)
-    expect(doc.frame.entrance).toEqual({ kind: 'tilt-in' })
+    expect(doc.frame.anim).toEqual({ enter: 'tilt-in' })
     expect(doc.frame.background).toBe('#f0f2f4')
     expect(doc.frame.aspectRatio).toBe('16:9')
     expect(doc.frame.browserBar).toEqual(mine.frame.browserBar)
@@ -198,7 +201,7 @@ describe('copyLayout', () => {
           'shadowContact',
           'inset',
           'border',
-          'entrance',
+          'anim',
         ].includes(k),
       ),
       clips: ['stage-title', 'stage-mark'],
@@ -259,5 +262,122 @@ describe('docRestTime', () => {
         }),
       ),
     ).toBeNull()
+  })
+})
+
+describe('applyTemplate (a template is a vos, applied at an anchor)', () => {
+  const endCard = take({
+    segments: [{ in: 0, out: 4 }],
+    frame: {
+      ...DEFAULT_FRAME_STYLE,
+      anim: { exit: { kind: 'recede', seconds: 0.7 } },
+    },
+    overlays: [
+      {
+        ...title('Ship it'),
+        id: 'endcard-title',
+        start: 4.35,
+        duration: 2.15,
+        maxWidth: undefined,
+      },
+      {
+        id: 'endcard-markimg',
+        kind: 'image',
+        key: 'brand/mark.svg',
+        width: 0.05,
+        radius: 0,
+        shadow: 'none',
+        start: 4.65,
+        duration: 1.85,
+        transform: { x: 0.5, y: 0.84, scale: 1, rotation: 0 },
+      },
+    ],
+    audio: [
+      {
+        id: 'sting',
+        key: 'https://assets.vos.so/audio-sfx/sting.wav',
+        name: 'sting',
+        start: 4,
+        in: 0,
+        out: 1,
+        duration: 1,
+        gain: 0.6,
+        fadeIn: 0,
+        fadeOut: 0,
+      },
+    ],
+  })
+
+  it('lays an end card after the take footage, stamped from, words patched, the exit merged', () => {
+    const mine = take({ overlays: [title('Mine', 0.5)] })
+    const { doc, notes } = applyTemplate(endCard, mine, {
+      at: 'end',
+      from: 'vos-endcard',
+      words: { 'endcard-title': 'Every program\nis a video' },
+      keys: { 'endcard-markimg': '/api/assets/m/file' },
+    })
+    const ids = doc.overlays!.map((o) => o.id)
+    expect(ids).toEqual(['stage-title', 'endcard-title', 'endcard-markimg'])
+    const t = doc.overlays![1]
+    expect(t.start).toBeCloseTo(10.35, 6)
+    expect(t.from).toBe('vos-endcard')
+    expect((t as TextOverlayClip).text).toBe('Every program\nis a video')
+    expect(doc.overlays![2]).toMatchObject({
+      key: '/api/assets/m/file',
+      start: 10.65,
+      from: 'vos-endcard',
+    })
+    expect(doc.audio[0]).toMatchObject({
+      id: 'sting',
+      start: 10,
+      from: 'vos-endcard',
+    })
+    expect(doc.frame.anim).toEqual({ exit: { kind: 'recede', seconds: 0.7 } })
+    expect(doc.frame.inset).toBeUndefined() // no look asked
+    expect(notes).toEqual([])
+    expect(mine.overlays).toHaveLength(1) // pure
+  })
+
+  it('re-applying with the same from replaces its clips and leaves the rest', () => {
+    const once = applyTemplate(endCard, take(), { at: 'end', from: 'x' }).doc
+    const twice = applyTemplate(endCard, once, {
+      at: 'end',
+      from: 'x',
+      words: { 'endcard-title': 'Again' },
+    }).doc
+    expect(twice.overlays!.filter((o) => o.from === 'x')).toHaveLength(1)
+    expect((twice.overlays![0] as TextOverlayClip).text).toBe('Again')
+    expect(clipsFrom(twice, 'x').audio).toHaveLength(1)
+    const dropped = dropTemplate(twice, 'x')
+    expect(dropped.overlays).toEqual([])
+    expect(dropped.audio).toEqual([])
+    const untouched = take()
+    expect(dropTemplate(untouched, 'x')).toBe(untouched)
+  })
+
+  it('a numeric anchor starts the template clock there; start keeps its times; a media key it cannot resolve is a note', () => {
+    const { doc, notes } = applyTemplate(endCard, take(), { at: 2, from: 'x' })
+    expect(doc.overlays![0].start).toBeCloseTo(6.35, 6)
+    expect(doc.overlays!.some((o) => o.id === 'endcard-markimg')).toBe(false)
+    expect(notes[0]).toMatch(/endcard-markimg/)
+    const kept = applyTemplate(endCard, take(), {
+      at: 'start',
+      from: 'x',
+      keys: { 'endcard-markimg': 'k' },
+    }).doc
+    expect(kept.overlays![1].start).toBeCloseTo(4.65, 6)
+  })
+
+  it('with look, the layout comes too and the stage clips are stamped', () => {
+    const { doc } = applyTemplate(exemplar, take(), {
+      at: 'start',
+      from: 'poster',
+      look: true,
+    })
+    expect(doc.frame.inset).toEqual(exemplar.frame.inset)
+    expect(doc.overlays!.find((o) => o.id === 'stage-title')?.from).toBe(
+      'poster',
+    )
+    expect(doc.segments.at(-1)?.hold).toBe(3)
   })
 })

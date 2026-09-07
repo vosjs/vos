@@ -14,6 +14,13 @@ import {
   CAM_SIZE_MAX,
   CAM_SIZE_MIN,
   CAM_SPAN_MIN,
+  CARD_ENTER_KINDS,
+  CARD_EXIT_KINDS,
+  IDLE_KINDS,
+  MEDIA_ENTER_KINDS,
+  MEDIA_EXIT_KINDS,
+  TEXT_ENTER_KINDS,
+  TEXT_EXIT_KINDS,
   EXPORT_RESOLUTION_OPTIONS,
   SPEED_RATE_MAX,
   SPEED_RATE_MIN,
@@ -34,6 +41,116 @@ import type {
   ProjectDoc,
   StudioDoc,
 } from '@vosjs/studio-core'
+
+const STEP_KINDS_ALL = [
+  'none',
+  'fade',
+  'rise',
+  'pop',
+  'blur',
+  'typewriter',
+  'tilt-in',
+  'pull-out',
+  'recede',
+]
+const STEP_UNITS = ['block', 'line', 'word', 'char']
+const STEP_DIRS = ['forward', 'reverse', 'center']
+
+/**
+ * The one vocabulary, checked per primitive: which kinds a thing accepts
+ * is its own (the card cannot typewrite, a word cannot tilt in), the
+ * per-unit grammar belongs to words, and idle belongs to props.
+ */
+function lintAnim(
+  name: string,
+  anim: unknown,
+  kinds: {
+    enter: readonly string[]
+    exit: readonly string[]
+    idle: readonly string[] | null
+    words: boolean
+  },
+  problems: string[],
+): void {
+  if (anim === undefined) return
+  if (typeof anim !== 'object' || anim === null || Array.isArray(anim)) {
+    problems.push(`${name}.anim must be { enter?, exit?, idle? }`)
+    return
+  }
+  const a = anim as Record<string, unknown>
+  for (const side of ['enter', 'exit'] as const) {
+    const step = a[side]
+    if (step === undefined) continue
+    const allowed = kinds[side]
+    const spelled = typeof step === 'string' ? step : null
+    const obj =
+      typeof step === 'object' && step !== null && !Array.isArray(step)
+        ? (step as Record<string, unknown>)
+        : null
+    const kind = spelled ?? (obj ? obj.kind : undefined)
+    if (typeof kind !== 'string' || !STEP_KINDS_ALL.includes(kind)) {
+      problems.push(
+        `${name}.anim.${side} must be a kind or { kind, seconds?${kinds.words ? ', unit?, direction?, stagger?' : ''} } (got ${JSON.stringify(step)})`,
+      )
+      continue
+    }
+    if (!allowed.includes(kind)) {
+      problems.push(
+        `${name}.anim.${side} cannot be "${kind}" here; one of ${allowed.join(' | ')}`,
+      )
+    }
+    if (!obj) continue
+    const secs = obj.seconds
+    if (
+      secs !== undefined &&
+      (typeof secs !== 'number' ||
+        !Number.isFinite(secs) ||
+        secs < 0.05 ||
+        secs > 3)
+    ) {
+      problems.push(`${name}.anim.${side}.seconds must be 0.05..3`)
+    }
+    for (const key of ['unit', 'direction', 'stagger'] as const) {
+      if (obj[key] === undefined) continue
+      if (!kinds.words) {
+        problems.push(`${name}.anim.${side}.${key} is for words only`)
+        continue
+      }
+      if (
+        key === 'unit' &&
+        (typeof obj.unit !== 'string' || !STEP_UNITS.includes(obj.unit))
+      )
+        problems.push(
+          `${name}.anim.${side}.unit must be ${STEP_UNITS.join('|')}`,
+        )
+      if (
+        key === 'direction' &&
+        (typeof obj.direction !== 'string' ||
+          !STEP_DIRS.includes(obj.direction))
+      )
+        problems.push(
+          `${name}.anim.${side}.direction must be ${STEP_DIRS.join('|')}`,
+        )
+      if (
+        key === 'stagger' &&
+        (typeof obj.stagger !== 'number' || obj.stagger < 0 || obj.stagger > 2)
+      )
+        problems.push(`${name}.anim.${side}.stagger must be seconds in 0..2`)
+    }
+  }
+  if (a.idle !== undefined && a.idle !== null) {
+    if (!kinds.idle) problems.push(`${name}.anim.idle is for props only`)
+    else if (typeof a.idle !== 'string' || !kinds.idle.includes(a.idle))
+      problems.push(
+        `${name}.anim.idle must be ${kinds.idle.join(' | ')} | null`,
+      )
+  }
+}
+
+function lintFrom(name: string, from: unknown, problems: string[]): void {
+  if (from !== undefined && (typeof from !== 'string' || !from.length))
+    problems.push(`${name}.from must be the id of the template that placed it`)
+}
 
 export interface DocLintResult {
   problems: string[]
@@ -225,34 +342,57 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       }
     }
 
-  // --- holds and the end card: a freeze is output seconds, never long ---
-  for (const [i, seg] of (Array.isArray(doc.segments) ? (doc.segments as unknown[]) : []).entries()) {
-    const hold = (seg as { hold?: unknown }).hold
-    if (hold !== undefined && (!isNum(hold) || hold < 0 || hold > 10)) {
-      problems.push(
-        `segments[${i}].hold must be 0..10 output seconds (got ${String(hold)})`,
-      )
-    }
-  }
-  const endCard = (doc as { endCard?: unknown }).endCard
-  if (endCard !== undefined) {
-    if (typeof endCard !== 'object' || endCard === null) {
-      problems.push('endCard must be an object: {seconds?, headline?, sub?, wordmark?}')
-    } else {
-      const ec = endCard as { seconds?: unknown; headline?: unknown; sub?: unknown; wordmark?: unknown }
-      if (ec.seconds !== undefined && (!isNum(ec.seconds) || ec.seconds < 1 || ec.seconds > 8)) {
-        problems.push(`endCard.seconds must be 1..8 (got ${String(ec.seconds)}); absent = 2.5`)
+    // --- holds and the end card: a freeze is output seconds, never long ---
+    for (const [i, seg] of (Array.isArray(doc.segments)
+      ? (doc.segments as unknown[])
+      : []
+    ).entries()) {
+      const hold = (seg as { hold?: unknown }).hold
+      if (hold !== undefined && (!isNum(hold) || hold < 0 || hold > 10)) {
+        problems.push(
+          `segments[${i}].hold must be 0..10 output seconds (got ${String(hold)})`,
+        )
       }
-      for (const k of ['headline', 'sub', 'wordmark'] as const) {
-        if (ec[k] !== undefined && typeof ec[k] !== 'string') {
-          problems.push(`endCard.${k} must be a string`)
+    }
+    const endCard = (doc as { endCard?: unknown }).endCard
+    if (endCard !== undefined) {
+      if (typeof endCard !== 'object' || endCard === null) {
+        problems.push(
+          'endCard must be an object: {seconds?, headline?, sub?, wordmark?}',
+        )
+      } else {
+        const ec = endCard as {
+          seconds?: unknown
+          headline?: unknown
+          sub?: unknown
+          wordmark?: unknown
+        }
+        if (
+          ec.seconds !== undefined &&
+          (!isNum(ec.seconds) || ec.seconds < 1 || ec.seconds > 8)
+        ) {
+          problems.push(
+            `endCard.seconds must be 1..8 (got ${String(ec.seconds)}); absent = 2.5`,
+          )
+        }
+        for (const k of ['headline', 'sub', 'wordmark'] as const) {
+          if (ec[k] !== undefined && typeof ec[k] !== 'string') {
+            problems.push(`endCard.${k} must be a string`)
+          }
+        }
+        if (
+          !['headline', 'sub', 'wordmark'].some(
+            (k) =>
+              typeof ec[k as keyof typeof ec] === 'string' &&
+              (ec[k as keyof typeof ec] as string).trim(),
+          )
+        ) {
+          warnings.push(
+            'endCard carries no words: it holds the last frame and recedes the card over nothing',
+          )
         }
       }
-      if (!['headline', 'sub', 'wordmark'].some((k) => typeof ec[k as keyof typeof ec] === 'string' && (ec[k as keyof typeof ec] as string).trim())) {
-        warnings.push('endCard carries no words: it holds the last frame and recedes the card over nothing')
-      }
     }
-  }
     // --- segments (kept footage) ---
     if (doc.segments !== undefined && !Array.isArray(doc.segments)) {
       problems.push('segments must be an array of {in, out} spans')
@@ -540,7 +680,11 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       const ent = frame.entrance
       if (ent !== undefined) {
         const kinds = ['tilt-in', 'pull-out', 'rise', 'none']
-        if (typeof ent !== 'object' || ent === null || !kinds.includes(String((ent as { kind?: unknown }).kind))) {
+        if (
+          typeof ent !== 'object' ||
+          ent === null ||
+          !kinds.includes(String((ent as { kind?: unknown }).kind))
+        ) {
           problems.push(
             `frame.entrance.kind must be one of ${kinds.join(' | ')} (got ${JSON.stringify(ent)})`,
           )
@@ -553,6 +697,17 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
           }
         }
       }
+      lintAnim(
+        'frame',
+        frame.anim,
+        {
+          enter: CARD_ENTER_KINDS,
+          exit: CARD_EXIT_KINDS,
+          idle: null,
+          words: false,
+        },
+        problems,
+      )
       if (frame.focusFollow !== undefined && frame.focusFollow !== 'camera') {
         problems.push(
           `frame.focusFollow must be "camera" (got ${String(frame.focusFollow)}); it reads under fit: cover only`,
@@ -869,6 +1024,25 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
         problems.push(`${name}.${key} must be one of ${TRANSITIONS.join('|')}`)
       }
     }
+    lintAnim(
+      name,
+      o.anim,
+      o.kind === 'text'
+        ? {
+            enter: TEXT_ENTER_KINDS,
+            exit: TEXT_EXIT_KINDS,
+            idle: null,
+            words: true,
+          }
+        : {
+            enter: MEDIA_ENTER_KINDS,
+            exit: MEDIA_EXIT_KINDS,
+            idle: null,
+            words: false,
+          },
+      problems,
+    )
+    lintFrom(name, o.from, problems)
     // Pose keyframes: clip-local, fractions, opacity as a multiplier.
     if (o.motion !== undefined) {
       if (!Array.isArray(o.motion)) {
@@ -1028,6 +1202,18 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
     ) {
       problems.push(`${name}.animation must be "spin" | "float" | null`)
     }
+    lintAnim(
+      name,
+      o.anim,
+      {
+        enter: MEDIA_ENTER_KINDS,
+        exit: MEDIA_EXIT_KINDS,
+        idle: IDLE_KINDS,
+        words: false,
+      },
+      problems,
+    )
+    lintFrom(name, o.from, problems)
     // Pose keyframes: clip-local over transform3d; presets compose.
     if (o.motion !== undefined) {
       if (!Array.isArray(o.motion)) {

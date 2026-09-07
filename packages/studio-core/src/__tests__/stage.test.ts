@@ -205,7 +205,7 @@ describe('cardOverscanFor (the budget over the two tracks)', () => {
 
   it('bounds every interpolated frame of real entrance + end-card tracks', () => {
     const tilt = { keyframes: entranceTiltKeyframes({ kind: 'tilt-in' }) }
-    const pose = cardPoseTrack({ kind: 'rise' }, 5, 2.5)!
+    const pose = cardPoseTrack({ kind: 'rise' }, { kind: 'recede' }, 5, 7.5)!
     for (const aspect of [16 / 9, 1, 9 / 16]) {
       const [kx, ky] = cardOverscanFor(tilt, pose, aspect)
       for (let t = 0; t <= 8; t += 0.02) {
