@@ -1447,9 +1447,15 @@ async function cmdPush(argv: string[]): Promise<number> {
     },
     r,
   )
+  // The links name the origin the push went to, so a local dev push does
+  // not point at the public site.
+  const pushedTo = platformOrigin({
+    origin: strFlag(flags, 'origin'),
+    api: strFlag(flags, 'api'),
+  }).replace(/\/+$/, '')
   r.done(
     { ...result },
-    `pushed v${result.versionNumber} → vos ${result.vosId}\n  review: https://vos.so/vos/${result.vosId}\n  studio: https://vos.so/studio?vos=${result.vosId}`,
+    `pushed v${result.versionNumber} → vos ${result.vosId}\n  review: ${pushedTo}/vos/${result.vosId}\n  studio: ${pushedTo}/studio?vos=${result.vosId}`,
   )
   return EXIT_OK
 }

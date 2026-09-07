@@ -433,7 +433,7 @@ export function duplicateFindings(
         ? `${g.length} channels share one cover: ${g.map((s) => s.destination).join(', ')}`
         : `${g.length} assets share one frame${g[0].time !== null ? ` (${g[0].time.toFixed(2)}s)` : ''}: ${g.map((s) => s.destination).join(', ')}`,
       fixHint:
-        'a kit is many moments: let deliver pick from the step timeline, or pass --times with one step per still; a poster template composes each card differently from one shot',
+        'a kit is many moments: let deliver pick from the step timeline, or pass --times with one step per still; a poster document per class (poster/<class>/doc.json) or per destination (LAUNCH.md poster roles) gives each channel its own cover',
     }
   })
 }
