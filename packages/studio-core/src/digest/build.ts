@@ -6,8 +6,7 @@
  * files a page wrote and their sizes; a builder with none (no frames) emits
  * a frameless digest.
  */
-import { totalDuration } from '@vosjs/timeline'
-import { ratedSegments } from '../lower/lowerToComposition'
+import { docOutputDuration } from '../audioBeds'
 import { pickStyle } from './style'
 import type { ProjectDoc } from '../types'
 import type { DigestPlan, Moment, TranscriptSegment } from './moments'
@@ -160,7 +159,7 @@ export function buildDigest(input: BuildDigestInput): Digest {
 
 /** OUTPUT seconds of a doc: its kept footage through the rate map. */
 export function outputDurationOf(doc: ProjectDoc): number {
-  return totalDuration(ratedSegments(doc))
+  return docOutputDuration(doc)
 }
 
 function round(v: number): number {

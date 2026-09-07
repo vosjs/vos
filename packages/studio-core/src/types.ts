@@ -705,6 +705,8 @@ export interface AudioClip {
   loopLen?: number
   /** duck this clip under the mic while speech is detected. */
   duck?: boolean
+  /** The template that placed this clip (see the overlay clip's `from`). */
+  from?: string
 }
 
 /** Effective placed length of a clip on the output timeline, seconds. */
@@ -822,8 +824,16 @@ export interface FrameStyle {
    * zoomed in and pulls out; `rise` settles up and in flat. Lowered into
    * the tilt or zoom track's head and a card-pose track, so the card's only
    * rotation is still the tilt track. Absent = none, byte-identical.
+   * @deprecated The card's `anim.enter`; migrated on read.
    */
   entrance?: FrameEntrance
+  /**
+   * How the card ENTERS at t = 0 and LEAVES when its footage ends (`recede`
+   * settles it smaller and dimmer behind whatever plays after it; `fade`
+   * takes it out). Past its footage the card holds its last frame at the
+   * exit's end pose. Absent = neither, byte-identical.
+   */
+  anim?: Anim
   /**
    * Under `fit:'cover'`, follow the zoom track's focus with the crop
    * (`'camera'`), so a 9:16 cut of a 16:9 take keeps the affordance in
@@ -842,6 +852,8 @@ export interface FrameEntrance {
  * The end card: the last frame holds for `seconds` while the card recedes
  * and the words rise over it (the house title, caption and label presets,
  * so they lower like any overlay). The clip's last frame is its poster.
+ * @deprecated A card `anim.exit` plus clips placed after the footage
+ * (`from: 'endcard'`); migrated on read.
  */
 export interface EndCard {
   seconds?: number
@@ -876,6 +888,51 @@ export type TextOverlayPreset = 'title' | 'caption' | 'label'
 
 /** Enter/exit transition presets — pure f(t), evaluated in ON_FRAME. */
 export type OverlayTransition = 'none' | 'fade' | 'rise'
+
+/**
+ * THE animation vocabulary, one for every visual primitive. Which kinds a
+ * thing accepts is its own (`anim.ts` holds the tables): the card enters by
+ * `tilt-in`, `pull-out`, `rise` or `fade` and leaves by `recede` or `fade`;
+ * words enter by the block transitions or per unit (`pop`, `blur`,
+ * `typewriter`, or a `fade`/`rise` that names its unit); an image or a
+ * video clip enters and leaves by `fade` or `rise`; a prop idles by `spin`
+ * or `float`. `none` is an explicit nothing; absent is the house default.
+ */
+export type AnimKind =
+  | 'none'
+  | 'fade'
+  | 'rise'
+  | 'pop'
+  | 'blur'
+  | 'typewriter'
+  | 'tilt-in'
+  | 'pull-out'
+  | 'recede'
+
+/** What a thing does while it stays. */
+export type IdleKind = 'spin' | 'float'
+
+/**
+ * One step of an animation: the kind, its seconds, and for words the
+ * per-unit grammar. A bare kind is the same step with the house timing.
+ */
+export interface AnimStep {
+  kind: AnimKind
+  /** Seconds the step takes (the house length when absent). */
+  seconds?: number
+  /** Words only: the unit the step animates by (`block` = the whole clip). */
+  unit?: TextFxUnit
+  /** Words only: the order units animate in. */
+  direction?: TextFxDirection
+  /** Words only: seconds between one unit's start and the next. */
+  stagger?: number
+}
+
+export interface Anim {
+  enter?: AnimKind | AnimStep
+  exit?: AnimKind | AnimStep
+  idle?: IdleKind | null
+}
 
 /** Text animation vocabulary — entrance presets evaluated per unit. */
 export type TextFxKind = 'fade' | 'rise' | 'pop' | 'blur' | 'typewriter'
@@ -957,7 +1014,20 @@ interface OverlayClipBase {
   start: number
   duration: number
   transform: OverlayTransform
-  /** Absent = 'rise' for enter, 'fade' for exit (the house default motion). */
+  /**
+   * How the clip enters and leaves (see Anim). Absent = the house motion:
+   * a rise in, a fade out.
+   */
+  anim?: Anim
+  /**
+   * The template that placed this clip (a vos id, or a legacy marker),
+   * provenance the lowering never reads: a loop drops a template's clips,
+   * a re-apply replaces one template's and leaves the maker's.
+   */
+  from?: string
+  /**
+   * @deprecated `anim.enter` / `anim.exit`; migrated on read.
+   */
   enter?: OverlayTransition
   exit?: OverlayTransition
   /**
@@ -1002,7 +1072,9 @@ export interface TextOverlayClip extends OverlayClipBase {
   stroke?: TextOverlayStroke
   /** Background pill behind the text block (absent = none). */
   box?: TextOverlayBox
-  /** Entrance animation. Absent = the legacy `enter` transition. */
+  /**
+   * @deprecated A per-unit `anim.enter` step; migrated on read.
+   */
   fx?: TextFxSpec
   /**
    * Wrap width as a FRACTION of the frame width [0.1..1] (the transform.x
@@ -1173,6 +1245,11 @@ export interface ObjectClip {
     /** Fraction of the frame height. */
     scale: number
   }
+  /** What the prop does while it stays (`anim.idle`), and how it comes and goes. */
+  anim?: Anim
+  /** The template that placed this prop (see the overlay clip's `from`). */
+  from?: string
+  /** @deprecated `anim.idle`; migrated on read. */
   animation?: ObjectAnimation | null
   /** Pose keyframes (see MotionPose3D). Absent lowers byte-identically. */
   motion?: MotionPose3D[]

@@ -15,6 +15,8 @@
  */
 import { totalDuration } from '@vosjs/timeline'
 import { ratedSegments } from './lower/lowerToComposition'
+import { migrateMotion, outputEnd } from './lower/motion'
+import { isRecordingDoc } from './doc/studioDoc'
 import type { StudioDoc } from './doc/studioDoc'
 import type { AudioClip, ProjectDoc } from './types'
 
@@ -27,7 +29,11 @@ const round3 = (v: number) => Math.round(v * 1000) / 1000
  * else the config's).
  */
 export function docOutputDuration(doc: StudioDoc): number {
-  return totalDuration(ratedSegments(doc))
+  const footage = totalDuration(ratedSegments(doc))
+  // A recording's output lasts until its last visual clip ends (a legacy
+  // end card's clips are placed after the footage on read); a program's
+  // length is its own.
+  return isRecordingDoc(doc) ? outputEnd(migrateMotion(doc), footage) : footage
 }
 
 export interface MusicBedInput {

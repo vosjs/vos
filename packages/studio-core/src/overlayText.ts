@@ -15,6 +15,7 @@
  * render fleet can only fetch that origin) via the FontFace API, ONLY when the doc has overlays, capped +
  * fail-open (a CDN failure degrades to the system stack, never a dead render).
  */
+import { overlayFxSpec } from './anim'
 import {
   findFontFamily,
   fontFaceUrl,
@@ -367,7 +368,8 @@ export function resolveOverlayFx(
   clip: TextOverlayClip,
   clipDuration: number,
 ): BakedOverlayFx | null {
-  const spec = clip.fx
+  // The step on `anim`, or the legacy `fx` field for a clip read unmigrated.
+  const spec = overlayFxSpec(clip) ?? clip.fx ?? null
   if (!spec) return null
   const unit = spec.unit ?? 'block'
   const units = overlaySegments(clip.text, unit)

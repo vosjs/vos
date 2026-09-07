@@ -57,3 +57,40 @@ describe('migrateHostedDoc', () => {
     )
   })
 })
+
+describe('migrateHostedDoc: the vocabulary era (v3)', () => {
+  it('reads a v2 recording doc into anim and clips after the footage', () => {
+    const v2 = {
+      ...V0_FIXTURE,
+      docSchemaVersion: 2,
+      frame: { padding: 0.08, entrance: { kind: 'rise' } },
+      endCard: { headline: 'Ship it' },
+      overlays: [
+        {
+          id: 't',
+          kind: 'text',
+          text: 'Hi',
+          preset: 'title',
+          start: 0,
+          duration: 2,
+          transform: { x: 0.5, y: 0.5, scale: 1, rotation: 0 },
+          enter: 'fade',
+        },
+      ],
+    }
+    const m = migrateHostedDoc(v2) as Record<string, unknown> & {
+      frame: Record<string, unknown>
+      overlays: Record<string, unknown>[]
+    }
+    expect(m.docSchemaVersion).toBe(DOC_SCHEMA_VERSION)
+    expect(m.endCard).toBeUndefined()
+    expect(m.frame.entrance).toBeUndefined()
+    expect(m.frame.anim).toEqual({
+      enter: 'rise',
+      exit: { kind: 'recede', seconds: 0.7 },
+    })
+    expect(m.overlays.map((o) => o.id)).toEqual(['t', 'endcard-title'])
+    expect(m.overlays[0].anim).toEqual({ enter: 'fade' })
+    expect(m.overlays[1].from).toBe('endcard')
+  })
+})
