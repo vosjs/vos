@@ -79,6 +79,30 @@ export type {
   LayoutParts,
   StyleField,
 } from './digest/style'
+export { applyTemplate, clipsFrom, dropTemplate } from './digest/style'
+export type {
+  AppliedTemplate,
+  ApplyTemplateOptions,
+  TemplateAnchor,
+} from './digest/style'
+export {
+  CARD_ENTER_KINDS,
+  CARD_EXIT_KINDS,
+  IDLE_KINDS,
+  MEDIA_ENTER_KINDS,
+  MEDIA_EXIT_KINDS,
+  TEXT_ENTER_KINDS,
+  TEXT_EXIT_KINDS,
+  animStep,
+  enterKey,
+  enterOf,
+  exitKey,
+  exitOf,
+  idleKey,
+  isUnitStep,
+  lastLayerEnd,
+  overlayFxSpec,
+} from './anim'
 export {
   CROP_MAX_PX,
   CROP_MIN_FRAC,
@@ -206,12 +230,21 @@ export {
 } from './look'
 export type { Look, LookBrand, LookKind, LookPlacement } from './look'
 export {
+  CARD_FADE_SECONDS,
+  END_CARD_FROM,
+  END_CARD_RECEDE,
   END_CARD_SECONDS,
   ENTRANCE_SECONDS,
+  cardEnter,
+  cardExit,
   cardPoseTrack,
   docRestTime,
+  endCardClips,
   entranceSeconds,
+  exitSeconds,
   expandEndCard,
+  migrateMotion,
+  outputEnd,
   withHolds,
 } from './lower/motion'
 export {

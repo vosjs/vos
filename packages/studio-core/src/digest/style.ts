@@ -11,9 +11,17 @@
  * take. A layout is never a name a document learns; it is a document on a
  * shelf, applied by copy.
  */
+import { totalDuration } from '@vosjs/timeline'
 import { anchorSourceDuration } from '../doc/studioDoc'
 import { docOutputDuration } from '../audioBeds'
-import type { FrameStyle, OverlayClip, ProjectDoc } from '../types'
+import { ratedSegments } from '../lower/lowerToComposition'
+import type {
+  AudioClip,
+  FrameStyle,
+  ObjectClip,
+  OverlayClip,
+  ProjectDoc,
+} from '../types'
 
 export const STYLE_FIELDS = [
   'zoomStyle',
@@ -90,7 +98,7 @@ export const LAYOUT_FRAME_FIELDS = [
   'focus',
   'focusFollow',
   'parallax',
-  'entrance',
+  'anim',
 ] as const satisfies readonly (keyof FrameStyle)[]
 
 /**
@@ -237,3 +245,168 @@ export function copyLayout(
 
   return { doc, notes }
 }
+
+/** Where a template's clips land on the take. */
+export type TemplateAnchor = 'start' | 'end' | number
+
+export interface ApplyTemplateOptions {
+  /**
+   * The anchor: `start` keeps the template's times; `end` lays them
+   * relative to the take's footage end as they sat relative to the
+   * template's own (an end card); a number is an output second the
+   * template's clock starts at (a caption at a step's settle).
+   */
+  at: TemplateAnchor
+  /** Words for the template's text clips, by clip id. */
+  words?: Record<string, string>
+  /** Media keys for the template's image and video clips, by clip id. */
+  keys?: Record<string, string>
+  /**
+   * What the clips say they came from (the template's vos id). Absent =
+   * `'template'`. A re-apply with the same `from` replaces its earlier
+   * clips and leaves everything else.
+   */
+  from?: string
+  /**
+   * Carry the template's look too (the layout-owned frame fields, its
+   * backdrop, the rest lean, the trailing hold): a poster. Absent = the
+   * clips and the card's animation only.
+   */
+  look?: boolean
+}
+
+export interface AppliedTemplate {
+  doc: ProjectDoc
+  notes: string[]
+}
+
+const shiftBy = (at: TemplateAnchor, templateEnd: number, takeEnd: number) =>
+  at === 'start' ? 0 : at === 'end' ? takeEnd - templateEnd : at
+
+/**
+ * The clips a template placed on a document (by `from`), in document order.
+ */
+export function clipsFrom(
+  doc: Pick<ProjectDoc, 'overlays' | 'objects' | 'audio'>,
+  from: string,
+): { overlays: OverlayClip[]; objects: ObjectClip[]; audio: AudioClip[] } {
+  return {
+    overlays: (doc.overlays ?? []).filter((o) => o.from === from),
+    objects: (doc.objects ?? []).filter((o) => o.from === from),
+    audio: (doc.audio ?? []).filter((a) => a.from === from),
+  }
+}
+
+/**
+ * The document without the clips a template placed. The card's `anim` is
+ * the card's own once set, so it stays; a caller that wants the card still
+ * clears it. Returns the same object when nothing came from `from`.
+ */
+export function dropTemplate(doc: ProjectDoc, from: string): ProjectDoc {
+  const has = clipsFrom(doc, from)
+  if (!has.overlays.length && !has.objects.length && !has.audio.length)
+    return doc
+  const out: ProjectDoc = { ...doc }
+  if (doc.overlays) out.overlays = doc.overlays.filter((o) => o.from !== from)
+  if (doc.objects) out.objects = doc.objects.filter((o) => o.from !== from)
+  out.audio = doc.audio.filter((a) => a.from !== from)
+  return out
+}
+
+/**
+ * A TEMPLATE is a vos: a plain take document whose clips carry stable ids.
+ * Applying it lays those clips onto another take at an ANCHOR, stamped
+ * `from`, with the release's words and keys patched in by id; the take's
+ * own same-id clip keeps its words unless `words` names them (the layout
+ * rule); the template's card `anim` merges over the take's (an end card
+ * brings the exit, a poster the entrance); with `look`, the layout-owned
+ * frame fields, the backdrop, the rest lean and the hold come too, which
+ * is `copyLayout`. The one assembly verb; a recipe says which template and
+ * where, never the document.
+ */
+export function applyTemplate(
+  template: ProjectDoc,
+  take: ProjectDoc,
+  opts: ApplyTemplateOptions,
+): AppliedTemplate {
+  const from = opts.from ?? 'template'
+  const notes: string[] = []
+  const base = dropTemplate(take, from)
+  const doc: ProjectDoc = structuredClone(base)
+  const templateEnd = totalDuration(ratedSegments(template))
+  const takeEnd = totalDuration(ratedSegments(take))
+  const shift = shiftBy(opts.at, templateEnd, takeEnd)
+  const own = new Map((take.overlays ?? []).map((o) => [o.id, o]))
+
+  const overlays: OverlayClip[] = (doc.overlays ?? []).filter(
+    (o) => !(template.overlays ?? []).some((t) => t.id === o.id),
+  )
+  const skipped: string[] = []
+  for (const clip of template.overlays ?? []) {
+    const next = structuredClone(clip) as OverlayClip
+    next.start = Math.max(0, round3(clip.start + shift))
+    next.from = from
+    const mine = own.get(clip.id)
+    if (next.kind === 'text') {
+      const word = opts.words?.[clip.id]
+      if (word !== undefined) next.text = word
+      else if (mine?.kind === 'text') next.text = mine.text
+    } else if (opts.keys?.[clip.id]) {
+      next.key = opts.keys[clip.id]
+    } else if (mine && mine.kind !== 'text') {
+      next.key = mine.key
+    } else if (!/^(https?:|\/\/)/.test(next.key)) {
+      skipped.push(clip.id)
+      continue
+    }
+    overlays.push(next)
+  }
+  if (skipped.length)
+    notes.push(
+      `${skipped.join(', ')}: the template's media key is its own; pass keys[id] or the take's clip`,
+    )
+  if (overlays.length || doc.overlays) doc.overlays = overlays
+
+  const objects: ObjectClip[] = (doc.objects ?? []).filter(
+    (o) => !(template.objects ?? []).some((t) => t.id === o.id),
+  )
+  for (const clip of template.objects ?? []) {
+    const next = structuredClone(clip) as ObjectClip
+    if (next.span)
+      next.span.start = Math.max(0, round3(next.span.start + shift))
+    next.from = from
+    objects.push(next)
+  }
+  if (objects.length || doc.objects) doc.objects = objects
+
+  const audio: AudioClip[] = doc.audio.filter(
+    (a) => !template.audio.some((t) => t.id === a.id),
+  )
+  for (const clip of template.audio) {
+    const next = structuredClone(clip) as AudioClip
+    next.start = Math.max(0, round3(clip.start + shift))
+    next.from = from
+    audio.push(next)
+  }
+  doc.audio = audio
+
+  if (template.frame.anim) {
+    doc.frame = {
+      ...doc.frame,
+      anim: { ...(doc.frame.anim ?? {}), ...template.frame.anim },
+    }
+  }
+
+  if (opts.look) {
+    const laid = copyLayout(template, doc, { keys: opts.keys })
+    // copyLayout owns the stage clips; everything above stays as placed.
+    laid.doc.overlays = (laid.doc.overlays ?? []).map((o) =>
+      isStageClip(o) ? { ...o, from } : o,
+    )
+    notes.push(...laid.notes)
+    return { doc: laid.doc, notes }
+  }
+  return { doc, notes }
+}
+
+const round3 = (v: number) => Math.round(v * 1000) / 1000
