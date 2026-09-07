@@ -30,6 +30,7 @@ import {
   planAutoZoom,
   projectFromArtifact,
   withBackdrop,
+  migrateMotion,
 } from '@vosjs/studio-core'
 import { RECORDING_NAME, loadTake, writeJson } from './take'
 import { retimeCut } from './reuse'
@@ -99,9 +100,10 @@ export interface PlanOptions {
   /** The brand's mark (a take-dir key + aspect): the layout's `stage-mark` and the end card's mark. */
   mark?: { key: string; aspect: number } | null
   /**
-   * Propose the cut's motion (entrance, end card, captions, bed, clicks)
-   * from these roles. Applied on a fresh plan; `again` re-proposes onto an
-   * existing document (replacing only the proposals' own ids and fields).
+   * Propose the cut's motion (the card's enter, the templates the recipe
+   * names, the end card, captions, bed, clicks) from these roles. Applied
+   * on a fresh plan; `again` re-proposes onto an existing document
+   * (replacing only the proposals' own ids and `from`s).
    */
   motion?: MotionProposalInput & { again?: boolean }
 }
@@ -183,7 +185,9 @@ export async function planTake(
   if (opts.reuse) {
     // The re-render loop: fresh ingest of the NEW footage, the
     // previous cut's style + human work re-timed onto it, autos re-planned.
-    const prev = opts.reuse.doc
+    // The previous cut in the one vocabulary (a legacy end card becomes
+    // clips and a card exit, which ride along like the other overlays).
+    const prev = migrateMotion(opts.reuse.doc)
     const artifact: RecordingArtifact = {
       videoKey: RECORDING_NAME,
       cursor,
@@ -228,9 +232,6 @@ export async function planTake(
     if (prev.objects?.length) doc.objects = prev.objects
     if (prev.audio.length) doc.audio = prev.audio
     if (prev.camMotion?.length) doc.camMotion = prev.camMotion
-    // The end card is the cut's ending; it rides along like its overlays.
-    if (prev.endCard) doc.endCard = structuredClone(prev.endCard)
-
     await writeJson(take.paths.doc, doc, true)
     return {
       doc,
