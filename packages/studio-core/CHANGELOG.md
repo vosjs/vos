@@ -1,5 +1,11 @@
 # @vosjs/studio-core
 
+## 0.15.1
+
+### Patch Changes
+
+- fa700ab: An end card laid on a take of many media freezes the LAST clip on its own media: the trailing freeze a template carries (`applyTemplate`) and the one `vos plan` proposes name the media under the last clip, instead of landing their seconds on the primary's footage.
+
 ## 0.15.0
 
 ### Minor Changes
