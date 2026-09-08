@@ -128,7 +128,7 @@ describe('proposeMotion (the cut’s motion as data on the document)', () => {
     // card: the one vocabulary, no field of its own for either.
     expect(p.doc.frame.anim).toEqual({
       enter: 'tilt-in',
-      exit: { kind: 'recede', seconds: 0.7 },
+      exit: { kind: 'recede', seconds: 2.5 },
     })
     expect(p.doc.endCard).toBeUndefined()
     expect(p.doc.frame.entrance).toBeUndefined()

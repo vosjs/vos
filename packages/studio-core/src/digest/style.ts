@@ -333,12 +333,19 @@ export function clipsFrom(
  */
 export function dropTemplate(doc: ProjectDoc, from: string): ProjectDoc {
   const has = clipsFrom(doc, from)
-  if (!has.overlays.length && !has.objects.length && !has.audio.length)
+  const freezes = (doc.freeze ?? []).some((f) => f.from === from)
+  if (
+    !has.overlays.length &&
+    !has.objects.length &&
+    !has.audio.length &&
+    !freezes
+  )
     return doc
   const out: ProjectDoc = { ...doc }
   if (doc.overlays) out.overlays = doc.overlays.filter((o) => o.from !== from)
   if (doc.objects) out.objects = doc.objects.filter((o) => o.from !== from)
   out.audio = doc.audio.filter((a) => a.from !== from)
+  if (doc.freeze) out.freeze = doc.freeze.filter((f) => f.from !== from)
   return out
 }
 
@@ -362,8 +369,25 @@ export function applyTemplate(
   const notes: string[] = []
   const base = dropTemplate(take, from)
   const doc: ProjectDoc = structuredClone(base)
+  // A template that ends on a freeze keeps its card under its clips; laid
+  // at the end of a take, the same freeze goes on the take's last frame
+  // (stamped `from`), and the clips place against the end that includes it.
+  const tail = trailingFreeze(template)
+  const lastSeg = doc.segments.at(-1)
+  if (tail && opts.at === 'end' && lastSeg) {
+    const own = (doc.freeze ?? []).filter(
+      (f) => Math.abs(f.at - lastSeg.out) > 1e-9,
+    )
+    const taken = new Set(own.map((f) => f.id))
+    let n = 0
+    while (taken.has(`f${n}`)) n++
+    doc.freeze = [
+      ...own,
+      { id: `f${n}`, at: lastSeg.out, seconds: tail.seconds, from },
+    ].sort((a, b) => a.at - b.at)
+  }
   const templateEnd = totalDuration(ratedSegments(template))
-  const takeEnd = totalDuration(ratedSegments(take))
+  const takeEnd = totalDuration(ratedSegments(doc))
   const shift = shiftBy(opts.at, templateEnd, takeEnd)
   const own = new Map((take.overlays ?? []).map((o) => [o.id, o]))
 

@@ -320,6 +320,8 @@ export interface FreezeSpan {
   seconds: number
   /** Re-record tie to an actions.json step; `at` stays the truth. */
   anchor?: StepAnchor
+  /** The template that placed it (the clips' `from`), so a re-apply replaces it and a loop drops it. */
+  from?: string
 }
 
 /** Freeze length bounds, output seconds. */

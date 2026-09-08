@@ -19,11 +19,13 @@
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
+import { totalDuration } from '@vosjs/timeline'
 import {
   computeCardLayout,
   docRestTime,
   migrateHostedDoc,
   overlayRect,
+  ratedSegments,
   resolveOverlayStyle,
 } from '@vosjs/studio-core'
 import { readSyncState } from './platform'
@@ -145,11 +147,17 @@ export async function findPosterDocs(
   return out
 }
 
-/** The still's OUTPUT time: the rest (the trailing hold's start), else the last frame. */
+/**
+ * The still's OUTPUT time: the rest (where the last freeze begins), else
+ * the footage's last frame (the last frame the card is on; past its clip
+ * the card is gone, so the output's last frame may hold no card at all).
+ */
 export function posterStillTime(doc: ProjectDoc, duration: number): number {
   const rest = docRestTime(doc)
   if (rest != null) return rest
-  return Math.max(0, duration - 1 / 30)
+  const footage = totalDuration(ratedSegments(doc))
+  const end = footage > 0 ? Math.min(duration, footage) : duration
+  return Math.max(0, end - 1 / 30)
 }
 
 const DESIGN_H = 1080

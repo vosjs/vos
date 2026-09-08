@@ -269,6 +269,8 @@ describe('docRestTime', () => {
 describe('applyTemplate (a template is a vos, applied at an anchor)', () => {
   const endCard = take({
     segments: [{ in: 0, out: 4 }],
+    // The card stays under the words as a freeze; the clips ride over it.
+    freeze: [{ id: 'f0', at: 4, seconds: 2.5 }],
     frame: {
       ...DEFAULT_FRAME_STYLE,
       anim: { exit: { kind: 'recede', seconds: 0.7 } },
@@ -334,9 +336,31 @@ describe('applyTemplate (a template is a vos, applied at an anchor)', () => {
       from: 'vos-endcard',
     })
     expect(doc.frame.anim).toEqual({ exit: { kind: 'recede', seconds: 0.7 } })
+    // The template's trailing freeze lands on the take's last frame,
+    // stamped, and the clips placed against the end that includes it.
+    expect(doc.freeze).toEqual([
+      { id: 'f0', at: 10, seconds: 2.5, from: 'vos-endcard' },
+    ])
     expect(doc.frame.inset).toBeUndefined() // no look asked
     expect(notes).toEqual([])
     expect(mine.overlays).toHaveLength(1) // pure
+    expect(mine.freeze).toBeUndefined()
+  })
+
+  it('dropping a template takes its freeze with its clips', () => {
+    const laid = applyTemplate(endCard, take(), {
+      at: 'end',
+      from: 'vos-endcard',
+    }).doc
+    expect(laid.freeze).toHaveLength(1)
+    const dropped = dropTemplate(laid, 'vos-endcard')
+    expect(dropped.freeze).toEqual([])
+    expect(dropped.overlays).toEqual([])
+    const again = applyTemplate(endCard, laid, {
+      at: 'end',
+      from: 'vos-endcard',
+    })
+    expect(again.doc.freeze).toHaveLength(1)
   })
 
   it('re-applying with the same from replaces its clips and leaves the rest', () => {

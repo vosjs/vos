@@ -1327,6 +1327,10 @@
               }
             },
             "description": "re-record tie to a step (vos plan --reuse resolves it against the new take's steps and it wins over the step map); `at` stays the truth"
+          },
+          "from": {
+            "type": "string",
+            "description": "the template (a vos id, or 'endcard') that placed it, the clips' `from`: a re-apply replaces it, a loop drops it"
           }
         },
         "additionalProperties": false

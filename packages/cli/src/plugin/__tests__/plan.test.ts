@@ -278,7 +278,7 @@ describe('planTake', () => {
     expect(fresh.motion?.notes).toEqual(['enter tilt-in', 'end card'])
     expect(fresh.doc.frame.anim).toEqual({
       enter: 'tilt-in',
-      exit: { kind: 'recede', seconds: 0.7 },
+      exit: { kind: 'recede', seconds: 2.5 },
     })
     const endTitle = (d: ProjectDoc) =>
       d.overlays?.find((o) => o.id === 'endcard-title') as
@@ -308,13 +308,17 @@ describe('planTake', () => {
       reuse: { from: 'prev', doc: prev },
     })
     expect(s.doc.segments.at(-1)?.hold).toBeUndefined()
-    expect(s.doc.freeze?.map((f) => f.seconds)).toEqual([2])
+    // The hold, then the end card's own freeze under its words.
+    expect(s.doc.freeze?.map((f) => [f.seconds, f.from])).toEqual([
+      [2, undefined],
+      [2.5, 'endcard'],
+    ])
     // A legacy end card on the previous cut arrives in the vocabulary:
     // clips after the footage and the card's exit.
     expect(s.doc.endCard).toBeUndefined()
     expect(s.doc.overlays?.find((o) => o.id === 'endcard-title')).toMatchObject(
       { text: 'Ship it', from: 'endcard' },
     )
-    expect(s.doc.frame.anim?.exit).toEqual({ kind: 'recede', seconds: 0.7 })
+    expect(s.doc.frame.anim?.exit).toEqual({ kind: 'recede', seconds: 2.5 })
   })
 })
