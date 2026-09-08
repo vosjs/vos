@@ -328,6 +328,22 @@ describe('capture-video: data injection and audio producer', () => {
     expect(thumb).toContain('deps.data = __captureData')
   })
 
+  it('the thumbnail settles its decodes like the video loop: frame prep, wait, paint, re-check', () => {
+    const thumb = generateRenderTemplate(sampleCode, {
+      mode: 'capture-thumbnail',
+      capture: { ...capture, thumbnailTime: 21.45 },
+    })
+    expect(thumb).toContain('prep(21.45)')
+    expect(thumb).toContain('window.__vos__.waitForVideosReady()')
+    expect(thumb).toContain('if (pendingDecodes() > 0)')
+    expect(thumb).toContain('result.renderFrame()')
+    const off = generateRenderTemplate(sampleCode, {
+      mode: 'capture-thumbnail',
+      capture: { ...capture, prepareFrame: false },
+    })
+    expect(off).toContain('const framePrep = null')
+  })
+
   it('injects capture.stack as deps.stack, by entry id (both modes)', () => {
     const stack = {
       'vosso.studio': {

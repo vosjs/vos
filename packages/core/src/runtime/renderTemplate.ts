@@ -1114,8 +1114,28 @@ ${elementsBlock}
             timeline.pause();
             timeline.seek(${thumbnailTime}, false);
 
-            // Wait for render
-            await new Promise(r => requestAnimationFrame(r));
+            // The capture-video loop's shape, for one frame: a program that
+            // knows which source moment the frame needs registers its
+            // decodes BEFORE the paint (frame prep), the decodes are
+            // awaited, the frame is painted, and if the paint itself asked
+            // for more (a program without the hook), wait and paint once
+            // more. One rAF after a cold seek used to capture whatever the
+            // element had decoded, the first frame of a video seeked for
+            // the first time.
+            const wvr = () => (window.__vos__ && window.__vos__.waitForVideosReady ? window.__vos__.waitForVideosReady() : null);
+            const pendingDecodes = () => (window.__vos__ && window.__vos__.pendingDecodes ? window.__vos__.pendingDecodes.size : 0);
+            const framePrep = ${capture.prepareFrame === false ? 'null' : '(window.__vos__ && window.__vos__.framePrep) || null'};
+            if (framePrep) for (const prep of framePrep.values()) prep(${thumbnailTime});
+            await wvr();
+            if (result.renderFrame && result.stopRenderLoop) result.stopRenderLoop();
+            const runFrame = result.renderFrame
+              ? () => { result.renderFrame(); return Promise.resolve(); }
+              : () => new Promise(r => requestAnimationFrame(r));
+            await runFrame();
+            if (pendingDecodes() > 0) {
+              await wvr();
+              await runFrame();
+            }
 
             // Find canvas and ensure GPU is done
             const canvas = document.querySelector('canvas');
