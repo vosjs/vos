@@ -472,3 +472,25 @@ describe('a template stamped from: endcard is the end card', () => {
     expect((p.doc.freeze ?? []).some((f) => f.from === 'endcard')).toBe(false)
   })
 })
+
+describe('the end card on a take of many media', () => {
+  it('freezes the last clip on its own media', () => {
+    const base = doc()
+    const d: ProjectDoc = {
+      ...base,
+      media: [{ ...base.source, id: 'm1', videoKey: 'blob:b' }],
+      segments: [
+        { in: 0, out: 10 },
+        { in: 1, out: 5, media: 'm1' },
+      ],
+    }
+    const p = proposeMotion(d, {
+      words: { headline: 'Ship it', brand: 'vosso', release: '1.7' },
+      launch: {},
+      captions: [],
+      catalog,
+    })
+    const fz = p.doc.freeze!.find((f) => f.from)
+    expect(fz).toMatchObject({ at: 5, media: 'm1' })
+  })
+})

@@ -29,6 +29,7 @@ import {
   endCardClips,
   migrateMotion,
   ratedSegments,
+  sameMedia,
   spanOutputExtent,
 } from '@vosjs/studio-core'
 import { stepOutputTime } from './moments'
@@ -289,8 +290,12 @@ export function proposeMotion(
       const endStart = outputLength(doc)
       const lastSeg = doc.segments.at(-1)
       if (lastSeg) {
+        // The last clip may play another media (concat): the freeze
+        // names it, or its seconds would land on the primary's footage.
         const own = (doc.freeze ?? []).filter(
-          (f) => Math.abs(f.at - lastSeg.out) > 1e-9,
+          (f) =>
+            Math.abs(f.at - lastSeg.out) > 1e-9 ||
+            !sameMedia(f.media, lastSeg.media),
         )
         const taken = new Set(own.map((f) => f.id))
         let n = 0
@@ -302,6 +307,7 @@ export function proposeMotion(
             at: lastSeg.out,
             seconds: END_CARD_SECONDS,
             from: END_CARD_FROM,
+            ...(lastSeg.media ? { media: lastSeg.media } : {}),
           },
         ].sort((a, b) => a.at - b.at)
       }
