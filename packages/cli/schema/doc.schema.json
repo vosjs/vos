@@ -45,8 +45,8 @@
               "hold": {
                 "type": "number",
                 "minimum": 0,
-                "maximum": 10,
-                "description": "freeze on this segment's last frame for these OUTPUT seconds (the beat before a cut, the ground for the end card)"
+                "maximum": 30,
+                "description": "LEGACY spelling of a freeze at this segment's end, read into `freeze` on every path; write `freeze` instead"
               }
             },
             "additionalProperties": true
@@ -54,6 +54,9 @@
         },
         "speed": {
           "$ref": "#/definitions/speed"
+        },
+        "freeze": {
+          "$ref": "#/definitions/freeze"
         },
         "zoom": {
           "type": "array",
@@ -1282,6 +1285,52 @@
         }
       },
       "additionalProperties": true
+    },
+    "freeze": {
+      "type": "array",
+      "description": "Freezes (SOURCE moments, footage-anchored): the footage frozen on the frame just before `at` for `seconds` of output, anywhere in the take (a pause on a state while a caption reads, a beat before a cut, the rest a poster ends on). The retime primitive beside `speed`: a speed span is a source range with a rate, a freeze a source point with a length. A freeze whose frame is trimmed away has no effect and comes back when the trim does. The still every still-taking surface takes (the thumbnail, a poster's render, the stills export's first moment) is where the LAST freeze begins. Absent = none. The output ending past the footage needs no freeze: the card holds its last frame under the clips that outlast it.",
+      "items": {
+        "type": "object",
+        "required": ["id", "at", "seconds"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "stable identity (f0, f1, …)"
+          },
+          "at": {
+            "type": "number",
+            "minimum": 0,
+            "description": "SOURCE seconds: the frame just before this moment freezes"
+          },
+          "seconds": {
+            "type": "number",
+            "minimum": 0.25,
+            "maximum": 30,
+            "description": "OUTPUT seconds the frame holds"
+          },
+          "anchor": {
+            "type": "object",
+            "required": ["step"],
+            "additionalProperties": false,
+            "properties": {
+              "step": {
+                "type": ["string", "integer"],
+                "description": "the actions.json step: its `id` when it has one, else its record-time index (meta.steps)"
+              },
+              "at": {
+                "enum": ["start", "end"],
+                "description": "which edge of the step the freeze's `at` is measured from (default start)"
+              },
+              "offset": {
+                "type": "number",
+                "description": "seconds from that edge to the freeze's `at` (negative = before it)"
+              }
+            },
+            "description": "re-record tie to a step (vos plan --reuse resolves it against the new take's steps and it wins over the step map); `at` stays the truth"
+          }
+        },
+        "additionalProperties": false
+      }
     },
     "speed": {
       "type": "array",

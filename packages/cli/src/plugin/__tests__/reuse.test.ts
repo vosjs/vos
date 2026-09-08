@@ -234,6 +234,36 @@ describe('retimeCut', () => {
     expect(missing.zoom).toHaveLength(1) // fell back to the map, not dropped
   })
 
+  it('re-times a freeze moment (a legacy hold too) onto the new take', () => {
+    const cut = retimeCut(
+      doc({
+        segments: [{ in: 0, out: 9.8, hold: 2 }],
+        freeze: [
+          { id: 'f0', at: 6.5, seconds: 1.5 },
+          { id: 'f1', at: 3, seconds: 1, anchor: { step: 1, at: 'end' } },
+        ],
+      }),
+      newSteps,
+      12000,
+    )
+    // #b moved from 6..7 to 8..9: the map carries 6.5 → 8.5, the anchor
+    // puts f1 at #b's end (9), the legacy hold at 9.8 maps inside 12 s.
+    expect(cut.freeze).toEqual([
+      { id: 'f0', at: 8.5, seconds: 1.5 },
+      { id: 'f1', at: 9, seconds: 1, anchor: { step: 1, at: 'end' } },
+      { id: 'h0', at: expect.any(Number), seconds: 2 },
+    ])
+    expect(cut.freeze[2].at).toBeGreaterThan(9)
+    // The step map clamps to the new recording, so a freeze past the old
+    // tail lands on the new one rather than vanishing.
+    const late = retimeCut(
+      doc({ freeze: [{ id: 'f0', at: 9.9, seconds: 1 }] }),
+      newSteps,
+      6000,
+    )
+    expect(late.freeze).toEqual([{ id: 'f0', at: 6, seconds: 1 }])
+  })
+
   it('an untrimmed take stays untrimmed at the new length; trims re-time', () => {
     const untrimmed = retimeCut(doc({}), newSteps, 12000)
     expect(untrimmed.segments).toEqual([{ in: 0, out: 12 }])

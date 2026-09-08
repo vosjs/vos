@@ -150,6 +150,32 @@ describe('lintDoc', () => {
       } as unknown as Partial<ProjectDoc>),
     )
 
+  it('lints freezes and reads a segment hold as the legacy spelling', () => {
+    const ok = lintDoc(makeDoc({ freeze: [{ id: 'f0', at: 4, seconds: 2 }] }))
+    expect(ok.problems).toEqual([])
+    const legacy = lintDoc(makeDoc({ segments: [{ in: 0, out: 20, hold: 2 }] }))
+    expect(legacy.problems).toEqual([])
+    expect(legacy.warnings.join(' ')).toMatch(/hold is a legacy spelling/)
+    const bad = lintDoc(
+      makeDoc({
+        freeze: [
+          { id: 'f0', at: 40, seconds: 2 },
+          { id: 'f0', at: 1, seconds: 0.1 },
+          { at: 2, seconds: 99 } as unknown as {
+            id: string
+            at: number
+            seconds: number
+          },
+        ],
+      }),
+    )
+    expect(bad.problems.join('\n')).toMatch(/freeze\[0\].*at must be/)
+    expect(bad.problems.join('\n')).toMatch(/freeze\[1\].*duplicate id/)
+    expect(bad.problems.join('\n')).toMatch(/freeze\[1\].*seconds must be/)
+    expect(bad.problems.join('\n')).toMatch(/freeze\[2\]: id must be/)
+    expect(bad.problems.join('\n')).toMatch(/freeze\[2\].*seconds must be/)
+  })
+
   it('accepts a valid video background', () => {
     const r = withBg({ kind: 'video', key: '/bg.webm', duration: 10, dim: 0.2 })
     expect(r.problems).toEqual([])

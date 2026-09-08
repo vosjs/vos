@@ -13,6 +13,8 @@ import { migrateMotion } from './lower/motion'
 import type { ProjectDoc } from './types'
 
 /**
+ * 4 = the freeze era: a segment's `hold` is read into `doc.freeze` (a
+ * freeze at that segment's end), the retime primitive beside speed spans.
  * 3 = the one-vocabulary era: a recording document's `frame.entrance`,
  * `endCard`, clip `enter`/`exit`/`fx` and prop `animation` are read into
  * `anim` (and the end card into clips after the footage plus a card exit).
@@ -20,15 +22,16 @@ import type { ProjectDoc } from './types'
  * document); a v1 doc IS a recording document, so 1 → 2 was a stamp, and
  * 0 → 1 was a stamp too.
  */
-export const DOC_SCHEMA_VERSION = 3
+export const DOC_SCHEMA_VERSION = 4
 
 /**
  * Upgrade a hosted doc.json payload to the current schema version.
  * Unstamped docs are v0 — the pre-stamp era. v0 → v2 were stamps; v2 → v3
  * rewrites a recording document's motion spellings into the vocabulary,
- * and leaves a program document as it was (its layers migrate the same
- * way when they carry the old spellings). A real shape change chains its
- * step here.
+ * and v3 → v4 its segment holds into freezes (one rewrite, `migrateMotion`,
+ * idempotent, so both steps are one call); a program document is left as
+ * it was (its layers migrate the same way when they carry the old
+ * spellings). A real shape change chains its step here.
  */
 export function migrateHostedDoc(
   raw: Record<string, unknown>,
@@ -37,7 +40,7 @@ export function migrateHostedDoc(
     typeof raw.docSchemaVersion === 'number' ? raw.docSchemaVersion : 0
   if (version >= DOC_SCHEMA_VERSION) return raw
   let doc = raw
-  if (version < 3 && doc.source && typeof doc.source === 'object') {
+  if (version < 4 && doc.source && typeof doc.source === 'object') {
     doc = migrateMotion(doc as unknown as ProjectDoc) as unknown as Record<
       string,
       unknown

@@ -2,8 +2,9 @@
  * How the card MOVES and how a cut ENDS, as data the lowering already
  * understands: the card's `anim.enter` writes the head of the tilt or zoom
  * track and a card-pose track (scale, rise, opacity); its `anim.exit`
- * writes that track's tail; a `hold` is a rated segment whose tiny source
- * span plays for its seconds (the freeze primitive); and the output lasts
+ * writes that track's tail; a FREEZE (`doc.freeze`, a source moment plus
+ * output seconds; a legacy segment `hold` is one at the segment's end) is a
+ * rated piece whose hair of source time plays for its seconds; and the output lasts
  * until the last visual clip ends, so an "end card" is nothing but a card
  * exit and clips placed after the footage. The two older spellings
  * (`frame.entrance`, `doc.endCard`) migrate here, on read, into exactly
@@ -14,8 +15,10 @@ import type { Keyframe, KeyframeTrack, Segment } from '@vosjs/timeline'
 import type {
   Anim,
   AnimStep,
+  DocSegment,
   EndCard,
   FrameStyle,
+  FreezeSpan,
   MediaOverlayClip,
   ObjectClip,
   OverlayClip,
@@ -27,28 +30,70 @@ import { animStep, enterOf, exitOf, lastLayerEnd } from '../anim'
 import { splitBySpeed, totalDuration } from '@vosjs/timeline'
 
 /**
- * THE REST of a take: the one output time its still is taken at. A poster
- * ends on a trailing `hold` (its last segment freezes on its last frame),
- * and the rest is where that hold BEGINS — the composed frame before
- * nothing moves. Null when the take has no trailing hold. One convention
- * for every still-taking surface (an export, a thumbnail, a kit), so they
- * agree. A legacy end card yields null: its words rise over a receding
- * card, which is footage under a fading title, not a poster.
+ * THE REST of a take: the one output time its still is taken at, where
+ * the LAST freeze begins — the composed frame before nothing moves (a
+ * poster ends on one). Null when the take has no freeze on kept footage.
+ * One convention for every still-taking surface (an export, a thumbnail,
+ * a kit), so they agree. Reads a legacy segment `hold` as the freeze it
+ * migrates to, and a raw hosted payload (no `segments`, no `source`) as
+ * what it has. A legacy end card yields null: its words rise over a
+ * receding card, which is footage under a fading title, not a poster.
  */
 export function docRestTime(doc: ProjectDoc): number | null {
   if (doc.endCard) return null
-  const last = doc.segments.at(-1)
-  const hold = last?.hold
-  if (typeof hold !== 'number' || !(hold > 0)) return null
-  const segs = doc.segments.length
-    ? doc.segments
-    : [{ in: 0, out: doc.source.meta.durationMs / 1000 }]
-  const total = totalDuration(
-    withHolds(segs, splitBySpeed(segs, doc.speed ?? [])),
+  const freezes = docFreezes(doc)
+  if (!freezes.length) return null
+  const segs = docSegmentsOf(doc)
+  const marks = freezeOutputExtents(
+    splitBySpeed(segs, doc.speed ?? []),
+    freezes,
   )
-  const rest = total - hold
-  if (!(rest >= 0)) return null
+  let rest: number | null = null
+  for (const m of marks.values()) if (rest === null || m.t > rest) rest = m.t
+  if (rest === null || !(rest >= 0)) return null
   return Math.round(rest * 1000) / 1000
+}
+
+/** The doc's kept spans in explicit form; a raw payload with none is untrimmed. */
+function docSegmentsOf(doc: ProjectDoc): DocSegment[] {
+  const segs = Array.isArray(doc.segments) ? doc.segments : []
+  if (segs.length) return segs
+  const ms = doc.source?.meta?.durationMs
+  return [{ in: 0, out: typeof ms === 'number' ? ms / 1000 : 0 }]
+}
+
+/**
+ * Every freeze the document carries, the spelled ones and the legacy
+ * segment holds (as a freeze at that segment's `out`, id `h{i}`), sorted
+ * by source moment. The one read every consumer takes, so an unmigrated
+ * document freezes exactly where a migrated one does.
+ */
+export function docFreezes(
+  doc: Pick<ProjectDoc, 'freeze' | 'segments'>,
+): FreezeSpan[] {
+  const own = Array.isArray(doc.freeze) ? doc.freeze : []
+  const legacy = legacyHoldFreezes(
+    Array.isArray(doc.segments) ? doc.segments : [],
+  )
+  const all = [...own, ...legacy].filter(
+    (f) =>
+      typeof f.at === 'number' &&
+      Number.isFinite(f.at) &&
+      typeof f.seconds === 'number' &&
+      f.seconds > 0,
+  )
+  return all.sort((a, b) => a.at - b.at)
+}
+
+/** A legacy segment `hold` as the freeze it migrates to. */
+function legacyHoldFreezes(segments: readonly DocSegment[]): FreezeSpan[] {
+  const out: FreezeSpan[] = []
+  segments.forEach((s, i) => {
+    const hold = s.hold
+    if (typeof hold === 'number' && hold > 0)
+      out.push({ id: `h${i}`, at: s.out, seconds: hold })
+  })
+  return out
 }
 
 /** The card entrance's default length, seconds. */
@@ -93,41 +138,117 @@ export function exitSeconds(e: Step): number {
   return Math.max(0.1, Math.min(3, e.seconds ?? house))
 }
 
+/** A freeze's place on the output timeline (its start and its seconds). */
+export interface FreezeExtent {
+  t: number
+  duration: number
+}
+
 /**
- * The rated segments with every `hold` expanded: after the last rated
- * piece of a held segment, a freeze piece whose tiny source span at the
- * segment's end plays for `hold` output seconds. Every consumer of the
- * rated list (mapTime, the zoom remap, the audio splice, the duration)
- * inherits the hold from this one seam.
+ * The rated pieces with every freeze placed: at a freeze's source moment
+ * the piece holding it splits, and a freeze piece (a hair of source time
+ * just before the moment, rated to play for the freeze's seconds) goes in
+ * between; a freeze at a piece's end goes after it, one at the very start
+ * before it. A freeze whose moment is on no kept footage is not placed
+ * (it follows its frame, like a span). Every consumer of the rated list
+ * (mapTime, the zoom remap, the audio splice, the duration) inherits the
+ * freezes from this one seam. `marks` is where each placed freeze landed
+ * in OUTPUT time, for the lane and the rest.
+ */
+export function placeFreezes(
+  rated: readonly Segment[],
+  freezes: readonly FreezeSpan[],
+): { pieces: Segment[]; marks: Map<string, FreezeExtent> } {
+  const marks = new Map<string, FreezeExtent>()
+  const pending = [...freezes]
+    .filter((f) => f.seconds > 0)
+    .sort((a, b) => a.at - b.at)
+  const pieces: Segment[] = []
+  let acc = 0
+  const freezePiece = (f: FreezeSpan): void => {
+    const at = Math.max(HOLD_SOURCE_SPAN, f.at)
+    marks.set(f.id, { t: acc, duration: f.seconds })
+    pieces.push({
+      in: at - HOLD_SOURCE_SPAN,
+      out: at,
+      rate: HOLD_SOURCE_SPAN / f.seconds,
+    })
+    acc += f.seconds
+  }
+  const push = (p: Segment): void => {
+    pieces.push(p)
+    acc += Math.max(0, p.out - p.in) / (p.rate ?? 1)
+  }
+  for (let i = 0; i < rated.length; i++) {
+    let piece = rated[i]
+    const next = rated[i + 1]
+    // Freezes inside this piece, in order; a freeze exactly at the piece's
+    // end goes after it, unless the next piece continues the same footage
+    // (a speed boundary), which is the same frame either way — take the
+    // earlier place so the freeze sits where the moment is.
+    while (pending.length) {
+      const f = pending[0]
+      if (f.at > piece.out + 1e-9) break
+      if (f.at < piece.in - 1e-9) {
+        // On no kept footage before this piece: unplaced, follows its frame.
+        pending.shift()
+        continue
+      }
+      if (f.at <= piece.in + 1e-9) {
+        // The very first frame, or a boundary the previous piece answered
+        // (a cut, a speed edge): the freeze goes here, before this piece.
+        pending.shift()
+        freezePiece(f)
+        continue
+      }
+      if (f.at < piece.out - 1e-9) {
+        push({ ...piece, out: f.at })
+        pending.shift()
+        freezePiece(f)
+        piece = { ...piece, in: f.at }
+        continue
+      }
+      // f.at == piece.out
+      const continues =
+        next && Math.abs(next.in - piece.out) < 1e-9 && next.out > piece.out
+      if (continues) break
+      push(piece)
+      piece = null as unknown as Segment
+      pending.shift()
+      freezePiece(f)
+      break
+    }
+    if (piece) push(piece)
+  }
+  return { pieces, marks }
+}
+
+/** The rated segments with every freeze placed (see `placeFreezes`). */
+export function withFreezes(
+  rated: readonly Segment[],
+  freezes: readonly FreezeSpan[],
+): Segment[] {
+  return placeFreezes(rated, freezes).pieces
+}
+
+/** Where each freeze lands on the output timeline (unplaced ones absent). */
+export function freezeOutputExtents(
+  rated: readonly Segment[],
+  freezes: readonly FreezeSpan[],
+): Map<string, FreezeExtent> {
+  return placeFreezes(rated, freezes).marks
+}
+
+/**
+ * The rated segments with every legacy segment `hold` placed as the freeze
+ * it migrates to.
+ * @deprecated Read `docFreezes` and place them with `withFreezes`.
  */
 export function withHolds(
-  docSegments: readonly (Segment & { hold?: number })[],
+  docSegments: readonly DocSegment[],
   rated: Segment[],
 ): Segment[] {
-  const out: Segment[] = []
-  const pending = docSegments
-    .filter((s) => typeof s.hold === 'number' && s.hold > 0)
-    .map((s) => ({ out: s.out, hold: s.hold as number, used: false }))
-  for (let i = 0; i < rated.length; i++) {
-    const piece = rated[i]
-    out.push(piece)
-    const next = rated[i + 1]
-    for (const p of pending) {
-      if (p.used) continue
-      const endsHere = Math.abs(piece.out - p.out) < 1e-9
-      const nextContinues =
-        next && Math.abs(next.in - p.out) < 1e-9 && next.out > p.out
-      if (endsHere && !nextContinues) {
-        out.push({
-          in: p.out - HOLD_SOURCE_SPAN,
-          out: p.out,
-          rate: HOLD_SOURCE_SPAN / p.hold,
-        })
-        p.used = true
-      }
-    }
-  }
-  return out
+  return withFreezes(rated, legacyHoldFreezes(docSegments))
 }
 
 /** Keyframes the card's entrance prepends to the tilt track, or none. */
@@ -372,14 +493,37 @@ export function migrateMotion(doc: ProjectDoc): ProjectDoc {
   const segments = Array.isArray(doc.segments) ? doc.segments : []
   const overlays = Array.isArray(doc.overlays) ? doc.overlays : []
   const objects = Array.isArray(doc.objects) ? doc.objects : []
+  const heldSegments = segments.some((s) => s.hold !== undefined)
   const legacy =
     frame.entrance !== undefined ||
     doc.endCard !== undefined ||
+    heldSegments ||
     overlays.some(hasLegacyClipMotion) ||
     objects.some((o) => o.animation !== undefined)
   if (!legacy) return doc
 
   const out: ProjectDoc = { ...doc }
+  if (heldSegments) {
+    // A segment's hold is a freeze at its end: spelled once, on the lane
+    // every retime lives on, and the segment loses the field.
+    const holds = legacyHoldFreezes(segments)
+    const own = Array.isArray(doc.freeze) ? doc.freeze : []
+    const taken = new Set(own.map((f) => f.id))
+    let n = own.length
+    const migrated = holds.map((h) => {
+      let id = `f${n++}`
+      while (taken.has(id)) id = `f${n++}`
+      taken.add(id)
+      return { id, at: h.at, seconds: h.seconds }
+    })
+    out.freeze = [...own, ...migrated].sort((a, b) => a.at - b.at)
+    out.segments = segments.map((s) => {
+      if (s.hold === undefined) return s
+      const next = { ...s }
+      delete next.hold
+      return next
+    })
+  }
   const nextFrame: FrameStyle = { ...frame }
   if (frame.entrance !== undefined) {
     const e = frame.entrance
@@ -408,7 +552,10 @@ export function migrateMotion(doc: ProjectDoc): ProjectDoc {
     const card = doc.endCard
     if (card && segments.length) {
       const seconds = Math.max(1, Math.min(8, card.seconds ?? END_CARD_SECONDS))
-      const rated = withHolds(segments, splitBySpeed(segments, doc.speed ?? []))
+      const rated = withFreezes(
+        splitBySpeed(segments, doc.speed ?? []),
+        docFreezes(doc),
+      )
       const endStart = totalDuration(rated)
       nextOverlays = [...nextOverlays, ...endCardClips(card, doc, endStart)]
       nextFrame.anim = {

@@ -238,7 +238,7 @@ describe('planTake', () => {
     expect(s.layout).toMatchObject({
       clips: ['stage-title', 'stage-mark'],
       lean: true,
-      hold: true,
+      freeze: true,
     })
     expect(s.layout?.notes.join(' ')).toMatch(/stage-mark/)
     const doc = await readJson<ProjectDoc>(join(dir, 'doc.json'))
@@ -250,7 +250,8 @@ describe('planTake', () => {
     expect(doc.tilt).toEqual([
       { id: 'rest', in: 0, out: 8, rx: 3, ry: 10, source: 'manual' },
     ])
-    expect(doc.segments.at(-1)?.hold).toBe(3)
+    expect(doc.freeze?.map((f) => f.seconds)).toEqual([3])
+    expect(doc.freeze?.[0].at).toBe(doc.segments.at(-1)?.out)
     // with a mark in hand the image clip comes along on that key
     const s2 = await planTake(await makeTake(), {
       style: { from: 'poster', doc: seed },
@@ -298,7 +299,7 @@ describe('planTake', () => {
     expect(endTitle(again.doc)?.text).toBe('Ship it')
   })
 
-  it('--reuse carries the previous cut’s hold and end card onto the new footage', async () => {
+  it('--reuse carries the previous cut’s freeze (a legacy hold too) and end card onto the new footage', async () => {
     const dir = await makeTake()
     const prev = (await planTake(dir)).doc
     prev.segments = [{ in: 0, out: 6, hold: 2 }]
@@ -306,7 +307,8 @@ describe('planTake', () => {
     const s = await planTake(await makeTake(), {
       reuse: { from: 'prev', doc: prev },
     })
-    expect(s.doc.segments.at(-1)?.hold).toBe(2)
+    expect(s.doc.segments.at(-1)?.hold).toBeUndefined()
+    expect(s.doc.freeze?.map((f) => f.seconds)).toEqual([2])
     // A legacy end card on the previous cut arrives in the vocabulary:
     // clips after the footage and the card's exit.
     expect(s.doc.endCard).toBeUndefined()
