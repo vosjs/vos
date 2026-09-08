@@ -9,7 +9,8 @@
  * answers source seconds, and the piece under the playhead says whose.
  */
 import type { Segment } from '@vosjs/timeline'
-import type { Media, ProjectDoc } from './types'
+import { MEDIA_FRAME_KEYS, pageDisplayUrl } from './types'
+import type { FrameStyle, Media, MediaFrameKey, ProjectDoc } from './types'
 
 /** The primary media's key: the absent `media` on a clip or a span. */
 export const PRIMARY_MEDIA = ''
@@ -75,6 +76,45 @@ export function mediaAtOutput(
     last = p
   }
   return last ? mediaKey(last.media) : PRIMARY_MEDIA
+}
+
+/**
+ * The card a media wears: the take's frame with the media's own card
+ * fields over it. Facts first: a media with a recorded page names it in
+ * the bar, and one with no page (an upload) wears no bar, unless its own
+ * `frame.browserBar` says otherwise. The primary wears the take's frame.
+ */
+export function mediaFrame(
+  doc: Pick<ProjectDoc, 'source' | 'media' | 'frame'>,
+  id: string | undefined | null,
+): FrameStyle {
+  const key = mediaKey(id)
+  if (key === PRIMARY_MEDIA) return doc.frame
+  const m = (doc.media ?? []).find((x) => x.id === key)
+  if (!m) return doc.frame
+  const over = m.frame ?? {}
+  const out: FrameStyle = { ...doc.frame }
+  for (const k of MEDIA_FRAME_KEYS) {
+    if (k === 'browserBar') continue
+    const v = over[k]
+    if (v !== undefined) (out as Record<MediaFrameKey, unknown>)[k] = v
+  }
+  const bar = { ...doc.frame.browserBar }
+  const page = pageDisplayUrl(m.meta.pageUrl)
+  if (page) bar.url = page
+  if (!m.meta.pageUrl) bar.kind = 'none'
+  out.browserBar = { ...bar, ...(over.browserBar ?? {}) }
+  return out
+}
+
+/** The card-owned fields of a frame, alone (what a media's card is made of). */
+export function cardFields(frame: FrameStyle): Pick<FrameStyle, MediaFrameKey> {
+  const out: Partial<Pick<FrameStyle, MediaFrameKey>> = {}
+  for (const k of MEDIA_FRAME_KEYS) {
+    const v = frame[k]
+    if (v !== undefined) (out as Record<MediaFrameKey, unknown>)[k] = v
+  }
+  return out as Pick<FrameStyle, MediaFrameKey>
 }
 
 /** The next free media id (`m1`, `m2`, …). */

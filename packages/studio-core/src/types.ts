@@ -1695,4 +1695,30 @@ export function exportSizeFor(
  * plus the facts only a capture has) with the `id` a segment or a span
  * names. The primary media has no id; it is `doc.source`.
  */
-export type Media = ProjectDoc['source'] & { id: string }
+/**
+ * The CARD-owned frame fields, what a media may carry of its own: its
+ * placement and size (`inset`, per-side fractions of the frame), the bar,
+ * the corner, the shadow, the border, the cover fit and its focus. The
+ * frame-wide fields (the aspect, the padding, the ground, the backdrop, the
+ * card's animation) stay the take's: one frame, many cards.
+ */
+export const MEDIA_FRAME_KEYS = [
+  'browserBar',
+  'radius',
+  'shadow',
+  'shadowContact',
+  'shadowColor',
+  'inset',
+  'border',
+  'borderWidth',
+  'borderColor',
+  'fit',
+  'focus',
+  'focusFollow',
+] as const
+export type MediaFrameKey = (typeof MEDIA_FRAME_KEYS)[number]
+/** What a media says about its own card; absent fields fall to the take's frame. */
+export type MediaFrame = Partial<
+  Omit<Pick<FrameStyle, MediaFrameKey>, 'browserBar'>
+> & { browserBar?: Partial<BrowserBarStyle> }
+export type Media = ProjectDoc['source'] & { id: string; frame?: MediaFrame }
