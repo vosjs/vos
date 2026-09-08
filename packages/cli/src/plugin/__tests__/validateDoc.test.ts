@@ -786,3 +786,37 @@ describe('lintDoc: many media', () => {
     expect(dup.problems.join('\n')).toMatch(/media\[1\] \(m1\): duplicate id/)
   })
 })
+
+describe('lintDoc: a media’s own card', () => {
+  it('takes the card fields and names a frame-wide one', () => {
+    const base = makeDoc({
+      media: [
+        {
+          id: 'm1',
+          videoKey: 'media/second.webm',
+          cursor: [],
+          meta: { ...makeDoc().source.meta, durationMs: 6000 },
+          frame: {
+            inset: { left: 0.4 },
+            radius: 4,
+            browserBar: { kind: 'none' },
+          },
+        },
+      ],
+      segments: [
+        { in: 0, out: 20 },
+        { in: 1, out: 5, media: 'm1' },
+      ],
+    })
+    expect(lintDoc(base).problems).toEqual([])
+    const wide = lintDoc(
+      makeDoc({
+        ...base,
+        media: [{ ...base.media![0], frame: { padding: 40 } as never }],
+      }),
+    )
+    expect(wide.problems.join('\n')).toMatch(
+      /media\[0\] \(m1\)\.frame\.padding: not a card field/,
+    )
+  })
+})
