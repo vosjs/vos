@@ -176,7 +176,7 @@ describe('copyLayout', () => {
     expect(kept.notes.join(' ')).toMatch(/lean kept/)
   })
 
-  it('carries the trailing hold onto the take’s last segment', () => {
+  it('carries the trailing freeze onto the end of the take’s last segment', () => {
     const mine = take({
       segments: [
         { in: 0, out: 4 },
@@ -186,8 +186,9 @@ describe('copyLayout', () => {
     const { doc } = copyLayout(exemplar, mine)
     expect(doc.segments).toEqual([
       { in: 0, out: 4 },
-      { in: 6, out: 9, hold: 3 },
+      { in: 6, out: 9 },
     ])
+    expect(doc.freeze).toEqual([{ id: 'f0', at: 9, seconds: 3 }])
   })
 
   it('reports what a document carries of a layout', () => {
@@ -206,21 +207,21 @@ describe('copyLayout', () => {
       ),
       clips: ['stage-title', 'stage-mark'],
       lean: true,
-      hold: true,
+      freeze: true,
     })
     expect(layoutOf(take()).clips).toEqual([])
-    expect(layoutOf(take()).hold).toBe(false)
+    expect(layoutOf(take()).freeze).toBe(false)
   })
 
   it('copyStyle carries the layout only when asked, byte-identical otherwise', () => {
     const plain = copyStyle(exemplar, take())
     expect(plain.overlays).toBeUndefined()
     expect(plain.tilt).toBeUndefined()
-    expect(plain.segments[0].hold).toBeUndefined()
+    expect(plain.freeze).toBeUndefined()
     const withLayout = copyStyle(exemplar, take(), { layout: true })
     expect(withLayout.overlays?.map((o) => o.id)).toEqual(['stage-title'])
     expect(withLayout.tilt?.[0].id).toBe(REST_TILT_ID)
-    expect(withLayout.segments[0].hold).toBe(3)
+    expect(withLayout.freeze?.map((f) => f.seconds)).toEqual([3])
   })
 })
 
@@ -243,7 +244,7 @@ describe('docRestTime', () => {
     expect(docRestTime(doc)).toBe(6)
   })
 
-  it('ignores a hold off the last segment and yields to an end card', () => {
+  it('is the last freeze wherever it sits, and yields to an end card', () => {
     expect(
       docRestTime(
         take({
@@ -253,7 +254,7 @@ describe('docRestTime', () => {
           ],
         }),
       ),
-    ).toBeNull()
+    ).toBe(4)
     expect(
       docRestTime(
         take({
@@ -378,6 +379,6 @@ describe('applyTemplate (a template is a vos, applied at an anchor)', () => {
     expect(doc.overlays!.find((o) => o.id === 'stage-title')?.from).toBe(
       'poster',
     )
-    expect(doc.segments.at(-1)?.hold).toBe(3)
+    expect(doc.freeze?.at(-1)?.seconds).toBe(3)
   })
 })

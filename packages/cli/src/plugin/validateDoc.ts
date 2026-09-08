@@ -22,6 +22,8 @@ import {
   TEXT_ENTER_KINDS,
   TEXT_EXIT_KINDS,
   EXPORT_RESOLUTION_OPTIONS,
+  FREEZE_SECONDS_MAX,
+  FREEZE_SECONDS_MIN,
   SPEED_RATE_MAX,
   SPEED_RATE_MIN,
   TILT_DEG_MAX,
@@ -342,15 +344,47 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       }
     }
 
-    // --- holds and the end card: a freeze is output seconds, never long ---
+    // --- freezes and the end card: a freeze is output seconds, never long ---
     for (const [i, seg] of (Array.isArray(doc.segments)
       ? (doc.segments as unknown[])
       : []
     ).entries()) {
       const hold = (seg as { hold?: unknown }).hold
-      if (hold !== undefined && (!isNum(hold) || hold < 0 || hold > 10)) {
+      if (hold === undefined) continue
+      if (!isNum(hold) || hold < 0 || hold > FREEZE_SECONDS_MAX) {
         problems.push(
-          `segments[${i}].hold must be 0..10 output seconds (got ${String(hold)})`,
+          `segments[${i}].hold must be 0..${FREEZE_SECONDS_MAX} output seconds (got ${String(hold)})`,
+        )
+      } else if (hold > 0) {
+        warnings.push(
+          `segments[${i}].hold is a legacy spelling, read as a freeze at ${String((seg as { out?: unknown }).out)}s (doc.freeze); vos plan writes that shape`,
+        )
+      }
+    }
+    if (doc.freeze !== undefined && !Array.isArray(doc.freeze)) {
+      problems.push('freeze must be an array of {id, at, seconds}')
+    }
+    const freezes = Array.isArray(doc.freeze) ? (doc.freeze as unknown[]) : []
+    const freezeIds = new Set<string>()
+    for (const [i, raw] of freezes.entries()) {
+      const f = raw as { id?: unknown; at?: unknown; seconds?: unknown }
+      const name = `freeze[${i}]${typeof f.id === 'string' ? ` (${f.id})` : ''}`
+      if (typeof f.id !== 'string' || !f.id)
+        problems.push(`${name}: id must be a string`)
+      else if (freezeIds.has(f.id)) problems.push(`${name}: duplicate id`)
+      else freezeIds.add(f.id)
+      if (!isNum(f.at) || f.at < 0 || f.at > duration + EPS) {
+        problems.push(
+          `${name}: at must be a SOURCE moment inside the recording (0..${duration.toFixed(2)}s, got ${String(f.at)})`,
+        )
+      }
+      if (
+        !isNum(f.seconds) ||
+        f.seconds < FREEZE_SECONDS_MIN - EPS ||
+        f.seconds > FREEZE_SECONDS_MAX + EPS
+      ) {
+        problems.push(
+          `${name}: seconds must be ${FREEZE_SECONDS_MIN}..${FREEZE_SECONDS_MAX} output seconds (got ${String(f.seconds)})`,
         )
       }
     }
