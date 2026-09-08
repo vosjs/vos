@@ -24,6 +24,7 @@ import type {
   FrameStyle,
   ProjectDoc,
 } from './types'
+import { mediaFrame, mediaSource } from './media'
 
 export interface CardLayout {
   /** canvas size the layout was computed for (comp px). */
@@ -88,7 +89,8 @@ export function computeCardLayout(
     const sc = Math.max(availW / vw, availH / vh)
     const dw = vw * sc
     const dh = vh * sc
-    const follow = frame.focusFollow === 'camera' && zoomFocus ? zoomFocus : null
+    const follow =
+      frame.focusFollow === 'camera' && zoomFocus ? zoomFocus : null
     const fcx = clamp01(follow ? follow.cx : (frame.focus?.cx ?? 0.5))
     const fcy = clamp01(follow ? follow.cy : (frame.focus?.cy ?? 0.5))
     const vTop = padT + barH
@@ -144,7 +146,9 @@ export function computeCardLayout(
  * golden contract holds through the crop.
  */
 export function docCardLayout(
-  doc: Pick<ProjectDoc, 'frame' | 'source'>,
+  doc: Pick<ProjectDoc, 'frame' | 'source' | 'media'>,
+  /** The media whose card to lay out; absent or `''` = the primary. */
+  media?: string | null,
 ): CardLayout {
   const meta = doc.source.meta
   const H = 1080
@@ -152,11 +156,15 @@ export function docCardLayout(
     2,
     Math.round(H * aspectRatioValue(doc.frame.aspectRatio, meta)),
   )
+  // A media wears its own card on the take's frame (mediaFrame), and its
+  // own footage dimensions size it.
+  const src = mediaSource(doc, media) ?? doc.source
+  const sm = src.meta
   return computeCardLayout(
-    doc.frame,
+    mediaFrame(doc, media),
     {
-      width: meta.captureWidth ?? meta.width,
-      height: meta.captureHeight ?? meta.height,
+      width: sm.captureWidth ?? sm.width,
+      height: sm.captureHeight ?? sm.height,
     },
     W,
     H,

@@ -110,7 +110,7 @@ import {
   extractClicks,
   hexToRgbTriplet,
 } from './extractClicks'
-import { sameMedia } from '../media'
+import { cardFields, mediaFrame, sameMedia } from '../media'
 import type { StudioDoc } from '../doc/studioDoc'
 import type { TimelineEdit } from '@vosjs/shared/timelineEdits'
 import type { Keyframe, KeyframeTrack, Segment } from '@vosjs/timeline'
@@ -1305,6 +1305,9 @@ const ON_FRAME = `(ctx, content, dt) => {
   if (amId && d.media) for (var amJ = 0; amJ < d.media.length; amJ++) if (d.media[amJ].id === amId) actM = d.media[amJ]
   if (actM && r.media && r.media[amId]) video = r.media[amId]
   else amId = ''
+  // The card under the playhead: another media's own card fields over the
+  // take's frame (resolved at lowering), the take's frame for the primary.
+  var cfr = amId && actM && actM.frame ? actM.frame : frame
   if (r.media) for (var amK in r.media) { var amE = r.media[amK]; if (amK !== amId && amE && amE.pause && amE.paused === false) amE.pause() }
   if (amId) {
     if (r.video && r.video.pause && r.video.paused === false) r.video.pause()
@@ -1607,15 +1610,15 @@ const ON_FRAME = `(ctx, content, dt) => {
   // strip is part of the card: it takes barH from the available height and the video
   // sits below it — bar + video share the rounded clip and zoom together.
   var pad = (frame.padding || 0) * s
-  // Per-side placement (frame.inset: fractions of the frame, a negative side
+  // Per-side placement (cfr.inset: fractions of the frame, a negative side
   // bleeds the card past the edge) overrides the symmetric padding on the
   // sides it names; absent sides keep pad, so the old math falls out.
-  var ipIns = frame.inset || {}
+  var ipIns = cfr.inset || {}
   var ipL = ipIns.left == null ? pad : ipIns.left * W
   var ipR = ipIns.right == null ? pad : ipIns.right * W
   var ipT = ipIns.top == null ? pad : ipIns.top * H
   var ipB = ipIns.bottom == null ? pad : ipIns.bottom * H
-  var bar = frame.browserBar || {}
+  var bar = cfr.browserBar || {}
   // Window takes carry a viewport crop (drawImage source rect, capture px) that
   // removes the real browser chrome — the card's source dims are then the CROP
   // dims (meta/cursor were rewritten into crop space at doc build).
@@ -1633,11 +1636,11 @@ const ON_FRAME = `(ctx, content, dt) => {
   // Cover fit: the CARD rect and the VIDEO rect separate. Under
   // contain (default, byte-identical for every existing doc) the card IS the
   // fitted video; under cover the card is the padded area itself and the
-  // footage cover-fills it, cropped around frame.focus (normalized video
+  // footage cover-fills it, cropped around cfr.focus (normalized video
   // fractions, the zoom cx/cy convention; clamped so no gap ever shows).
   // Chrome under cover scales by s alone (cf = 1): the card is as wide as
   // the frame allows, which is the case cf existed to protect against.
-  var fitCover = frame.fit === 'cover'
+  var fitCover = cfr.fit === 'cover'
   var cf = fitCover ? 1 : Math.min(1, (W / H) / (vw / vh))
   var s2 = s * cf
   // current zoom — a standard keyframe track in OUTPUT time (hold + arrival pairs
@@ -1656,11 +1659,11 @@ const ON_FRAME = `(ctx, content, dt) => {
     sc = Math.max(availW / vw, availH / vh)
     dw = vw * sc; dh = vh * sc
     cardX = ipL; cardY = ipT; cardW = availW; cardH = availH + barH
-    var fcv = frame.focus || {}
+    var fcv = cfr.focus || {}
     var fcx = fcv.cx == null ? 0.5 : Math.max(0, Math.min(1, fcv.cx))
     var fcy = fcv.cy == null ? 0.5 : Math.max(0, Math.min(1, fcv.cy))
     // focusFollow: the crop keeps the camera's focus in frame (a 9:16 cut).
-    if (frame.focusFollow === 'camera' && zt && zt.keyframes && zt.keyframes.length) { fcx = zx; fcy = zy }
+    if (cfr.focusFollow === 'camera' && zt && zt.keyframes && zt.keyframes.length) { fcx = zx; fcy = zy }
     var vTop = ipT + barH
     dx = Math.min(cardX, Math.max(cardX + availW - dw, cardX + availW / 2 - fcx * dw))
     dy = Math.min(vTop, Math.max(vTop + availH - dh, vTop + availH / 2 - fcy * dh))
@@ -1672,14 +1675,14 @@ const ON_FRAME = `(ctx, content, dt) => {
     dx = ipL + (availW - dw) / 2; dy = ipT + barH + (availH - dh) / 2
     cardX = dx; cardY = dy - barH; cardW = dw; cardH = dh + barH
   }
-  var radius = (frame.radius || 0) * s2
-  var shadow = frame.shadow || 0
+  var radius = (cfr.radius || 0) * s2
+  var shadow = cfr.shadow || 0
   // The shadow's colour (a #rrggbb; the strengths are its alpha) and the
   // optional tight CONTACT layer that makes a light card sit on a light
   // ground.
-  var shC = frame.shadowContact || 0
+  var shC = cfr.shadowContact || 0
   var shRgb = '0,0,0'
-  var shHex = frame.shadowColor
+  var shHex = cfr.shadowColor
   if (typeof shHex === 'string' && /^#[0-9a-fA-F]{6}$/.test(shHex)) {
     shRgb = parseInt(shHex.slice(1, 3), 16) + ',' + parseInt(shHex.slice(3, 5), 16) + ',' + parseInt(shHex.slice(5, 7), 16)
   }
@@ -1819,15 +1822,15 @@ const ON_FRAME = `(ctx, content, dt) => {
   // expanded by half the width so the stroke's inner edge lands on the card's
   // own edge and never covers footage (inset, a 24px width ate 24px of the
   // recording). Outer corner radius grows with the width, the CSS-border rule;
-  // a square card stays square. frame.border is the ALPHA (0 = off) and rides
+  // a square card stays square. cfr.border is the ALPHA (0 = off) and rides
   // globalAlpha, so borderColor takes any CSS colour notation without this
   // having to parse one. Card chrome, so it scales by s2.
-  if (frame.border) {
-    var bdW = (frame.borderWidth > 0 ? frame.borderWidth : ${FRAME_BORDER_WIDTH_DEFAULT}) * s2
+  if (cfr.border) {
+    var bdW = (cfr.borderWidth > 0 ? cfr.borderWidth : ${FRAME_BORDER_WIDTH_DEFAULT}) * s2
     var bdH = bdW / 2
     c.save()
-    c.globalAlpha = Math.min(1, frame.border)
-    c.strokeStyle = frame.borderColor || '${FRAME_BORDER_COLOR_DEFAULT}'
+    c.globalAlpha = Math.min(1, cfr.border)
+    c.strokeStyle = cfr.borderColor || '${FRAME_BORDER_COLOR_DEFAULT}'
     c.lineWidth = bdW
     rr(cardX - bdH, cardY - bdH, cardW + bdW, cardH + bdW, radius > 0 ? radius + bdH : 0)
     c.stroke()
@@ -2478,6 +2481,10 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
                 y: round(p.y),
               })),
               cursorSpace: { w: m.meta.width, h: m.meta.height },
+              // The card this media wears (its own placement, bar, corner,
+              // shadow, border, fit and focus over the take's), resolved
+              // here so ON_FRAME swaps one object and reads no document.
+              frame: cardFields(mediaFrame(doc, m.id)),
               ...(fade.length ? { cursorFade: fade } : {}),
             }
           }),

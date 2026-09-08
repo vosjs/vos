@@ -11,9 +11,12 @@ import {
   ratedSegments,
   spanOutputExtent,
 } from '../lower/lowerToComposition'
-import { mediaAtOutput, mediaSource, nextMediaId } from '../media'
+import { mediaAtOutput, mediaFrame, mediaSource, nextMediaId } from '../media'
+import { computeCardLayout } from '../layout'
 import { freezeLane, speedLane, videoLane, zoomLane } from '../timeline/lanes'
 import {
+  CARD_EDGE_OVERDRAW,
+  DEFAULT_BROWSER_BAR,
   DEFAULT_CAM_STYLE,
   DEFAULT_CURSOR_STYLE,
   DEFAULT_FRAME_STYLE,
@@ -249,9 +252,12 @@ describe('ON_FRAME drives the media under the playhead', () => {
           if (key === 'createLinearGradient')
             return () => ({ addColorStop: () => {} })
           if (key === 'drawImage')
-            return (el: unknown) => {
+            return (el: unknown, ...args: number[]) => {
               if (el === a) a.drawn++
-              if (el === b) b.drawn++
+              if (el === b) {
+                b.drawn++
+                b.lastDraw = args
+              }
             }
           return () => {}
         },
@@ -283,6 +289,42 @@ describe('ON_FRAME drives the media under the playhead', () => {
       1 / 30,
     )
   }
+
+  it('draws B on B’s own card, where the host mirror lays it', () => {
+    const d = concat({
+      media: [
+        {
+          ...other,
+          frame: { inset: { left: 0.4, top: 0.1, right: 0.05, bottom: 0.1 } },
+        },
+      ],
+    })
+    const a = makeVideo('a')
+    const b = makeVideo('b')
+    b.videoWidth = 1280
+    b.videoHeight = 720
+    runFrame(d, a, b, 5)
+    const args = b.lastDraw as number[]
+    const l = computeCardLayout(
+      mediaFrame(d, 'b'),
+      { width: 1280, height: 720 },
+      1920,
+      1080,
+    )
+    const ov = CARD_EDGE_OVERDRAW
+    expect(args[0]).toBeCloseTo(l.dx - ov, 2)
+    expect(args[1]).toBeCloseTo(l.dy - ov, 2)
+    expect(args[2]).toBeCloseTo(l.dw + 2 * ov, 2)
+    expect(args[3]).toBeCloseTo(l.dh + 2 * ov, 2)
+    // and not where the take's card sits
+    const take = computeCardLayout(
+      d.frame,
+      { width: 1280, height: 720 },
+      1920,
+      1080,
+    )
+    expect(Math.abs(args[0] - (take.dx - ov))).toBeGreaterThan(50)
+  })
 
   it('plays and draws the primary inside its clip, and B inside B’s, resting the other', () => {
     const a = makeVideo('a')
@@ -349,5 +391,63 @@ describe('the lanes stamp the media under the playhead', () => {
     // A create at the primary's moment carries no media key.
     const primary = apply(d, speedLane.gesture(d, { type: 'create', t: 1 }))
     expect(primary.speed?.[0].media).toBeUndefined()
+  })
+})
+
+describe('a media wears its own card', () => {
+  const page = 'https://www.vos.so/gallery?theme=light'
+  it('resolves the card fields over the take’s frame, the bar from the facts', () => {
+    const d = doc({
+      frame: {
+        ...DEFAULT_FRAME_STYLE,
+        radius: 12,
+        browserBar: {
+          ...DEFAULT_BROWSER_BAR,
+          kind: 'mac-light',
+          url: 'vos.so/docs',
+        },
+      },
+      media: [
+        {
+          ...other,
+          meta: { ...other.meta, pageUrl: page },
+          frame: { inset: { left: 0.4 }, radius: 4 },
+        },
+        { ...other, id: 'c' },
+        {
+          ...other,
+          id: 'e',
+          frame: { browserBar: { kind: 'minimal', url: 'typed' } },
+        },
+      ],
+    })
+    expect(mediaFrame(d, '')).toBe(d.frame)
+    const b = mediaFrame(d, 'b')
+    expect(b.inset).toEqual({ left: 0.4 })
+    expect(b.radius).toBe(4)
+    expect(b.padding).toBe(d.frame.padding)
+    expect(b.browserBar.kind).toBe('mac-light')
+    expect(b.browserBar.url).toBe('vos.so/gallery')
+    // an upload has no page: no bar, and the take's words stay
+    const c = mediaFrame(d, 'c')
+    expect(c.browserBar.kind).toBe('none')
+    expect(c.radius).toBe(12)
+    // its own bar wins over the facts
+    const e = mediaFrame(d, 'e')
+    expect(e.browserBar.kind).toBe('minimal')
+    expect(e.browserBar.url).toBe('typed')
+    expect(mediaFrame(d, 'zzz')).toBe(d.frame)
+  })
+
+  it('the lowering hands the resolved card to setup, card fields only', () => {
+    const d = concat({
+      media: [{ ...other, frame: { inset: { left: 0.4, right: 0.1 } } }],
+    })
+    const { data } = lowerToComposition(d)
+    const media = data.media as { frame: Record<string, unknown> }[]
+    expect(media[0].frame.inset).toEqual({ left: 0.4, right: 0.1 })
+    expect(media[0].frame.browserBar).toMatchObject({ kind: 'none' })
+    expect('padding' in media[0].frame).toBe(false)
+    expect('background' in media[0].frame).toBe(false)
   })
 })

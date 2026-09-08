@@ -254,9 +254,11 @@ export {
 export type { FreezeExtent } from './lower/motion'
 export {
   PRIMARY_MEDIA,
+  cardFields,
   docMediaList,
   mediaAtOutput,
   mediaDuration,
+  mediaFrame,
   mediaKey,
   mediaSource,
   nextMediaId,

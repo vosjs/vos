@@ -16,16 +16,17 @@ import {
   CAM_SPAN_MIN,
   CARD_ENTER_KINDS,
   CARD_EXIT_KINDS,
-  IDLE_KINDS,
-  MEDIA_ENTER_KINDS,
-  MEDIA_EXIT_KINDS,
-  TEXT_ENTER_KINDS,
-  TEXT_EXIT_KINDS,
   EXPORT_RESOLUTION_OPTIONS,
   FREEZE_SECONDS_MAX,
   FREEZE_SECONDS_MIN,
+  IDLE_KINDS,
+  MEDIA_ENTER_KINDS,
+  MEDIA_EXIT_KINDS,
+  MEDIA_FRAME_KEYS,
   SPEED_RATE_MAX,
   SPEED_RATE_MIN,
+  TEXT_ENTER_KINDS,
+  TEXT_EXIT_KINDS,
   TILT_DEG_MAX,
   TILT_SPAN_MIN,
   ZOOM_LEVEL_MAX,
@@ -289,6 +290,24 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       if (!id) problems.push(`media[${i}]: id must be a string`)
       else if (mediaLen.has(id))
         problems.push(`media[${i}] (${id}): duplicate id`)
+      // A media's own card: card-owned fields only (the frame-wide ones,
+      // the aspect, the padding, the ground, the backdrop, the card's
+      // animation, are the take's and read wrong on a media).
+      const mf = (m as { frame?: unknown }).frame
+      if (mf !== undefined) {
+        if (!isObj(mf)) {
+          problems.push(
+            `media[${i}]${id ? ` (${id})` : ''}: frame must be an object`,
+          )
+        } else {
+          for (const k of Object.keys(mf)) {
+            if (!(MEDIA_FRAME_KEYS as readonly string[]).includes(k))
+              problems.push(
+                `media[${i}]${id ? ` (${id})` : ''}.frame.${k}: not a card field (a media's frame carries ${MEDIA_FRAME_KEYS.join(', ')}; the rest is the take's frame)`,
+              )
+          }
+        }
+      }
       if (typeof m.videoKey !== 'string')
         problems.push(
           `media[${i}]${id ? ` (${id})` : ''}: videoKey must be a string`,

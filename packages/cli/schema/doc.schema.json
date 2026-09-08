@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://vos.so/schemas/doc.schema.json",
-  "title": "vosso doc.json (the studio document — a recording document or a program document)",
-  "description": "The editable document a vos carries beside its config: a RECORDING document (a take: `source` plus the tracks and layers) or a PROGRAM document (`program.config` plus the shared layers). Time is SECONDS everywhere. Edit this file, then re-run `vos render` — renders are deterministic, only your edits change the output. `vos validate <dir>` checks these contracts plus semantic lints (overlap, footage bounds).",
+  "title": "vosso doc.json (the studio document \u2014 a recording document or a program document)",
+  "description": "The editable document a vos carries beside its config: a RECORDING document (a take: `source` plus the tracks and layers) or a PROGRAM document (`program.config` plus the shared layers). Time is SECONDS everywhere. Edit this file, then re-run `vos render` \u2014 renders are deterministic, only your edits change the output. `vos validate <dir>` checks these contracts plus semantic lints (overlap, footage bounds).",
   "oneOf": [
     {
       "title": "Recording document",
@@ -22,7 +22,7 @@
       "properties": {
         "source": {
           "type": "object",
-          "description": "The recording this doc edits. Written by record/plan — treat as read-only except videoKey/camKey/micKey when relinking assets. micKey (extension takes recorded after the audio split) is a separately-recorded mic sidecar: the voice, gained by micGain; the recording's own audio track is then system/tab audio, gained by systemGain.",
+          "description": "The recording this doc edits. Written by record/plan \u2014 treat as read-only except videoKey/camKey/micKey when relinking assets. micKey (extension takes recorded after the audio split) is a separately-recorded mic sidecar: the voice, gained by micGain; the recording's own audio track is then system/tab audio, gained by systemGain.",
           "additionalProperties": true
         },
         "segments": {
@@ -64,7 +64,7 @@
         },
         "zoom": {
           "type": "array",
-          "description": "Zoom regions (SOURCE time, footage-anchored, non-overlapping). The camera ramps in around `in`, holds until `out`, ramps out — or pans straight to the next span when the gap is short. Planner-made spans have source:'auto' (replaced on re-plan); set source:'manual' on any span you add or edit so it survives.",
+          "description": "Zoom regions (SOURCE time, footage-anchored, non-overlapping). The camera ramps in around `in`, holds until `out`, ramps out \u2014 or pans straight to the next span when the gap is short. Planner-made spans have source:'auto' (replaced on re-plan); set source:'manual' on any span you add or edit so it survives.",
           "items": {
             "type": "object",
             "required": ["id", "in", "out", "level", "cx", "cy"],
@@ -80,13 +80,13 @@
               },
               "out": {
                 "type": "number",
-                "description": "SOURCE seconds, > in (≥ 0.3s span reads well)"
+                "description": "SOURCE seconds, > in (\u2265 0.3s span reads well)"
               },
               "level": {
                 "type": "number",
                 "minimum": 1,
                 "maximum": 5,
-                "description": "zoom level; 1.4–2.8 reads well"
+                "description": "zoom level; 1.4\u20132.8 reads well"
               },
               "cx": {
                 "type": "number",
@@ -106,7 +106,7 @@
               },
               "transition": {
                 "enum": ["instant", "fast", "smooth", "slow"],
-                "description": "transition SPEED for this span's ramps (in, out, and a chained pan arriving here). Absent = 'smooth' (the camera style's stock motion); 'instant' = hard cut; 'fast' ≈ half, 'slow' ≈ 1.6×."
+                "description": "transition SPEED for this span's ramps (in, out, and a chained pan arriving here). Absent = 'smooth' (the camera style's stock motion); 'instant' = hard cut; 'fast' \u2248 half, 'slow' \u2248 1.6\u00d7."
               },
               "focusMode": {
                 "enum": ["manual", "auto"],
@@ -134,7 +134,7 @@
                     "description": "seconds from that edge to the span's `in` (negative = before it)"
                   }
                 },
-                "description": "Re-record tie: `vos plan --reuse` re-times this span onto a NEW recording of the same script by resolving the step in the new meta.steps. Metadata only — `in`/`out` stay authoritative and lowering never reads it, so it costs nothing at render time"
+                "description": "Re-record tie: `vos plan --reuse` re-times this span onto a NEW recording of the same script by resolving the step in the new meta.steps. Metadata only \u2014 `in`/`out` stay authoritative and lowering never reads it, so it costs nothing at render time"
               },
               "media": {
                 "type": "string",
@@ -155,7 +155,7 @@
             "cut",
             "none"
           ],
-          "description": "Camera style preset driving planner + camera motion. Absent = 'glide'. 'none' disables auto-zoom planning (manual spans keep default motion). 'keynote' and 'drift' are tilt-forward styles: they carry a tilt personality (keynote = medium lean toward each zoom's focus with tilt ramps matched to the zoom ramps; drift = subtle lean, slower 1.6s ramps, longer chains) — in the studio, picking one stamps tiltStyle and plans auto tilt spans; in doc.json, set tiltStyle + tilt spans yourself (the style still shapes tilt MOTION at render)."
+          "description": "Camera style preset driving planner + camera motion. Absent = 'glide'. 'none' disables auto-zoom planning (manual spans keep default motion). 'keynote' and 'drift' are tilt-forward styles: they carry a tilt personality (keynote = medium lean toward each zoom's focus with tilt ramps matched to the zoom ramps; drift = subtle lean, slower 1.6s ramps, longer chains) \u2014 in the studio, picking one stamps tiltStyle and plans auto tilt spans; in doc.json, set tiltStyle + tilt spans yourself (the style still shapes tilt MOTION at render)."
         },
         "zoomParams": {
           "type": "object",
@@ -164,12 +164,12 @@
         },
         "speedParams": {
           "type": "object",
-          "description": "Auto-speed planner overrides: idleMin/idleRate/typingMin/typingRate/scrollMin/scrollRate. Absent = defaults (idle ≥5s→4×, typing ≥3s→3×, scroll ≥2.5s→2×).",
+          "description": "Auto-speed planner overrides: idleMin/idleRate/typingMin/typingRate/scrollMin/scrollRate. Absent = defaults (idle \u22655s\u21924\u00d7, typing \u22653s\u21923\u00d7, scroll \u22652.5s\u21922\u00d7).",
           "additionalProperties": true
         },
         "tilt": {
           "type": "array",
-          "description": "Card tilt regions (SOURCE time, footage-anchored, non-overlapping). While a span is active the 3D card leans to its pose; between spans it returns to FLAT (there is no static card pose: a lean is a moment on the timeline). Ramps ~0.9s in / ~0.8s out; spans ≤ ~1.35s apart swing pose-to-pose. Direction: +rx brings the TOP edge toward the camera, +ry the LEFT edge — to lean toward a right-side focus use NEGATIVE ry. Wand-made spans have source:'auto' (replaced when Dynamic tilt re-runs); set source:'manual' on spans you add or edit.",
+          "description": "Card tilt regions (SOURCE time, footage-anchored, non-overlapping). While a span is active the 3D card leans to its pose; between spans it returns to FLAT (there is no static card pose: a lean is a moment on the timeline). Ramps ~0.9s in / ~0.8s out; spans \u2264 ~1.35s apart swing pose-to-pose. Direction: +rx brings the TOP edge toward the camera, +ry the LEFT edge \u2014 to lean toward a right-side focus use NEGATIVE ry. Wand-made spans have source:'auto' (replaced when Dynamic tilt re-runs); set source:'manual' on spans you add or edit.",
           "items": {
             "type": "object",
             "required": ["id", "in", "out", "rx", "ry"],
@@ -185,13 +185,13 @@
               },
               "out": {
                 "type": "number",
-                "description": "SOURCE seconds, > in (≥ 0.8s so the pose can settle)"
+                "description": "SOURCE seconds, > in (\u2265 0.8s so the pose can settle)"
               },
               "rx": {
                 "type": "number",
                 "minimum": -45,
                 "maximum": 45,
-                "description": "pose DEGREES about the horizontal axis (+ = top edge toward camera). NOT radians, NOT fractions; ±5..18° reads premium."
+                "description": "pose DEGREES about the horizontal axis (+ = top edge toward camera). NOT radians, NOT fractions; \u00b15..18\u00b0 reads premium."
               },
               "ry": {
                 "type": "number",
@@ -229,7 +229,7 @@
                     "description": "seconds from that edge to the span's `in` (negative = before it)"
                   }
                 },
-                "description": "Re-record tie: `vos plan --reuse` re-times this span onto a NEW recording of the same script by resolving the step in the new meta.steps. Metadata only — `in`/`out` stay authoritative and lowering never reads it, so it costs nothing at render time"
+                "description": "Re-record tie: `vos plan --reuse` re-times this span onto a NEW recording of the same script by resolving the step in the new meta.steps. Metadata only \u2014 `in`/`out` stay authoritative and lowering never reads it, so it costs nothing at render time"
               },
               "media": {
                 "type": "string",
@@ -241,7 +241,7 @@
         },
         "tiltStyle": {
           "enum": ["off", "subtle", "medium", "strong"],
-          "description": "Dynamic-tilt wand intensity: derives source:'auto' tilt spans FROM the zoom spans, leaning toward each zoom's focus (max 5/9/14° per axis). 'off'/absent = no auto tilt; manual spans work either way."
+          "description": "Dynamic-tilt wand intensity: derives source:'auto' tilt spans FROM the zoom spans, leaning toward each zoom's focus (max 5/9/14\u00b0 per axis). 'off'/absent = no auto tilt; manual spans work either way."
         },
         "rejected": {
           "type": "array",
@@ -312,21 +312,21 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1,
-          "description": "master gain for the recording's own system/tab audio track — split takes (source.micKey) only; legacy takes have one track on micGain. Absent = 1. 0 = muted."
+          "description": "master gain for the recording's own system/tab audio track \u2014 split takes (source.micKey) only; legacy takes have one track on micGain. Absent = 1. 0 = muted."
         },
         "cursor": {
           "type": "object",
-          "description": "Cursor rendering (visible, hideWhenIdle, smoothing, size, click effects). See CursorStyle in @vosjs/studio-core. `visible: false` hides the drawn dot only — the track still drives cursor-follow zoom, and click effects keep drawing (silence those with clickFx.style: \"none\"). `hideWhenIdle` (default true) fades the dot out after ~1s parked and back in when it moves; scrolling is not movement, and it is always back at full opacity on a click.",
+          "description": "Cursor rendering (visible, hideWhenIdle, smoothing, size, click effects). See CursorStyle in @vosjs/studio-core. `visible: false` hides the drawn dot only \u2014 the track still drives cursor-follow zoom, and click effects keep drawing (silence those with clickFx.style: \"none\"). `hideWhenIdle` (default true) fades the dot out after ~1s parked and back in when it moves; scrolling is not movement, and it is always back at full opacity on a click.",
           "additionalProperties": true
         },
         "cam": {
           "type": "object",
-          "description": "Webcam bubble style + SOURCE-time window — the bubble's REST pose. Only applies when the take has a cam track. Placement: x/y (bubble CENTER as frame fractions, the zoom cx/cy convention) when present, else the `position` corner anchor; size = diameter as a fraction of frame height. Look: shape circle|rounded; radius (rounded corner, design px, default 18); border { width design px (default 3; 0 = none), color } (default white at 0.9); shadow none|soft|strong (default soft). Animate the pose over time with camMotion spans.",
+          "description": "Webcam bubble style + SOURCE-time window \u2014 the bubble's REST pose. Only applies when the take has a cam track. Placement: x/y (bubble CENTER as frame fractions, the zoom cx/cy convention) when present, else the `position` corner anchor; size = diameter as a fraction of frame height. Look: shape circle|rounded; radius (rounded corner, design px, default 18); border { width design px (default 3; 0 = none), color } (default white at 0.9); shadow none|soft|strong (default soft). Animate the pose over time with camMotion spans.",
           "additionalProperties": true
         },
         "camMotion": {
           "type": "array",
-          "description": "Animated cam layout (SOURCE time, footage-anchored, non-overlapping): while a span is active the webcam bubble holds its pose; outside spans it rests at doc.cam; spans ≤ ~1.2s apart in output time morph pose-to-pose. Ramps ~0.65s, settled at span start (a cam move frames what follows). Absent pose fields inherit the rest pose, so a span may move without resizing. Only renders when the take has a cam track (source.camKey).",
+          "description": "Animated cam layout (SOURCE time, footage-anchored, non-overlapping): while a span is active the webcam bubble holds its pose; outside spans it rests at doc.cam; spans \u2264 ~1.2s apart in output time morph pose-to-pose. Ramps ~0.65s, settled at span start (a cam move frames what follows). Absent pose fields inherit the rest pose, so a span may move without resizing. Only renders when the take has a cam track (source.camKey).",
           "items": {
             "type": "object",
             "required": ["id", "in", "out"],
@@ -342,7 +342,7 @@
               },
               "out": {
                 "type": "number",
-                "description": "SOURCE seconds, > in (≥ 0.5s so the move can settle)"
+                "description": "SOURCE seconds, > in (\u2265 0.5s so the move can settle)"
               },
               "x": {
                 "type": "number",
@@ -389,11 +389,11 @@
           "properties": {
             "background": {
               "type": "string",
-              "description": "CSS background (gradient/color) — the underlay/fallback, always painted under backgroundMedia"
+              "description": "CSS background (gradient/color) \u2014 the underlay/fallback, always painted under backgroundMedia"
             },
             "backgroundMedia": {
               "type": ["object", "null"],
-              "description": "Optional media layer drawn OVER the CSS background and UNDER the card: a vos animation baked to a seamless loop, or a still image. Video time is OUTPUT-anchored modulo the loop (bgT = t % duration) — trims/speed never retime it. Draws outside the zoom transform. `key` may be a file inside the take dir (e.g. \"/bg.webm\"), a public https://assets.vos.so/... loop, or an /api/... URL. Fail-open: if it can't load, the CSS background still shows.",
+              "description": "Optional media layer drawn OVER the CSS background and UNDER the card: a vos animation baked to a seamless loop, or a still image. Video time is OUTPUT-anchored modulo the loop (bgT = t % duration) \u2014 trims/speed never retime it. Draws outside the zoom transform. `key` may be a file inside the take dir (e.g. \"/bg.webm\"), a public https://assets.vos.so/... loop, or an /api/... URL. Fail-open: if it can't load, the CSS background still shows.",
               "required": ["kind", "key", "dim"],
               "properties": {
                 "kind": {
@@ -406,7 +406,7 @@
                 "duration": {
                   "type": "number",
                   "exclusiveMinimum": 0,
-                  "description": "loop length in seconds (video only — required for the modulo loop)"
+                  "description": "loop length in seconds (video only \u2014 required for the modulo loop)"
                 },
                 "vosId": {
                   "type": "string",
@@ -429,7 +429,7 @@
                   "type": "number",
                   "minimum": 0,
                   "maximum": 100,
-                  "description": "V2: blur radius in design px — softens the media behind the card"
+                  "description": "V2: blur radius in design px \u2014 softens the media behind the card"
                 }
               },
               "additionalProperties": true
@@ -512,7 +512,7 @@
             "fit": {
               "type": "string",
               "enum": ["contain", "cover"],
-              "description": "How footage meets an off-ratio frame. contain (default) letterboxes the card onto the background; cover makes the padded area the card and fills it with footage, cropped around `focus` — what a 440x280 store tile or a 2.5:1 marquee demands"
+              "description": "How footage meets an off-ratio frame. contain (default) letterboxes the card onto the background; cover makes the padded area the card and fills it with footage, cropped around `focus` \u2014 what a 440x280 store tile or a 2.5:1 marquee demands"
             },
             "focus": {
               "type": "object",
@@ -615,14 +615,57 @@
         },
         "media": {
           "type": "array",
-          "description": "The take's OTHER media (concat, a layer's source): each the `source` shape (a media plus the facts only a capture has) with an `id` a segment or a source-anchored span names. The primary stays `source`. Absent = one media.",
+          "description": "The take's OTHER media (concat, a layer's source): each the `source` shape (a media plus the facts only a capture has) with an `id` a segment or a source-anchored span names. The primary stays `source`. Absent = one media. Each may carry `frame`, its own card.",
           "items": {
             "type": "object",
             "additionalProperties": true,
             "properties": {
               "id": {
                 "type": "string",
-                "description": "stable identity a segment or a span names (m1, m2, …)"
+                "description": "stable identity a segment or a span names (m1, m2, \u2026)"
+              },
+              "frame": {
+                "type": "object",
+                "description": "This media's OWN card over the take's frame while it plays: its placement and size (`inset`), the browser bar, the corner, the shadow, the border, the cover fit and its focus. Frame-wide fields (aspectRatio, padding, background, backgroundMedia, anim) stay the take's. Absent fields fall to the take's frame; the bar names this media's recorded page, and a media with no page wears no bar unless `browserBar` says so.",
+                "additionalProperties": false,
+                "properties": {
+                  "browserBar": {
+                    "$ref": "#/oneOf/0/properties/frame/properties/browserBar"
+                  },
+                  "radius": {
+                    "$ref": "#/oneOf/0/properties/frame/properties/radius"
+                  },
+                  "shadow": {
+                    "$ref": "#/oneOf/0/properties/frame/properties/shadow"
+                  },
+                  "shadowContact": {
+                    "$ref": "#/oneOf/0/properties/frame/properties/shadowContact"
+                  },
+                  "shadowColor": {
+                    "$ref": "#/oneOf/0/properties/frame/properties/shadowColor"
+                  },
+                  "inset": {
+                    "$ref": "#/oneOf/0/properties/frame/properties/inset"
+                  },
+                  "border": {
+                    "$ref": "#/oneOf/0/properties/frame/properties/border"
+                  },
+                  "borderWidth": {
+                    "$ref": "#/oneOf/0/properties/frame/properties/borderWidth"
+                  },
+                  "borderColor": {
+                    "$ref": "#/oneOf/0/properties/frame/properties/borderColor"
+                  },
+                  "fit": {
+                    "$ref": "#/oneOf/0/properties/frame/properties/fit"
+                  },
+                  "focus": {
+                    "$ref": "#/oneOf/0/properties/frame/properties/focus"
+                  },
+                  "focusFollow": {
+                    "$ref": "#/oneOf/0/properties/frame/properties/focusFollow"
+                  }
+                }
               }
             },
             "required": ["id"]
@@ -756,7 +799,7 @@
     },
     "overlays": {
       "type": "array",
-      "description": "Compositor v2 (V1): screen-space text clips drawn ABOVE the card, outside the zoom transform. OUTPUT-anchored (start is final-cut seconds — trims/speed never retime a title). Optional; absent = none.",
+      "description": "Compositor v2 (V1): screen-space text clips drawn ABOVE the card, outside the zoom transform. OUTPUT-anchored (start is final-cut seconds \u2014 trims/speed never retime a title). Optional; absent = none.",
       "items": {
         "type": "object",
         "required": ["id", "kind", "start", "duration", "transform"],
@@ -797,13 +840,13 @@
           },
           "family": {
             "type": "string",
-            "description": "font family override — a catalog family name (GET https://vos.so/api/fonts). Unknown names fail open to the preset stack on the render fleet"
+            "description": "font family override \u2014 a catalog family name (GET https://vos.so/api/fonts). Unknown names fail open to the preset stack on the render fleet"
           },
           "weight": {
             "type": "number",
             "minimum": 100,
             "maximum": 900,
-            "description": "weight override — snapped to the nearest weight the catalog hosts for the family (weights are files, not synthesis)"
+            "description": "weight override \u2014 snapped to the nearest weight the catalog hosts for the family (weights are files, not synthesis)"
           },
           "italic": {
             "type": "boolean",
@@ -885,13 +928,13 @@
                 "type": "number",
                 "minimum": -0.5,
                 "maximum": 1.5,
-                "description": "anchor CENTER as a FRACTION of the frame width [0..1] (0.5 = center at ANY aspect — the zoom cx/cy convention; NOT pixels)"
+                "description": "anchor CENTER as a FRACTION of the frame width [0..1] (0.5 = center at ANY aspect \u2014 the zoom cx/cy convention; NOT pixels)"
               },
               "y": {
                 "type": "number",
                 "minimum": -0.5,
                 "maximum": 1.5,
-                "description": "anchor CENTER as a FRACTION of the frame height [0..1] (lower-third ≈ 0.82; NOT pixels)"
+                "description": "anchor CENTER as a FRACTION of the frame height [0..1] (lower-third \u2248 0.82; NOT pixels)"
               },
               "scale": {
                 "type": "number",
@@ -959,7 +1002,7 @@
           },
           "motion": {
             "type": "array",
-            "description": "Pose keyframes (MO): the clip's transform animated over CLIP-LOCAL time. Values interpolate across the gap between poses (~symmetric in-out ease; a hold is two identical poses); the base transform is the value before the first pose, and absent pose fields inherit it. Pure f(t) — scrub, export and chunked server renders agree.",
+            "description": "Pose keyframes (MO): the clip's transform animated over CLIP-LOCAL time. Values interpolate across the gap between poses (~symmetric in-out ease; a hold is two identical poses); the base transform is the value before the first pose, and absent pose fields inherit it. Pure f(t) \u2014 scrub, export and chunked server renders agree.",
             "items": {
               "type": "object",
               "required": ["at"],
@@ -1005,7 +1048,7 @@
           },
           "fx": {
             "type": "object",
-            "description": "text kind only: entrance animation evaluated per unit — pure f(t), segmentation baked at lowering (scrub/seek/server chunks agree by construction)",
+            "description": "text kind only: entrance animation evaluated per unit \u2014 pure f(t), segmentation baked at lowering (scrub/seek/server chunks agree by construction)",
             "properties": {
               "fx": {
                 "enum": ["fade", "rise", "pop", "blur", "typewriter"],
@@ -1013,7 +1056,7 @@
               },
               "unit": {
                 "enum": ["block", "line", "word", "char"],
-                "description": "what animates as one thing (default block — the whole text; char is grapheme-safe)"
+                "description": "what animates as one thing (default block \u2014 the whole text; char is grapheme-safe)"
               },
               "direction": {
                 "enum": ["forward", "reverse", "center"],
@@ -1023,7 +1066,7 @@
                 "type": "number",
                 "minimum": 0,
                 "maximum": 2,
-                "description": "seconds between unit starts (defaults: typewriter 0.05, others 0.06 when unit ≠ block; clamped so the entrance fits the clip)"
+                "description": "seconds between unit starts (defaults: typewriter 0.05, others 0.06 when unit \u2260 block; clamped so the entrance fits the clip)"
               },
               "duration": {
                 "type": "number",
@@ -1037,13 +1080,13 @@
           },
           "key": {
             "type": "string",
-            "description": "image/video kinds: media URL or take-dir file (e.g. \"/logo.png\", \"/clip.webm\") — required for media"
+            "description": "image/video kinds: media URL or take-dir file (e.g. \"/logo.png\", \"/clip.webm\") \u2014 required for media"
           },
           "width": {
             "type": "number",
             "exclusiveMinimum": 0,
             "maximum": 1,
-            "description": "media kinds: base width as a FRACTION of the frame width (default 0.35); height follows the media's aspect; × transform.scale"
+            "description": "media kinds: base width as a FRACTION of the frame width (default 0.35); height follows the media's aspect; \u00d7 transform.scale"
           },
           "radius": {
             "type": "number",
@@ -1065,7 +1108,7 @@
     },
     "objects": {
       "type": "array",
-      "description": "Compositor v2 (V3): world-space 3D props between the card and the overlays — the drafted V4 engine spec. Curated primitives, GLB models by key, and extruded 3D text (TX7).",
+      "description": "Compositor v2 (V3): world-space 3D props between the card and the overlays \u2014 the drafted V4 engine spec. Curated primitives, GLB models by key, and extruded 3D text (TX7).",
       "items": {
         "type": "object",
         "required": ["id", "asset", "transform3d"],
@@ -1091,7 +1134,7 @@
               },
               "key": {
                 "type": "string",
-                "description": "gltf kind: GLB URL or take-dir file (e.g. \"/model.glb\") — bbox-normalized so scale means the same as primitives"
+                "description": "gltf kind: GLB URL or take-dir file (e.g. \"/model.glb\") \u2014 bbox-normalized so scale means the same as primitives"
               },
               "text": {
                 "type": "string",
@@ -1343,7 +1386,7 @@
         "properties": {
           "id": {
             "type": "string",
-            "description": "stable identity (f0, f1, …)"
+            "description": "stable identity (f0, f1, \u2026)"
           },
           "at": {
             "type": "number",
@@ -1390,7 +1433,7 @@
     },
     "speed": {
       "type": "array",
-      "description": "Speed-change spans (SOURCE time, footage-anchored, non-overlapping). Absent = all 1×. The planner proposes source:'auto' spans for typing passages, scroll runs and idle gaps (ids s0…); set source:'manual' on spans you add or edit so they survive a re-plan (absent source also counts as manual).",
+      "description": "Speed-change spans (SOURCE time, footage-anchored, non-overlapping). Absent = all 1\u00d7. The planner proposes source:'auto' spans for typing passages, scroll runs and idle gaps (ids s0\u2026); set source:'manual' on spans you add or edit so they survive a re-plan (absent source also counts as manual).",
       "items": {
         "type": "object",
         "required": ["id", "in", "out", "rate"],
@@ -1433,7 +1476,7 @@
                 "description": "seconds from that edge to the span's `in` (negative = before it)"
               }
             },
-            "description": "Re-record tie: `vos plan --reuse` re-times this span onto a NEW recording of the same script by resolving the step in the new meta.steps. Metadata only — `in`/`out` stay authoritative and lowering never reads it, so it costs nothing at render time"
+            "description": "Re-record tie: `vos plan --reuse` re-times this span onto a NEW recording of the same script by resolving the step in the new meta.steps. Metadata only \u2014 `in`/`out` stay authoritative and lowering never reads it, so it costs nothing at render time"
           },
           "media": {
             "type": "string",
