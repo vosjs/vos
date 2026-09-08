@@ -164,3 +164,20 @@ describe('docMediaRefs: the take’s other media', () => {
     expect(d.media[0].videoKey).toBe('/api/assets/abc/file')
   })
 })
+
+describe('docMediaRefs: a media reference is not a file', () => {
+  it('skips a media:<id> overlay key', () => {
+    const d = doc()
+    d.overlays = [
+      {
+        id: 'l1',
+        kind: 'video',
+        key: 'media:m1',
+        start: 0,
+        duration: 2,
+        transform: { x: 0.5, y: 0.5, scale: 1, rotation: 0 },
+      },
+    ]
+    expect(docMediaRefs(d).some((r) => r.key === 'media:m1')).toBe(false)
+  })
+})

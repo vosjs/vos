@@ -1091,6 +1091,49 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       if (o.fx !== undefined) {
         problems.push(`${name}.fx is text-only (media clips have enter/exit)`)
       }
+      // A layer that shows a document media: the reference must name one
+      // (`media:` alone is the primary), and its card carries card fields.
+      if (typeof o.key === 'string' && o.key.startsWith('media:')) {
+        const ref = o.key.slice('media:'.length)
+        const ids = new Set(
+          (Array.isArray((doc as { media?: unknown }).media)
+            ? ((doc as { media: unknown[] }).media as { id?: unknown }[])
+            : []
+          ).map((m) => (typeof m.id === 'string' ? m.id : '')),
+        )
+        if (ref !== '' && !ids.has(ref))
+          problems.push(
+            `${name}.key names media "${ref}", which is not one of media[].id (media: alone is the primary)`,
+          )
+      }
+      const lcf = (o as { frame?: unknown }).frame
+      if (lcf !== undefined) {
+        if (!isObj(lcf)) {
+          problems.push(`${name}.frame must be an object (the layer's card)`)
+        } else {
+          const LCF = [
+            'browserBar',
+            'lean',
+            'shadow',
+            'shadowContact',
+            'shadowColor',
+            'cursor',
+          ]
+          for (const k of Object.keys(lcf))
+            if (!LCF.includes(k))
+              problems.push(
+                `${name}.frame.${k}: not a layer card field (${LCF.join(', ')})`,
+              )
+          const lean = (lcf as { lean?: unknown }).lean
+          if (
+            lean !== undefined &&
+            (!isObj(lean) ||
+              !isNum((lean as { rx?: unknown }).rx) ||
+              !isNum((lean as { ry?: unknown }).ry))
+          )
+            problems.push(`${name}.frame.lean must be { rx, ry } in degrees`)
+        }
+      }
       if (typeof o.key !== 'string' || o.key.length === 0) {
         problems.push(
           `${name}.key must be a non-empty media URL or take-dir file (e.g. "/logo.png")`,
