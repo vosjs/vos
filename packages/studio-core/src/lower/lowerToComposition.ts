@@ -1244,6 +1244,15 @@ const ON_FRAME = `(ctx, content, dt) => {
   // range); the paused/seek path needs nothing — mapTime already lands srcT.
   var srcRate = TL.rateAt ? TL.rateAt(d.segments || [], t) : 1
   var playRate = Math.min(16, Math.max(0.0625, srcRate))
+  // Where the FOOTAGE ends in output seconds. The output may outlast it
+  // (clips placed after the footage), and a hold is a freeze piece whose
+  // rate is tiny: in both the element must stay PAUSED on its frame. An
+  // ended element's play() rewinds it to zero and the drift guard then
+  // seeks it back, which reads as frames jumping back and forth; a hold
+  // crawling at the clamped 1/16 speed toward that same end was the same
+  // bug in slow motion.
+  var footEnd = TL.totalDuration ? TL.totalDuration(d.segments || []) : Infinity
+  var frozen = srcRate < 0.01 || t >= footEnd - 1e-3
   // Drive a <video> to the on-screen SOURCE moment: play natively while playing (drift
   // correction covers cut-boundary jumps), else step to the exact frame (registering a
   // decode promise so the deterministic export awaits it). Shared by the screen video
@@ -1251,7 +1260,7 @@ const ON_FRAME = `(ctx, content, dt) => {
   ${FRAME_STEP_SRC}
   function syncVid(vid) {
     try {
-      if (playing) {
+      if (playing && !frozen) {
         if (vid.playbackRate !== playRate) {
           vid.playbackRate = playRate
           // Resampled (tape-style) speed, matching the export's offline mix.
