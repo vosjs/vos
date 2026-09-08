@@ -84,7 +84,17 @@ import {
   clipLength,
   pageDisplayUrl,
   transitionMult,
+  TILT_SPAN_MIN,
+  ZOOM_SPAN_MIN,
 } from '../types'
+import {
+  GHOST_RENDER_ORDER,
+  GHOST_Z_LIFT,
+  TRANSITION_SCALE_STEP,
+  TRANSITION_TRAVEL,
+  docTransitions,
+  restSpansThroughTransitions,
+} from './transitions'
 import { DEFAULT_ZOOM_STYLE, ZOOM_STYLES, resolveZoomStyle } from '../zoomStyle'
 import { isRecordingDoc, programDuration } from '../doc/studioDoc'
 import { clipEnvelope } from './audioEnvelope'
@@ -823,6 +833,52 @@ export const FRAME_STEP_SRC = `
       }
       bgEl.currentTime = bgTarget
     }
+  }
+  // A GHOST element: a second element on the same bytes, held on ONE frame
+  // (a transition's outgoing snapshot), so one recording can be both cards
+  // at a boundary. Cached by source. Its readiness rides pendingDecodes,
+  // so an export's first paint inside a window waits for it, and a frame
+  // asked before it could seek is sought the moment it can.
+  function ghostEl(el) {
+    var gc = ns.ghostCache || (ns.ghostCache = new Map())
+    var src = el.currentSrc || el.src
+    var g = gc.get(src)
+    if (g) return g
+    g = document.createElement('video')
+    g.crossOrigin = 'anonymous'
+    g.muted = true
+    g.playsInline = true
+    g.preload = 'auto'
+    var gp = new Promise(function (resolve) {
+      var fired = false
+      var done = function () {
+        if (fired) return
+        fired = true
+        g.removeEventListener('loadeddata', done)
+        if (g.__voilaWant != null && g.readyState >= 1) {
+          var want = g.__voilaWant
+          g.__voilaWant = null
+          var seeked = function () { g.removeEventListener('seeked', seeked); resolve() }
+          g.addEventListener('seeked', seeked)
+          setTimeout(seeked, 250)
+          g.currentTime = Math.min(want, g.duration || want)
+        } else resolve()
+      }
+      g.addEventListener('loadeddata', done)
+      setTimeout(done, 2000)
+    })
+    if (ns.pendingDecodes) {
+      ns.pendingDecodes.add(gp)
+      gp.finally(function () { ns.pendingDecodes.delete(gp) })
+    }
+    g.src = src
+    g.load()
+    gc.set(src, g)
+    return g
+  }
+  function stepGhost(g, at) {
+    if (g.readyState >= 1) { g.__voilaWant = null; stepPaused(g, at); return }
+    g.__voilaWant = at
   }`
 
 // Load the recording as an HTMLVideoElement (any container/codec the browser plays).
@@ -1098,6 +1154,15 @@ const SETUP = `async (ctx) => {
       if (video.play) stepPaused(video, srcT)
       if (cam) stepPaused(cam, srcT)
       if (mic) stepPaused(mic, srcT)
+    }
+    // A boundary's outgoing snapshot: the ghost element on the clip's last
+    // frame, stepped like the footage, and warmed a second ahead.
+    const trs = d.transitions || []
+    for (let i = 0; i < trs.length; i++) {
+      const tr = trs[i]
+      if (!tr.out || t < tr.t - 1 || t >= tr.t + tr.d) continue
+      const live = tr.out.media ? mediaEls[tr.out.media] : video
+      if (live && live.play) stepGhost(ghostEl(live), tr.out.at)
     }
     const bg2 = d.frame && d.frame.backgroundMedia
     if (bg2 && bg2.key && bg2.kind !== 'image') {
@@ -1399,6 +1464,87 @@ const ON_FRAME = `(ctx, content, dt) => {
   if (video.play) syncVid(video) // stills (HTMLImageElement) have nothing to sync
   if (r.cam && !amId) syncVid(r.cam)
   if (r.mic && !amId) syncVid(r.mic)
+
+  // --- transitions at a boundary (data.transitions, output seconds): the
+  // record whose window holds t, else the next one within a second (its
+  // snapshot warms ahead, so playback never shows a blank ghost). Locals
+  // are tr-prefixed (one var scope).
+  var trs = d.transitions || [], trA = null, trW = null
+  for (var trI = 0; trI < trs.length; trI++) {
+    var trR = trs[trI]
+    if (t >= trR.t && t < trR.t + trR.d) { trA = trR; break }
+    if (trR.out && trR.t > t && trR.t <= t + 1) { trW = trR; break }
+  }
+  function trEase(p) { p = p < 0 ? 0 : p > 1 ? 1 : p; var q = 1 - p; return 1 - q * q * q }
+  function trSide(side) { return side === 'left' ? [-1, 0] : side === 'right' ? [1, 0] : side === 'up' ? [0, 1] : [0, -1] }
+  // A record's outgoing media: its live element, and the GHOST held on the
+  // clip's last frame (a second element on the same bytes, so one
+  // recording can be both cards: a page change inside a single take). A
+  // still needs no ghost.
+  function trLiveEl(o) { return o.media ? (r.media ? r.media[o.media] : null) : r.video }
+  function trGhostEl(o) {
+    var el = trLiveEl(o)
+    if (!el) return null
+    if (!el.play) return el
+    var g = ghostEl(el)
+    stepGhost(g, o.at)
+    return g
+  }
+  if (trW) trGhostEl(trW.out)
+  var trIn = trA && trA.in ? trA.in : null, trOut = trA && trA.out ? trA.out : null
+  var trGEl = trOut ? trGhostEl(trOut) : null
+  if (!trGEl) trOut = null
+  // The live card's enter and the ghost's exit as plane-fraction offsets
+  // (x in plane widths, y in plane heights; +y up), a scale and an opacity.
+  var trOx = 0, trOy = 0, trSc = 1, trOp = 1
+  if (trIn) {
+    var trP = 1 - trEase((t - trA.t) / trIn.d)
+    if (trIn.kind === 'slide') { var trV = trSide(trIn.side); trOx = trV[0] * trP * ${TRANSITION_TRAVEL}; trOy = trV[1] * trP * ${TRANSITION_TRAVEL} }
+    else if (trIn.kind === 'fade') trOp = 1 - trP
+    else { trSc = 1 - ${TRANSITION_SCALE_STEP} * trP; trOp = 1 - trP }
+  }
+  var trGox = 0, trGoy = 0, trGsc = 1, trGop = 1
+  if (trOut) {
+    var trQ = trEase((t - trA.t) / trOut.d)
+    if (trOut.kind === 'slide') { var trV2 = trSide(trOut.side); trGox = trV2[0] * trQ * ${TRANSITION_TRAVEL}; trGoy = trV2[1] * trQ * ${TRANSITION_TRAVEL} }
+    else if (trOut.kind === 'fade') trGop = 1 - trQ
+    else { trGsc = 1 - ${TRANSITION_SCALE_STEP} * trQ; trGop = 1 - trQ }
+  }
+  var trGM = null
+  if (trOut && trOut.media && d.media) for (var trJ = 0; trJ < d.media.length; trJ++) if (d.media[trJ].id === trOut.media) trGM = d.media[trJ]
+  var trGFr = trOut && trOut.media && trGM && trGM.frame ? trGM.frame : frame
+  // The ghost layer: made on first need (most documents never cross a
+  // boundary), sized with the card layer, above it and below the stack's
+  // card planes. The flat stub paints the ghost on the card's own canvas.
+  var gh = null
+  if (trOut) {
+    if (!r.ghost && ctx.THREE && ctx.scene && card.mesh) {
+      var gT = ctx.THREE
+      var gCv = document.createElement('canvas')
+      gCv.width = cW; gCv.height = cH
+      var gTex = new gT.CanvasTexture(gCv)
+      gTex.colorSpace = gT.SRGBColorSpace
+      gTex.minFilter = gT.LinearFilter; gTex.magFilter = gT.LinearFilter; gTex.generateMipmaps = false
+      var gPh = 2 * ${Math.abs(CARD_Z)} * Math.tan(${CARD_FOV} * Math.PI / 180 / 2)
+      var gMesh = new gT.Mesh(new gT.PlaneGeometry(gPh * (W / H) * (cW / W), gPh * (cH / H)), new gT.MeshBasicMaterial({ map: gTex, transparent: true, depthTest: false, depthWrite: false }))
+      gMesh.position.set(0, 0, ${CARD_Z + GHOST_Z_LIFT})
+      gMesh.frustumCulled = false
+      gMesh.renderOrder = ${GHOST_RENDER_ORDER}
+      ctx.scene.add(gMesh)
+      r.ghost = { canvas: gCv, c2d: gCv.getContext('2d'), texture: gTex, mesh: gMesh, w: cW, h: cH }
+    }
+    gh = r.ghost || { c2d: c, canvas: cv }
+    if (r.ghost && (r.ghost.w !== cW || r.ghost.h !== cH)) {
+      r.ghost.canvas.width = cW; r.ghost.canvas.height = cH; r.ghost.w = cW; r.ghost.h = cH
+      if (r.ghost.texture.dispose) r.ghost.texture.dispose()
+      if (r.ghost.mesh.geometry && r.ghost.mesh.geometry.dispose) r.ghost.mesh.geometry.dispose()
+      var gPh2 = 2 * ${Math.abs(CARD_Z)} * Math.tan(${CARD_FOV} * Math.PI / 180 / 2)
+      r.ghost.mesh.geometry = new ctx.THREE.PlaneGeometry(gPh2 * (W / H) * (cW / W), gPh2 * (cH / H))
+    }
+  }
+  // The two cursor points a boundary lerps between (frame space), set by
+  // the passes below: the ghost's last, the live card's current.
+  var trQa = null, trQb = null, trQs = 0, trQw = 0
   // Gain routing (live via SET_DATA). With a mic sidecar (AT split) the
   // recording <video> carries SYSTEM audio — its volume is the system fader —
   // and the sidecar element is the voice (micGain). Legacy takes have one
@@ -1595,6 +1741,19 @@ const ON_FRAME = `(ctx, content, dt) => {
   if (bg.texture) bg.texture.needsUpdate = true
   }
 
+  // The card paints in PASSES: the ghost first (the outgoing clip's last
+  // frame on its own canvas, while a boundary is crossing), then the live
+  // card. A pass swaps the canvas, the element, the media, the source
+  // moment and the card fields it reads; the ghost reads the camera as it
+  // stood at the boundary and paints no clicks and no dot. The live pass
+  // runs last, so everything after the loop reads the live card.
+  var lvVideo = video, lvActM = actM, lvAmId = amId, lvSrcT = srcT, lvCfr = cfr, lvC = c, lvCv = cv
+  var trPasses = trOut ? [true, false] : [false]
+  for (var tpI = 0; tpI < trPasses.length; tpI++) {
+  var tpG = trPasses[tpI]
+  var tpT = t
+  if (tpG) { c = gh.c2d; cv = gh.canvas; video = trGEl; actM = trGM; amId = trOut.media; srcT = trOut.at; cfr = trGFr; tpT = trA.t - 0.001 }
+  else { c = lvC; cv = lvCv; video = lvVideo; actM = lvActM; amId = lvAmId; srcT = lvSrcT; cfr = lvCfr }
   // The CARD layer canvas starts transparent each frame — the padding around
   // the contain-fit card shows the background layer through the plane's alpha.
   // Under overscan the canvas is larger than the frame and every frame-space
@@ -1651,7 +1810,7 @@ const ON_FRAME = `(ctx, content, dt) => {
   var lvl = 1, zx = 0.5, zy = 0.5
   var zt = d.zoomTrack
   if (zt && zt.keyframes && zt.keyframes.length) {
-    var z = TL.sample(zt, t, TL.lerpArray)
+    var z = TL.sample(zt, tpT, TL.lerpArray)
     lvl = z[0]; zx = z[1]; zy = z[2]
   }
   var barH = bar.kind && bar.kind !== 'none' ? (bar.height || 44) * s2 : 0
@@ -1854,7 +2013,7 @@ const ON_FRAME = `(ctx, content, dt) => {
   var cks = d.clicks || []
   var ckF = d.clickFx || {}
   var ckPress = 1
-  if (cks.length) {
+  if (cks.length && !tpG) {
     var ckK = ckF.k || 1
     var ckPre = ${CLICK_FX_PRE}
     var ckRD = ${CLICK_RIPPLE_DUR} * (ckF.dur || 1)
@@ -2013,7 +2172,15 @@ const ON_FRAME = `(ctx, content, dt) => {
         }
       }
     }
-    if (cuA > 0.01) {
+    // Across a boundary the dot is ONE, drawn in frame space on the
+    // overlay layer (the lerp after the passes), never on a card that is
+    // moving: each pass leaves its point, mapped out of the zoom.
+    if (trOut) {
+      var tqX = ax, tqY = ay
+      if (lvl > 1.001 && !d.zoomSuppressed) { tqX = fx + (ax - fx) * lvl; tqY = fy + (ay - fy) * lvl }
+      if (tpG) trQa = [tqX, tqY]
+      else { trQb = [tqX, tqY]; trQs = curSize * ckPress; trQw = s2 }
+    } else if (cuA > 0.01) {
       c.save()
       c.fillStyle = 'rgba(255,255,255,' + (0.95 * cuA) + ')'
       c.strokeStyle = 'rgba(0,0,0,' + (0.4 * cuA) + ')'
@@ -2024,6 +2191,8 @@ const ON_FRAME = `(ctx, content, dt) => {
   }
   if (fitCover) c.restore()
   c.restore()
+  if (tpG && gh.texture) gh.texture.needsUpdate = true
+  }
 
   // --- OVERLAY layer (screen-space plane, never tilts): the cam bubble, the
   // recording's own footage. Text/image/video overlay CLIPS are the studio
@@ -2041,7 +2210,7 @@ const ON_FRAME = `(ctx, content, dt) => {
   if (camV && camV.readyState >= 2) r.camHasFrame = true
   var camActiveNow = !!(camV && camOn && camS.visible !== false && r.camHasFrame)
   var ovSig = W + 'x' + H
-  var ovDirty = ov.sig !== ovSig || camActiveNow || ov.active
+  var ovDirty = ov.sig !== ovSig || camActiveNow || ov.active || !!trOut
   if (ovDirty) {
   ovC.clearRect(0, 0, W, H)
   // webcam bubble — pinned to the frame corner regardless of card tilt/zoom.
@@ -2091,8 +2260,26 @@ const ON_FRAME = `(ctx, content, dt) => {
       ovC.restore()
     }
   }
+  // The boundary dot: the outgoing card's last cursor point and the
+  // incoming's current one, each carried by its card's move, one dot on
+  // the eased lerp between them (the idle fade never fires across a page
+  // change). It lands on the incoming's own dot as the window closes.
+  if (trOut && (trQa || trQb) && !(d.cursorStyle && d.cursorStyle.visible === false)) {
+    var tqA = trQa || trQb, tqB = trQb || trQa
+    var tqP = trEase((t - trA.t) / trA.d)
+    var tqAx = (tqA[0] - W / 2) * trGsc + W / 2 + trGox * W, tqAy = (tqA[1] - H / 2) * trGsc + H / 2 - trGoy * H
+    var tqBx = (tqB[0] - W / 2) * trSc + W / 2 + trOx * W, tqBy = (tqB[1] - H / 2) * trSc + H / 2 - trOy * H
+    var tqX2 = tqAx + (tqBx - tqAx) * tqP, tqY2 = tqAy + (tqBy - tqAy) * tqP
+    var tqR = trQs || (((d.cursorStyle && d.cursorStyle.size) || 24) * s * 0.5)
+    ovC.save()
+    ovC.fillStyle = 'rgba(255,255,255,0.95)'
+    ovC.strokeStyle = 'rgba(0,0,0,0.4)'
+    ovC.lineWidth = 2 * (trQw || s)
+    ovC.beginPath(); ovC.arc(tqX2, tqY2, tqR, 0, Math.PI * 2); ovC.fill(); ovC.stroke()
+    ovC.restore()
+  }
   ov.sig = ovSig
-  ov.active = camActiveNow
+  ov.active = camActiveNow || !!trOut
   if (ov.texture) ov.texture.needsUpdate = true
   }
 
@@ -2121,15 +2308,22 @@ const ON_FRAME = `(ctx, content, dt) => {
     // which the overscan grows).
     var cpk = d.cardPoseTrack
     var cpH = 2 * ${Math.abs(CARD_Z)} * Math.tan(${CARD_FOV} * Math.PI / 180 / 2)
-    if (cpk && cpk.keyframes && cpk.keyframes.length && card.mesh.scale && card.mesh.position) {
-      var cpv = TL.sample(cpk, t, TL.lerpArray)
-      card.mesh.scale.x = cpv[0]; card.mesh.scale.y = cpv[0]
-      card.mesh.position.y = cpv[1] * cpH
-      if (card.mesh.material) card.mesh.material.opacity = cpv[2]
+    var cpv = null
+    if (cpk && cpk.keyframes && cpk.keyframes.length) cpv = TL.sample(cpk, t, TL.lerpArray)
+    if ((cpv || trIn) && card.mesh.scale && card.mesh.position) {
+      // The pose track, then a boundary's enter on top: a slide is an
+      // offset in plane widths and heights, a fade an opacity, a scale both.
+      var cpS = (cpv ? cpv[0] : 1) * trSc
+      var cpO = (cpv ? cpv[2] : 1) * trOp
+      card.mesh.scale.x = cpS; card.mesh.scale.y = cpS
+      card.mesh.position.x = trOx * cpH * (W / H)
+      card.mesh.position.y = ((cpv ? cpv[1] : 0) + trOy) * cpH
+      if (card.mesh.material) card.mesh.material.opacity = cpO
       // Gone past its clip: the mesh leaves the scene, not just its paint.
-      card.mesh.visible = cpv[2] > 0.001
-    } else if (card.mesh.scale && card.mesh.position && ((card.mesh.scale.x !== undefined && card.mesh.scale.x !== 1) || (card.mesh.position.y !== undefined && card.mesh.position.y !== 0) || card.mesh.visible === false)) {
+      card.mesh.visible = cpO > 0.001
+    } else if (card.mesh.scale && card.mesh.position && ((card.mesh.scale.x !== undefined && card.mesh.scale.x !== 1) || (card.mesh.position.y !== undefined && card.mesh.position.y !== 0) || (card.mesh.position.x !== undefined && card.mesh.position.x !== 0) || card.mesh.visible === false)) {
       card.mesh.scale.x = 1; card.mesh.scale.y = 1
+      card.mesh.position.x = 0
       card.mesh.position.y = 0
       if (card.mesh.material) card.mesh.material.opacity = 1
       card.mesh.visible = true
@@ -2144,6 +2338,29 @@ const ON_FRAME = `(ctx, content, dt) => {
       }
       card.texture.needsUpdate = true
     }
+  }
+
+  // The ghost plane: posed as the card stood at the boundary (its lean, its
+  // pose), then moved by its exit; hidden while no boundary is crossing.
+  if (r.ghost && r.ghost.mesh) {
+    var gm = r.ghost.mesh
+    if (trOut && gh === r.ghost) {
+      var gtT = trA.t - 0.001
+      var grx = 0, gry = 0
+      var gtk = d.tiltTrack
+      if (gtk && gtk.keyframes && gtk.keyframes.length && !d.tiltSuppressed) { var gtv = TL.sample(gtk, gtT, TL.lerpArray); grx = gtv[0] * Math.PI / 180; gry = gtv[1] * Math.PI / 180 }
+      gm.rotation.x = grx; gm.rotation.y = gry
+      var gpv = [1, 0, 1]
+      var gpk = d.cardPoseTrack
+      if (gpk && gpk.keyframes && gpk.keyframes.length) gpv = TL.sample(gpk, gtT, TL.lerpArray)
+      var gpH = 2 * ${Math.abs(CARD_Z)} * Math.tan(${CARD_FOV} * Math.PI / 180 / 2)
+      var gS = gpv[0] * trGsc, gO = gpv[2] * trGop
+      gm.scale.x = gS; gm.scale.y = gS
+      gm.position.x = trGox * gpH * (W / H)
+      gm.position.y = (gpv[1] + trGoy) * gpH
+      if (gm.material) gm.material.opacity = gO
+      gm.visible = gO > 0.001
+    } else if (gm.visible !== false) gm.visible = false
   }
 
   // The card layer redraws every frame (dynamic content); bg/overlay uploads are
@@ -2434,6 +2651,9 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
   // card exit), so every track below is laid out against one shape.
   const doc = migrateMotion(input)
   const rated = ratedSegments(doc)
+  // The boundaries that move (a clip's enter or exit, the card's slide at
+  // the open), in output seconds; the camera rests through each window.
+  const transitions = docTransitions(doc)
   // The footage's end, holds included; the output lasts until the last
   // visual clip ends, and past its footage the card holds its last frame.
   const footageEnd = durationSec(doc, rated)
@@ -2463,7 +2683,12 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
   const layout = docCardLayout(doc)
   const meta = doc.source.meta
   const zoomStyle = resolveZoomStyle(doc.zoomStyle, doc.zoomParams)
-  const zoomSpans: LoweredZoomSpan[] = doc.zoom.map((z) => {
+  const zoomSpans: LoweredZoomSpan[] = restSpansThroughTransitions(
+    doc.zoom,
+    rated,
+    transitions,
+    ZOOM_SPAN_MIN,
+  ).map((z) => {
     if (z.focusMode === 'auto') {
       const f = followFocusEvents(
         z,
@@ -2564,6 +2789,9 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
         }
       : {}),
     ...(cursorFade.length ? { cursorFade } : {}),
+    // The boundaries that move: ON_FRAME reads them by output time and
+    // needs no document. Absent when none moves.
+    ...(transitions.length ? { transitions } : {}),
     // Click effects: OUTPUT-anchored click records + resolved styling (named
     // intensities/colors become numbers HERE — ON_FRAME reads no registry).
     ...clickFxData(doc, rated),
@@ -2581,10 +2809,17 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
     // producer of this track, never a second pose.
     ...(() => {
       const head = entranceTiltKeyframes(cardEnter(doc.frame))
-      const spans =
-        doc.tilt && doc.tilt.length
-          ? tiltTrackFromDoc(doc.tilt, rated, zoomStyle.tilt)
-          : undefined
+      const tilts = doc.tilt
+        ? restSpansThroughTransitions(
+            doc.tilt,
+            rated,
+            transitions,
+            TILT_SPAN_MIN,
+          )
+        : []
+      const spans = tilts.length
+        ? tiltTrackFromDoc(tilts, rated, zoomStyle.tilt)
+        : undefined
       const track = prependEntrance(spans, head)
       return track ? { tiltTrack: track } : {}
     })(),

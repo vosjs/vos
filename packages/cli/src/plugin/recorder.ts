@@ -222,6 +222,10 @@ export async function recordTake(
     }
     const stepStart = now()
     const skippedBefore = skipped.length
+    // A step that changes the page's URL (a click that navigates, the
+    // wait that lets the load land) is marked: the planner proposes a
+    // transition at the page change.
+    const urlBefore = page.url()
     switch (step.do) {
       case 'wait':
         await sleep(clampWait(step.ms, now(), maxSeconds))
@@ -365,6 +369,7 @@ export async function recordTake(
       tStart: +(stepStart / 1000).toFixed(3),
       tEnd: +(now() / 1000).toFixed(3),
       ...(skipped.length > skippedBefore ? { skipped: true } : {}),
+      ...(page.url() !== urlBefore ? { navigated: true } : {}),
     })
   }
   if (!capped) await sleep(600) // trailing hold
