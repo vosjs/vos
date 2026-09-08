@@ -275,6 +275,50 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       : programConfig && isNum(programConfig.duration)
         ? programConfig.duration
         : 0
+  // The take's other media (concat): a span that names one is measured
+  // against THAT media's length, never the primary's.
+  const mediaLen = new Map<string, number>()
+  if (recording && doc.media !== undefined) {
+    if (!Array.isArray(doc.media)) problems.push('media must be an array')
+    for (const [i, raw] of (Array.isArray(doc.media)
+      ? (doc.media as unknown[])
+      : []
+    ).entries()) {
+      const m = isObj(raw) ? raw : {}
+      const id = typeof m.id === 'string' ? m.id : ''
+      if (!id) problems.push(`media[${i}]: id must be a string`)
+      else if (mediaLen.has(id))
+        problems.push(`media[${i}] (${id}): duplicate id`)
+      if (typeof m.videoKey !== 'string')
+        problems.push(
+          `media[${i}]${id ? ` (${id})` : ''}: videoKey must be a string`,
+        )
+      const mm = isObj(m.meta) ? m.meta : {}
+      const ms = isNum(mm.durationMs) ? mm.durationMs : 0
+      if (id) mediaLen.set(id, ms / 1000)
+    }
+  }
+  /** Check a span list media by media: each against its own footage. */
+  const checkByMedia = (list: Json[], label: string): void => {
+    const groups = new Map<string, Json[]>()
+    for (const s of list) {
+      const m = typeof s.media === 'string' ? s.media : ''
+      if (m && !mediaLen.has(m)) {
+        problems.push(
+          `${spanName(label, s)}: media "${m}" is not one of media[].id`,
+        )
+        continue
+      }
+      groups.set(m, [...(groups.get(m) ?? []), s])
+    }
+    for (const [m, group] of groups)
+      checkSpanList(
+        group,
+        label,
+        m ? (mediaLen.get(m) ?? 0) : duration,
+        problems,
+      )
+  }
   if (!recording) {
     if (!program)
       problems.push(
@@ -297,7 +341,7 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
     problems.push('zoom must be an array of spans')
   const zoom = recording ? entries(doc.zoom) : []
   if (recording) {
-    checkSpanList(zoom, 'zoom', duration, problems)
+    checkByMedia(zoom, 'zoom')
     for (const z of zoom) {
       const name = spanName('zoom', z)
       if (
@@ -373,9 +417,16 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
         problems.push(`${name}: id must be a string`)
       else if (freezeIds.has(f.id)) problems.push(`${name}: duplicate id`)
       else freezeIds.add(f.id)
-      if (!isNum(f.at) || f.at < 0 || f.at > duration + EPS) {
+      const fm =
+        typeof (f as { media?: unknown }).media === 'string'
+          ? ((f as { media?: string }).media as string)
+          : ''
+      const fLen = fm ? mediaLen.get(fm) : duration
+      if (fm && fLen === undefined) {
+        problems.push(`${name}: media "${fm}" is not one of media[].id`)
+      } else if (!isNum(f.at) || f.at < 0 || f.at > (fLen ?? duration) + EPS) {
         problems.push(
-          `${name}: at must be a SOURCE moment inside the recording (0..${duration.toFixed(2)}s, got ${String(f.at)})`,
+          `${name}: at must be a SOURCE moment inside the recording (0..${(fLen ?? duration).toFixed(2)}s, got ${String(f.at)})`,
         )
       }
       if (
@@ -434,12 +485,12 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
     if (doc.segments !== undefined && !Array.isArray(doc.segments)) {
       problems.push('segments must be an array of {in, out} spans')
     }
-    checkSpanList(entries(doc.segments), 'segment', duration, problems)
+    checkByMedia(entries(doc.segments), 'segment')
   }
 
   // --- speed spans ---
   const speed = entries(doc.speed)
-  checkSpanList(speed, 'speed', duration, problems)
+  checkByMedia(speed, 'speed')
   for (const s of speed) {
     if (
       !isNum(s.rate) ||
@@ -458,7 +509,7 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       problems.push('tilt must be an array of spans')
     }
     const tilt = entries(doc.tilt)
-    checkSpanList(tilt, 'tilt', duration, problems)
+    checkByMedia(tilt, 'tilt')
     for (const t of tilt) {
       const name = spanName('tilt', t)
       for (const ax of ['rx', 'ry'] as const) {
@@ -527,7 +578,7 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       problems.push('camMotion must be an array of spans')
     }
     const camMotion = entries(doc.camMotion)
-    checkSpanList(camMotion, 'camMotion', duration, problems)
+    checkByMedia(camMotion, 'camMotion')
     if (camMotion.length && typeof source.camKey !== 'string') {
       warnings.push(
         'camMotion has spans but the take has no cam track (source.camKey) — nothing renders them',

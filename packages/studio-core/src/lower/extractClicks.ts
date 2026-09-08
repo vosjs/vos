@@ -9,7 +9,8 @@
  * because every segment/speed edit re-runs the lowering and ships fresh data —
  * the baked times can never go stale. Pure & deterministic.
  */
-import { segmentRate, sourceToTimeline } from '@vosjs/timeline'
+import { segmentRate } from '@vosjs/timeline'
+import { sameMedia } from '../media'
 import type { Segment } from '@vosjs/timeline'
 import type { CursorTrack, Rect } from '../types'
 
@@ -51,6 +52,8 @@ export interface ExtractClickOptions {
   rects?: boolean
   /** cursorSpace dims — the rect-size gate's denominator. */
   space: { w: number; h: number }
+  /** The media the track belongs to; absent = the primary. Its clicks map through that media's pieces only. */
+  media?: string
 }
 
 /**
@@ -58,18 +61,40 @@ export interface ExtractClickOptions {
  * release for presses whose `up` fell in trimmed footage. Same accumulation
  * as lowerToComposition's spanOutputExtent (not imported: that would cycle).
  */
+type MediaPiece = Segment & { media?: string }
+
+/** A source moment's OUTPUT time through the pieces of its media (null when cut away). */
+function outputAt(
+  segments: readonly MediaPiece[],
+  sourceT: number,
+  media?: string,
+): number | null {
+  if (!segments.length) return sourceT
+  let acc = 0
+  for (const s of segments) {
+    const rate = segmentRate(s)
+    if (sameMedia(s.media, media) && sourceT >= s.in && sourceT <= s.out)
+      return acc + (sourceT - s.in) / rate
+    acc += Math.max(0, s.out - s.in) / rate
+  }
+  return null
+}
+
 function keptOutputEnd(
-  segments: Segment[],
+  segments: readonly MediaPiece[],
   sIn: number,
   sOut: number,
+  media?: string,
 ): number | null {
   let acc = 0
   let end: number | null = null
   for (const p of segments) {
     const rate = segmentRate(p)
-    const ovIn = Math.max(sIn, p.in)
-    const ovOut = Math.min(sOut, p.out)
-    if (ovOut > ovIn) end = acc + (ovOut - p.in) / rate
+    if (sameMedia(p.media, media)) {
+      const ovIn = Math.max(sIn, p.in)
+      const ovOut = Math.min(sOut, p.out)
+      if (ovOut > ovIn) end = acc + (ovOut - p.in) / rate
+    }
     acc += Math.max(0, p.out - p.in) / rate
   }
   return end
@@ -104,7 +129,7 @@ function gatedRect(
  */
 export function extractClicks(
   track: CursorTrack,
-  segments: Segment[],
+  segments: readonly MediaPiece[],
   opts: ExtractClickOptions,
 ): LoweredClick[] {
   const out: LoweredClick[] = []
@@ -127,10 +152,11 @@ export function extractClicks(
       }
     }
 
-    const ot = sourceToTimeline(segments, st)
+    const ot = outputAt(segments, st, opts.media)
     if (ot === null) continue
     const upSrc = st + Math.max(pressLen, 0.02)
-    const up = keptOutputEnd(segments, st, upSrc) ?? ot + CLICK_SYNTH_RELEASE
+    const up =
+      keptOutputEnd(segments, st, upSrc, opts.media) ?? ot + CLICK_SYNTH_RELEASE
 
     const click: LoweredClick = {
       ot: round(ot),

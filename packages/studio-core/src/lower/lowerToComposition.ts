@@ -110,6 +110,7 @@ import {
   extractClicks,
   hexToRgbTriplet,
 } from './extractClicks'
+import { sameMedia } from '../media'
 import type { StudioDoc } from '../doc/studioDoc'
 import type { TimelineEdit } from '@vosjs/shared/timelineEdits'
 import type { Keyframe, KeyframeTrack, Segment } from '@vosjs/timeline'
@@ -227,8 +228,19 @@ export function ratedSegments(doc: StudioDoc): Segment[] {
     : [{ in: 0, out: programDuration(doc) }]
   // A freeze is a rated piece placed at its source moment, so every reader
   // of this list inherits it (a legacy segment hold is one at its end).
+  // Every span is its media's: a segment on another media is rated by that
+  // media's speed spans, and the pieces keep the media they play.
   const freezes = isRecordingDoc(doc) ? docFreezes(doc) : []
-  return withFreezes(splitBySpeed(segs, doc.speed ?? []), freezes)
+  const speeds = doc.speed ?? []
+  const pieces = segs.flatMap((seg) =>
+    splitBySpeed(
+      [seg],
+      speeds.filter((sp) =>
+        sameMedia(sp.media, (seg as { media?: string }).media),
+      ),
+    ),
+  )
+  return withFreezes(pieces, freezes)
 }
 
 function durationSec(doc: ProjectDoc, rated: Segment[]): number {
@@ -244,9 +256,10 @@ function durationSec(doc: ProjectDoc, rated: Segment[]): number {
  * accumulate each piece's (out − in) / rate.
  */
 export function spanOutputExtent(
-  segments: Segment[],
+  segments: readonly (Segment & { media?: string })[],
   sIn: number,
   sOut: number,
+  media?: string,
 ): { start: number; end: number } | null {
   let acc = 0
   let start: number | null = null
@@ -254,6 +267,12 @@ export function spanOutputExtent(
   for (const p of segments) {
     const rate = segmentRate(p)
     const len = Math.max(0, p.out - p.in) / rate
+    // Source seconds are one media's: a piece of another media is output
+    // time this span never covers, however its numbers overlap.
+    if (!sameMedia(p.media, media)) {
+      acc += len
+      continue
+    }
     const ovIn = Math.max(sIn, p.in)
     const ovOut = Math.min(sOut, p.out)
     if (ovOut > ovIn) {
@@ -335,7 +354,7 @@ export function zoomTrackFromDoc(
   const mapped = [...zoom]
     .sort((a, b) => a.in - b.in)
     .flatMap((z) => {
-      const ext = spanOutputExtent(segments, z.in, z.out)
+      const ext = spanOutputExtent(segments, z.in, z.out, z.media)
       return ext ? [{ z, tIn: ext.start, tOut: ext.end }] : []
     })
 
@@ -451,7 +470,7 @@ export function tiltTrackFromDoc(
   const mapped = [...tilt]
     .sort((a, b) => a.in - b.in)
     .flatMap((z) => {
-      const ext = spanOutputExtent(segments, z.in, z.out)
+      const ext = spanOutputExtent(segments, z.in, z.out, z.media)
       return ext ? [{ z, tIn: ext.start, tOut: ext.end }] : []
     })
 
@@ -535,7 +554,7 @@ export function camTrackFromDoc(
   const mapped = [...spans]
     .sort((a, b) => a.in - b.in)
     .flatMap((z) => {
-      const ext = spanOutputExtent(segments, z.in, z.out)
+      const ext = spanOutputExtent(segments, z.in, z.out, z.media)
       return ext ? [{ z, tIn: ext.start, tOut: ext.end }] : []
     })
 
@@ -1009,6 +1028,26 @@ const SETUP = `async (ctx) => {
   // the same sync as the screen video (source-anchored, so element time == the
   // video's). Unmuted — syncVid's autoplay net re-mutes on policy rejection.
   const mic = ctx.data.micSrc ? await load(ctx.data.micSrc, false) : null
+  // The take's OTHER media (concat): one element each, decoded the way the
+  // primary is; ON_FRAME drives the one under the playhead and pauses the
+  // rest. Absent = one media, byte-identical.
+  const mediaEls = {}
+  for (const m of ctx.data.media || []) {
+    try {
+      const el = m.isImage ? await loadImage(m.src) : await load(m.src, !m.hasAudio)
+      if (!m.isImage && ctx.data.videoDecodeMode === 'webcodecs') {
+        try {
+          const wp = await makeWcProvider(m.src)
+          if (wp && (!el.videoWidth || (wp.width === el.videoWidth && wp.height === el.videoHeight))) el.__voilaWc = wp
+        } catch (e) {
+          console.warn('[voila] webcodecs provider unavailable for a media, seeks stay html5', e)
+        }
+      }
+      mediaEls[m.id] = el
+    } catch (e) {
+      console.warn('[voila] a media failed to load', m.id, e)
+    }
+  }
   // Background media (frame.backgroundMedia): warm-load so the first paint is
   // complete. FAIL-OPEN — a bad key degrades to the CSS fill underneath, never
   // a dead LOAD (unlike the recording, which is the comp's reason to exist).
@@ -1037,9 +1076,27 @@ const SETUP = `async (ctx) => {
     const d = ctx.data
     const TL = globalThis.__vosTimeline
     const srcT = TL.mapTime(d.segments || [], t)
-    if (video.play) stepPaused(video, srcT)
-    if (cam) stepPaused(cam, srcT)
-    if (mic) stepPaused(mic, srcT)
+    // The media under the playhead (concat): step its element; the
+    // primary's sidecars belong to the primary's moments only.
+    let am = ''
+    {
+      let acc = 0
+      const sg = d.segments || []
+      for (let i = 0; i < sg.length; i++) {
+        const s0 = sg[i]
+        const ln = Math.max(0, s0.out - s0.in) / (s0.rate || 1)
+        if (t < acc + ln || i === sg.length - 1) { am = s0.media || ''; break }
+        acc += ln
+      }
+    }
+    const amEl = am ? mediaEls[am] : null
+    if (amEl) {
+      if (amEl.play) stepPaused(amEl, srcT)
+    } else {
+      if (video.play) stepPaused(video, srcT)
+      if (cam) stepPaused(cam, srcT)
+      if (mic) stepPaused(mic, srcT)
+    }
     const bg2 = d.frame && d.frame.backgroundMedia
     if (bg2 && bg2.key && bg2.kind !== 'image') {
       const bgEl2 = cache.get(bg2.key)
@@ -1049,7 +1106,7 @@ const SETUP = `async (ctx) => {
       }
     }
   })
-  return { video: video, cam: cam, mic: mic }
+  return { video: video, cam: cam, mic: mic, media: mediaEls }
 }`
 
 // Compositor v2 — a three-layer mesh stack under ONE perspective camera.
@@ -1116,6 +1173,7 @@ const CREATE_CONTENT = `(ctx, setupData) => {
       // { c2d, canvas, texture }) drive the card and let bg/overlay fall back.
       canvas: card.canvas, c2d: card.c2d, texture: card.texture,
       video: setupData.video, cam: setupData.cam, mic: setupData.mic,
+      media: setupData.media,
     },
   }
 }`
@@ -1233,6 +1291,26 @@ const ON_FRAME = `(ctx, content, dt) => {
   // Output-timeline seconds (engine-fed master clock) → source seconds on screen.
   var t = ctx.time || 0
   var srcT = TL.mapTime(d.segments || [], t)
+  // The media under the playhead (concat): its element, crop, cursor and
+  // space stand in for the primary's below, and every other media's
+  // element rests. An absent media list is the primary alone.
+  var amId = ''
+  { var amAcc = 0, amSg = d.segments || []
+    for (var amI = 0; amI < amSg.length; amI++) {
+      var amS = amSg[amI], amLn = Math.max(0, amS.out - amS.in) / (amS.rate || 1)
+      if (t < amAcc + amLn || amI === amSg.length - 1) { amId = amS.media || ''; break }
+      amAcc += amLn
+    } }
+  var actM = null
+  if (amId && d.media) for (var amJ = 0; amJ < d.media.length; amJ++) if (d.media[amJ].id === amId) actM = d.media[amJ]
+  if (actM && r.media && r.media[amId]) video = r.media[amId]
+  else amId = ''
+  if (r.media) for (var amK in r.media) { var amE = r.media[amK]; if (amK !== amId && amE && amE.pause && amE.paused === false) amE.pause() }
+  if (amId) {
+    if (r.video && r.video.pause && r.video.paused === false) r.video.pause()
+    if (r.cam && r.cam.pause && r.cam.paused === false) r.cam.pause()
+    if (r.mic && r.mic.pause && r.mic.paused === false) r.mic.pause()
+  }
   var s = H / 1080 // scale design-px controls to comp px
 
   // Play natively while playing (smooth); seek precisely otherwise (paused, scrubbing,
@@ -1314,8 +1392,8 @@ const ON_FRAME = `(ctx, content, dt) => {
     } catch (e) {}
   }
   if (video.play) syncVid(video) // stills (HTMLImageElement) have nothing to sync
-  if (r.cam) syncVid(r.cam)
-  if (r.mic) syncVid(r.mic)
+  if (r.cam && !amId) syncVid(r.cam)
+  if (r.mic && !amId) syncVid(r.mic)
   // Gain routing (live via SET_DATA). With a mic sidecar (AT split) the
   // recording <video> carries SYSTEM audio — its volume is the system fader —
   // and the sidecar element is the voice (micGain). Legacy takes have one
@@ -1541,7 +1619,7 @@ const ON_FRAME = `(ctx, content, dt) => {
   // Window takes carry a viewport crop (drawImage source rect, capture px) that
   // removes the real browser chrome — the card's source dims are then the CROP
   // dims (meta/cursor were rewritten into crop space at doc build).
-  var crp = d.crop || null
+  var crp = actM ? (actM.crop || null) : (d.crop || null)
   var vw = crp ? crp.w : (video.videoWidth || video.naturalWidth || 16)
   var vh = crp ? crp.h : (video.videoHeight || video.naturalHeight || 9)
   // Card-chrome scale: everything that belongs to the CARD (browser bar +
@@ -1760,7 +1838,7 @@ const ON_FRAME = `(ctx, content, dt) => {
   // card. Contain never needs it (the video rect IS the card).
   if (fitCover) { c.save(); rr(cardX, cardY, cardW, cardH, radius); c.clip() }
   // cursor coordinate space + drawn radius (shared by click effects + the dot)
-  var space = d.cursorSpace || { w: vw, h: vh }
+  var space = (actM ? actM.cursorSpace : d.cursorSpace) || { w: vw, h: vh }
   var curSize = ((d.cursorStyle && d.cursorStyle.size) || 24) * s2 * 0.5
 
   // click effects — pure f(t): d.clicks are
@@ -1792,8 +1870,9 @@ const ON_FRAME = `(ctx, content, dt) => {
       // click's source moment, or an effect near a cut would keep painting
       // over the NEXT segment's unrelated footage
       if (Math.abs(srcT - ck.st) > 2) continue
-      var ckAx = dx + (ck.x / (space.w || vw)) * dw
-      var ckAy = dy + (ck.y / (space.h || vh)) * dh
+      var ckSp = ck.sp || space
+      var ckAx = dx + (ck.x / (ckSp.w || vw)) * dw
+      var ckAy = dy + (ck.y / (ckSp.h || vh)) * dh
       // press dip: smoothstep down around the real mousedown (80 ms lead —
       // anticipation is what makes effects feel synced), hold through the real
       // down→up span (drags dip long), easeOutBack rebound with a slight
@@ -1906,7 +1985,7 @@ const ON_FRAME = `(ctx, content, dt) => {
   // The dot is the only thing cursorStyle.visible hides — the track still drives
   // cursor-follow zoom, and click effects draw above on their own switch.
   // Undefined reads as visible so pre-toggle docs are unchanged.
-  var cur = d.cursor || []
+  var cur = (actM ? actM.cursor : d.cursor) || []
   if (cur.length && !(d.cursorStyle && d.cursorStyle.visible === false)) {
     var px = cur[0].x, py = cur[0].y
     for (var j = 0; j < cur.length; j++) { if (cur[j].t <= srcT) { px = cur[j].x; py = cur[j].y } }
@@ -1915,7 +1994,7 @@ const ON_FRAME = `(ctx, content, dt) => {
     // Idle fade: a sparse SOURCE-time opacity curve baked by cursorIdleFade.
     // Linear between keys — opacity needs no easing, and the ramps are already
     // shaped by where the keys sit. Absent/empty = the cursor never dwells.
-    var cuA = 1, cuK = d.cursorFade
+    var cuA = 1, cuK = actM ? actM.cursorFade : d.cursorFade
     if (cuK && cuK.length) {
       if (srcT <= cuK[0].t) cuA = cuK[0].a
       else if (srcT >= cuK[cuK.length - 1].t) cuA = cuK[cuK.length - 1].a
@@ -1948,7 +2027,7 @@ const ON_FRAME = `(ctx, content, dt) => {
   // runtime; the card c2d under stubs). Redraw + re-upload only while the
   // bubble is active (a video → every frame), on resize, or once when it turns
   // off (to clear) — so a cam-less take never uploads the overlay after frame 1.
-  var camV = r.cam, camS = d.cam || {}
+  var camV = amId ? null : r.cam, camS = d.cam || {}
   var camOn = !camS.window || (srcT >= camS.window.in && srcT <= camS.window.out)
   // Readiness is STICKY: readyState drops to HAVE_METADATA while a seek is in
   // flight, so gating each frame on it makes the bubble vanish on every scrub
@@ -2358,6 +2437,9 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
       ...(seg.rate !== undefined && seg.rate !== 1
         ? { rate: round(seg.rate) }
         : {}),
+      ...((seg as { media?: string }).media
+        ? { media: (seg as { media?: string }).media }
+        : {}),
     })),
     frame: doc.frame,
     micGain: doc.micGain ?? 1,
@@ -2368,6 +2450,39 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
     })),
     cursorStyle: doc.cursor,
     cursorSpace: { w: doc.source.meta.width, h: doc.source.meta.height },
+    // The other media (concat): each with its element's source, its crop
+    // and its own cursor in its own capture space; absent = one media.
+    ...(doc.media && doc.media.length
+      ? {
+          media: doc.media.map((m) => {
+            const sm = smoothCursor(m.cursor, {
+              factor: doc.cursor.smoothing,
+              clickSnap: fx.style !== 'none' || fx.press,
+            })
+            const fade =
+              doc.cursor.hideWhenIdle !== false && doc.cursor.visible !== false
+                ? cursorIdleFade(m.cursor, {
+                    space: { w: m.meta.width, h: m.meta.height },
+                    sourceDuration: (m.meta.durationMs || 0) / 1000,
+                  })
+                : []
+            return {
+              id: m.id,
+              src: m.videoKey,
+              isImage: m.sourceKind === 'image',
+              crop: m.crop ?? null,
+              hasAudio: !!m.meta.hasAudio,
+              cursor: sm.map((p) => ({
+                t: round(p.t),
+                x: round(p.x),
+                y: round(p.y),
+              })),
+              cursorSpace: { w: m.meta.width, h: m.meta.height },
+              ...(fade.length ? { cursorFade: fade } : {}),
+            }
+          }),
+        }
+      : {}),
     ...(cursorFade.length ? { cursorFade } : {}),
     // Click effects: OUTPUT-anchored click records + resolved styling (named
     // intensities/colors become numbers HERE — ON_FRAME reads no registry).
@@ -2453,10 +2568,24 @@ function clickFxData(doc: ProjectDoc, rated: Segment[]) {
   const level = CLICK_FX_INTENSITY[fx.intensity]
   return {
     clicks: on
-      ? extractClicks(doc.source.cursor, rated, {
-          rects: fx.style === 'highlight',
-          space: { w: meta.width, h: meta.height },
-        })
+      ? [
+          ...extractClicks(doc.source.cursor, rated, {
+            rects: fx.style === 'highlight',
+            space: { w: meta.width, h: meta.height },
+          }),
+          // The other media's clicks map through their own pieces and carry
+          // their own capture space, so the ring lands where the press was.
+          ...(doc.media ?? []).flatMap((m) =>
+            extractClicks(m.cursor, rated, {
+              rects: fx.style === 'highlight',
+              space: { w: m.meta.width, h: m.meta.height },
+              media: m.id,
+            }).map((ck) => ({
+              ...ck,
+              sp: { w: m.meta.width, h: m.meta.height },
+            })),
+          ),
+        ].sort((a, b) => a.ot - b.ot)
       : [],
     clickFx: {
       style: fx.style,

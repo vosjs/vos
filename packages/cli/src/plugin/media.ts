@@ -57,6 +57,36 @@ export function docMediaRefs(
   keep: (key: string | undefined) => boolean = isTakeRelativeKey,
 ): DocMediaRef[] {
   const out: DocMediaRef[] = []
+  // The take's OTHER media (concat): each recording, and its sidecars,
+  // rides the recording door like the primary's; a pull brings them home.
+  for (const m of doc.media ?? []) {
+    if (keep(m.videoKey))
+      out.push({
+        where: `media ${m.id}`,
+        key: m.videoKey,
+        set: (next) => {
+          m.videoKey = next
+        },
+      })
+    const mic = m.micKey
+    if (mic && keep(mic))
+      out.push({
+        where: `media ${m.id} mic`,
+        key: mic,
+        set: (next) => {
+          m.micKey = next
+        },
+      })
+    const cam = m.camKey
+    if (cam && keep(cam))
+      out.push({
+        where: `media ${m.id} cam`,
+        key: cam,
+        set: (next) => {
+          m.camKey = next
+        },
+      })
+  }
   for (const clip of doc.overlays ?? []) {
     if (clip.kind === 'text' || !keep(clip.key)) continue
     out.push({
