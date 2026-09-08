@@ -1,5 +1,16 @@
 # @vosjs/cli
 
+## 0.25.0
+
+### Minor Changes
+
+- 9011941: `media[].frame`: a media's own card (placement and size, the bar, the corner, the shadow, the border, the cover fit and its focus) in the schema, linted to the card-owned fields.
+
+### Patch Changes
+
+- Updated dependencies [9011941]
+  - @vosjs/studio-core@0.15.0
+
 ## 0.24.0
 
 ### Minor Changes
