@@ -19,13 +19,11 @@
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { isAbsolute, join, resolve } from 'node:path'
-import { totalDuration } from '@vosjs/timeline'
 import {
   computeCardLayout,
-  docRestTime,
+  docStillTime,
   migrateHostedDoc,
   overlayRect,
-  ratedSegments,
   resolveOverlayStyle,
 } from '@vosjs/studio-core'
 import { readSyncState } from './platform'
@@ -153,11 +151,10 @@ export async function findPosterDocs(
  * the card is gone, so the output's last frame may hold no card at all).
  */
 export function posterStillTime(doc: ProjectDoc, duration: number): number {
-  const rest = docRestTime(doc)
-  if (rest != null) return rest
-  const footage = totalDuration(ratedSegments(doc))
-  const end = footage > 0 ? Math.min(duration, footage) : duration
-  return Math.max(0, end - 1 / 30)
+  // One derivation with the shelf's cover and the stills export: the
+  // author's still, else the document's own last freeze (the rest), else
+  // the hero after the opening has entered.
+  return Math.max(0, Math.min(duration, docStillTime(doc)))
 }
 
 const DESIGN_H = 1080

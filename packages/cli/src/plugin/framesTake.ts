@@ -13,6 +13,7 @@ import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { compileVosConfig } from '@vosjs/core'
 import {
+  docStillTime,
   lowerToComposition,
   momentsFromDoc,
   planForDigest,
@@ -56,6 +57,8 @@ export interface FramesTakeOptions {
    * digest/digest.json when present, else derives the moments — no frames).
    */
   atMoments?: boolean
+  /** Also sample the frame that stands for the take (docStillTime). */
+  atStill?: boolean
   width?: number
   height?: number
   outDir?: string
@@ -72,7 +75,7 @@ export interface CapturedFrame {
   file: string
   time: number
   /** 'time' = requested instant, 'zoom' = a zoom-span apex, 'moment' = a digest moment. */
-  kind: 'time' | 'zoom' | 'moment'
+  kind: 'time' | 'zoom' | 'moment' | 'still'
   momentId?: string
 }
 
@@ -248,7 +251,7 @@ export async function framesTake(
     Math.min(Math.max(0, t), Math.max(0, duration - 1 / 30))
   const shots: {
     time: number
-    kind: 'time' | 'zoom' | 'moment'
+    kind: 'time' | 'zoom' | 'moment' | 'still'
     momentId?: string
   }[] = opts.times.map((t) => ({
     time: clamp(t),
@@ -268,10 +271,12 @@ export async function framesTake(
       shots.push({ time: clamp(m.outputAt), kind: 'moment', momentId: m.id })
     }
   }
+  if (opts.atStill)
+    shots.push({ time: clamp(docStillTime(doc)), kind: 'still' })
   shots.sort((a, b) => a.time - b.time)
   if (!shots.length)
     throw new Error(
-      'no frame times — pass --times/--frame, --at-zooms or --at-moments',
+      'no frame times — pass --times/--frame, --at-zooms, --at-moments or --at-still',
     )
 
   const outDir = resolve(opts.outDir ?? join(dir, 'stills'))

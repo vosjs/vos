@@ -1381,6 +1381,13 @@ export interface ProjectDoc {
    */
   media?: Media[]
   /**
+   * The frame that stands for this document (OUTPUT seconds): the cover the
+   * shelf shows, the still a kit leads with. Absent, `docStillTime` derives
+   * it: the document's own last freeze (a poster's rest), else the hero
+   * moment after the opening has entered. A template never sets it.
+   */
+  still?: number
+  /**
    * Speed-change spans (SOURCE time, footage-anchored — see SpeedSpan).
    * Optional for backward compatibility with persisted docs; absent = all 1×.
    */

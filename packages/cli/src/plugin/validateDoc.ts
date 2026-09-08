@@ -33,6 +33,7 @@ import {
   ZOOM_LEVEL_MIN,
   ZOOM_SPAN_MIN,
   docCardLayout,
+  outputEnd,
   ratedSegments,
   recommendedExportResolution,
   spanOutputExtent,
@@ -407,6 +408,23 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       }
     }
 
+    // --- the still: the frame that stands for the take, output seconds ---
+    if (recording && doc.still !== undefined) {
+      const st = doc.still
+      if (!isNum(st) || st < 0) {
+        problems.push('still must be a number ≥ 0 (OUTPUT seconds)')
+      } else {
+        const rated = ratedSegments(doc as unknown as ProjectDoc)
+        const end = outputEnd(
+          doc as unknown as ProjectDoc,
+          rated.reduce((a, s) => a + (s.out - s.in) / (s.rate ?? 1), 0),
+        )
+        if (st > end + 1e-6)
+          problems.push(
+            `still=${String(st)} is past the output's end (${end.toFixed(2)}s)`,
+          )
+      }
+    }
     // --- freezes and the end card: a freeze is output seconds, never long ---
     for (const [i, seg] of (Array.isArray(doc.segments)
       ? (doc.segments as unknown[])

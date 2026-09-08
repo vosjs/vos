@@ -107,6 +107,8 @@ export interface PlanOptions {
    * (replacing only the proposals' own ids and `from`s).
    */
   motion?: MotionProposalInput & { again?: boolean }
+  /** The frame that stands for the take (output seconds): --still, LAUNCH.md still:. */
+  still?: number | null
 }
 
 const overlaps = (a: ZoomSpan, b: ZoomSpan) => a.in < b.out && b.in < a.out
@@ -286,6 +288,10 @@ export async function planTake(
     if (prev.objects?.length) doc.objects = prev.objects
     if (prev.audio.length) doc.audio = prev.audio
     if (prev.camMotion?.length) doc.camMotion = prev.camMotion
+    // The frame that stands for the take is an output moment too, and the
+    // author's choice: it carries as it is.
+    if (prev.still !== undefined) doc.still = prev.still
+    if (opts.still != null) doc.still = opts.still
     await writeJson(take.paths.doc, doc, true)
     return {
       doc,
@@ -373,6 +379,9 @@ export async function planTake(
     motion = { notes: proposed.notes, skipped: proposed.skipped }
   }
 
+  // The frame that stands for the take: named, never proposed. A plan
+  // never moves a still the author set.
+  if (opts.still != null) doc.still = opts.still
   await writeJson(take.paths.doc, doc, true)
   return {
     doc,
