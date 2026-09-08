@@ -1,7 +1,11 @@
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
-import { docOutputDuration, migrateHostedDoc } from '@vosjs/studio-core'
+import {
+  END_CARD_FROM,
+  docOutputDuration,
+  migrateHostedDoc,
+} from '@vosjs/studio-core'
 import { UsageError, hasFlag, numFlag, parseArgs, strFlag } from './args'
 import {
   EXIT_ERROR,
@@ -28,6 +32,8 @@ import {
 import { fetchBrandMarks } from './markAsset'
 import { endCardInk } from './motionPlan'
 import type { MotionAnchor, MotionTemplate } from './motionPlan'
+import { OFFICIAL_END_CARD_TITLE, findOfficialByRef } from './officialTemplates'
+import type { OfficialRow } from './officialTemplates'
 import { fetchMusicCatalog } from './music'
 import { judgeKit, winRate } from './judge'
 import { resolveStepTime } from './moments'
@@ -226,17 +232,18 @@ patched in from LAUNCH.md's headline and kicker roles or --headline and
 The cut's MOTION is the document's too, in ONE vocabulary: every visual
 thing (the card, a text, image or video clip, a prop) carries anim.enter,
 anim.exit and anim.idle; the output lasts until the last clip ends, and
-past its footage the card holds its last frame at the pose its exit
-settled into. There is no end-card field and no entrance field: a
+the card leaves with its clip (a freeze keeps it under what follows).
+There is no end-card field and no entrance field: a
 COMPONENT is a TEMPLATE, a plain take on a shelf whose clips carry stable
 ids, laid onto the take at an anchor (LAUNCH.md with: <ref>[@end|@start|
 @step:<id>|@<s>], comma list; --with the same, repeatable; endCard: <ref>
 names one at the end), its clips stamped with where they came from
 (from). plan proposes on a fresh plan (--motion re-proposes, replacing
 only its own work): the card's ENTER (tilt-in by default), the templates
-named, the house END CARD when endCard is on or absent (clips after the
-footage: the headline, the release line, the wordmark, the mark from
-BRAND.md logoUrl, over a card that recedes; from: endcard), a CAPTION per
+named, the END CARD when endCard is on or absent (the official End card
+template on vos.so, laid at the end with the release's words, the mark
+from BRAND.md logoUrl and a freeze of the last frame under it, from:
+endcard; offline, the house clips stand in), a CAPTION per
 actions.json step at the step's moment, a music BED from LAUNCH.md's music
 role (a catalog slug or a mood) and a click sound on every press when the
 take has no mic. LAUNCH.md's entrance, endCard, captions, music and clicks
@@ -852,6 +859,28 @@ async function releaseInputs(
     templates.push({ from: found.from, doc: found.doc, at })
     r.log(`template: ${found.from}`)
   }
+  // The end card the recipe leaves on (or unsaid) is the OFFICIAL one on
+  // vos.so, laid at the end and stamped `from: endcard` so a loop drops it
+  // and a re-plan replaces it; offline, `plan` falls back to the house
+  // clips. A recipe that names its own end card took the branch above.
+  if (!endCardRole || /^(on|yes|true)$/i.test(endCardRole.trim())) {
+    const origin = platformOrigin({
+      origin: strFlag(flags, 'origin'),
+      api: strFlag(flags, 'api'),
+    })
+    const official = await officialTemplate(origin, OFFICIAL_END_CARD_TITLE)
+    if (official) {
+      try {
+        const found = await resolveDocRef(official.id, flags, 'endCard')
+        templates.push({ from: END_CARD_FROM, doc: found.doc, at: 'end' })
+        r.log(`template: ${found.from} (the official end card)`)
+      } catch {
+        r.log(
+          'end card: the official template is unreadable here; the house clips stand in',
+        )
+      }
+    }
+  }
   return {
     words,
     launchRoles,
@@ -1196,10 +1225,16 @@ async function resolveDocRef(
   const meta = await apiJson(origin, `/api/vos/${styleRef}`, { key })
   const head = (meta.body.vos as { currentVersionId?: string } | undefined)
     ?.currentVersionId
-  if (meta.status !== 200 || !head)
+  if (meta.status !== 200 || !head) {
+    // Not an id or a slug: a TITLE on the official shelf ("End card",
+    // "Split cover, landscape"), the platform's registry of templates.
+    const official = await officialTemplate(origin, styleRef)
+    if (official && official.id !== styleRef)
+      return resolveDocRef(official.id, flags, what)
     throw new UsageError(
-      `${what}: ${styleRef} is neither a doc.json nor a vos I can read`,
+      `${what}: ${styleRef} is neither a doc.json, a vos I can read, nor an official template's title`,
     )
+  }
   const doc = await apiJson(
     origin,
     `/api/vos/${styleRef}/versions/${head}/doc`,
@@ -1210,6 +1245,21 @@ async function resolveDocRef(
   return {
     from: `${origin}/vos/${styleRef}`,
     doc: migrateHostedDoc(doc.body) as unknown as ProjectDoc,
+  }
+}
+
+/** The official vos a ref names by title or slug, or null (offline = null). */
+async function officialTemplate(
+  origin: string,
+  ref: string,
+): Promise<OfficialRow | null> {
+  try {
+    const list = await apiJson(origin, '/api/vos/official', {})
+    if (list.status !== 200) return null
+    const rows = (list.body as { voses?: OfficialRow[] }).voses ?? []
+    return findOfficialByRef(rows, ref)
+  } catch {
+    return null
   }
 }
 

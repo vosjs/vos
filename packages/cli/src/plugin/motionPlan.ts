@@ -228,13 +228,24 @@ export function proposeMotion(
     else delete doc.frame.anim
   }
 
+  // The end card the recipe names, or the official one the platform holds,
+  // arrives as a template stamped `from: 'endcard'` (the house clips below
+  // are the offline fallback); a re-plan replaces its earlier work first,
+  // and `endCard: none` drops it with the rest.
+  const endCardRole = launch.endCard
+  doc = dropTemplate(doc, END_CARD_FROM)
+  const templates = (opts.templates ?? []).filter(
+    (t) => !(t.from === END_CARD_FROM && off(endCardRole)),
+  )
+  const namedEndCard = templates.some((t) => t.from === END_CARD_FROM)
+
   // The templates the recipe or the flags named, at their anchors: a
   // template is a vos, its clips come stamped with where they came from.
   const tWords = templateWords(words)
   const keys = opts.mark
     ? { 'stage-mark': opts.mark.key, 'endcard-markimg': opts.mark.key }
     : undefined
-  for (const t of opts.templates ?? []) {
+  for (const t of templates) {
     const at = resolveAnchor(doc, t.at)
     if (at === null) {
       skipped.push(`${t.from}: ${anchorWord(t.at)} was not recorded`)
@@ -251,18 +262,16 @@ export function proposeMotion(
     for (const n of applied.notes) skipped.push(`${t.from}: ${n}`)
   }
 
-  // The end card: on (or absent) is the house shape, clips after the
-  // footage and a card exit; a named template took its place above; off
-  // drops it.
-  const endCardRole = launch.endCard
-  doc = dropTemplate(doc, END_CARD_FROM)
+  // The end card: on (or absent) with no template in hand is the house
+  // shape, a freeze under clips and a card exit; a named or official
+  // template took its place above; off drops it.
   if (off(endCardRole)) {
     if (doc.frame.anim?.exit !== undefined) {
       const { exit: _exit, ...rest } = doc.frame.anim
       if (Object.keys(rest).length) doc.frame.anim = rest
       else delete doc.frame.anim
     }
-  } else if (onWord(endCardRole)) {
+  } else if (onWord(endCardRole) && !namedEndCard) {
     const headline = (words.headline ?? '').trim()
     const brand = (words.brand ?? '').trim()
     const sub = [brand, (words.release ?? '').trim()].filter(Boolean).join(' ')
