@@ -87,7 +87,7 @@ describe('migrateHostedDoc: the vocabulary era (v3)', () => {
     expect(m.frame.entrance).toBeUndefined()
     expect(m.frame.anim).toEqual({
       enter: 'rise',
-      exit: { kind: 'recede', seconds: 0.7 },
+      exit: { kind: 'recede', seconds: 2.5 },
     })
     expect(m.overlays.map((o) => o.id)).toEqual(['t', 'endcard-title'])
     expect(m.overlays[0].anim).toEqual({ enter: 'fade' })

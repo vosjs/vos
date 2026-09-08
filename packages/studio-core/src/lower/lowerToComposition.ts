@@ -2039,10 +2039,13 @@ const ON_FRAME = `(ctx, content, dt) => {
       card.mesh.scale.x = cpv[0]; card.mesh.scale.y = cpv[0]
       card.mesh.position.y = cpv[1] * cpH
       if (card.mesh.material) card.mesh.material.opacity = cpv[2]
-    } else if (card.mesh.scale && card.mesh.position && ((card.mesh.scale.x !== undefined && card.mesh.scale.x !== 1) || (card.mesh.position.y !== undefined && card.mesh.position.y !== 0))) {
+      // Gone past its clip: the mesh leaves the scene, not just its paint.
+      card.mesh.visible = cpv[2] > 0.001
+    } else if (card.mesh.scale && card.mesh.position && ((card.mesh.scale.x !== undefined && card.mesh.scale.x !== 1) || (card.mesh.position.y !== undefined && card.mesh.position.y !== 0) || card.mesh.visible === false)) {
       card.mesh.scale.x = 1; card.mesh.scale.y = 1
       card.mesh.position.y = 0
       if (card.mesh.material) card.mesh.material.opacity = 1
+      card.mesh.visible = true
     }
     var tilted = rx * rx + ry * ry > 1e-6
     if (card.texture && card.texture.generateMipmaps !== tilted) {
