@@ -406,3 +406,28 @@ describe('applyTemplate (a template is a vos, applied at an anchor)', () => {
     expect(doc.freeze?.at(-1)?.seconds).toBe(3)
   })
 })
+
+describe('applyTemplate with many media', () => {
+  it('the trailing freeze names the media of the last clip', () => {
+    const concat = take({
+      media: [{ ...take().source, id: 'm1', videoKey: 'blob:b' }],
+      segments: [
+        { in: 0, out: 10 },
+        { in: 0, out: 4, media: 'm1' },
+      ],
+    })
+    const tpl = take({
+      segments: [{ in: 0, out: 4 }],
+      freeze: [{ id: 'f0', at: 4, seconds: 2.5 }],
+    })
+    const { doc } = applyTemplate(tpl, concat, {
+      at: 'end',
+      from: 'vos-endcard',
+      words: {},
+      keys: { 'endcard-markimg': '/api/assets/m/file' },
+    })
+    expect(doc.freeze).toEqual([
+      { id: 'f0', at: 4, seconds: 2.5, from: 'vos-endcard', media: 'm1' },
+    ])
+  })
+})

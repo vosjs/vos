@@ -12,6 +12,7 @@
  * shelf, applied by copy.
  */
 import { totalDuration } from '@vosjs/timeline'
+import { sameMedia } from '../media'
 import { anchorSourceDuration } from '../doc/studioDoc'
 import { docOutputDuration } from '../audioBeds'
 import { ratedSegments } from '../lower/lowerToComposition'
@@ -247,15 +248,23 @@ export function copyLayout(
   const freeze = trailingFreeze(from)
   const last = doc.segments.at(-1)
   if (freeze && last) {
+    // The last clip may play another media (concat): the freeze names
+    // it, or its seconds would land on the primary's footage instead.
     const own = (doc.freeze ?? []).filter(
-      (f) => Math.abs(f.at - last.out) > 1e-9,
+      (f) =>
+        Math.abs(f.at - last.out) > 1e-9 || !sameMedia(f.media, last.media),
     )
     const taken = new Set(own.map((f) => f.id))
     let n = 0
     while (taken.has(`f${n}`)) n++
     doc.freeze = [
       ...own,
-      { id: `f${n}`, at: last.out, seconds: freeze.seconds },
+      {
+        id: `f${n}`,
+        at: last.out,
+        seconds: freeze.seconds,
+        ...(last.media ? { media: last.media } : {}),
+      },
     ].sort((a, b) => a.at - b.at)
     doc.segments = doc.segments.map((s) => {
       if (s.hold === undefined) return s
@@ -375,15 +384,25 @@ export function applyTemplate(
   const tail = trailingFreeze(template)
   const lastSeg = doc.segments.at(-1)
   if (tail && opts.at === 'end' && lastSeg) {
+    // The last clip may play another media (concat): the freeze names
+    // it, or its seconds would land on the primary's footage instead.
     const own = (doc.freeze ?? []).filter(
-      (f) => Math.abs(f.at - lastSeg.out) > 1e-9,
+      (f) =>
+        Math.abs(f.at - lastSeg.out) > 1e-9 ||
+        !sameMedia(f.media, lastSeg.media),
     )
     const taken = new Set(own.map((f) => f.id))
     let n = 0
     while (taken.has(`f${n}`)) n++
     doc.freeze = [
       ...own,
-      { id: `f${n}`, at: lastSeg.out, seconds: tail.seconds, from },
+      {
+        id: `f${n}`,
+        at: lastSeg.out,
+        seconds: tail.seconds,
+        from,
+        ...(lastSeg.media ? { media: lastSeg.media } : {}),
+      },
     ].sort((a, b) => a.at - b.at)
   }
   const templateEnd = totalDuration(ratedSegments(template))
