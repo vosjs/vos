@@ -9,7 +9,7 @@
  * answers source seconds, and the piece under the playhead says whose.
  */
 import type { Segment } from '@vosjs/timeline'
-import { MEDIA_FRAME_KEYS, pageDisplayUrl } from './types'
+import { MEDIA_FRAME_KEYS, MEDIA_KEY_PREFIX, pageDisplayUrl } from './types'
 import type { FrameStyle, Media, MediaFrameKey, ProjectDoc } from './types'
 
 /** The primary media's key: the absent `media` on a clip or a span. */
@@ -115,6 +115,24 @@ export function cardFields(frame: FrameStyle): Pick<FrameStyle, MediaFrameKey> {
     if (v !== undefined) (out as Record<MediaFrameKey, unknown>)[k] = v
   }
   return out as Pick<FrameStyle, MediaFrameKey>
+}
+
+/** The overlay key that shows a document media (`''` = the primary). */
+export const mediaRef = (id: string): string => MEDIA_KEY_PREFIX + id
+
+/** The media id an overlay key names, `''` for the primary, null for a plain key. */
+export function mediaRefId(key: string | undefined | null): string | null {
+  if (typeof key !== 'string' || !key.startsWith(MEDIA_KEY_PREFIX)) return null
+  return key.slice(MEDIA_KEY_PREFIX.length)
+}
+
+/** The document media a layer's key shows, or null for a plain key or a stranger. */
+export function layerMedia(
+  doc: Pick<ProjectDoc, 'source' | 'media'>,
+  key: string | undefined | null,
+): ProjectDoc['source'] | null {
+  const id = mediaRefId(key)
+  return id === null ? null : mediaSource(doc, id)
 }
 
 /** The next free media id (`m1`, `m2`, …). */

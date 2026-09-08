@@ -28,9 +28,11 @@ const KEYS = [
 
 /** A take-relative media key: neither a URL, a blob, nor a hosted asset path. */
 export function isTakeRelativeKey(key: string | undefined): key is string {
+  // `media:<id>` names a document media (a layer that shows one); the media
+  // itself rides the recording door, so the reference is never a file.
   return (
     !!key &&
-    !/^(https?:|blob:|data:|\/\/)/.test(key) &&
+    !/^(https?:|blob:|data:|media:|\/\/)/.test(key) &&
     !key.startsWith('/api/')
   )
 }

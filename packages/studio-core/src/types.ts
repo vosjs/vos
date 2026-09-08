@@ -1178,7 +1178,22 @@ export interface TextOverlayBox {
  */
 export interface MediaOverlayClip extends OverlayClipBase {
   kind: 'image' | 'video'
+  /**
+   * The picture: an asset URL, a take-dir file, or a DOCUMENT MEDIA by
+   * reference, `media:<id>` (`media:` alone is the primary), which brings
+   * the media's facts with it (its cursor track, its recorded page) and
+   * follows the media's kind. The lowering resolves the reference to the
+   * media's own key; the document keeps the reference.
+   */
   key: string
+  /**
+   * The layer as a CARD: drawn by the card painter on its own plane above
+   * the primary card (the layered shadow, the media clipped to its corners,
+   * a browser bar, the border, a lean, and for a document media its cursor
+   * dot and click rings). Absent, the layer is the flat picture it always
+   * was, byte-identically.
+   */
+  frame?: LayerCard
   /**
    * The card shadow. Absent = 'soft' — the baked look every
    * doc predating the field renders, so absence lowers byte-identically. 'strong' is the
@@ -1202,6 +1217,25 @@ export interface MediaOverlayClip extends OverlayClipBase {
 }
 
 export type OverlayClip = TextOverlayClip | MediaOverlayClip
+
+/**
+ * A layer's own card. The bar is ALLOWED on any card and opens off; its
+ * address defaults to the media's recorded page when the layer shows a
+ * document media. The lean is the tilt convention, in degrees.
+ */
+export interface LayerCard {
+  browserBar?: Partial<BrowserBarStyle>
+  lean?: { rx: number; ry: number }
+  /** The layered shadow's strength; absent = LAYER_CARD_SHADOW. */
+  shadow?: number
+  shadowContact?: number
+  shadowColor?: string
+  /** Draw the media's cursor and clicks inside the card; absent = yes when it has a track. */
+  cursor?: boolean
+}
+export const LAYER_CARD_SHADOW = 0.32
+/** The prefix of a media overlay key that names a document media. */
+export const MEDIA_KEY_PREFIX = 'media:'
 
 /**
  * Ceiling on `transform.scale` for text overlays, shared by the canvas box

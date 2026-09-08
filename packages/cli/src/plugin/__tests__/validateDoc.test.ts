@@ -832,3 +832,48 @@ describe('lintDoc: the still', () => {
     )
   })
 })
+
+describe('lintDoc: a layer that shows a document media, as a card', () => {
+  it('takes a known reference and a card, names a stranger and a foreign field', () => {
+    const base = makeDoc({
+      media: [
+        {
+          id: 'm1',
+          videoKey: 'media/second.webm',
+          cursor: [],
+          meta: { ...makeDoc().source.meta, durationMs: 6000 },
+        },
+      ],
+      overlays: [
+        {
+          id: 'l1',
+          kind: 'video',
+          key: 'media:m1',
+          start: 1,
+          duration: 3,
+          transform: { x: 0.7, y: 0.5, scale: 1, rotation: 0 },
+          frame: { browserBar: { kind: 'mac-light' }, lean: { rx: 2, ry: 8 } },
+        },
+      ],
+    })
+    expect(lintDoc(base).problems).toEqual([])
+    const stranger = lintDoc(
+      makeDoc({
+        ...base,
+        overlays: [{ ...base.overlays![0], key: 'media:zz' } as never],
+      }),
+    )
+    expect(stranger.problems.join('\n')).toMatch(
+      /names media "zz", which is not one of media\[\]\.id/,
+    )
+    const wide = lintDoc(
+      makeDoc({
+        ...base,
+        overlays: [{ ...base.overlays![0], frame: { padding: 4 } } as never],
+      }),
+    )
+    expect(wide.problems.join('\n')).toMatch(
+      /frame\.padding: not a layer card field/,
+    )
+  })
+})

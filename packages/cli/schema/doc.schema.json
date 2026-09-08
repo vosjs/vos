@@ -1085,7 +1085,7 @@
           },
           "key": {
             "type": "string",
-            "description": "image/video kinds: media URL or take-dir file (e.g. \"/logo.png\", \"/clip.webm\") \u2014 required for media"
+            "description": "image/video kinds: media URL or take-dir file (e.g. \"/logo.png\", \"/clip.webm\") \u2014 required for media. A media layer may show a DOCUMENT media by reference: media:<id> (media: alone is the primary), which brings the media's facts (its cursor track, its recorded page) and follows its kind."
           },
           "width": {
             "type": "number",
@@ -1107,6 +1107,44 @@
           "loop": {
             "type": "boolean",
             "description": "video kind: loop while active (default: hold the last frame)"
+          },
+          "frame": {
+            "type": "object",
+            "description": "A media layer as a CARD, drawn by the card painter on its own plane above the primary card: a browser bar (allowed on any card, opens off; its address defaults to the media's recorded page for a media:<id> layer), a lean in degrees (the tilt convention), the layered shadow, and for a document media its cursor dot and click rings. Absent = the flat picture.",
+            "additionalProperties": false,
+            "properties": {
+              "browserBar": {
+                "$ref": "#/oneOf/0/properties/frame/properties/browserBar"
+              },
+              "lean": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "rx": {
+                    "type": "number"
+                  },
+                  "ry": {
+                    "type": "number"
+                  }
+                }
+              },
+              "shadow": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "shadowContact": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "shadowColor": {
+                "type": "string"
+              },
+              "cursor": {
+                "type": "boolean"
+              }
+            }
           }
         }
       }
