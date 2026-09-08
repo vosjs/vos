@@ -1,5 +1,16 @@
 # @vosjs/cli
 
+## 0.27.0
+
+### Minor Changes
+
+- 20e8b1a: Many cards in the schema and the lints: a media overlay's `key` may be `media:<id>` (a document media, with its facts) and `frame` makes it a card (a browser bar, a lean, the layered shadow); `vos validate` names a stranger reference and a foreign card field; a push never treats a media reference as a take file.
+
+### Patch Changes
+
+- Updated dependencies [20e8b1a]
+  - @vosjs/studio-core@0.17.0
+
 ## 0.26.0
 
 ### Minor Changes
