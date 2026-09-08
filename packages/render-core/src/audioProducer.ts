@@ -132,10 +132,18 @@ window.__vosAudioProducer__ = async ({ data, plan, duration, sampleRate }) => {
   const spliceAudio = (buf, segments) => {
     const sr = buf.sampleRate;
     const pieces = segments.map((s) => {
+      // A piece of ANOTHER media (concat) is silence in this track's splice:
+      // its seconds are not this file's, and its own audio is not spliced
+      // into the cut yet. It still occupies its output time.
+      const silent = typeof s.media === 'string' && s.media !== '';
+      const r = s.rate !== undefined && s.rate > 0 ? s.rate : 1;
+      if (silent) {
+        const outLen = Math.max(0, Math.round((s.out - s.in) * sr / r));
+        return { start: 0, end: 0, rate: r, outLen, silent: true };
+      }
       const start = Math.max(0, Math.min(Math.round(s.in * sr), buf.length));
       const end = Math.max(start, Math.min(Math.round(s.out * sr), buf.length));
-      const r = s.rate !== undefined && s.rate > 0 ? s.rate : 1;
-      return { start, end, rate: r, outLen: Math.round((end - start) / r) };
+      return { start, end, rate: r, outLen: Math.round((end - start) / r), silent: false };
     });
     const total = pieces.reduce((sum, p) => sum + p.outLen, 0);
     if (total <= 0) return buf;
@@ -148,6 +156,10 @@ window.__vosAudioProducer__ = async ({ data, plan, duration, sampleRate }) => {
       const dst = out.getChannelData(ch);
       let offset = 0;
       for (const p of pieces) {
+        if (p.silent) {
+          offset += p.outLen;
+          continue;
+        }
         if (p.rate === 1) {
           dst.set(src.subarray(p.start, p.end), offset);
         } else {
