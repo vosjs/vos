@@ -1,5 +1,11 @@
 # @vosjs/render-core
 
+## 0.2.5
+
+### Patch Changes
+
+- 07eaaea: The audio splice treats a segment of another media (concat) as silence of its own output length: its seconds are not this file's.
+
 ## 0.2.4
 
 ### Patch Changes

@@ -1,5 +1,18 @@
 # @vosjs/cli
 
+## 0.24.0
+
+### Minor Changes
+
+- 07eaaea: Many media in one take: `doc.json` carries `media[]` (the take's other recordings, each the `source` shape with an `id`) and `media` on a segment and on every source-anchored span; the schema and the lints know them (a span is measured against its own media's length, an unknown id is a problem), `vos plan` proposes zoom and speed spans on every media from its own cursor track, and `vos push` and `vos pull --media` carry every media's recording and sidecars through the recording door.
+
+### Patch Changes
+
+- Updated dependencies [07eaaea]
+- Updated dependencies [07eaaea]
+  - @vosjs/render-core@0.2.5
+  - @vosjs/studio-core@0.14.0
+
 ## 0.23.0
 
 ### Minor Changes
