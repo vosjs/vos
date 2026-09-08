@@ -67,10 +67,11 @@ import {
 } from '../overlayText'
 import { resolveText3dAsset } from '../text3d'
 import {
-  CLICK_FX_INTENSITY,
   CARD_EDGE_OVERDRAW,
+  CLICK_FX_INTENSITY,
   FRAME_BORDER_COLOR_DEFAULT,
   FRAME_BORDER_WIDTH_DEFAULT,
+  LAYER_CARD_SHADOW,
   MOTION_EASE,
   OBJECT_DEFAULT_SCALE,
   OVERLAY_LINE_HEIGHT,
@@ -81,6 +82,7 @@ import {
   clampTiltDeg,
   clampZoomLevel,
   clipLength,
+  pageDisplayUrl,
   transitionMult,
 } from '../types'
 import { DEFAULT_ZOOM_STYLE, ZOOM_STYLES, resolveZoomStyle } from '../zoomStyle'
@@ -110,7 +112,7 @@ import {
   extractClicks,
   hexToRgbTriplet,
 } from './extractClicks'
-import { cardFields, mediaFrame, sameMedia } from '../media'
+import { cardFields, layerMedia, mediaFrame, sameMedia } from '../media'
 import type { StudioDoc } from '../doc/studioDoc'
 import type { TimelineEdit } from '@vosjs/shared/timelineEdits'
 import type { Keyframe, KeyframeTrack, Segment } from '@vosjs/timeline'
@@ -2170,6 +2172,9 @@ export function studioLayerData(
   },
   duration: number,
 ): Record<string, unknown> {
+  // A media layer resolves against the RECORDING it rides (a program
+  // document has no media to show).
+  const rec = 'source' in layers ? (layers as unknown as ProjectDoc) : null
   return {
     // Music/SFX clips with their gain envelopes baked (shared truth for the
     // preview scheduler and the export's offline mix). `duckEnv` (the mic-derived
@@ -2272,9 +2277,77 @@ export function studioLayerData(
             if (o.kind !== 'text') {
               // Media overlay: sized by frame-width fraction; corners in design
               // px; video time is clip-local (ON_FRAME seeks el to t − start).
+              // A `media:<id>` key shows a DOCUMENT media: the reference
+              // resolves to the media's own key here, the media's kind wins,
+              // and its facts (the cursor track in its space, the clicks,
+              // the recorded page) ride the clip for the card painter.
+              const lm = rec ? layerMedia(rec, o.key) : null
+              const lmImage = lm
+                ? lm.sourceKind === 'image'
+                : o.kind === 'image'
+              const lmCard = o.frame
+                ? {
+                    bar: {
+                      kind: o.frame.browserBar?.kind ?? 'none',
+                      url:
+                        o.frame.browserBar?.url ??
+                        (lm ? pageDisplayUrl(lm.meta.pageUrl) : ''),
+                      showUrl: o.frame.browserBar?.showUrl ?? true,
+                      showControls: o.frame.browserBar?.showControls ?? true,
+                      height: o.frame.browserBar?.height ?? 44,
+                      ...(o.frame.browserBar?.theme
+                        ? { theme: o.frame.browserBar.theme }
+                        : {}),
+                    },
+                    lean: [
+                      round(o.frame.lean?.rx ?? 0),
+                      round(o.frame.lean?.ry ?? 0),
+                    ],
+                    shadow: o.frame.shadow ?? LAYER_CARD_SHADOW,
+                    shadowContact: o.frame.shadowContact ?? 0,
+                    ...(o.frame.shadowColor
+                      ? { shadowColor: o.frame.shadowColor }
+                      : {}),
+                  }
+                : null
+              const lmFacts =
+                lm && o.frame && o.frame.cursor !== false && lm.cursor.length
+                  ? (() => {
+                      const lfx = rec!.cursor.clickFx
+                      const sm = smoothCursor(lm.cursor, {
+                        factor: rec!.cursor.smoothing,
+                        clickSnap: lfx.style !== 'none' || lfx.press,
+                      })
+                      const clicks: { t: number; x: number; y: number }[] = []
+                      for (const ev of lm.cursor) {
+                        if (ev.type === 'down')
+                          clicks.push({
+                            t: round(ev.t / 1000),
+                            x: round(ev.x),
+                            y: round(ev.y),
+                          })
+                      }
+                      return {
+                        cur: {
+                          pts: sm.map((p) => ({
+                            t: round(p.t),
+                            x: round(p.x),
+                            y: round(p.y),
+                          })),
+                          space: { w: lm.meta.width, h: lm.meta.height },
+                          size: rec!.cursor.size,
+                          clicks,
+                        },
+                      }
+                    })()
+                  : {}
               return {
                 ...base,
-                key: o.key,
+                ...(lm ? { kind: lmImage ? 'image' : 'video' } : {}),
+                key: lm ? lm.videoKey : o.key,
+                ...(lm && lm.crop ? { crop: lm.crop } : {}),
+                ...(lmCard ? { card: lmCard } : {}),
+                ...lmFacts,
                 w: round(o.width ?? OVERLAY_MEDIA_DEFAULT_WIDTH),
                 radius: o.radius ?? OVERLAY_MEDIA_DEFAULT_RADIUS,
                 opacity: o.opacity ?? 1,

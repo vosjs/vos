@@ -1,7 +1,11 @@
 import { timelineRuntimeCode } from '@vosjs/timeline/bundle'
 import { OVERLAY_FONT_FACES } from '../overlayText'
 import { CARD_FOV, CARD_Z } from '../stage'
-import { OVERLAY_LINE_HEIGHT, OVERLAY_TRANSITION_DUR } from '../types'
+import {
+  LAYER_CARD_SHADOW,
+  OVERLAY_LINE_HEIGHT,
+  OVERLAY_TRANSITION_DUR,
+} from '../types'
 
 /**
  * The studio's program: the SHARED layers (text/image/video overlay clips, the
@@ -405,6 +409,8 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
     // over its whole life, so it must repaint every visible frame — the
     // signature alone would freeze it between edits (the olVisSig trap).
     if (ol0.track) olAnim = true
+    // A layer CARD is painted on its own plane every frame it is visible.
+    if (ol0.card) olAnim = true
     // Video overlays advance every frame; images redraw until decoded.
     if (ol0.kind === 'video') olAnim = true
     else if (ol0.kind === 'image') {
@@ -414,6 +420,76 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
   }
   var ovSig = W + 'x' + H + '|' + olVisSig
   var ovDirty = ov.sig !== ovSig || ov.active || olAnim
+  // The layer cards visible this frame, with their pose, for the card
+  // planes below (the overlay loop collects them instead of painting).
+  var lcList = []
+  // Acquire a media overlay's element through the shared cache and sync it
+  // to CLIP-LOCAL time (pure f(t); muted always — soundtracks belong to
+  // doc.audio). Null until it has a frame to draw. One seam for the flat
+  // picture and the layer card.
+  function olAcquire(ol, olT) {
+    var olEl = ns.videoCache ? ns.videoCache.get(ol.key) : null
+    if (!olEl && ns.videoCache) {
+      if (ol.kind === 'image') {
+        olEl = new Image()
+        olEl.crossOrigin = 'anonymous'
+        olEl.src = ol.key
+      } else {
+        olEl = document.createElement('video')
+        olEl.crossOrigin = 'anonymous'
+        olEl.muted = true
+        olEl.playsInline = true
+        olEl.preload = 'auto'
+        olEl.src = ol.key
+        olEl.load()
+      }
+      ns.videoCache.set(ol.key, olEl)
+    }
+    if (!olEl) return null
+    var olIsImg = ol.kind === 'image'
+    if (!olIsImg && olEl.play) {
+      var olDur = olEl.duration || 0
+      var olMT = olT
+      if (ol.loop && olDur > 0) olMT = olT % olDur
+      else if (olDur > 0) olMT = Math.min(olT, olDur - 0.001)
+      try {
+        if (playing) {
+          if (olEl.playbackRate !== 1) olEl.playbackRate = 1
+          var olDrift = Math.abs(olEl.currentTime - olMT)
+          if (olDur > 0 && !olEl.seeking && olDrift > 0.3 && (!ol.loop || olDur - olDrift > 0.3)) olEl.currentTime = olMT
+          if (!ol.loop && olDur > 0 && olT >= olDur) { if (!olEl.paused) olEl.pause() }
+          else if (olEl.paused) { var olP = olEl.play(); if (olP && olP.catch) olP.catch(function () {}) }
+        } else {
+          if (!olEl.paused) olEl.pause()
+          var olTarget = Math.min(olMT, olEl.duration || olMT)
+          // Coalesce scrub seeks (the backgroundMedia pattern): re-assigning
+          // currentTime aborts the in-flight seek, so a per-frame scrub keeps
+          // a remote source seeking forever. Defer until 'seeked' lands.
+          if (olEl.readyState >= 1 && !olEl.seeking && Math.abs(olEl.currentTime - olTarget) > 0.02) {
+            if (ns.pendingDecodes) {
+              var olDp = new Promise(function (resolve) {
+                var olDone = function () { olEl.removeEventListener('seeked', olDone); resolve() }
+                olEl.addEventListener('seeked', olDone)
+                setTimeout(olDone, 250)
+              })
+              ns.pendingDecodes.add(olDp)
+              olDp.finally(function () { ns.pendingDecodes.delete(olDp) })
+            }
+            olEl.currentTime = olTarget
+          }
+        }
+      } catch (e) {}
+    }
+    // Video readiness is STICKY through seeks (the cam-bubble pattern):
+    // readyState dips below HAVE_CURRENT_DATA while a scrub seek is in
+    // flight, and this layer repaints every frame a video clip is visible —
+    // gating each frame on it would blink the clip out for the whole drag.
+    // After the first decoded frame, keep drawing: Chrome paints the
+    // element's retained frame mid-seek.
+    if (!olIsImg && olEl.readyState >= 2) olEl.__vosHasFrame = true
+    var olReady = olIsImg ? !!(olEl.complete && olEl.naturalWidth) : !!(olEl.readyState >= 2 || olEl.__vosHasFrame)
+    return olReady ? olEl : null
+  }
   if (ovDirty) {
   ovC.clearRect(0, 0, W, H)
   // --- text overlays (compositor v2): OUTPUT-anchored clips, styles resolved
@@ -471,71 +547,19 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
     if (olPose) olA *= Math.max(0, Math.min(1, olPose[4]))
     if (olA <= 0.004) continue
     if (ol.kind === 'image' || ol.kind === 'video') {
+      // A layer CARD is painted by the card painter on its own plane, below:
+      // collect it with its pose and skip the flat picture.
+      if (ol.card) {
+        lcList.push({ ol: ol, t: olT, a: olA * (ol.opacity == null ? 1 : ol.opacity), x: olMX, y: olMY, s: olMS, r: olMR, yof: olYof })
+        continue
+      }
       // Media overlay: lazy-acquire through the shared cache (SET_DATA-added
       // clips load without a LOAD — the backgroundMedia pattern), sync video
       // to CLIP-LOCAL time (pure f(t)), draw a rounded media card centered on
       // the fraction anchor. Muted always — soundtracks belong to doc.audio.
-      var olEl = ns.videoCache ? ns.videoCache.get(ol.key) : null
-      if (!olEl && ns.videoCache) {
-        if (ol.kind === 'image') {
-          olEl = new Image()
-          olEl.crossOrigin = 'anonymous'
-          olEl.src = ol.key
-        } else {
-          olEl = document.createElement('video')
-          olEl.crossOrigin = 'anonymous'
-          olEl.muted = true
-          olEl.playsInline = true
-          olEl.preload = 'auto'
-          olEl.src = ol.key
-          olEl.load()
-        }
-        ns.videoCache.set(ol.key, olEl)
-      }
+      var olEl = olAcquire(ol, olT)
       if (!olEl) continue
       var olIsImg = ol.kind === 'image'
-      if (!olIsImg && olEl.play) {
-        var olDur = olEl.duration || 0
-        var olMT = olT
-        if (ol.loop && olDur > 0) olMT = olT % olDur
-        else if (olDur > 0) olMT = Math.min(olT, olDur - 0.001)
-        try {
-          if (playing) {
-            if (olEl.playbackRate !== 1) olEl.playbackRate = 1
-            var olDrift = Math.abs(olEl.currentTime - olMT)
-            if (olDur > 0 && !olEl.seeking && olDrift > 0.3 && (!ol.loop || olDur - olDrift > 0.3)) olEl.currentTime = olMT
-            if (!ol.loop && olDur > 0 && olT >= olDur) { if (!olEl.paused) olEl.pause() }
-            else if (olEl.paused) { var olP = olEl.play(); if (olP && olP.catch) olP.catch(function () {}) }
-          } else {
-            if (!olEl.paused) olEl.pause()
-            var olTarget = Math.min(olMT, olEl.duration || olMT)
-            // Coalesce scrub seeks (the backgroundMedia pattern): re-assigning
-            // currentTime aborts the in-flight seek, so a per-frame scrub keeps
-            // a remote source seeking forever. Defer until 'seeked' lands.
-            if (olEl.readyState >= 1 && !olEl.seeking && Math.abs(olEl.currentTime - olTarget) > 0.02) {
-              if (ns.pendingDecodes) {
-                var olDp = new Promise(function (resolve) {
-                  var olDone = function () { olEl.removeEventListener('seeked', olDone); resolve() }
-                  olEl.addEventListener('seeked', olDone)
-                  setTimeout(olDone, 250)
-                })
-                ns.pendingDecodes.add(olDp)
-                olDp.finally(function () { ns.pendingDecodes.delete(olDp) })
-              }
-              olEl.currentTime = olTarget
-            }
-          }
-        } catch (e) {}
-      }
-      // Video readiness is STICKY through seeks (the cam-bubble pattern):
-      // readyState dips below HAVE_CURRENT_DATA while a scrub seek is in
-      // flight, and this layer repaints every frame a video clip is visible —
-      // gating each frame on it would blink the clip out for the whole drag.
-      // After the first decoded frame, keep drawing: Chrome paints the
-      // element's retained frame mid-seek.
-      if (!olIsImg && olEl.readyState >= 2) olEl.__vosHasFrame = true
-      var olReady = olIsImg ? !!(olEl.complete && olEl.naturalWidth) : !!(olEl.readyState >= 2 || olEl.__vosHasFrame)
-      if (!olReady) continue
       var olNW = (olIsImg ? olEl.naturalWidth : olEl.videoWidth) || 16
       var olNH = (olIsImg ? olEl.naturalHeight : olEl.videoHeight) || 9
       var olDW = ol.w * W * olMS
@@ -1047,6 +1071,194 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
       }
       obM.scale.setScalar(obPS * obRefH * (obE.norm || 1))
     }
+    // --- layer cards (many cards): a media overlay that names a frame is
+    // drawn by the card painter on its OWN plane in the prop group
+    // (renderOrder 1.25: above the primary card, below the props): the
+    // layered shadow (the primary's table and strengths), the media clipped
+    // to its corners, the browser bar after it, the border, and for a
+    // document media its click rings and cursor dot inside the card, at
+    // clip-local time. Chrome scales WITH the card (a smaller window has
+    // smaller chrome), the way the primary's scales with cf. The plane is
+    // sized to the canvas at the card depth, placed at the clip's anchor,
+    // leaned by the card's own rx/ry (the tilt convention) and turned by the
+    // clip's rotation. Locals lc*.
+    var lcC = obC.cards || (obC.cards = new Map())
+    var lcSeen = {}
+    var lcK = obRefH / H
+    for (var lci = 0; lci < lcList.length; lci++) {
+      var lcI = lcList[lci], lcO = lcI.ol, lcCard = lcO.card
+      var lcEl = olAcquire(lcO, lcI.t)
+      if (!lcEl) continue
+      lcSeen[lcO.id] = true
+      var lcE = lcC.get(lcO.id)
+      if (!lcE) {
+        var lcCv = document.createElement('canvas')
+        var lcTx = new THREE3.CanvasTexture(lcCv)
+        if (THREE3.SRGBColorSpace) lcTx.colorSpace = THREE3.SRGBColorSpace
+        if (THREE3.LinearFilter) { lcTx.minFilter = THREE3.LinearFilter; lcTx.magFilter = THREE3.LinearFilter }
+        lcTx.generateMipmaps = false
+        var lcM = new THREE3.Mesh(new THREE3.PlaneGeometry(1, 1), new THREE3.MeshBasicMaterial({ map: lcTx, transparent: true, depthTest: false, depthWrite: false }))
+        lcM.renderOrder = 1.25
+        lcM.frustumCulled = false
+        obC.group.add(lcM)
+        lcE = { mesh: lcM, canvas: lcCv, c2d: lcCv.getContext('2d'), texture: lcTx }
+        lcC.set(lcO.id, lcE)
+      }
+      var lcIsImg = lcO.kind === 'image'
+      var lcCrop = lcO.crop || null
+      var lcNW = lcCrop ? lcCrop.w : ((lcIsImg ? lcEl.naturalWidth : lcEl.videoWidth) || 16)
+      var lcNH = lcCrop ? lcCrop.h : ((lcIsImg ? lcEl.naturalHeight : lcEl.videoHeight) || 9)
+      var lcW = Math.max(2, lcO.w * W * lcI.s)
+      var lcS = s * (lcW / W)
+      var lcBar = lcCard.bar || {}
+      var lcBarH = lcBar.kind && lcBar.kind !== 'none' ? (lcBar.height || 44) * lcS : 0
+      var lcMH = lcW * (lcNH / lcNW)
+      var lcH = lcMH + lcBarH
+      var lcRad = Math.min((lcO.radius || 0) * lcS, lcH / 2)
+      var lcMg = Math.ceil(170 * lcS)
+      var lcCW = Math.ceil(lcW + 2 * lcMg), lcCH = Math.ceil(lcH + 2 * lcMg)
+      var lcCv2 = lcE.canvas, lcX = lcE.c2d
+      if (lcCv2.width !== lcCW || lcCv2.height !== lcCH) { lcCv2.width = lcCW; lcCv2.height = lcCH }
+      lcX.clearRect(0, 0, lcCW, lcCH)
+      var lcX0 = lcMg, lcY0 = lcMg
+      var lcSh = lcCard.shadow == null ? ${LAYER_CARD_SHADOW} : lcCard.shadow
+      var lcRgb = '0,0,0'
+      var lcHex = lcCard.shadowColor
+      if (typeof lcHex === 'string' && /^#[0-9a-fA-F]{6}$/.test(lcHex)) lcRgb = parseInt(lcHex.slice(1, 3), 16) + ',' + parseInt(lcHex.slice(3, 5), 16) + ',' + parseInt(lcHex.slice(5, 7), 16)
+      // the shadows are cast by a body drawn off the canvas and brought back
+      // by shadowOffsetX (the primary's seam rule)
+      var lcD = lcCW * 2 + lcCH * 2
+      if (lcSh > 0) {
+        var lcL = [[2, 1, 0.1], [12, 4, 0.1], [40, 16, 0.14], [120, 44, 0.3]]
+        for (var lcj = 0; lcj < lcL.length; lcj++) {
+          lcX.save()
+          lcX.shadowColor = 'rgba(' + lcRgb + ',' + +(lcSh * lcL[lcj][2]).toFixed(3) + ')'
+          lcX.shadowBlur = lcL[lcj][0] * lcS; lcX.shadowOffsetX = lcD; lcX.shadowOffsetY = lcL[lcj][1] * lcS
+          lcX.fillStyle = '#000'
+          rr(lcX0 - lcD, lcY0, lcW, lcH, lcRad, lcX); lcX.fill()
+          lcX.restore()
+        }
+      }
+      if (lcCard.shadowContact > 0) {
+        lcX.save()
+        lcX.shadowColor = 'rgba(' + lcRgb + ',' + lcCard.shadowContact + ')'
+        lcX.shadowBlur = 10 * lcS; lcX.shadowOffsetX = lcD; lcX.shadowOffsetY = 3 * lcS
+        lcX.fillStyle = '#000'
+        rr(lcX0 - lcD, lcY0, lcW, lcH, lcRad, lcX); lcX.fill()
+        lcX.restore()
+      }
+      lcX.save()
+      rr(lcX0, lcY0, lcW, lcH, lcRad, lcX); lcX.clip()
+      var lcMY = lcY0 + lcBarH
+      try {
+        if (lcCrop) lcX.drawImage(lcEl, lcCrop.x, lcCrop.y, lcCrop.w, lcCrop.h, lcX0, lcMY, lcW, lcMH)
+        else lcX.drawImage(lcEl, lcX0, lcMY, lcW, lcMH)
+      } catch (e) {}
+      if (lcBarH > 0) {
+        var lcDark = lcBar.kind.indexOf('dark') >= 0, lcMin = lcBar.kind === 'minimal'
+        var lcThm = (lcMin && lcBar.theme) || null
+        lcX.fillStyle = lcMin ? (lcThm ? lcThm.bar : '#141417') : lcDark ? '#2a2a2e' : '#e9e9eb'
+        lcX.fillRect(lcX0, lcY0, lcW, lcBarH)
+        lcX.fillStyle = lcDark || (lcMin && !(lcThm && lcThm.light)) ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'
+        lcX.fillRect(lcX0, lcY0 + lcBarH - lcS, lcW, lcS)
+        var lcMid = lcY0 + lcBarH / 2
+        if (lcBar.showControls !== false && !lcMin) {
+          if (lcBar.kind.indexOf('mac') === 0) {
+            var lcLights = ['#ff5f57', '#febc2e', '#28c840']
+            for (var lcl = 0; lcl < 3; lcl++) { lcX.fillStyle = lcLights[lcl]; lcX.beginPath(); lcX.arc(lcX0 + (20 + lcl * 20) * lcS, lcMid, 6 * lcS, 0, Math.PI * 2); lcX.fill() }
+          } else {
+            lcX.strokeStyle = lcDark ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.6)'
+            lcX.lineWidth = 1.5 * lcS
+            var lcG = 4.5 * lcS, lcGx = lcX0 + lcW - 22 * lcS
+            lcX.beginPath(); lcX.moveTo(lcGx - lcG, lcMid - lcG); lcX.lineTo(lcGx + lcG, lcMid + lcG); lcX.moveTo(lcGx + lcG, lcMid - lcG); lcX.lineTo(lcGx - lcG, lcMid + lcG); lcX.stroke()
+            lcX.strokeRect(lcGx - 28 * lcS - lcG, lcMid - lcG, lcG * 2, lcG * 2)
+            lcX.beginPath(); lcX.moveTo(lcGx - 56 * lcS - lcG, lcMid); lcX.lineTo(lcGx - 56 * lcS + lcG, lcMid); lcX.stroke()
+          }
+        }
+        if (lcBar.showUrl !== false && lcBar.url) {
+          var lcPW = Math.min(lcW * 0.5, Math.max(200 * lcS, lcW * 0.34)), lcPH = lcBarH - 16 * lcS
+          var lcPx = lcX0 + (lcW - lcPW) / 2, lcPy = lcY0 + 8 * lcS
+          lcX.fillStyle = lcMin ? (lcThm ? lcThm.pill : '#26262b') : lcDark ? '#1d1d20' : '#ffffff'
+          rr(lcPx, lcPy, lcPW, lcPH, lcPH / 2, lcX); lcX.fill()
+          lcX.fillStyle = lcMin ? (lcThm ? lcThm.text : '#9a9aa1') : lcDark ? '#a1a1a6' : '#5f5f64'
+          lcX.font = 13 * lcS + 'px -apple-system, system-ui, sans-serif'
+          lcX.textAlign = 'center'; lcX.textBaseline = 'middle'
+          var lcLabel = String(lcBar.url), lcMaxW = lcPW - 28 * lcS
+          if (lcX.measureText(lcLabel).width > lcMaxW) {
+            while (lcLabel.length > 1 && lcX.measureText(lcLabel + '\u2026').width > lcMaxW) lcLabel = lcLabel.slice(0, -1)
+            lcLabel += '\u2026'
+          }
+          lcX.fillText(lcLabel, lcPx + lcPW / 2, lcPy + lcPH / 2)
+          lcX.textAlign = 'start'; lcX.textBaseline = 'alphabetic'
+        }
+      }
+      // the media's facts: click rings and the cursor dot, video-anchored,
+      // at clip-local time
+      var lcCu = lcO.cur
+      if (lcCu && lcCu.pts && lcCu.pts.length) {
+        var lcSp = lcCu.space || { w: lcNW, h: lcNH }
+        var lcSize = (lcCu.size || 24) * lcS * 0.5
+        var lcT = lcI.t
+        var lcCks = lcCu.clicks || []
+        for (var lcc = 0; lcc < lcCks.length; lcc++) {
+          var lcCk = lcCks[lcc]
+          var lcAge = lcT - lcCk.t
+          if (lcAge < -0.08 || lcAge > 0.6) continue
+          var lcU = Math.max(0, Math.min(1, (lcAge + 0.08) / 0.68))
+          var lcFade = 1 - Math.pow(1 - lcU, 3)
+          lcX.save()
+          lcX.strokeStyle = 'rgba(255,255,255,' + (0.9 * (1 - lcU)) + ')'
+          lcX.lineWidth = Math.max(1, 3 * lcS * (1 - lcU * 0.6))
+          lcX.beginPath(); lcX.arc(lcX0 + (lcCk.x / (lcSp.w || lcNW)) * lcW, lcMY + (lcCk.y / (lcSp.h || lcNH)) * lcMH, lcSize * 0.8 + lcFade * 44 * lcS, 0, Math.PI * 2); lcX.stroke()
+          lcX.restore()
+        }
+        var lcPts = lcCu.pts, lcPX = lcPts[0].x, lcPY = lcPts[0].y
+        for (var lcp = 0; lcp < lcPts.length; lcp++) { if (lcPts[lcp].t <= lcT) { lcPX = lcPts[lcp].x; lcPY = lcPts[lcp].y } }
+        lcX.save()
+        lcX.fillStyle = 'rgba(255,255,255,0.95)'; lcX.strokeStyle = 'rgba(0,0,0,0.4)'; lcX.lineWidth = 2 * lcS
+        lcX.beginPath(); lcX.arc(lcX0 + (lcPX / (lcSp.w || lcNW)) * lcW, lcMY + (lcPY / (lcSp.h || lcNH)) * lcMH, lcSize, 0, Math.PI * 2); lcX.fill(); lcX.stroke()
+        lcX.restore()
+      }
+      lcX.restore()
+      if (lcO.border && lcO.border.width > 0) {
+        var lcBW = lcO.border.width * lcS
+        lcX.save(); lcX.strokeStyle = lcO.border.color || '#fff'; lcX.lineWidth = lcBW
+        rr(lcX0 - lcBW / 2, lcY0 - lcBW / 2, lcW + lcBW, lcH + lcBW, lcRad > 0 ? lcRad + lcBW / 2 : 0, lcX); lcX.stroke()
+        lcX.restore()
+      }
+      lcE.texture.needsUpdate = true
+      var lcM2 = lcE.mesh
+      lcM2.visible = true
+      if (lcM2.material) lcM2.material.opacity = lcI.a
+      var lcLean = lcCard.lean || [0, 0]
+      var lcRx = (lcLean[0] || 0) * Math.PI / 180, lcRy = (lcLean[1] || 0) * Math.PI / 180, lcRz = -(lcI.r || 0) * Math.PI / 180
+      var lcPlW = lcCW * lcK, lcPlH = lcCH * lcK
+      var lcWX = (lcI.x - 0.5) * obRefH * obAspect
+      var lcWY = -(lcI.y - 0.5) * obRefH - lcI.yof * lcK
+      if (obOrtho) {
+        lcM2.position.set((obOCX + (lcI.x - 0.5) * obOW) / obAX, obOCY - (lcI.y - 0.5) * obOH, -obOD)
+        obB.e.set(lcRx, lcRy, lcRz); lcM2.quaternion.setFromEuler(obB.e)
+      } else if (obB) {
+        lcM2.position.copy(obCam.position).addScaledVector(obB.f, Math.abs(${CARD_Z}) - 0.01).addScaledVector(obB.r, lcWX).addScaledVector(obB.u, lcWY)
+        obB.e.set(lcRx, lcRy, lcRz); lcM2.quaternion.copy(obCam.quaternion).multiply(obB.q.setFromEuler(obB.e))
+      } else {
+        lcM2.position.set(lcWX, lcWY, ${CARD_Z} + 0.01)
+        lcM2.rotation.set(lcRx, lcRy, lcRz)
+      }
+      lcM2.scale.set(lcPlW, lcPlH, 1)
+    }
+    // A card off screen rests; one gone from the data is disposed.
+    lcC.forEach(function (lcE2, lcId) {
+      if (lcSeen[lcId]) return
+      var lcStill = false
+      for (var lcq = 0; lcq < ols.length; lcq++) if (ols[lcq].id === lcId && ols[lcq].card) lcStill = true
+      if (lcStill) { lcE2.mesh.visible = false; return }
+      obC.group.remove(lcE2.mesh)
+      if (lcE2.mesh.geometry && lcE2.mesh.geometry.dispose) lcE2.mesh.geometry.dispose()
+      if (lcE2.mesh.material && lcE2.mesh.material.dispose) lcE2.mesh.material.dispose()
+      if (lcE2.texture && lcE2.texture.dispose) lcE2.texture.dispose()
+      lcC.delete(lcId)
+    })
     // Dispose props no longer in the data (live removal).
     obC.pool.forEach(function (obE2, obId) {
       if (!obSeen[obId]) {
