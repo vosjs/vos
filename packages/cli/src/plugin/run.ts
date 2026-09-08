@@ -84,6 +84,7 @@ const BOOLEAN_FLAGS = new Set([
   'draft',
   'at-zooms',
   'at-moments',
+  'at-still',
   'no-frames',
   'media',
   'print',
@@ -100,9 +101,9 @@ const HELP = `vos — record a browser flow, plan effects, render a product vide
 Take pipeline
   vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--max-duration <s>] [--background <slug|url|none>] [render flags] [--json]
   vos record --actions actions.json [--url <url>] [--out take] [--strict] [--max-duration <s>] [--background <slug|url|none>] [--json]
-  vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|none] [--end-card on|none|<doc.json|vosId>] [--captions none] [--clicks none] [--release v2.1] [--json]
+  vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|none] [--end-card on|none|<doc.json|vosId>] [--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
-  vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
+  vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--at-still] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
   vos deliver <take> --to cws,producthunt,x,linkedin,og,github,youtube (or all) [--launch LAUNCH.md] [--look plate|gradient|dark|none] [--brand BRAND.md] [--composed] [--set path=value] [--release v2.1] [--out dir] [--times a,b] [--range a..b] [--parallel N] [--json]
   vos digest <take> [--out dir] [--full 960] [--crop 640] [--no-frames] [--transcript <file.json>] [--style <doc.json|vosId>] [--json]
   vos brand <url> [--out BRAND.md] [--json]
@@ -667,12 +668,20 @@ async function cmdPlan(argv: string[]): Promise<number> {
   // fetched into the take's brand/ folder for the layout and the end card.
   const release = await releaseInputs(dir, flags, r, multi.with ?? [])
   const motionWanted = !hasDoc || flags.motion === true || flags.fresh === true
+  // The frame that stands for the take: --still, else LAUNCH.md's still:.
+  const stillRaw = strFlag(flags, 'still') ?? release.launchRoles.still
+  const still = stillRaw === undefined ? null : Number(stillRaw)
+  if (still !== null && !(Number.isFinite(still) && still >= 0))
+    throw new UsageError(
+      `--still expects output seconds ≥ 0, got "${stillRaw}"`,
+    )
   const s = await planTake(dir, {
     ...(style ? { style } : {}),
     ...(reuse ? { reuse } : {}),
     backdrop,
     words: release.words,
     mark: release.mark,
+    ...(still !== null ? { still } : {}),
     ...(motionWanted
       ? {
           motion: {
@@ -999,6 +1008,7 @@ async function cmdFrames(argv: string[]): Promise<number> {
   const timesRaw = strFlag(flags, 'times')
   const atZooms = flags['at-zooms'] === true
   const atMoments = flags['at-moments'] === true
+  const atStill = flags['at-still'] === true
   let times: number[]
   try {
     times =
@@ -1020,6 +1030,7 @@ async function cmdFrames(argv: string[]): Promise<number> {
       times,
       atZooms,
       atMoments,
+      atStill,
       width: size?.width,
       height: size?.height,
       outDir: strFlag(flags, 'out'),

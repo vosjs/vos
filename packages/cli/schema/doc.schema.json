@@ -670,6 +670,11 @@
             },
             "required": ["id"]
           }
+        },
+        "still": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The frame that stands for this take, in OUTPUT seconds: the cover the shelf shows, the still a kit leads with (vos plan --still <t>, LAUNCH.md still:). Absent, the take's own last freeze (a poster's rest; a template's freezes never count), else the hero moment after the card and the opening clips have entered."
         }
       }
     },

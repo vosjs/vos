@@ -292,23 +292,28 @@ export function proposeMotion(
       if (lastSeg) {
         // The last clip may play another media (concat): the freeze
         // names it, or its seconds would land on the primary's footage.
-        const own = (doc.freeze ?? []).filter(
-          (f) =>
-            Math.abs(f.at - lastSeg.out) > 1e-9 ||
-            !sameMedia(f.media, lastSeg.media),
-        )
+        const atEnd = (f: { at: number; media?: string }) =>
+          Math.abs(f.at - lastSeg.out) <= 1e-9 &&
+          sameMedia(f.media, lastSeg.media)
+        // A freeze the take OWNS at its end survives (its rest, the frame
+        // that stands for it) and grows to the card's seconds; only a
+        // take with none gets the house freeze, stamped from.
+        const kept = (doc.freeze ?? []).find((f) => atEnd(f) && !f.from)
+        const own = (doc.freeze ?? []).filter((f) => !atEnd(f))
         const taken = new Set(own.map((f) => f.id))
         let n = 0
         while (taken.has(`f${n}`)) n++
         doc.freeze = [
           ...own,
-          {
-            id: `f${n}`,
-            at: lastSeg.out,
-            seconds: END_CARD_SECONDS,
-            from: END_CARD_FROM,
-            ...(lastSeg.media ? { media: lastSeg.media } : {}),
-          },
+          kept
+            ? { ...kept, seconds: Math.max(kept.seconds, END_CARD_SECONDS) }
+            : {
+                id: `f${n}`,
+                at: lastSeg.out,
+                seconds: END_CARD_SECONDS,
+                from: END_CARD_FROM,
+                ...(lastSeg.media ? { media: lastSeg.media } : {}),
+              },
         ].sort((a, b) => a.at - b.at)
       }
       doc.overlays = [
