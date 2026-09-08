@@ -81,6 +81,7 @@ import {
   clampTiltDeg,
   clampZoomLevel,
   clipLength,
+  pageDisplayUrl,
   transitionMult,
 } from '../types'
 import { DEFAULT_ZOOM_STYLE, ZOOM_STYLES, resolveZoomStyle } from '../zoomStyle'
@@ -1795,7 +1796,8 @@ const ON_FRAME = `(ctx, content, dt) => {
         c.stroke()
       }
     }
-    if (bar.showUrl !== false && bar.url) {
+    var barUrl = actM && actM.url ? actM.url : bar.url
+    if (bar.showUrl !== false && barUrl) {
       var pillW = Math.min(cardW * 0.5, Math.max(200 * s2, cardW * 0.34))
       var pillH = barH - 16 * s2
       var px0 = cardX + (cardW - pillW) / 2, py0 = cardY + 8 * s2
@@ -1804,7 +1806,7 @@ const ON_FRAME = `(ctx, content, dt) => {
       c.fillStyle = minimal ? (thm ? thm.text : '#9a9aa1') : dark ? '#a1a1a6' : '#5f5f64'
       c.font = 13 * s2 + 'px -apple-system, system-ui, sans-serif'
       c.textAlign = 'center'; c.textBaseline = 'middle'
-      var label = String(bar.url)
+      var label = String(barUrl)
       var maxTextW = pillW - 28 * s2
       if (c.measureText(label).width > maxTextW) {
         while (label.length > 1 && c.measureText(label + '\\u2026').width > maxTextW) label = label.slice(0, -1)
@@ -2478,6 +2480,11 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
                 y: round(p.y),
               })),
               cursorSpace: { w: m.meta.width, h: m.meta.height },
+              // The bar names the page under the playhead: another media's
+              // recorded page, when it has one, stands in for the primary's.
+              ...(m.meta.pageUrl
+                ? { url: pageDisplayUrl(m.meta.pageUrl) }
+                : {}),
               ...(fade.length ? { cursorFade: fade } : {}),
             }
           }),

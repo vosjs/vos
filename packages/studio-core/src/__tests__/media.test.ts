@@ -351,3 +351,28 @@ describe('the lanes stamp the media under the playhead', () => {
     expect(primary.speed?.[0].media).toBeUndefined()
   })
 })
+
+describe('the bar names the page under the playhead', () => {
+  it('hands another media its page’s display url, and none when it has no page', () => {
+    const withPage: Media = {
+      ...other,
+      meta: {
+        ...other.meta,
+        pageUrl: 'https://www.vos.so/gallery?theme=light',
+      },
+    }
+    const { data } = lowerToComposition(
+      doc({
+        media: [withPage],
+        segments: [
+          { in: 0, out: 10 },
+          { in: 0, out: 6, media: 'b' },
+        ],
+      }),
+    )
+    const media = data.media as { id: string; url?: string }[]
+    expect(media[0].url).toBe('vos.so/gallery')
+    const bare = lowerToComposition(concat()).data.media as { url?: string }[]
+    expect(bare[0].url).toBeUndefined()
+  })
+})
