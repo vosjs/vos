@@ -42,6 +42,82 @@ import { sameMedia } from '../media'
  * what it has. A legacy end card yields null: its words rise over a
  * receding card, which is footage under a fading title, not a poster.
  */
+/** The freezes the document owns: the ones no template laid (no `from`). */
+export function ownFreezes(doc: ProjectDoc): FreezeSpan[] {
+  return docFreezes(doc).filter((f) => !f.from)
+}
+
+/** The still a document with nothing to say gets: the old default. */
+export const STILL_DEFAULT = 0.5
+/** A short beat after the opening has entered, so the hero frame is settled. */
+export const HERO_BEAT = 0.25
+/** A clip starting within this many output seconds is part of the opening. */
+export const OPENING_WINDOW = 3
+/** The house length of a clip's block enter, for clips that name none. */
+export const OPENING_ENTER_SECONDS = 0.6
+
+const r3 = (v: number) => Math.round(v * 1000) / 1000
+
+/**
+ * The output moment that STANDS for a document: its cover on the shelf,
+ * the still a kit leads with. One ladder, one derivation, read by the
+ * fleet thumbnail, the stills export and the kit alike; a template can
+ * never move it, because everything a template lays is stamped `from`.
+ *
+ * 1. `doc.still`, the author's own choice, clamped to the output.
+ * 2. The last freeze the document OWNS (no `from`), where it begins: a
+ *    poster's rest, or a moment the author froze on purpose.
+ * 3. The hero: the first moment at which the card and every clip present
+ *    at the cold open have finished entering, plus a beat, never past the
+ *    footage. Read from `anim` seconds, so it is the same everywhere.
+ * 4. The old default, for a document with none of the above.
+ */
+export function docStillTime(doc: ProjectDoc): number {
+  const segs = docSegmentsOf(doc)
+  const rated = withFreezes(
+    splitBySpeed(segs, doc.speed ?? []),
+    docFreezes(doc),
+  )
+  const footage = totalDuration(rated)
+  const end = outputEnd(doc, footage)
+  const clampOut = (v: number) => Math.max(0, Math.min(end, v))
+  if (typeof doc.still === 'number' && Number.isFinite(doc.still))
+    return r3(clampOut(doc.still))
+  if (!doc.endCard) {
+    const own = ownFreezes(doc)
+    if (own.length) {
+      const marks = freezeOutputExtents(
+        splitBySpeed(segs, doc.speed ?? []),
+        own,
+      )
+      let rest: number | null = null
+      for (const m of marks.values())
+        if (rest === null || m.t > rest) rest = m.t
+      if (rest !== null && rest >= 0) return r3(clampOut(rest))
+    }
+  }
+  if (!(footage > 0)) return r3(clampOut(STILL_DEFAULT))
+  let hero = entranceSeconds(cardEnter(doc.frame))
+  for (const clip of doc.overlays ?? []) {
+    if (clip.start > OPENING_WINDOW) continue
+    const step = enterOf(clip.anim)
+    const seconds =
+      !step || step.kind === 'none'
+        ? 0
+        : Math.max(0, step.seconds ?? OPENING_ENTER_SECONDS)
+    hero = Math.max(hero, clip.start + seconds)
+  }
+  hero = Math.max(STILL_DEFAULT, hero + HERO_BEAT)
+  // Never past the footage: the card is what a cover shows.
+  hero = Math.min(hero, Math.max(0, footage - 1 / 30))
+  return r3(clampOut(hero))
+}
+
+/**
+ * Where the LAST freeze of any origin begins, or null with none: the
+ * poster's rest as first spelled. Prefer `docStillTime`, which ignores a
+ * template's freezes and always answers.
+ */
 export function docRestTime(doc: ProjectDoc): number | null {
   if (doc.endCard) return null
   const freezes = docFreezes(doc)

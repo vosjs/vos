@@ -820,3 +820,15 @@ describe('lintDoc: a media’s own card', () => {
     )
   })
 })
+
+describe('lintDoc: the still', () => {
+  it('takes an output moment inside the take and names one past it', () => {
+    expect(lintDoc(makeDoc({ still: 3.5 })).problems).toEqual([])
+    expect(lintDoc(makeDoc({ still: -1 })).problems.join('\n')).toMatch(
+      /still must be a number ≥ 0/,
+    )
+    expect(lintDoc(makeDoc({ still: 9999 })).problems.join('\n')).toMatch(
+      /still=9999 is past the output/,
+    )
+  })
+})

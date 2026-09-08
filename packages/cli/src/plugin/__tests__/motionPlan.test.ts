@@ -494,3 +494,25 @@ describe('the end card on a take of many media', () => {
     expect(fz).toMatchObject({ at: 5, media: 'm1' })
   })
 })
+
+describe('the end card keeps a freeze the take owns at its end', () => {
+  it('grows it to the card’s seconds and lays no second one', () => {
+    const base = doc()
+    const last = base.segments.at(-1)!
+    const d: ProjectDoc = {
+      ...base,
+      freeze: [{ id: 'rest', at: last.out, seconds: 1 }],
+    }
+    const p = proposeMotion(d, {
+      words: { headline: 'Ship it', brand: 'vosso', release: '1.7' },
+      launch: {},
+      captions: [],
+      catalog,
+    })
+    const atEnd = p.doc.freeze!.filter((f) => Math.abs(f.at - last.out) < 1e-9)
+    expect(atEnd).toHaveLength(1)
+    expect(atEnd[0]).toMatchObject({ id: 'rest' })
+    expect(atEnd[0].from).toBeUndefined()
+    expect(atEnd[0].seconds).toBeGreaterThanOrEqual(1)
+  })
+})

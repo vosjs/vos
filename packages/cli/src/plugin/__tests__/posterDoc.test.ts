@@ -6,6 +6,7 @@ import {
   DEFAULT_CAM_STYLE,
   DEFAULT_CURSOR_STYLE,
   DEFAULT_FRAME_STYLE,
+  docStillTime,
 } from '@vosjs/studio-core'
 import {
   findPosterDocs,
@@ -80,11 +81,13 @@ describe('posterClassFor', () => {
 })
 
 describe('the still, the shot and the words, read from the document', () => {
-  it('the still is the rest; a poster with no hold rests on its last frame', () => {
+  it('the still is the rest; a poster with no freeze of its own stands on its hero', () => {
     expect(posterStillTime(poster(), 6)).toBe(3)
-    expect(
-      posterStillTime(poster({ segments: [{ in: 0, out: 3 }] }), 3),
-    ).toBeCloseTo(3 - 1 / 30, 6)
+    const bare = poster({ segments: [{ in: 0, out: 3 }] })
+    expect(posterStillTime(bare, 3)).toBe(docStillTime(bare))
+    // the author's own still wins, clamped to the destination's length
+    expect(posterStillTime(poster({ still: 2.2 }), 6)).toBe(2.2)
+    expect(posterStillTime(poster({ still: 9 }), 6)).toBe(6)
   })
 
   it('the shot rect is the card, bled where the inset is negative', () => {

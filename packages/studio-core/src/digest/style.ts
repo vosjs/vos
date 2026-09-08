@@ -250,21 +250,25 @@ export function copyLayout(
   if (freeze && last) {
     // The last clip may play another media (concat): the freeze names
     // it, or its seconds would land on the primary's footage instead.
-    const own = (doc.freeze ?? []).filter(
-      (f) =>
-        Math.abs(f.at - last.out) > 1e-9 || !sameMedia(f.media, last.media),
-    )
+    const atEnd = (f: FreezeSpan) =>
+      Math.abs(f.at - last.out) <= 1e-9 && sameMedia(f.media, last.media)
+    const own = (doc.freeze ?? []).filter((f) => !atEnd(f))
+    // A freeze the take OWNS at its end survives (it is the take's rest,
+    // the frame that stands for it); it grows to the layout's seconds.
+    const kept = (doc.freeze ?? []).find((f) => atEnd(f) && !f.from)
     const taken = new Set(own.map((f) => f.id))
     let n = 0
     while (taken.has(`f${n}`)) n++
     doc.freeze = [
       ...own,
-      {
-        id: `f${n}`,
-        at: last.out,
-        seconds: freeze.seconds,
-        ...(last.media ? { media: last.media } : {}),
-      },
+      kept
+        ? { ...kept, seconds: Math.max(kept.seconds, freeze.seconds) }
+        : {
+            id: `f${n}`,
+            at: last.out,
+            seconds: freeze.seconds,
+            ...(last.media ? { media: last.media } : {}),
+          },
     ].sort((a, b) => a.at - b.at)
     doc.segments = doc.segments.map((s) => {
       if (s.hold === undefined) return s
@@ -386,23 +390,28 @@ export function applyTemplate(
   if (tail && opts.at === 'end' && lastSeg) {
     // The last clip may play another media (concat): the freeze names
     // it, or its seconds would land on the primary's footage instead.
-    const own = (doc.freeze ?? []).filter(
-      (f) =>
-        Math.abs(f.at - lastSeg.out) > 1e-9 ||
-        !sameMedia(f.media, lastSeg.media),
-    )
+    const atEnd = (f: FreezeSpan) =>
+      Math.abs(f.at - lastSeg.out) <= 1e-9 && sameMedia(f.media, lastSeg.media)
+    // A freeze the take OWNS at its end survives the template (it is the
+    // take's rest, the frame that stands for it) and grows to the
+    // template's seconds; only then is the template's own freeze laid,
+    // stamped `from`, so a still never reads it as the rest.
+    const kept = (doc.freeze ?? []).find((f) => atEnd(f) && !f.from)
+    const own = (doc.freeze ?? []).filter((f) => !atEnd(f))
     const taken = new Set(own.map((f) => f.id))
     let n = 0
     while (taken.has(`f${n}`)) n++
     doc.freeze = [
       ...own,
-      {
-        id: `f${n}`,
-        at: lastSeg.out,
-        seconds: tail.seconds,
-        from,
-        ...(lastSeg.media ? { media: lastSeg.media } : {}),
-      },
+      kept
+        ? { ...kept, seconds: Math.max(kept.seconds, tail.seconds) }
+        : {
+            id: `f${n}`,
+            at: lastSeg.out,
+            seconds: tail.seconds,
+            from,
+            ...(lastSeg.media ? { media: lastSeg.media } : {}),
+          },
     ].sort((a, b) => a.at - b.at)
   }
   const templateEnd = totalDuration(ratedSegments(template))
