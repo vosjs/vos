@@ -734,3 +734,55 @@ describe('step anchors', () => {
     )
   })
 })
+
+describe('lintDoc: many media', () => {
+  it('measures a span against its own media, and names a stranger', () => {
+    const base = makeDoc({
+      media: [
+        {
+          id: 'm1',
+          videoKey: 'media/second.webm',
+          cursor: [],
+          meta: { ...makeDoc().source.meta, durationMs: 6000 },
+        },
+      ],
+      segments: [
+        { in: 0, out: 20 },
+        { in: 1, out: 5, media: 'm1' },
+      ],
+    })
+    expect(lintDoc(base).problems).toEqual([])
+    const late = lintDoc(
+      makeDoc({
+        ...base,
+        zoom: [
+          {
+            id: 'u1',
+            in: 7,
+            out: 8,
+            level: 1.5,
+            cx: 0.5,
+            cy: 0.5,
+            media: 'm1',
+          },
+        ],
+      }),
+    )
+    expect(late.problems.join('\n')).toMatch(
+      /zoom u1.*outside the footage \(0\.\.6\.00s\)/,
+    )
+    const stranger = lintDoc(
+      makeDoc({
+        ...base,
+        speed: [{ id: 's1', in: 1, out: 2, rate: 2, media: 'zz' }],
+      }),
+    )
+    expect(stranger.problems.join('\n')).toMatch(
+      /speed s1.*media "zz" is not one of media\[\]\.id/,
+    )
+    const dup = lintDoc(
+      makeDoc({ ...base, media: [base.media![0], base.media![0]] }),
+    )
+    expect(dup.problems.join('\n')).toMatch(/media\[1\] \(m1\): duplicate id/)
+  })
+})

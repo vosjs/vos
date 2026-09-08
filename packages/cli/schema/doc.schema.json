@@ -47,6 +47,10 @@
                 "minimum": 0,
                 "maximum": 30,
                 "description": "LEGACY spelling of a freeze at this segment's end, read into `freeze` on every path; write `freeze` instead"
+              },
+              "media": {
+                "type": "string",
+                "description": "the media this belongs to: a `media[].id`; absent = the primary, `source`"
               }
             },
             "additionalProperties": true
@@ -131,6 +135,10 @@
                   }
                 },
                 "description": "Re-record tie: `vos plan --reuse` re-times this span onto a NEW recording of the same script by resolving the step in the new meta.steps. Metadata only — `in`/`out` stay authoritative and lowering never reads it, so it costs nothing at render time"
+              },
+              "media": {
+                "type": "string",
+                "description": "the media this belongs to: a `media[].id`; absent = the primary, `source`"
               }
             },
             "additionalProperties": true
@@ -222,6 +230,10 @@
                   }
                 },
                 "description": "Re-record tie: `vos plan --reuse` re-times this span onto a NEW recording of the same script by resolving the step in the new meta.steps. Metadata only — `in`/`out` stay authoritative and lowering never reads it, so it costs nothing at render time"
+              },
+              "media": {
+                "type": "string",
+                "description": "the media this belongs to: a `media[].id`; absent = the primary, `source`"
               }
             },
             "additionalProperties": true
@@ -278,6 +290,10 @@
               "note": {
                 "type": "string",
                 "description": "why, in the deleter's words"
+              },
+              "media": {
+                "type": "string",
+                "description": "the media this belongs to: a `media[].id`; absent = the primary, `source`"
               }
             },
             "additionalProperties": false
@@ -358,6 +374,10 @@
                 "type": "string",
                 "enum": ["auto", "manual"],
                 "description": "reserved for a future planner; spans you add or edit are 'manual'"
+              },
+              "media": {
+                "type": "string",
+                "description": "the media this belongs to: a `media[].id`; absent = the primary, `source`"
               }
             }
           }
@@ -580,13 +600,33 @@
               "required": ["key", "aspect"],
               "additionalProperties": false,
               "properties": {
-                "key": { "type": "string" },
-                "aspect": { "type": "number", "exclusiveMinimum": 0 }
+                "key": {
+                  "type": "string"
+                },
+                "aspect": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                }
               },
               "description": "the brand's mark as an image (a take-dir path or a URL the render page can load) with its width-over-height, drawn above the wordmark; a wide mark (a stylised wordmark asset) stands alone. vos deliver fetches BRAND.md's logoUrl into the take's brand/ folder and sets this"
             }
           },
           "description": "the end card the clip closes on: a hold on the last frame (default 2.5 s) while the card recedes and the words rise as the house title, caption and label overlays. The clip's last frame is its poster"
+        },
+        "media": {
+          "type": "array",
+          "description": "The take's OTHER media (concat, a layer's source): each the `source` shape (a media plus the facts only a capture has) with an `id` a segment or a source-anchored span names. The primary stays `source`. Absent = one media.",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "stable identity a segment or a span names (m1, m2, …)"
+              }
+            },
+            "required": ["id"]
+          }
         }
       }
     },
@@ -701,8 +741,12 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enter": { "$ref": "#/definitions/animStep" },
-        "exit": { "$ref": "#/definitions/animStep" },
+        "enter": {
+          "$ref": "#/definitions/animStep"
+        },
+        "exit": {
+          "$ref": "#/definitions/animStep"
+        },
         "idle": {
           "enum": ["spin", "float", null],
           "description": "props only: what it does while it stays"
@@ -1263,6 +1307,10 @@
           "duck": {
             "type": "boolean",
             "description": "duck under the mic while speech is detected"
+          },
+          "media": {
+            "type": "string",
+            "description": "the media this belongs to: a `media[].id`; absent = the primary, `source`"
           }
         },
         "additionalProperties": true
@@ -1331,6 +1379,10 @@
           "from": {
             "type": "string",
             "description": "the template (a vos id, or 'endcard') that placed it, the clips' `from`: a re-apply replaces it, a loop drops it"
+          },
+          "media": {
+            "type": "string",
+            "description": "the media this belongs to: a `media[].id`; absent = the primary, `source`"
           }
         },
         "additionalProperties": false
@@ -1382,6 +1434,10 @@
               }
             },
             "description": "Re-record tie: `vos plan --reuse` re-times this span onto a NEW recording of the same script by resolving the step in the new meta.steps. Metadata only — `in`/`out` stay authoritative and lowering never reads it, so it costs nothing at render time"
+          },
+          "media": {
+            "type": "string",
+            "description": "the media this belongs to: a `media[].id`; absent = the primary, `source`"
           }
         },
         "additionalProperties": true

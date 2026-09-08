@@ -18,6 +18,7 @@ import {
 } from '@vosjs/timeline'
 import { ratedSegments, spanOutputExtent } from '../lower/lowerToComposition'
 import { docFreezes, freezeOutputExtents, withFreezes } from '../lower/motion'
+import { mediaAtOutput, mediaDuration, mediaSource } from '../media'
 import { docOutputDuration, voiceKey } from '../audioBeds'
 import { anchorSourceDuration, isRecordingDoc } from '../doc/studioDoc'
 import {
@@ -345,10 +346,16 @@ export const freezeLane: LaneAdapter<ProjectDoc> = {
       const srcT = round(mapTime(rated, Math.max(0, g.t)))
       if (!kept(srcT) || !clear(srcT)) return null
       const id = nextFreezeId(doc)
+      const mediaHere = mediaAtOutput(rated, Math.max(0, g.t))
       return (d) => {
         d.freeze = [
           ...(d.freeze ?? []),
-          { id, at: srcT, seconds: FREEZE_DEFAULT_SECONDS },
+          {
+            id,
+            at: srcT,
+            seconds: FREEZE_DEFAULT_SECONDS,
+            ...(mediaHere ? { media: mediaHere } : {}),
+          },
         ].sort((a, b) => a.at - b.at)
       }
     }
@@ -460,7 +467,7 @@ export const zoomLane: LaneAdapter<ProjectDoc> = {
   items(doc): LaneItem[] {
     const segments = ratedSegments(doc)
     return doc.zoom.flatMap((z) => {
-      const ext = spanOutputExtent(segments, z.in, z.out)
+      const ext = spanOutputExtent(segments, z.in, z.out, z.media)
       return ext === null
         ? []
         : [
@@ -482,13 +489,18 @@ export const zoomLane: LaneAdapter<ProjectDoc> = {
 
     if (g.type === 'create') {
       const srcT = mapTime(rated, Math.max(0, g.t))
-      if (spans.some((z) => srcT >= z.in && srcT < z.out)) return null
-      const next = spans
+      // The media under the playhead: the span is its, clears its spans
+      // only, and runs to its own end.
+      const mediaHere = mediaAtOutput(rated, Math.max(0, g.t))
+      const here = spans.filter((z) => (z.media ?? '') === mediaHere)
+      const mediaLen = mediaDuration(mediaSource(doc, mediaHere) ?? doc.source)
+      if (here.some((z) => srcT >= z.in && srcT < z.out)) return null
+      const next = here
         .filter((z) => z.in > srcT)
         .sort((a, b) => a.in - b.in)
         .at(0)
-      const limit = Math.min(sourceDuration, next ? next.in : sourceDuration)
-      const len = Math.min(spanDefaultLen(sourceDuration), limit - srcT)
+      const limit = Math.min(mediaLen, next ? next.in : mediaLen)
+      const len = Math.min(spanDefaultLen(mediaLen), limit - srcT)
       if (len < ZOOM_SPAN_MIN * rateAt(rated, srcT)) return null
       const id = nextZoomId(doc)
       // Seed the focus from the cursor at the playhead (element-aware capture
@@ -506,6 +518,7 @@ export const zoomLane: LaneAdapter<ProjectDoc> = {
             cx,
             cy,
             source: 'manual' as const,
+            ...(mediaHere ? { media: mediaHere } : {}),
           },
         ].sort((a, b) => a.in - b.in)
       }
@@ -631,7 +644,7 @@ export const tiltLane: LaneAdapter<ProjectDoc> = {
   items(doc): LaneItem[] {
     const segments = ratedSegments(doc)
     return (doc.tilt ?? []).flatMap((z) => {
-      const ext = spanOutputExtent(segments, z.in, z.out)
+      const ext = spanOutputExtent(segments, z.in, z.out, z.media)
       return ext === null
         ? []
         : [
@@ -653,13 +666,16 @@ export const tiltLane: LaneAdapter<ProjectDoc> = {
 
     if (g.type === 'create') {
       const srcT = mapTime(rated, Math.max(0, g.t))
-      if (spans.some((z) => srcT >= z.in && srcT < z.out)) return null
-      const next = spans
+      const mediaHere = mediaAtOutput(rated, Math.max(0, g.t))
+      const here = spans.filter((z) => (z.media ?? '') === mediaHere)
+      const mediaLen = mediaDuration(mediaSource(doc, mediaHere) ?? doc.source)
+      if (here.some((z) => srcT >= z.in && srcT < z.out)) return null
+      const next = here
         .filter((z) => z.in > srcT)
         .sort((a, b) => a.in - b.in)
         .at(0)
-      const limit = Math.min(sourceDuration, next ? next.in : sourceDuration)
-      const len = Math.min(spanDefaultLen(sourceDuration), limit - srcT)
+      const limit = Math.min(mediaLen, next ? next.in : mediaLen)
+      const len = Math.min(spanDefaultLen(mediaLen), limit - srcT)
       if (len < TILT_SPAN_MIN * rateAt(rated, srcT)) return null
       const id = nextTiltId(doc)
       return (d) => {
@@ -672,6 +688,7 @@ export const tiltLane: LaneAdapter<ProjectDoc> = {
             rx: DEFAULT_TILT_POSE.rx,
             ry: DEFAULT_TILT_POSE.ry,
             source: 'manual' as const,
+            ...(mediaHere ? { media: mediaHere } : {}),
           },
         ].sort((a, b) => a.in - b.in)
       }
@@ -775,7 +792,7 @@ export const camMoveLane: LaneAdapter<ProjectDoc> = {
     if (!doc.source.camKey) return []
     const segments = ratedSegments(doc)
     return (doc.camMotion ?? []).flatMap((z) => {
-      const ext = spanOutputExtent(segments, z.in, z.out)
+      const ext = spanOutputExtent(segments, z.in, z.out, z.media)
       return ext === null
         ? []
         : [
@@ -1143,6 +1160,7 @@ export const speedLane: LaneAdapter<ProjectDoc> = {
       const len = Math.min(spanDefaultLen(sourceDuration), limit - srcT)
       if (len < SPEED_SPAN_MIN * DEFAULT_SPEED_RATE) return null
       const id = nextSpeedId(doc)
+      const mediaHere = mediaAtOutput(rated, Math.max(0, g.t))
       return (d) => {
         d.speed = [
           ...(d.speed ?? []),
@@ -1152,6 +1170,7 @@ export const speedLane: LaneAdapter<ProjectDoc> = {
             out: round(srcT + len),
             rate: DEFAULT_SPEED_RATE,
             source: 'manual' as const,
+            ...(mediaHere ? { media: mediaHere } : {}),
           },
         ].sort((a, b) => a.in - b.in)
       }

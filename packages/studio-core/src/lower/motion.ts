@@ -30,6 +30,7 @@ import type {
 import { resolveExportSize } from '../types'
 import { animStep, enterOf, exitOf, lastLayerEnd } from '../anim'
 import { splitBySpeed, totalDuration } from '@vosjs/timeline'
+import { sameMedia } from '../media'
 
 /**
  * THE REST of a take: the one output time its still is taken at, where
@@ -158,23 +159,23 @@ export interface FreezeExtent {
  * in OUTPUT time, for the lane and the rest.
  */
 export function placeFreezes(
-  rated: readonly Segment[],
+  rated: readonly (Segment & { media?: string })[],
   freezes: readonly FreezeSpan[],
 ): { pieces: Segment[]; marks: Map<string, FreezeExtent> } {
   const marks = new Map<string, FreezeExtent>()
-  const pending = [...freezes]
-    .filter((f) => f.seconds > 0)
-    .sort((a, b) => a.at - b.at)
+  const placed = new Set<string>()
   const pieces: Segment[] = []
   let acc = 0
-  const freezePiece = (f: FreezeSpan): void => {
+  const freezePiece = (f: FreezeSpan, media: string | undefined): void => {
     const at = Math.max(HOLD_SOURCE_SPAN, f.at)
     marks.set(f.id, { t: acc, duration: f.seconds })
     pieces.push({
       in: at - HOLD_SOURCE_SPAN,
       out: at,
       rate: HOLD_SOURCE_SPAN / f.seconds,
-    })
+      ...(media !== undefined ? { media } : {}),
+    } as Segment)
+    placed.add(f.id)
     acc += f.seconds
   }
   const push = (p: Segment): void => {
@@ -184,41 +185,40 @@ export function placeFreezes(
   for (let i = 0; i < rated.length; i++) {
     let piece = rated[i]
     const next = rated[i + 1]
-    // Freezes inside this piece, in order; a freeze exactly at the piece's
-    // end goes after it, unless the next piece continues the same footage
-    // (a speed boundary), which is the same frame either way — take the
-    // earlier place so the freeze sits where the moment is.
-    while (pending.length) {
-      const f = pending[0]
-      if (f.at > piece.out + 1e-9) break
-      if (f.at < piece.in - 1e-9) {
-        // On no kept footage before this piece: unplaced, follows its frame.
-        pending.shift()
-        continue
-      }
+    // The freezes on THIS piece's media whose moment it holds, in order: a
+    // freeze inside it splits it; one at its very start goes before it (the
+    // first frame, or a boundary the previous piece deferred); one exactly
+    // at its end goes after it, unless the next piece continues the same
+    // footage (a speed edge), which is the same frame either way — take the
+    // later place so the freeze sits where the moment is.
+    const continues =
+      !!next &&
+      sameMedia(next.media, piece.media) &&
+      Math.abs(next.in - piece.out) < 1e-9 &&
+      next.out > piece.out
+    const mine = freezes
+      .filter(
+        (f) =>
+          f.seconds > 0 &&
+          !placed.has(f.id) &&
+          sameMedia(f.media, piece.media) &&
+          f.at >= piece.in - 1e-9 &&
+          (continues ? f.at < piece.out - 1e-9 : f.at <= piece.out + 1e-9),
+      )
+      .sort((a, b) => a.at - b.at)
+    for (const f of mine) {
       if (f.at <= piece.in + 1e-9) {
-        // The very first frame, or a boundary the previous piece answered
-        // (a cut, a speed edge): the freeze goes here, before this piece.
-        pending.shift()
-        freezePiece(f)
-        continue
-      }
-      if (f.at < piece.out - 1e-9) {
+        freezePiece(f, piece.media)
+      } else if (f.at < piece.out - 1e-9) {
         push({ ...piece, out: f.at })
-        pending.shift()
-        freezePiece(f)
+        freezePiece(f, piece.media)
         piece = { ...piece, in: f.at }
-        continue
+      } else {
+        const media = piece.media
+        push(piece)
+        piece = null as unknown as Segment
+        freezePiece(f, media)
       }
-      // f.at == piece.out
-      const continues =
-        next && Math.abs(next.in - piece.out) < 1e-9 && next.out > piece.out
-      if (continues) break
-      push(piece)
-      piece = null as unknown as Segment
-      pending.shift()
-      freezePiece(f)
-      break
     }
     if (piece) push(piece)
   }

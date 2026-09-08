@@ -18,6 +18,8 @@ export type { Segment }
  * (`migrateMotion`), so nothing new writes it.
  */
 export type DocSegment = Segment & {
+  /** The media this clip plays (`doc.media[].id`); absent = the primary, `doc.source`. */
+  media?: string
   /** @deprecated migrated on read into a `FreezeSpan` at this segment's `out`. */
   hold?: number
 }
@@ -210,6 +212,8 @@ export interface RejectedSpan {
   /** `r{n}`, stable for the differ and the history. */
   id: string
   lane: RejectedLane
+  /** The media the deleted span sat on; absent = the primary. */
+  media?: string
   /** SOURCE seconds, the deleted span's extent. */
   in: number
   out: number
@@ -283,6 +287,8 @@ export function transitionMult(t: TransitionSpeed | undefined): number {
 export interface SpeedSpan {
   /** Stable identity for selection/editing in the timeline UI. */
   id: string
+  /** The media this span's source seconds belong to; absent = the primary. */
+  media?: string
   in: number
   out: number
   /** Re-record tie to an actions.json step; `in`/`out` stay the truth. */
@@ -314,6 +320,8 @@ export interface SpeedSpan {
 export interface FreezeSpan {
   /** Stable identity for selection/editing (`f{n}`). */
   id: string
+  /** The media the frozen frame is on; absent = the primary. */
+  media?: string
   /** SOURCE seconds: the frame that freezes is the one just before `at`. */
   at: number
   /** OUTPUT seconds the frame holds. */
@@ -370,6 +378,8 @@ export function clampSpeedRate(rate: number): number {
 export interface ZoomSpan {
   /** Stable identity for selection/editing (`z{n}` planner, `u{n}` user). */
   id: string
+  /** The media this span's source seconds belong to; absent = the primary. */
+  media?: string
   in: number
   out: number
   /** Re-record tie to an actions.json step; `in`/`out` stay the truth. */
@@ -430,6 +440,8 @@ export function clampZoomLevel(level: number): number {
  * OUTPUT-time [rx, ry] degree keyframe track (see tiltTrackFromDoc).
  */
 export interface TiltSpan {
+  /** The media this span's source seconds belong to; absent = the primary. */
+  media?: string
   /** Stable identity for selection/editing (`t{n}` planner, `u{n}` user). */
   id: string
   in: number
@@ -586,6 +598,8 @@ export interface CamStyle {
  * (camTrackFromDoc) — pure f(t), no springs.
  */
 export interface CamPoseSpan {
+  /** The media this span's source seconds belong to; absent = the primary. */
+  media?: string
   /** Stable identity for selection/editing (`m{n}` user-created). */
   id: string
   in: number
@@ -1360,6 +1374,13 @@ export interface ProjectDoc {
    */
   segments: DocSegment[]
   /**
+   * The OTHER media this take carries (concat, a layer's source): each the
+   * `source` shape with an `id`, named by a segment's or a span's `media`.
+   * The primary stays `source` (the sequence, the camera and the cut are
+   * its). Absent = one media; a document with none lowers byte-identically.
+   */
+  media?: Media[]
+  /**
    * Speed-change spans (SOURCE time, footage-anchored — see SpeedSpan).
    * Optional for backward compatibility with persisted docs; absent = all 1×.
    */
@@ -1668,3 +1689,10 @@ export function exportSizeFor(
     ? { width: even(short * safe), height: even(short) }
     : { width: even(short), height: even(short / safe) }
 }
+
+/**
+ * One of a take's OTHER media (`doc.media`): the `source` shape (a media
+ * plus the facts only a capture has) with the `id` a segment or a span
+ * names. The primary media has no id; it is `doc.source`.
+ */
+export type Media = ProjectDoc['source'] & { id: string }

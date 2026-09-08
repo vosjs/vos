@@ -43,6 +43,7 @@ import type {
   LayoutParts,
   ProjectDoc,
   RecordingArtifact,
+  SpeedSpan,
   ZoomSpan,
 } from '@vosjs/studio-core'
 
@@ -163,6 +164,51 @@ function applyStyle(
   return { doc: next, layout: { ...parts, notes } }
 }
 
+/**
+ * The planners over the take's OTHER media (concat): each media's own
+ * cursor track, in its own capture space, proposes zoom and speed spans
+ * stamped with its id; the manual spans and the rejections of that media
+ * hold them off exactly as the primary's do.
+ */
+function planOtherMedia(
+  doc: ProjectDoc,
+  activity: Awaited<ReturnType<typeof readDigestActivity>>,
+): { zoom: ZoomSpan[]; speed: SpeedSpan[] } {
+  const zoom: ZoomSpan[] = []
+  const speed: SpeedSpan[] = []
+  for (const m of doc.media ?? []) {
+    const manualZoom = doc.zoom.filter(
+      (z) => z.media === m.id && z.source === 'manual',
+    )
+    const rejected = (doc.rejected ?? []).filter((r) => r.media === m.id)
+    zoom.push(
+      ...planAutoZoom(m.cursor, {
+        width: m.meta.width,
+        height: m.meta.height,
+        style: doc.zoomStyle,
+        params: doc.zoomParams,
+      })
+        .filter((z) => !manualZoom.some((x) => overlaps(z, x)))
+        .filter((z) => !isRejected('zoom', z, rejected))
+        .map((z) => ({ ...z, id: `${z.id}-${m.id}`, media: m.id })),
+    )
+    const manualSpeed = (doc.speed ?? []).filter(
+      (x) => x.media === m.id && x.source !== 'auto',
+    )
+    speed.push(
+      ...planAutoSpeed(m.cursor, {
+        durationMs: m.meta.durationMs,
+        params: doc.speedParams,
+        activity,
+      })
+        .filter((x) => !manualSpeed.some((y) => x.in < y.out && x.out > y.in))
+        .filter((x) => !isRejected('speed', x, rejected))
+        .map((x) => ({ ...x, id: `${x.id}-${m.id}`, media: m.id })),
+    )
+  }
+  return { zoom, speed }
+}
+
 export async function planTake(
   dir: string,
   opts: PlanOptions = {},
@@ -222,6 +268,17 @@ export async function planTake(
       .filter((s) => !manualSpeed.some((m) => s.in < m.out && s.out > m.in))
       .filter((s) => !isRejected('speed', s, doc.rejected))
     doc.speed = [...manualSpeed, ...autoSpeed].sort((a, b) => a.in - b.in)
+    {
+      const others = planOtherMedia(doc, activity)
+      doc.zoom = [
+        ...doc.zoom.filter((z) => !z.media || z.source === 'manual'),
+        ...others.zoom,
+      ].sort((a, b) => a.in - b.in)
+      doc.speed = [
+        ...(doc.speed ?? []).filter((x) => !x.media || x.source !== 'auto'),
+        ...others.speed,
+      ].sort((a, b) => a.in - b.in)
+    }
     if (rt.tilt.length) doc.tilt = rt.tilt
     // Output-anchored work carries at its output times — a title at 1s is
     // still a title at 1s (the constant-perceived-position contract).
@@ -248,7 +305,7 @@ export async function planTake(
       doc = take.doc
     }
     fresh = false
-    const manual = doc.zoom.filter((z) => z.source === 'manual')
+    const manual = doc.zoom.filter((z) => z.source === 'manual' && !z.media)
     const auto = planAutoZoom(doc.source.cursor, {
       width: doc.source.meta.width,
       height: doc.source.meta.height,
@@ -260,7 +317,9 @@ export async function planTake(
     doc.zoom = [...manual, ...auto].sort((a, b) => a.in - b.in)
     // The speed wand: absent `source` counts as manual — spans from before
     // the wand are user work and always survive a re-plan.
-    const manualSpeed = (doc.speed ?? []).filter((s) => s.source !== 'auto')
+    const manualSpeed = (doc.speed ?? []).filter(
+      (s) => s.source !== 'auto' && !s.media,
+    )
     const autoSpeed = planAutoSpeed(doc.source.cursor, {
       durationMs: doc.source.meta.durationMs,
       params: doc.speedParams,
@@ -269,6 +328,17 @@ export async function planTake(
       .filter((s) => !manualSpeed.some((m) => s.in < m.out && s.out > m.in))
       .filter((s) => !isRejected('speed', s, doc.rejected))
     doc.speed = [...manualSpeed, ...autoSpeed].sort((a, b) => a.in - b.in)
+    {
+      const others = planOtherMedia(doc, activity)
+      doc.zoom = [
+        ...doc.zoom.filter((z) => !z.media || z.source === 'manual'),
+        ...others.zoom,
+      ].sort((a, b) => a.in - b.in)
+      doc.speed = [
+        ...(doc.speed ?? []).filter((x) => !x.media || x.source !== 'auto'),
+        ...others.speed,
+      ].sort((a, b) => a.in - b.in)
+    }
   } else {
     const artifact: RecordingArtifact = {
       videoKey: RECORDING_NAME,

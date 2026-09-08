@@ -135,3 +135,32 @@ describe('the document’s media beside the recording', () => {
     expect(extensionFor('application/x-unknown')).toBe('')
   })
 })
+
+describe('docMediaRefs: the take’s other media', () => {
+  it('lists every media’s recording and sidecars beside the clips', () => {
+    const d = doc()
+    d.media = [
+      {
+        id: 'm1',
+        videoKey: 'media/second.webm',
+        micKey: 'media/second-mic.webm',
+        cursor: [],
+        meta: d.source.meta,
+      },
+      {
+        id: 'm2',
+        videoKey: 'https://assets.vos.so/x.webm',
+        cursor: [],
+        meta: d.source.meta,
+      },
+    ]
+    const refs = docMediaRefs(d)
+    const mine = refs.filter((r) => r.where.startsWith('media '))
+    expect(mine.map((r) => [r.where, r.key])).toEqual([
+      ['media m1', 'media/second.webm'],
+      ['media m1 mic', 'media/second-mic.webm'],
+    ])
+    mine[0].set('/api/assets/abc/file')
+    expect(d.media[0].videoKey).toBe('/api/assets/abc/file')
+  })
+})
