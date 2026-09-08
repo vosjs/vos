@@ -414,3 +414,61 @@ describe('destinationMechanics (what the spec does at render time)', () => {
     expect(m).toEqual({ set: [], unset: [], notes: [] })
   })
 })
+
+describe('a template stamped from: endcard is the end card', () => {
+  const endCardTemplate = (): ProjectDoc => ({
+    ...doc(),
+    segments: [{ in: 0, out: 4 }],
+    freeze: [{ id: 'f0', at: 4, seconds: 2.5 }],
+    frame: { ...doc().frame, anim: { exit: { kind: 'recede', seconds: 2.5 } } },
+    overlays: [
+      {
+        id: 'endcard-title',
+        kind: 'text',
+        text: 'Placeholder',
+        preset: 'title',
+        start: 4.5,
+        duration: 2,
+        transform: { x: 0.5, y: 0.5, scale: 1, rotation: 0 },
+        anim: { enter: 'fade', exit: 'none' },
+      },
+    ],
+    audio: [],
+  })
+
+  it('takes the place of the house clips and carries its freeze', () => {
+    const p = proposeMotion(doc(), {
+      words: { headline: 'Ship it', brand: 'vosso' },
+      launch: {},
+      captions: [],
+      catalog,
+      templates: [{ from: 'endcard', doc: endCardTemplate(), at: 'end' }],
+    })
+    const titles = (p.doc.overlays ?? []).filter(
+      (o) => o.id === 'endcard-title',
+    )
+    expect(titles).toHaveLength(1)
+    expect(titles[0].from).toBe('endcard')
+    expect(titles[0].kind === 'text' && titles[0].text).toBe('Ship it')
+    // The template's freeze, not the house one: 2.5 s at the footage end.
+    expect(p.doc.freeze?.map((f) => [f.seconds, f.from])).toEqual([
+      [2.5, 'endcard'],
+    ])
+    // No house sub line beside it.
+    expect((p.doc.overlays ?? []).some((o) => o.id === 'endcard-sub')).toBe(
+      false,
+    )
+  })
+
+  it('endCard: none drops it with the house clips', () => {
+    const p = proposeMotion(doc(), {
+      words: { headline: 'Ship it', brand: 'vosso' },
+      launch: { endCard: 'none' },
+      captions: [],
+      catalog,
+      templates: [{ from: 'endcard', doc: endCardTemplate(), at: 'end' }],
+    })
+    expect((p.doc.overlays ?? []).some((o) => o.from === 'endcard')).toBe(false)
+    expect((p.doc.freeze ?? []).some((f) => f.from === 'endcard')).toBe(false)
+  })
+})
