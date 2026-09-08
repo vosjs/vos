@@ -15,7 +15,9 @@
  * Pure functions, no I/O — reuse.test.ts drives them with synthetic
  * step timelines; the browser gate is smoke-recut.ts.
  */
+import { docFreezes } from '@vosjs/studio-core'
 import type {
+  FreezeSpan,
   ProjectDoc,
   RejectedSpan,
   SpeedSpan,
@@ -213,6 +215,8 @@ export interface ReusedCut {
   segments: { in: number; out: number }[]
   zoom: ZoomSpan[]
   speed: SpeedSpan[]
+  /** The previous cut's freezes, re-timed like its manual spans (a legacy hold included). */
+  freeze: FreezeSpan[]
   tilt: TiltSpan[]
   /** The previous cut's rejected proposals, re-timed like its manual spans. */
   rejected: RejectedSpan[]
@@ -292,6 +296,33 @@ export function retimeCut(
     newDuration,
     report,
   )
+  // A freeze is a source MOMENT: its anchor or the map re-times the
+  // moment, its seconds come along untouched, and one that lands past the
+  // new recording is dropped and named.
+  const freeze: FreezeSpan[] = []
+  for (const f of docFreezes(prev)) {
+    let at: number | null = null
+    if (f.anchor) {
+      at = resolveAnchor(f.anchor, newSteps)
+      if (at === null) {
+        report.flagged.push(
+          `freeze ${f.id}: its anchored step (${String(f.anchor.step)}) is missing or skipped in the new recording — fell back to the step map`,
+        )
+      } else report.anchored++
+    }
+    if (at === null) {
+      at = stepMap.map(f.at)
+      report.mapped++
+    }
+    if (at < 0 || at > newDuration) {
+      report.flagged.push(
+        `freeze ${f.id}: lands outside the new recording (${at.toFixed(2)}s) — dropped`,
+      )
+      continue
+    }
+    freeze.push({ ...f, at: +at.toFixed(3) })
+  }
+  freeze.sort((a, b) => a.at - b.at)
   // A rejected proposal is a deletion the human made; it follows the
   // footage the way the spans it stands beside do, one lane at a time
   // (two lanes may legitimately reject the same seconds).
@@ -309,5 +340,5 @@ export function retimeCut(
     )
   }
 
-  return { segments, zoom, speed, tilt, rejected, report }
+  return { segments, zoom, speed, freeze, tilt, rejected, report }
 }

@@ -12,12 +12,15 @@ import type { SpeedParams } from './planner/autoSpeed'
 export type { Segment }
 
 /**
- * A kept span with an optional HOLD: after its last frame, a freeze for
- * `hold` output seconds (the beat before a cut, the ground for the end
- * card). Lowered as a rated segment whose tiny source span plays for the
- * hold, so every consumer of the rated list inherits it.
+ * A kept span. `hold` is the LEGACY spelling of a trailing freeze (a
+ * freeze on the segment's last frame for these output seconds): it is
+ * read on every path and migrated into `doc.freeze` on read
+ * (`migrateMotion`), so nothing new writes it.
  */
-export type DocSegment = Segment & { hold?: number }
+export type DocSegment = Segment & {
+  /** @deprecated migrated on read into a `FreezeSpan` at this segment's `out`. */
+  hold?: number
+}
 
 /** A single input event captured in the page, relative to the recording's t0. */
 export interface CursorEvent {
@@ -292,6 +295,43 @@ export interface SpeedSpan {
    * user/agent work, always preserved. Absent = manual (spans predating the contract).
    */
   source?: 'auto' | 'manual'
+}
+
+/**
+ * A FREEZE: the footage frozen on one frame for `seconds` of output. A
+ * SOURCE moment (`at`), footage-anchored like a speed span so it follows
+ * its frame through trims and splits (a freeze whose frame is cut away has
+ * no effect, and comes back if the trim is undone), plus output seconds.
+ * The retime primitive beside `SpeedSpan`, on the same lane: a speed span
+ * is a source RANGE with a rate, a freeze a source POINT with a length,
+ * and a rate of zero is deliberately not how it is spelled (the pointer-
+ * true gesture maps divide by the rate). Lowered as a rated piece whose
+ * hair of source time plays for the seconds, so every consumer of the
+ * rated list (mapTime, the zoom remap, the audio splice, the duration)
+ * inherits it from one seam. The still every still-taking surface takes
+ * is where the LAST freeze begins (`docRestTime`).
+ */
+export interface FreezeSpan {
+  /** Stable identity for selection/editing (`f{n}`). */
+  id: string
+  /** SOURCE seconds: the frame that freezes is the one just before `at`. */
+  at: number
+  /** OUTPUT seconds the frame holds. */
+  seconds: number
+  /** Re-record tie to an actions.json step; `at` stays the truth. */
+  anchor?: StepAnchor
+}
+
+/** Freeze length bounds, output seconds. */
+export const FREEZE_SECONDS_MIN = 0.25
+export const FREEZE_SECONDS_MAX = 30
+/** A new freeze's length, output seconds. */
+export const FREEZE_DEFAULT_SECONDS = 2
+
+/** Clamp + quantize a freeze's seconds for storage (3 decimals). */
+export function clampFreezeSeconds(seconds: number): number {
+  const s = Math.min(FREEZE_SECONDS_MAX, Math.max(FREEZE_SECONDS_MIN, seconds))
+  return Math.round(s * 1000) / 1000
 }
 
 /**
@@ -1322,6 +1362,12 @@ export interface ProjectDoc {
    * Optional for backward compatibility with persisted docs; absent = all 1×.
    */
   speed?: SpeedSpan[]
+  /**
+   * Freezes (SOURCE moments, footage-anchored — see FreezeSpan), the
+   * other retime primitive. Absent = none; a legacy segment `hold` migrates
+   * here on read.
+   */
+  freeze?: FreezeSpan[]
   /** Zoom regions (SOURCE time, footage-anchored, non-overlapping — see ZoomSpan). */
   zoom: ZoomSpan[]
   /**

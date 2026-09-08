@@ -100,7 +100,8 @@ async function main() {
     // then the rest. Source seconds through the take's own rate map.
     const srcAt = sourceAt(doc, at)
     const srcIn = Math.max(0, srcAt - LEAD)
-    poster.segments = [{ in: round(srcIn), out: round(srcAt), hold: HOLD }]
+    poster.segments = [{ in: round(srcIn), out: round(srcAt) }]
+    poster.freeze = [{ id: 'f0', at: round(srcAt), seconds: HOLD }]
     poster.zoom = []
     poster.speed = []
     delete poster.endCard

@@ -15,9 +15,11 @@ import { totalDuration } from '@vosjs/timeline'
 import { anchorSourceDuration } from '../doc/studioDoc'
 import { docOutputDuration } from '../audioBeds'
 import { ratedSegments } from '../lower/lowerToComposition'
+import { docFreezes } from '../lower/motion'
 import type {
   AudioClip,
   FrameStyle,
+  FreezeSpan,
   ObjectClip,
   OverlayClip,
   ProjectDoc,
@@ -131,7 +133,8 @@ export interface LayoutParts {
   /** The stage clips' ids. */
   clips: string[]
   lean: boolean
-  hold: boolean
+  /** A trailing freeze (the poster's rest). */
+  freeze: boolean
 }
 
 export function layoutOf(doc: ProjectDoc): LayoutParts {
@@ -140,7 +143,7 @@ export function layoutOf(doc: ProjectDoc): LayoutParts {
     frame: LAYOUT_FRAME_FIELDS.filter((k) => frame[k] !== undefined),
     clips: (doc.overlays ?? []).filter(isStageClip).map((o) => o.id),
     lean: restLeanOf(doc) !== null,
-    hold: (doc.segments.at(-1)?.hold ?? 0) > 0,
+    freeze: trailingFreeze(doc) !== null,
   }
 }
 
@@ -239,11 +242,37 @@ export function copyLayout(
     }
   }
 
-  const hold = from.segments.at(-1)?.hold
+  // The trailing freeze: the exemplar's rest becomes this take's, at the
+  // end of ITS last segment, with the same seconds.
+  const freeze = trailingFreeze(from)
   const last = doc.segments.at(-1)
-  if (typeof hold === 'number' && hold > 0 && last) last.hold = hold
+  if (freeze && last) {
+    const own = (doc.freeze ?? []).filter(
+      (f) => Math.abs(f.at - last.out) > 1e-9,
+    )
+    const taken = new Set(own.map((f) => f.id))
+    let n = 0
+    while (taken.has(`f${n}`)) n++
+    doc.freeze = [
+      ...own,
+      { id: `f${n}`, at: last.out, seconds: freeze.seconds },
+    ].sort((a, b) => a.at - b.at)
+    doc.segments = doc.segments.map((s) => {
+      if (s.hold === undefined) return s
+      const next = { ...s }
+      delete next.hold
+      return next
+    })
+  }
 
   return { doc, notes }
+}
+
+/** The freeze at the end of the document's last segment, if any. */
+function trailingFreeze(doc: ProjectDoc): FreezeSpan | null {
+  const last = doc.segments.at(-1)
+  if (!last) return null
+  return docFreezes(doc).find((f) => Math.abs(f.at - last.out) < 1e-9) ?? null
 }
 
 /** Where a template's clips land on the take. */

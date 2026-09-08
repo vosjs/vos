@@ -238,15 +238,20 @@ export {
   cardEnter,
   cardExit,
   cardPoseTrack,
+  docFreezes,
   docRestTime,
   endCardClips,
   entranceSeconds,
   exitSeconds,
   expandEndCard,
+  freezeOutputExtents,
   migrateMotion,
   outputEnd,
+  placeFreezes,
+  withFreezes,
   withHolds,
 } from './lower/motion'
+export type { FreezeExtent } from './lower/motion'
 export {
   BACKGROUND_Z,
   CAMERA_FAR,
@@ -317,6 +322,7 @@ export {
   camLane,
   camMoveLane,
   effectiveSegments,
+  freezeLane,
   micLane,
   objectsLane,
   overlaysLane,

@@ -209,7 +209,7 @@ Screenshot-genre stills never take a look.
 A POSTER is a document, never a template: a plain take whose card sits
 where the poster wants it (frame.inset), leans (the tilt track), carries
 the words and the mark as clips (ids stage-title, stage-kicker,
-stage-brand, stage-mark) and ends on a trailing hold whose start is the
+stage-brand, stage-mark) and ends on a trailing freeze whose start is the
 still. Card-genre destinations (OG, LinkedIn, X, YouTube thumbnail, the
 CWS tile + marquee, GitHub social preview) render from the poster
 document of their aspect CLASS (landscape, square, portrait, tile), found
@@ -222,7 +222,7 @@ deliver renders and verifies; it composes nothing. The composition is
 made with plan --style <poster>, which copies a poster's layout onto a
 take (its card placement, its stage clips with the release's words
 patched in from LAUNCH.md's headline and kicker roles or --headline and
---kicker, its rest lean, its hold), or by hand in doc.json.
+--kicker, its rest lean, its freeze), or by hand in doc.json.
 The cut's MOTION is the document's too, in ONE vocabulary: every visual
 thing (the card, a text, image or video clip, a prop) carries anim.enter,
 anim.exit and anim.idle; the output lasts until the last clip ends, and
@@ -685,7 +685,7 @@ async function cmdPlan(argv: string[]): Promise<number> {
     ? `\n  layout from ${s.styleFrom}: ${[
         s.layout.clips.length ? `${s.layout.clips.length} stage clip(s)` : '',
         s.layout.lean ? 'the rest lean' : '',
-        s.layout.hold ? 'the hold' : '',
+        s.layout.freeze ? 'the freeze' : '',
       ]
         .filter(Boolean)
         .join(', ')}` +

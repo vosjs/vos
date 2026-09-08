@@ -155,7 +155,7 @@ function applyStyle(
   opts: PlanOptions,
 ): { doc: ProjectDoc; layout: PlanSummary['layout'] } {
   const parts = layoutOf(seed)
-  const carries = parts.clips.length > 0 || parts.lean || parts.hold
+  const carries = parts.clips.length > 0 || parts.lean || parts.freeze
   if (!carries) return { doc: copyStyle(seed, doc), layout: undefined }
   const keys = opts.mark ? { 'stage-mark': opts.mark.key } : undefined
   const { doc: next, notes } = copyLayout(seed, copyStyle(seed, doc), { keys })
@@ -197,12 +197,9 @@ export async function planTake(
     doc = copyStyle(prev, doc)
     const rt = retimeCut(prev, meta.steps ?? [], meta.durationMs)
     doc.segments = rt.segments
-    // The previous cut's rest survives the re-record: the hold is the
-    // poster's still, and the new footage ends where the old one did.
-    const prevHold = prev.segments.at(-1)?.hold
-    const last = doc.segments.at(-1)
-    if (typeof prevHold === 'number' && prevHold > 0 && last)
-      last.hold = prevHold
+    // The previous cut's freezes survive the re-record, re-timed onto the
+    // new footage (the trailing one is the poster's still).
+    if (rt.freeze.length) doc.freeze = rt.freeze
     // The previous cut's deletions come along too: a proposal the human
     // rejected stays rejected on the new footage.
     if (rt.rejected.length) doc.rejected = rt.rejected

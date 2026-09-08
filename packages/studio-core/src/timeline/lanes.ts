@@ -17,11 +17,15 @@ import {
   trimSegment,
 } from '@vosjs/timeline'
 import { ratedSegments, spanOutputExtent } from '../lower/lowerToComposition'
+import { docFreezes, freezeOutputExtents, withFreezes } from '../lower/motion'
 import { docOutputDuration, voiceKey } from '../audioBeds'
 import { anchorSourceDuration, isRecordingDoc } from '../doc/studioDoc'
 import {
   CAM_SPAN_MIN,
   DEFAULT_CAM_POSE,
+  FREEZE_DEFAULT_SECONDS,
+  FREEZE_SECONDS_MIN,
+  clampFreezeSeconds,
   DEFAULT_TILT_POSE,
   DEFAULT_ZOOM_LEVEL,
   OVERLAY_MIN_DURATION,
@@ -32,7 +36,7 @@ import {
 } from '../types'
 import type { StudioDoc } from '../doc/studioDoc'
 import type { Segment } from '@vosjs/timeline'
-import type { ProjectDoc, SpeedSpan } from '../types'
+import type { FreezeSpan, ProjectDoc, SpeedSpan } from '../types'
 import type { LaneAdapter, LaneItem } from '@vosjs/editor'
 
 /** The doc's segments in canonical explicit form (empty = one full-source span). */
@@ -41,23 +45,51 @@ export function effectiveSegments(doc: StudioDoc): Segment[] {
   return [{ in: 0, out: anchorSourceDuration(doc) }]
 }
 
-/** Output-time length of one DOC segment with the doc's speed spans applied. */
-const outputLen = (seg: Segment, speeds: readonly SpeedSpan[]): number =>
-  totalDuration(splitBySpeed([seg], speeds))
+/**
+ * One DOC segment's rated pieces: its speed spans applied and the freezes
+ * on its footage placed (a freeze at its very end belongs to it, one at
+ * its start to the segment before, when there is one).
+ */
+const segmentPieces = (
+  seg: Segment,
+  speeds: readonly SpeedSpan[],
+  freezes: readonly FreezeSpan[],
+  leading: boolean,
+): Segment[] => {
+  const own = freezes.filter(
+    (f) =>
+      f.at <= seg.out + 1e-9 &&
+      (leading ? f.at >= seg.in - 1e-9 : f.at > seg.in + 1e-9),
+  )
+  return withFreezes(splitBySpeed([seg], speeds), own)
+}
 
-/** Output-time starts of the DOC segments (speed-aware). */
+/** Output-time length of one DOC segment (speed- and freeze-aware). */
+const outputLen = (
+  seg: Segment,
+  speeds: readonly SpeedSpan[],
+  freezes: readonly FreezeSpan[] = [],
+  leading = true,
+): number => totalDuration(segmentPieces(seg, speeds, freezes, leading))
+
+/** Output-time starts of the DOC segments (speed- and freeze-aware). */
 const segmentStarts = (
   segments: Segment[],
   speeds: readonly SpeedSpan[],
+  freezes: readonly FreezeSpan[] = [],
 ): number[] => {
   const starts: number[] = []
   let acc = 0
-  for (const s of segments) {
+  segments.forEach((s, i) => {
     starts.push(acc)
-    acc += outputLen(s, speeds)
-  }
+    acc += outputLen(s, speeds, freezes, i === 0 || !contiguous(segments, i))
+  })
   return starts
 }
+
+/** Does segment i start exactly where segment i-1 ends (a split, not a cut)? */
+const contiguous = (segments: Segment[], i: number): boolean =>
+  i > 0 && Math.abs(segments[i - 1].out - segments[i].in) < 1e-9
 
 export const videoLane: LaneAdapter<ProjectDoc> = {
   id: 'video',
@@ -66,18 +98,24 @@ export const videoLane: LaneAdapter<ProjectDoc> = {
   items(doc): LaneItem[] {
     const segments = effectiveSegments(doc)
     const speeds = doc.speed ?? []
-    const starts = segmentStarts(segments, speeds)
+    const freezes = docFreezes(doc)
+    const starts = segmentStarts(segments, speeds, freezes)
+    // A clip is its footage plus the freezes on it (a freeze is output
+    // time, so it lengthens the clip and pushes what follows).
     return segments.map((s, i) => ({
       id: `seg-${i}`,
       kind: 'clip',
-      t: starts[i],
-      duration: outputLen(s, speeds),
+      t: round(starts[i]),
+      duration: round(
+        outputLen(s, speeds, freezes, i === 0 || !contiguous(segments, i)),
+      ),
     }))
   },
 
   gesture(doc, g) {
     const segments = effectiveSegments(doc)
     const speeds = doc.speed ?? []
+    const freezes = docFreezes(doc)
     const sourceDuration = anchorSourceDuration(doc)
 
     switch (g.type) {
@@ -97,7 +135,7 @@ export const videoLane: LaneAdapter<ProjectDoc> = {
         let acc = 0
         let insert = others.length
         for (let i = 0; i < others.length; i++) {
-          const dur = outputLen(others[i], speeds)
+          const dur = outputLen(others[i], speeds, freezes)
           if (g.t < acc + dur / 2) {
             insert = i
             break
@@ -119,13 +157,22 @@ export const videoLane: LaneAdapter<ProjectDoc> = {
         // walking the full-source rate map (speed spans apply everywhere, so
         // an edge dragged across a 2× span consumes source 2× as fast — and
         // trimmed footage can still be dragged back out past the segment).
-        const starts = segmentStarts(segments, speeds)
+        const starts = segmentStarts(segments, speeds, freezes)
         const fullMap = splitBySpeed([{ in: 0, out: sourceDuration }], speeds)
         const edgeSrc = g.edge === 'start' ? seg.in : seg.out
+        // The edge's output position as drawn, freezes included: the delta
+        // to the pointer is then pure footage (speed-mapped), and a freeze
+        // at the dragged end rides along with its frame.
         const edgeOutNow =
           g.edge === 'start'
             ? starts[index]
-            : starts[index] + outputLen(seg, speeds)
+            : starts[index] +
+              outputLen(
+                seg,
+                speeds,
+                freezes.filter((f) => f.at < seg.out - 1e-9),
+                index === 0 || !contiguous(segments, index),
+              )
         const anchorOut =
           sourceToTimeline(fullMap, Math.min(edgeSrc, sourceDuration)) ??
           edgeSrc
@@ -147,13 +194,38 @@ export const videoLane: LaneAdapter<ProjectDoc> = {
         // source moment through that segment's own rated pieces, split there.
         // Doc segments never carry rates — those stay in doc.speed. No-op at
         // boundaries (either half would be degenerate), like splitSegments.
-        const starts = segmentStarts(segments, speeds)
+        const starts = segmentStarts(segments, speeds, freezes)
         const index = segments.findIndex(
-          (s, i) => g.t >= starts[i] && g.t < starts[i] + outputLen(s, speeds),
+          (s, i) =>
+            g.t >= starts[i] &&
+            g.t <
+              starts[i] +
+                outputLen(
+                  s,
+                  speeds,
+                  freezes,
+                  i === 0 || !contiguous(segments, i),
+                ),
         )
         if (index < 0) return null
         const s = segments[index]
-        const sourceT = mapTime(splitBySpeed([s], speeds), g.t - starts[index])
+        const leading = index === 0 || !contiguous(segments, index)
+        // Inside a freeze there is no footage to split: the press does nothing.
+        const local = g.t - starts[index]
+        for (const m of freezeOutputExtents(
+          splitBySpeed([s], speeds),
+          freezes.filter(
+            (f) =>
+              f.at <= s.out + 1e-9 &&
+              (leading ? f.at >= s.in - 1e-9 : f.at > s.in + 1e-9),
+          ),
+        ).values()) {
+          if (local >= m.t - 1e-9 && local <= m.t + m.duration + 1e-9)
+            return null
+        }
+        const sourceT = round(
+          mapTime(segmentPieces(s, speeds, freezes, leading), local),
+        )
         if (sourceT - s.in < 0.05 || s.out - sourceT < 0.05) return null
         const next = [
           ...segments.slice(0, index),
@@ -180,17 +252,193 @@ export const videoLane: LaneAdapter<ProjectDoc> = {
   magnets(doc): number[] {
     const segments = effectiveSegments(doc)
     const speeds = doc.speed ?? []
-    const starts = segmentStarts(segments, speeds)
+    const freezes = docFreezes(doc)
+    const starts = segmentStarts(segments, speeds, freezes)
+    const n = segments.length
     return [
       ...starts,
-      ...(starts.length
+      ...(n
         ? [
-            starts[starts.length - 1] +
-              outputLen(segments[segments.length - 1], speeds),
+            starts[n - 1] +
+              outputLen(
+                segments[n - 1],
+                speeds,
+                freezes,
+                n === 1 || !contiguous(segments, n - 1),
+              ),
           ]
         : []),
-    ]
+    ].map(round)
   },
+}
+
+/** The next free freeze id (`f{n}`). */
+function nextFreezeId(doc: ProjectDoc): string {
+  const taken = new Set((doc.freeze ?? []).map((f) => f.id))
+  let n = 0
+  while (taken.has(`f${n}`)) n++
+  return `f${n}`
+}
+
+/** Two freezes may not sit closer than this in source seconds. */
+const FREEZE_GAP = 0.05
+
+/**
+ * Freeze lane — freezes as hatched bands ON the footage clip, beside the
+ * speed bands (the retime lane). A freeze is a SOURCE moment with output
+ * seconds; the lane draws it where the rated pieces put it (a freeze
+ * whose frame is cut away draws nothing) and the band's width is its
+ * seconds. Create at the playhead (a press inside a freeze or off kept
+ * footage no-ops); move re-anchors the moment pointer-true through the
+ * rate map without this freeze; resize on the END edge sets the seconds,
+ * on the START edge re-anchors the moment and keeps the end where it is.
+ */
+export const freezeLane: LaneAdapter<ProjectDoc> = {
+  id: 'freeze',
+  label: 'Freeze',
+
+  items(doc): LaneItem[] {
+    const freezes = docFreezes(doc)
+    if (!freezes.length) return []
+    const segs = effectiveSegments(doc)
+    const marks = freezeOutputExtents(
+      splitBySpeed(segs, doc.speed ?? []),
+      freezes,
+    )
+    return freezes.flatMap((f) => {
+      const m = marks.get(f.id)
+      return m
+        ? [
+            {
+              id: f.id,
+              kind: 'clip' as const,
+              t: round(m.t),
+              duration: round(m.duration),
+              label: `${trimZeros(f.seconds)}s`,
+            },
+          ]
+        : []
+    })
+  },
+
+  gesture(doc, g) {
+    const freezes = docFreezes(doc)
+    const segs = effectiveSegments(doc)
+    const speeds = doc.speed ?? []
+    const sourceDuration = anchorSourceDuration(doc)
+    const kept = (t: number): boolean =>
+      segs.some((s) => t >= s.in - 1e-9 && t <= s.out + 1e-9)
+    const clear = (t: number, except?: string): boolean =>
+      !freezes.some((f) => f.id !== except && Math.abs(f.at - t) < FREEZE_GAP)
+
+    if (g.type === 'create') {
+      const rated = ratedSegments(doc)
+      // A press inside a freeze band is on that freeze, not on footage.
+      for (const m of freezeOutputExtents(
+        splitBySpeed(segs, speeds),
+        freezes,
+      ).values()) {
+        if (g.t >= m.t - 1e-9 && g.t <= m.t + m.duration + 1e-9) return null
+      }
+      // Past the footage's end there is no frame to freeze.
+      if (g.t > totalDuration(rated) + 1e-9) return null
+      const srcT = round(mapTime(rated, Math.max(0, g.t)))
+      if (!kept(srcT) || !clear(srcT)) return null
+      const id = nextFreezeId(doc)
+      return (d) => {
+        d.freeze = [
+          ...(d.freeze ?? []),
+          { id, at: srcT, seconds: FREEZE_DEFAULT_SECONDS },
+        ].sort((a, b) => a.at - b.at)
+      }
+    }
+
+    const f = freezes.find((x) => x.id === g.id)
+    if (!f) return null
+    // A legacy segment hold is read as a freeze but lives on the segment:
+    // spell it as one before editing it, so the edit has a home.
+    const own = (d: ProjectDoc): FreezeSpan | undefined => {
+      const list = d.freeze ?? []
+      let mine = list.find((x) => x.id === f.id)
+      if (!mine) {
+        const id = nextFreezeId(d)
+        mine = { id, at: f.at, seconds: f.seconds }
+        d.freeze = [...list, mine]
+        d.segments = d.segments.map((sg) => {
+          if (sg.hold === undefined || Math.abs(sg.out - f.at) > 1e-9) return sg
+          const next = { ...sg }
+          delete next.hold
+          return next
+        })
+      }
+      return mine
+    }
+    // POINTER-TRUE: map through the rate map WITHOUT this freeze.
+    const base = withFreezes(
+      splitBySpeed(segs, speeds),
+      freezes.filter((x) => x.id !== f.id),
+    )
+
+    if (g.type === 'move' || (g.type === 'resize' && g.edge === 'start')) {
+      const marks = freezeOutputExtents(splitBySpeed(segs, speeds), freezes)
+      const mine = marks.get(f.id)
+      const endOut = mine ? mine.t + mine.duration : null
+      const srcT = round(
+        Math.min(sourceDuration, mapTime(base, Math.max(0, g.t))),
+      )
+      if (!kept(srcT) || !clear(srcT, f.id)) return null
+      return (d) => {
+        const x = own(d)
+        if (!x) return
+        x.at = srcT
+        if (g.type === 'resize' && endOut !== null) {
+          // The end stays put: the seconds absorb the moved start.
+          const after = freezeOutputExtents(
+            splitBySpeed(effectiveSegments(d), d.speed ?? []),
+            docFreezes({
+              ...d,
+              freeze: (d.freeze ?? []).map((y) =>
+                y.id === x.id ? { ...y, seconds: FREEZE_SECONDS_MIN } : y,
+              ),
+            }),
+          ).get(x.id)
+          if (after) x.seconds = clampFreezeSeconds(endOut - after.t)
+        }
+        d.freeze!.sort((a, b) => a.at - b.at)
+      }
+    }
+
+    if (g.type === 'resize') {
+      const marks = freezeOutputExtents(splitBySpeed(segs, speeds), freezes)
+      const mine = marks.get(f.id)
+      if (!mine) return null
+      const seconds = clampFreezeSeconds(g.t - mine.t)
+      if (Math.abs(seconds - f.seconds) < 1e-6) return null
+      return (d) => {
+        const x = own(d)
+        if (x) x.seconds = seconds
+      }
+    }
+
+    if (g.type === 'remove') {
+      return (d) => {
+        const x = own(d)
+        d.freeze = (d.freeze ?? []).filter((y) => y !== x)
+      }
+    }
+    return null
+  },
+
+  magnets(doc): number[] {
+    return freezeLane
+      .items(doc)
+      .flatMap((it) => [it.t, it.t + (it.duration ?? 0)])
+  },
+}
+
+/** `2` for 2, `2.5` for 2.5: a band label without trailing zeros. */
+function trimZeros(n: number): string {
+  return String(Math.round(n * 100) / 100)
 }
 
 /**
@@ -665,7 +913,8 @@ export const camLane: LaneAdapter<ProjectDoc> = {
     if (!doc.source.camKey || !doc.cam.visible) return []
     const segments = effectiveSegments(doc)
     const speeds = doc.speed ?? []
-    const starts = segmentStarts(segments, speeds)
+    const freezes = docFreezes(doc)
+    const starts = segmentStarts(segments, speeds, freezes)
     const first = segments[0]
     const last = segments[segments.length - 1]
     const win = doc.cam.window ?? { in: first.in, out: last.out }
@@ -674,11 +923,16 @@ export const camLane: LaneAdapter<ProjectDoc> = {
       const a = Math.max(s.in, win.in)
       const b = Math.min(s.out, win.out)
       if (b - a <= 1e-6) return
+      const leading = i === 0 || !contiguous(segments, i)
       items.push({
         id: `cam-${i}`,
         kind: 'clip',
-        t: round(starts[i] + outputLen({ in: s.in, out: a }, speeds)),
-        duration: round(outputLen({ in: a, out: b }, speeds)),
+        t: round(
+          starts[i] + outputLen({ in: s.in, out: a }, speeds, freezes, leading),
+        ),
+        duration: round(
+          outputLen({ in: a, out: b }, speeds, freezes, a === s.in && leading),
+        ),
       })
     })
     return items
@@ -758,12 +1012,15 @@ export const micLane: LaneAdapter<ProjectDoc> = {
     if (!voiceKey(doc)) return []
     const segments = effectiveSegments(doc)
     const speeds = doc.speed ?? []
-    const starts = segmentStarts(segments, speeds)
+    const freezes = docFreezes(doc)
+    const starts = segmentStarts(segments, speeds, freezes)
     return segments.map((s, i) => ({
       id: `mic-${i}`,
       kind: 'clip',
-      t: starts[i],
-      duration: outputLen(s, speeds),
+      t: round(starts[i]),
+      duration: round(
+        outputLen(s, speeds, freezes, i === 0 || !contiguous(segments, i)),
+      ),
     }))
   },
 

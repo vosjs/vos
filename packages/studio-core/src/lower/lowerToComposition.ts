@@ -93,12 +93,13 @@ import {
   cardEnter,
   cardExit,
   cardPoseTrack,
+  docFreezes,
   entranceTiltKeyframes,
   entranceZoomKeyframes,
   migrateMotion,
   outputEnd,
   prependEntrance,
-  withHolds,
+  withFreezes,
 } from './motion'
 import { enterKey, exitKey, idleKey } from '../anim'
 import {
@@ -224,9 +225,10 @@ export function ratedSegments(doc: StudioDoc): Segment[] {
       ? doc.segments
       : [{ in: 0, out: doc.source.meta.durationMs / 1000 }]
     : [{ in: 0, out: programDuration(doc) }]
-  // A held segment freezes on its last frame for its hold seconds; the
-  // freeze is a rated piece, so every reader of this list inherits it.
-  return withHolds(segs, splitBySpeed(segs, doc.speed ?? []))
+  // A freeze is a rated piece placed at its source moment, so every reader
+  // of this list inherits it (a legacy segment hold is one at its end).
+  const freezes = isRecordingDoc(doc) ? docFreezes(doc) : []
+  return withFreezes(splitBySpeed(segs, doc.speed ?? []), freezes)
 }
 
 function durationSec(doc: ProjectDoc, rated: Segment[]): number {
