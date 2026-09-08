@@ -253,6 +253,17 @@ export {
 } from './lower/motion'
 export type { FreezeExtent } from './lower/motion'
 export {
+  PRIMARY_MEDIA,
+  docMediaList,
+  mediaAtOutput,
+  mediaDuration,
+  mediaKey,
+  mediaSource,
+  nextMediaId,
+  sameMedia,
+} from './media'
+export type { MediaSegment } from './media'
+export {
   BACKGROUND_Z,
   CAMERA_FAR,
   CAMERA_NEAR,
