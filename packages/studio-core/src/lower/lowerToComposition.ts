@@ -1634,13 +1634,16 @@ const ON_FRAME = `(ctx, content, dt) => {
   // corners, drawn by the clip alone, hid theirs inside the arc.
   var shD = ceZs * (cardW + cardH) + 2 * (W + H)
   var shX = cardX - shD / ceZs
-  // The card shadow is LAYERED: three shadows whose blur and offset grow
-  // while each stays at a low alpha (shadow is the strength they share),
-  // so the card reads as lifted a little off the ground. One wide layer at
-  // the full strength was the old paint, and at the default 0.4 it read as
-  // a dark pool under the card.
+  // The card shadow is LAYERED: four shadows whose blur and offset grow
+  // while each stays at a low alpha (shadow is the strength they share):
+  // a hairline that defines the edge, two that ground it, and a WIDE,
+  // faint ambient bloom (120 design px of blur, dropped well below the
+  // card) that is what lets a large card read as lifted off a light
+  // ground instead of outlined on it. One wide layer at the full strength
+  // was the old paint, and at the default 0.4 it read as a dark pool
+  // under the card; three tight layers read as a rim.
   if (shadow > 0) {
-    var shL = [[3, 1, 0.2], [14, 6, 0.22], [48, 22, 0.3]]
+    var shL = [[2, 1, 0.1], [12, 4, 0.1], [40, 16, 0.14], [120, 44, 0.3]]
     for (var shI = 0; shI < shL.length; shI++) {
       c.save()
       c.shadowColor = 'rgba(' + shRgb + ',' + +(shadow * shL[shI][2]).toFixed(3) + ')'
