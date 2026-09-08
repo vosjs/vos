@@ -22,7 +22,6 @@
  */
 import {
   END_CARD_FROM,
-  END_CARD_RECEDE,
   END_CARD_SECONDS,
   applyTemplate,
   docOutputDuration,
@@ -275,13 +274,35 @@ export function proposeMotion(
       if (sub && sub !== headline) card.sub = sub
       if (brand) card.wordmark = brand
       if (opts.mark) card.mark = opts.mark
+      // The words start where the moving footage ends; the card stays
+      // under them as a freeze of its last frame (past its clip the card
+      // is gone), receding over the card's seconds.
+      const endStart = outputLength(doc)
+      const lastSeg = doc.segments.at(-1)
+      if (lastSeg) {
+        const own = (doc.freeze ?? []).filter(
+          (f) => Math.abs(f.at - lastSeg.out) > 1e-9,
+        )
+        const taken = new Set(own.map((f) => f.id))
+        let n = 0
+        while (taken.has(`f${n}`)) n++
+        doc.freeze = [
+          ...own,
+          {
+            id: `f${n}`,
+            at: lastSeg.out,
+            seconds: END_CARD_SECONDS,
+            from: END_CARD_FROM,
+          },
+        ].sort((a, b) => a.at - b.at)
+      }
       doc.overlays = [
         ...(doc.overlays ?? []),
-        ...endCardClips(card, doc, outputLength(doc)),
+        ...endCardClips(card, doc, endStart),
       ]
       doc.frame.anim = {
         ...(doc.frame.anim ?? {}),
-        exit: { kind: 'recede', seconds: END_CARD_RECEDE },
+        exit: { kind: 'recede', seconds: END_CARD_SECONDS },
       }
       notes.push('end card')
     } else {
@@ -350,7 +371,8 @@ export function proposeMotion(
       fadeIn: 0.6,
       fadeOut,
       loop: track.duration < length,
-      loopLen: track.duration < length ? length : undefined,
+      loopLen:
+        track.duration < length ? Math.round(length * 1000) / 1000 : undefined,
       duck: hasMic,
     })
     notes.push(`bed ${track.slug}`)
@@ -389,7 +411,7 @@ export function proposeMotion(
  */
 export function destinationMechanics(
   d: Pick<Destination, 'id' | 'kind' | 'px' | 'text'>,
-  doc: Pick<ProjectDoc, 'overlays'>,
+  doc: Pick<ProjectDoc, 'overlays' | 'freeze'>,
 ): { set: string[]; unset: string[]; notes: string[] } {
   const set: string[] = []
   const unset: string[] = []
@@ -420,6 +442,12 @@ export function destinationMechanics(
       set.push(`overlays=${JSON.stringify(kept)}`)
       notes.push(loop ? 'no template clips, no captions' : 'no captions')
     }
+  }
+  if (loop) {
+    // The freeze a template placed under its clips goes with the clips.
+    const keptFreezes = (doc.freeze ?? []).filter((f) => !f.from)
+    if (keptFreezes.length !== (doc.freeze ?? []).length)
+      set.push(`freeze=${JSON.stringify(keptFreezes)}`)
   }
   if (portrait) {
     // The vertical cut is a reframe, not a letterbox: the card is the tall

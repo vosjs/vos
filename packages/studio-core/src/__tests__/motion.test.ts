@@ -141,11 +141,18 @@ describe("the card's enter", () => {
 })
 
 describe('the card-pose track', () => {
-  it('is absent with neither an enter nor an exit', () => {
+  it('is absent with neither an enter nor an exit on a doc that ends on its footage', () => {
     expect(cardPoseTrack(undefined, undefined, 10)).toBeUndefined()
     expect(
-      cardPoseTrack({ kind: 'none' }, { kind: 'none' }, 10, 12),
+      cardPoseTrack({ kind: 'none' }, { kind: 'none' }, 10),
     ).toBeUndefined()
+  })
+
+  it('cuts the card to nothing past its clip when clips outlast the footage', () => {
+    const gone = cardPoseTrack({ kind: 'none' }, { kind: 'none' }, 10, 12)!
+    expect(gone.keyframes.map((k) => k.t)).toEqual([10, 10.001])
+    expect(gone.keyframes[0].value).toEqual([1, 0, 1])
+    expect(gone.keyframes[1].value).toEqual([1, 0, 0])
   })
 
   it('settles the card in from a smaller, lower, softer pose', () => {
@@ -157,15 +164,19 @@ describe('the card-pose track', () => {
     ).toEqual([0.96, 0.08, 0.7])
   })
 
-  it('recedes FROM the footage end when something plays after it', () => {
+  it('recedes BY its clip end, stepping back first and fading last, then is gone', () => {
     const both = cardPoseTrack(
       { kind: 'rise', seconds: 1 },
       { kind: 'recede', seconds: 0.7 },
       10,
       12.5,
     )!
-    expect(both.keyframes.map((k) => k.t)).toEqual([0, 1, 10, 10.7])
-    expect(both.keyframes[3].value[2]).toBeCloseTo(0.22, 6)
+    expect(both.keyframes.map((k) => k.t)).toEqual([
+      0, 1, 9.3, 9.615, 10, 10.001,
+    ])
+    expect(both.keyframes[3].value).toEqual([0.91, -0.018, 0.8])
+    expect(both.keyframes[4].value).toEqual([0.9, -0.02, 0])
+    expect(both.keyframes[5].value[2]).toBe(0)
   })
 
   it('leaves BY the footage end when nothing does, and a fade goes to nothing', () => {
@@ -307,7 +318,7 @@ describe('the migration (one vocabulary)', () => {
     expect(m.objects![0].animation).toBeUndefined()
   })
 
-  it('an end card becomes clips after the footage and a card exit, with no hold', () => {
+  it('an end card becomes a freeze of the last frame, clips over it and a card exit', () => {
     const d = doc({
       endCard: {
         seconds: 3,
@@ -319,7 +330,10 @@ describe('the migration (one vocabulary)', () => {
     const m = migrateMotion(d)
     expect(m.endCard).toBeUndefined()
     expect(m.segments[0].hold).toBeUndefined()
-    expect(m.frame.anim).toEqual({ exit: { kind: 'recede', seconds: 0.7 } })
+    expect(m.freeze).toEqual([
+      { id: 'f0', at: 12, seconds: 3, from: END_CARD_FROM },
+    ])
+    expect(m.frame.anim).toEqual({ exit: { kind: 'recede', seconds: 3 } })
     const clips = m.overlays!
     expect(clips.map((c) => c.id)).toEqual([
       'endcard-title',
@@ -389,7 +403,8 @@ describe('lowering', () => {
     }
     expect(tilt.keyframes[0].value).toEqual([-9, 14])
     const pose = data.cardPoseTrack as { keyframes: { t: number }[] }
-    expect(pose.keyframes.map((k) => k.t)).toEqual([0, 1.2, 10, 10.7])
+    // The card recedes over the 2 s freeze and is gone with its clip.
+    expect(pose.keyframes.map((k) => k.t)).toEqual([0, 1.2, 10, 10.9, 12])
     expect(data.duration).toBeCloseTo(12, 6)
     expect(String(config.onFrame)).toContain('cardPoseTrack')
   })

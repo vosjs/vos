@@ -4,9 +4,11 @@
  * track and a card-pose track (scale, rise, opacity); its `anim.exit`
  * writes that track's tail; a FREEZE (`doc.freeze`, a source moment plus
  * output seconds; a legacy segment `hold` is one at the segment's end) is a
- * rated piece whose hair of source time plays for its seconds; and the output lasts
- * until the last visual clip ends, so an "end card" is nothing but a card
- * exit and clips placed after the footage. The two older spellings
+ * rated piece whose hair of source time plays for its seconds; the card is
+ * on screen exactly while its clip (the footage, freezes included) runs and
+ * gone after it, like every layer; and the output lasts until the last
+ * visual clip ends, so an "end card" is a freeze of the last frame, a card
+ * exit over it and clips placed over the freeze. The two older spellings
  * (`frame.entrance`, `doc.endCard`) migrate here, on read, into exactly
  * that. Pure; ON_FRAME reads the tracks.
  */
@@ -135,7 +137,7 @@ export function entranceSeconds(e: Step): number {
 export function exitSeconds(e: Step): number {
   if (!e || e.kind === 'none') return 0
   const house = e.kind === 'fade' ? CARD_FADE_SECONDS : END_CARD_RECEDE
-  return Math.max(0.1, Math.min(3, e.seconds ?? house))
+  return Math.max(0.1, Math.min(8, e.seconds ?? house))
 }
 
 /** A freeze's place on the output timeline (its start and its seconds). */
@@ -298,10 +300,13 @@ export function prependEntrance(
   return { keyframes: sortKeyframes([...head, ...rest]) }
 }
 
-/** The pose a card exit settles into: [scale, dy, opacity]. */
+/** The pose a card exit ENDS on, gone: [scale, dy, opacity]. */
 function exitPose(e: Step): number[] {
-  return e?.kind === 'fade' ? [1, 0, 0] : [0.9, -0.02, 0.22]
+  return e?.kind === 'fade' ? [1, 0, 0] : [0.9, -0.02, 0]
 }
+
+/** A recede's midway pose: stepped back and still mostly there; the fade comes last. */
+const RECEDE_MID = [0.91, -0.018, 0.8]
 
 /**
  * The card-pose track [scale, dy, opacity] in OUTPUT seconds: the entrance
@@ -335,17 +340,44 @@ export function cardPoseTrack(
     keyframes.push({ t: 0, value: from, ease: 'none' })
     keyframes.push({ t: s, value: [1, 0, 1], ease: 'power3.out' })
   }
+  // The exit plays over the last seconds of the card's clip and ends gone
+  // at the clip's end (the footage, freezes included), the contract every
+  // clip's exit keeps. A recede steps back first and fades last.
   const x = exitSeconds(exit)
+  let last = [1, 0, 1]
   if (x > 0 && footageEnd > 0) {
-    const room = outputEnd - footageEnd
-    const t0 = Math.max(s, room > 1e-6 ? footageEnd : footageEnd - x)
-    const t1 = room > 1e-6 ? t0 + Math.min(x, Math.max(0.1, room)) : t0 + x
+    const t0 = round3(Math.max(s, footageEnd - x))
+    const t1 = round3(Math.max(t0 + 0.05, footageEnd))
+    last = exitPose(exit)
     keyframes.push({ t: t0, value: [1, 0, 1], ease: 'none' })
-    keyframes.push({ t: t1, value: exitPose(exit), ease: 'power2.out' })
+    if (exit?.kind !== 'fade') {
+      keyframes.push({
+        t: round3(t0 + (t1 - t0) * 0.45),
+        value: [...RECEDE_MID],
+        ease: 'power2.out',
+      })
+      keyframes.push({ t: t1, value: last, ease: 'power1.in' })
+    } else {
+      keyframes.push({ t: t1, value: last, ease: 'power2.out' })
+    }
+  }
+  // Past its clip the card is gone: a cut to nothing, so clips placed
+  // after the footage play over the ground alone. A document that ends
+  // on its footage never reaches this frame, so it carries no track.
+  if (outputEnd > footageEnd + 1e-6 && footageEnd > 0) {
+    if (!keyframes.some((k) => Math.abs(k.t - footageEnd) < 1e-9))
+      keyframes.push({ t: footageEnd, value: [...last], ease: 'none' })
+    keyframes.push({
+      t: round3(footageEnd + 0.001),
+      value: [last[0], last[1], 0],
+      ease: 'none',
+    })
   }
   if (!keyframes.length) return undefined
   return { keyframes: sortKeyframes(keyframes) }
 }
+
+const round3 = (v: number) => Math.round(v * 1000) / 1000
 
 /**
  * The clips a legacy end card places after the footage: the house title,
@@ -552,18 +584,28 @@ export function migrateMotion(doc: ProjectDoc): ProjectDoc {
     const card = doc.endCard
     if (card && segments.length) {
       const seconds = Math.max(1, Math.min(8, card.seconds ?? END_CARD_SECONDS))
+      // The card stays under the words as a FREEZE of its last frame (the
+      // card is gone past its clip), receding over those seconds; the
+      // words play over the freeze.
+      const segsNow = (out.segments ?? segments) as DocSegment[]
+      const lastSeg = segsNow.at(-1)!
+      const freezesNow = docFreezes({ segments: segsNow, freeze: out.freeze })
       const rated = withFreezes(
-        splitBySpeed(segments, doc.speed ?? []),
-        docFreezes(doc),
+        splitBySpeed(segsNow, doc.speed ?? []),
+        freezesNow,
       )
       const endStart = totalDuration(rated)
+      const taken = new Set(freezesNow.map((f) => f.id))
+      let n = 0
+      while (taken.has(`f${n}`)) n++
+      out.freeze = [
+        ...freezesNow,
+        { id: `f${n}`, at: lastSeg.out, seconds, from: END_CARD_FROM },
+      ].sort((a, b) => a.at - b.at)
       nextOverlays = [...nextOverlays, ...endCardClips(card, doc, endStart)]
       nextFrame.anim = {
         ...(nextFrame.anim ?? {}),
-        exit: {
-          kind: 'recede',
-          seconds: Math.min(END_CARD_RECEDE, seconds * 0.4),
-        },
+        exit: { kind: 'recede', seconds },
       }
     }
     delete out.endCard
@@ -591,11 +633,11 @@ export function migrateMotion(doc: ProjectDoc): ProjectDoc {
 }
 
 /**
- * Where the OUTPUT ends: the footage's end (its rated segments, holds
+ * Where the OUTPUT ends: the footage's end (its rated segments, freezes
  * included) or the last visual clip's end, whichever is later. Past its
- * footage the card holds its last frame (`mapTime` clamps) at the pose its
- * exit settled into. A document that ends on its footage answers the
- * footage's end, byte-identically to before the rule.
+ * footage the card is gone and the clips play over the ground. A document
+ * that ends on its footage answers the footage's end, byte-identically to
+ * before the rule.
  */
 export function outputEnd(
   doc: Pick<ProjectDoc, 'overlays' | 'objects'>,
