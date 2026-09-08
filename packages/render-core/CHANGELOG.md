@@ -1,5 +1,11 @@
 # @vosjs/render-core
 
+## 0.2.6
+
+### Patch Changes
+
+- f12f2ac: The audio producer's engine pin moves to @vosjs/core 0.23.7.
+
 ## 0.2.5
 
 ### Patch Changes
