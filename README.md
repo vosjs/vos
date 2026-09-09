@@ -29,12 +29,13 @@ The workflows for coding agents (Claude Code, Codex, Cursor and friends) install
 ### Use the engine
 
 ```bash
-pnpm add @vosjs/core three gsap
+pnpm add @vosjs/core @vosjs/tween three
 ```
 
 ```ts
 import { compileVosConfig, vosConfigJsonSchema } from '@vosjs/core'
 import { generateRenderTemplate } from '@vosjs/core/runtime'
+import { tweenRuntimeCode } from '@vosjs/tween/bundle'
 
 const config = {
   version: 2,
@@ -49,11 +50,17 @@ const config = {
 }
 
 vosConfigJsonSchema.parse(config) // validate (version, duration and camera are required)
-const program = compileVosConfig(config) // an ES module string exporting initVos()
-const html = generateRenderTemplate(program, { mode: 'playback' }) // the page that runs it
+// an ES module string exporting initVos()
+const program = compileVosConfig(config, { tweenEngine: 'vos' })
+// the page that runs it
+const html = generateRenderTemplate(program, {
+  mode: 'playback',
+  tweenEngine: 'vos',
+  tweenBundleCode: tweenRuntimeCode,
+})
 ```
 
-One template powers playback, frame-by-frame video capture and still capture, so what you preview is what you export. `three` and `gsap` are optional peers of the engine: you bring your own versions, and they are never bundled. The [core README](./packages/core/README.md) covers the config shape, the program stack, retiming, audio and the bridge.
+One template powers playback, frame-by-frame video capture and still capture, so what you preview is what you export. `three` is an optional peer of the engine: you bring your own version, and it is never bundled. GSAP is an authoring dialect, not a dependency: `ctx.gsap` is a recorder from `@vosjs/tween`, and the recorded timeline is sampled deterministically, so nothing installs or loads GSAP. The [core README](./packages/core/README.md) covers the config shape, the program stack, retiming, audio and the bridge.
 
 ## Packages
 
