@@ -84,11 +84,22 @@ describe('generateRenderTemplate', () => {
       )
     })
 
-    it('includes modulepreload for three and gsap', () => {
+    it('includes modulepreload for three, and not for gsap by default', () => {
       const html = generateRenderTemplate(sampleCode, { mode: 'playback' })
       expect(html).toMatch(
         /<link rel="modulepreload" href="https:\/\/esm\.sh\/three@[^"]+">/,
       )
+      // The default vos backend fetches no GSAP, so it preloads none.
+      expect(html).not.toMatch(
+        /<link rel="modulepreload" href="https:\/\/esm\.sh\/gsap@[^"]+">/,
+      )
+    })
+
+    it('preloads gsap on the legacy gsap backend', () => {
+      const html = generateRenderTemplate(sampleCode, {
+        mode: 'playback',
+        tweenEngine: 'gsap',
+      })
       expect(html).toMatch(
         /<link rel="modulepreload" href="https:\/\/esm\.sh\/gsap@[^"]+">/,
       )
