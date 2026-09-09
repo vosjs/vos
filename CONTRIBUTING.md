@@ -33,7 +33,7 @@ packages/
   cli/          @vosjs/cli          the vos binary; src/plugin/ holds the take pipeline and the vos.so verbs
 ```
 
-Dependencies point downward in that list. `core` depends on `tween`; `tween` on `timeline`; `studio-core` on `editor`, `shared` and `timeline` (with `core` as a peer); `cli` on everything. `three` and `gsap` are peers, never dependencies.
+Dependencies point downward in that list. `core` depends on `tween`; `tween` on `timeline`; `studio-core` on `editor`, `shared` and `timeline` (with `core` as a peer); `cli` on everything. `three` is a peer, never a dependency; `gsap` is an optional peer of `core` for the legacy tween backend alone, and no vos renderer loads it.
 
 Every package has the same scripts: `build` (tsup), `typecheck`, `lint`, `test` (vitest). Run one package with `pnpm --filter @vosjs/core test`.
 

@@ -33,7 +33,7 @@ Until 0.9 the take pipeline and the vos.so verbs shipped separately as `@vosso/v
 
 ## Requirements
 
-Node 18 or newer and a Chromium-family browser. A system Chrome is used when present; otherwise `npx playwright install chromium` once, or set `VOS_BROWSER_PATH`. mp4 output needs Chrome (Chromium ships no AVC encoder). Render pages load `three`, `gsap` and mediabunny from a CDN, so rendering needs network access.
+Node 18 or newer and a Chromium-family browser. A system Chrome is used when present; otherwise `npx playwright install chromium` once, or set `VOS_BROWSER_PATH`. mp4 output needs Chrome (Chromium ships no AVC encoder). Render pages load `three` and mediabunny from a CDN, so rendering needs network access.
 
 ## Engine verbs
 
