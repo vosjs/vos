@@ -405,10 +405,14 @@ export function cardPoseTrack(
     // The first frame is what a feed shows: the card is VISIBLE at t = 0
     // (the references open in perspective, never on nothing), so the pose
     // settles from a smaller, lower, softened card, not from a blank.
+    // A slide moves the plane, not the pose (the transitions table carries
+    // it), so its track holds the rest.
     const from =
       enter?.kind === 'rise'
         ? [0.96, 0.08, 0.7]
-        : enter?.kind === 'pull-out' || enter?.kind === 'fade'
+        : enter?.kind === 'pull-out' ||
+            enter?.kind === 'fade' ||
+            enter?.kind === 'slide'
           ? enter.kind === 'fade'
             ? [1, 0, 0]
             : [1, 0, 1]

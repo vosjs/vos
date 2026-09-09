@@ -15,6 +15,12 @@ import {
   CAM_SIZE_MIN,
   CAM_SPAN_MIN,
   CARD_ENTER_KINDS,
+  SEGMENT_ENTER_KINDS,
+  SEGMENT_EXIT_KINDS,
+  enterOf,
+  exitOf,
+  segmentOutputExtents,
+  transitionSeconds,
   CARD_EXIT_KINDS,
   EXPORT_RESOLUTION_OPTIONS,
   FREEZE_SECONDS_MAX,
@@ -56,7 +62,10 @@ const STEP_KINDS_ALL = [
   'tilt-in',
   'pull-out',
   'recede',
+  'slide',
+  'scale',
 ]
+const STEP_SIDES = ['left', 'right', 'up', 'down']
 const STEP_UNITS = ['block', 'line', 'word', 'char']
 const STEP_DIRS = ['forward', 'reverse', 'center']
 
@@ -140,6 +149,14 @@ function lintAnim(
         (typeof obj.stagger !== 'number' || obj.stagger < 0 || obj.stagger > 2)
       )
         problems.push(`${name}.anim.${side}.stagger must be seconds in 0..2`)
+    }
+    if (obj.side !== undefined) {
+      if (kind !== 'slide')
+        problems.push(`${name}.anim.${side}.side is for a slide`)
+      else if (typeof obj.side !== 'string' || !STEP_SIDES.includes(obj.side))
+        problems.push(
+          `${name}.anim.${side}.side must be ${STEP_SIDES.join(' | ')}`,
+        )
     }
   }
   if (a.idle !== undefined && a.idle !== null) {
@@ -523,6 +540,70 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       problems.push('segments must be an array of {in, out} spans')
     }
     checkByMedia(entries(doc.segments), 'segment')
+    // A clip's transitions: the vocabulary a footage clip accepts, never
+    // longer than half the shorter clip at its boundary (the clip must be
+    // seen still before it moves), and the outer edges are the card's.
+    const segs = Array.isArray(doc.segments)
+      ? (doc.segments as Record<string, unknown>[]).filter(isObj)
+      : []
+    segs.forEach((seg, i) => {
+      lintAnim(
+        `segments[${i}]`,
+        seg.anim,
+        {
+          enter: SEGMENT_ENTER_KINDS,
+          exit: SEGMENT_EXIT_KINDS,
+          idle: null,
+          words: false,
+        },
+        problems,
+      )
+    })
+    if (segs.length && segs.every((s) => isNum(s.in) && isNum(s.out))) {
+      const anims = segs.map(
+        (s) => s.anim as ProjectDoc['segments'][number]['anim'],
+      )
+      if (enterOf(anims[0]) && enterOf(anims[0])!.kind !== 'none')
+        warnings.push(
+          'segments[0].anim.enter is ignored: the first clip arrives with the card (frame.anim.enter)',
+        )
+      const last = segs.length - 1
+      if (
+        last > 0 &&
+        exitOf(anims[last]) &&
+        exitOf(anims[last])!.kind !== 'none'
+      )
+        warnings.push(
+          `segments[${last}].anim.exit is ignored: the last clip leaves with the card (frame.anim.exit)`,
+        )
+      let extents: { start: number; end: number }[] = []
+      try {
+        extents = segmentOutputExtents(doc as unknown as ProjectDoc)
+      } catch {
+        extents = []
+      }
+      for (
+        let i = 0;
+        i + 1 < segs.length && extents.length === segs.length;
+        i++
+      ) {
+        const cap =
+          Math.min(
+            extents[i].end - extents[i].start,
+            extents[i + 1].end - extents[i + 1].start,
+          ) / 2
+        const exitS = transitionSeconds(exitOf(anims[i]))
+        const enterS = transitionSeconds(enterOf(anims[i + 1]))
+        if (exitS > cap + EPS)
+          problems.push(
+            `segments[${i}].anim.exit: ${exitS}s is longer than half the shorter clip at that boundary (${cap.toFixed(2)}s); the clip must be seen still before it moves`,
+          )
+        if (enterS > cap + EPS)
+          problems.push(
+            `segments[${i + 1}].anim.enter: ${enterS}s is longer than half the shorter clip at that boundary (${cap.toFixed(2)}s); the clip must be seen still before it moves`,
+          )
+      }
+    }
   }
 
   // --- speed spans ---

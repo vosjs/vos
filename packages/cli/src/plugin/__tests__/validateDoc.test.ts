@@ -568,6 +568,54 @@ describe('lintDoc', () => {
   })
 })
 
+describe('lintDoc: transitions at a boundary', () => {
+  it('accepts the footage kinds and a slide’s side, refuses the rest', () => {
+    const ok = lintDoc(
+      makeDoc({
+        segments: [
+          { in: 0, out: 5, anim: { exit: { kind: 'slide', side: 'up' } } },
+          { in: 5, out: 10, anim: { enter: 'fade' } },
+        ],
+      }),
+    )
+    expect(ok.problems).toEqual([])
+    const bad = lintDoc(
+      makeDoc({
+        segments: [
+          { in: 0, out: 5, anim: { exit: 'recede' } },
+          { in: 5, out: 10, anim: { enter: { kind: 'fade', side: 'left' } } },
+        ],
+      }),
+    )
+    expect(bad.problems.join(' ')).toMatch(
+      /segments\[0\].anim.exit cannot be "recede"/,
+    )
+    expect(bad.problems.join(' ')).toMatch(
+      /segments\[1\].anim.enter.side is for a slide/,
+    )
+  })
+
+  it('refuses a transition longer than half the shorter clip, and warns on the outer edges', () => {
+    const r = lintDoc(
+      makeDoc({
+        segments: [
+          {
+            in: 0,
+            out: 5,
+            anim: { enter: 'slide', exit: { kind: 'slide', seconds: 1.5 } },
+          },
+          { in: 5, out: 7, anim: { enter: 'scale', exit: 'fade' } },
+        ],
+      }),
+    )
+    expect(r.problems.join(' ')).toMatch(
+      /segments\[0\].anim.exit: 1.5s is longer than half the shorter clip/,
+    )
+    expect(r.warnings.join(' ')).toMatch(/segments\[0\].anim.enter is ignored/)
+    expect(r.warnings.join(' ')).toMatch(/segments\[1\].anim.exit is ignored/)
+  })
+})
+
 describe('framing warnings', () => {
   const rect = { x: 380, y: 180, w: 120, h: 40 } // centre (0.34, 0.31)
   const click = {

@@ -10,6 +10,7 @@ import {
 } from '../motionPlan'
 import { applyDocOverrides } from '../docOverride'
 import { lintDoc } from '../validateDoc'
+import { proposeTransitions } from '../motionPlan'
 import type { MusicCatalog } from '../motionPlan'
 import type { ProjectDoc } from '@vosjs/studio-core'
 
@@ -115,6 +116,79 @@ const vertical = {
   px: { w: 1080, h: 1920 },
   text: 'expected' as const,
 }
+
+describe('proposeTransitions (a page change is a cut that moves)', () => {
+  it('splits the clip at a navigated wait: the outgoing ends before the load, the incoming starts after it', () => {
+    const d = doc()
+    d.source.meta.steps![3].navigated = true
+    const p = proposeMotion(d, {
+      words: {},
+      launch: {
+        music: 'none',
+        endCard: 'none',
+        captions: 'none',
+        clicks: 'none',
+        entrance: 'none',
+      },
+      captions: [],
+      catalog: null,
+    })
+    expect(p.doc.segments.map((s) => [s.in, s.out, s.anim])).toEqual([
+      [0, 4.2, { exit: 'slide' }],
+      [7, 34, { enter: 'slide' }],
+    ])
+    expect(p.notes).toEqual(['1 transition(s) slide'])
+    expect(lintDoc(p.doc).problems).toEqual([])
+    // A second pass leaves the cut as it is.
+    const again = proposeMotion(p.doc, {
+      words: {},
+      launch: {
+        music: 'none',
+        endCard: 'none',
+        captions: 'none',
+        clicks: 'none',
+        entrance: 'none',
+      },
+      captions: [],
+      catalog: null,
+    })
+    expect(again.doc.segments.length).toBe(2)
+    expect(again.notes).toEqual([])
+  })
+
+  it('a click that navigated with no wait settles by the house beat; the role picks the kind or switches it off', () => {
+    const d = doc()
+    d.source.meta.steps![2].navigated = true
+    const fade = proposeTransitions(d, 'fade')
+    expect(fade.doc.segments.map((s) => [s.in, s.out])).toEqual([
+      [0, 4.2],
+      [4.6, 34],
+    ])
+    expect(fade.doc.segments[1].anim).toEqual({ enter: 'fade' })
+    const off = proposeMotion(d, {
+      words: {},
+      launch: {
+        transitions: 'none',
+        music: 'none',
+        endCard: 'none',
+        captions: 'none',
+        clicks: 'none',
+        entrance: 'none',
+      },
+      captions: [],
+      catalog: null,
+    })
+    expect(off.doc.segments.length).toBe(1)
+  })
+
+  it('a change too close to a clip edge is named and skipped', () => {
+    const d = doc()
+    d.source.meta.steps![0].navigated = true
+    const p = proposeTransitions(d, 'slide')
+    expect(p.count).toBe(0)
+    expect(p.skipped[0]).toMatch(/step settle/)
+  })
+})
 
 describe('proposeMotion (the cut’s motion as data on the document)', () => {
   it('writes the entrance, the end card, a caption per beat, a bed and clicks onto the document', () => {

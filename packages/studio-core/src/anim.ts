@@ -11,6 +11,7 @@
 import type {
   Anim,
   AnimKind,
+  AnimSide,
   AnimStep,
   IdleKind,
   ObjectClip,
@@ -26,8 +27,54 @@ export const CARD_ENTER_KINDS: readonly AnimKind[] = [
   'rise',
   'tilt-in',
   'pull-out',
+  'slide',
 ]
 export const CARD_EXIT_KINDS: readonly AnimKind[] = ['none', 'fade', 'recede']
+/**
+ * What a FOOTAGE clip can do at a boundary with the clip beside it: the
+ * incoming slides, fades or scales in while the outgoing, frozen on its
+ * last frame, does the same out. `none` (or absent) is a hard cut.
+ */
+export const SEGMENT_ENTER_KINDS: readonly AnimKind[] = [
+  'none',
+  'slide',
+  'fade',
+  'scale',
+]
+export const SEGMENT_EXIT_KINDS: readonly AnimKind[] = [
+  'none',
+  'slide',
+  'fade',
+  'scale',
+]
+/** A transition's house length, seconds. */
+export const TRANSITION_SECONDS = 0.6
+/** A transition's bounds, seconds (the lint's and the lowering's). */
+export const TRANSITION_SECONDS_MIN = 0.15
+export const TRANSITION_SECONDS_MAX = 2
+
+/**
+ * A transition step's seconds: its own, else the house length, clamped.
+ * Zero for none or absent.
+ */
+export function transitionSeconds(step: AnimStep | null | undefined): number {
+  if (!step || step.kind === 'none') return 0
+  return Math.max(
+    TRANSITION_SECONDS_MIN,
+    Math.min(TRANSITION_SECONDS_MAX, step.seconds ?? TRANSITION_SECONDS),
+  )
+}
+
+/**
+ * A slide's side: where an enter comes from, where an exit goes to. The
+ * default turns the page forward: in from the right, out to the left.
+ */
+export function slideSide(
+  step: AnimStep | null | undefined,
+  which: 'enter' | 'exit',
+): AnimSide {
+  return step?.side ?? (which === 'enter' ? 'right' : 'left')
+}
 /** What WORDS can do (the per-unit kinds are text-only). */
 export const TEXT_ENTER_KINDS: readonly AnimKind[] = [
   'none',
