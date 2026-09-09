@@ -48,6 +48,10 @@
                 "maximum": 30,
                 "description": "LEGACY spelling of a freeze at this segment's end, read into `freeze` on every path; write `freeze` instead"
               },
+              "anim": {
+                "$ref": "#/definitions/anim",
+                "description": "how this clip meets the clips beside it: `enter` is its arrival at the boundary with the clip BEFORE it, `exit` its leaving at the boundary with the clip AFTER it (slide | fade | scale | none; a slide names its `side`, a step its `seconds`, 0.15..2, never longer than half the shorter clip). An exit and the next clip's enter at one boundary run together (a push); one alone moves one card. The first clip's enter and the last clip's exit are the card's own (frame.anim) and are ignored. Absent = a hard cut"
+              },
               "media": {
                 "type": "string",
                 "description": "the media this belongs to: a `media[].id`; absent = the primary, `source`"
@@ -739,7 +743,9 @@
             "typewriter",
             "tilt-in",
             "pull-out",
-            "recede"
+            "recede",
+            "slide",
+            "scale"
           ]
         },
         {
@@ -757,7 +763,9 @@
                 "typewriter",
                 "tilt-in",
                 "pull-out",
-                "recede"
+                "recede",
+                "slide",
+                "scale"
               ]
             },
             "seconds": {
@@ -765,6 +773,10 @@
               "minimum": 0.05,
               "maximum": 3,
               "description": "seconds the step takes (the house length when absent)"
+            },
+            "side": {
+              "enum": ["left", "right", "up", "down"],
+              "description": "a slide's side: where an enter comes FROM, where an exit goes TO (absent: in from the right, out to the left)"
             },
             "unit": {
               "enum": ["block", "line", "word", "char"],
@@ -800,7 +812,7 @@
           "description": "props only: what it does while it stays"
         }
       },
-      "description": "THE animation vocabulary, one for every visual primitive. The card enters by tilt-in | pull-out | rise | fade and leaves by recede | fade; words enter by none | fade | rise | pop | blur | typewriter and leave by none | fade | rise; an image or video clip enters and leaves by none | fade | rise; a prop idles by spin | float. Absent = the house default; none = an explicit nothing"
+      "description": "THE animation vocabulary, one for every visual primitive. The card enters by tilt-in | pull-out | rise | fade | slide and leaves by recede | fade; words enter by none | fade | rise | pop | blur | typewriter and leave by none | fade | rise; an image or video clip enters and leaves by none | fade | rise; a prop idles by spin | float; a FOOTAGE clip meets the clip beside it by slide | fade | scale (a transition at the boundary: the incoming clip plays live while the outgoing, frozen on its last frame, moves away; a slide names its side). Absent = the house default; none = an explicit nothing"
     },
     "overlays": {
       "type": "array",

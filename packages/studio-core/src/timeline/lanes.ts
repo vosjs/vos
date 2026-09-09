@@ -18,9 +18,16 @@ import {
 } from '@vosjs/timeline'
 import { ratedSegments, spanOutputExtent } from '../lower/lowerToComposition'
 import { docFreezes, freezeOutputExtents, withFreezes } from '../lower/motion'
+import {
+  contiguous,
+  effectiveSegments,
+  outputLen,
+  segmentPieces,
+  segmentStarts,
+} from '../lower/segmentStarts'
 import { mediaAtOutput, mediaDuration, mediaSource } from '../media'
 import { docOutputDuration, voiceKey } from '../audioBeds'
-import { anchorSourceDuration, isRecordingDoc } from '../doc/studioDoc'
+import { anchorSourceDuration } from '../doc/studioDoc'
 import {
   CAM_SPAN_MIN,
   DEFAULT_CAM_POSE,
@@ -35,62 +42,11 @@ import {
   ZOOM_SPAN_MIN,
   clipLength,
 } from '../types'
-import type { StudioDoc } from '../doc/studioDoc'
 import type { Segment } from '@vosjs/timeline'
-import type { FreezeSpan, ProjectDoc, SpeedSpan } from '../types'
+import type { FreezeSpan, ProjectDoc } from '../types'
 import type { LaneAdapter, LaneItem } from '@vosjs/editor'
 
-/** The doc's segments in canonical explicit form (empty = one full-source span). */
-export function effectiveSegments(doc: StudioDoc): Segment[] {
-  if (isRecordingDoc(doc) && doc.segments.length) return doc.segments
-  return [{ in: 0, out: anchorSourceDuration(doc) }]
-}
-
-/**
- * One DOC segment's rated pieces: its speed spans applied and the freezes
- * on its footage placed (a freeze at its very end belongs to it, one at
- * its start to the segment before, when there is one).
- */
-const segmentPieces = (
-  seg: Segment,
-  speeds: readonly SpeedSpan[],
-  freezes: readonly FreezeSpan[],
-  leading: boolean,
-): Segment[] => {
-  const own = freezes.filter(
-    (f) =>
-      f.at <= seg.out + 1e-9 &&
-      (leading ? f.at >= seg.in - 1e-9 : f.at > seg.in + 1e-9),
-  )
-  return withFreezes(splitBySpeed([seg], speeds), own)
-}
-
-/** Output-time length of one DOC segment (speed- and freeze-aware). */
-const outputLen = (
-  seg: Segment,
-  speeds: readonly SpeedSpan[],
-  freezes: readonly FreezeSpan[] = [],
-  leading = true,
-): number => totalDuration(segmentPieces(seg, speeds, freezes, leading))
-
-/** Output-time starts of the DOC segments (speed- and freeze-aware). */
-const segmentStarts = (
-  segments: Segment[],
-  speeds: readonly SpeedSpan[],
-  freezes: readonly FreezeSpan[] = [],
-): number[] => {
-  const starts: number[] = []
-  let acc = 0
-  segments.forEach((s, i) => {
-    starts.push(acc)
-    acc += outputLen(s, speeds, freezes, i === 0 || !contiguous(segments, i))
-  })
-  return starts
-}
-
-/** Does segment i start exactly where segment i-1 ends (a split, not a cut)? */
-const contiguous = (segments: Segment[], i: number): boolean =>
-  i > 0 && Math.abs(segments[i - 1].out - segments[i].in) < 1e-9
+export { effectiveSegments }
 
 export const videoLane: LaneAdapter<ProjectDoc> = {
   id: 'video',

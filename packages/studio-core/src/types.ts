@@ -20,6 +20,17 @@ export type { Segment }
 export type DocSegment = Segment & {
   /** The media this clip plays (`doc.media[].id`); absent = the primary, `doc.source`. */
   media?: string
+  /**
+   * How this clip meets the clips beside it: `enter` is its arrival at the
+   * boundary with the clip BEFORE it, `exit` its leaving at the boundary
+   * with the clip AFTER it (`slide` | `fade` | `scale` | `none`; a slide
+   * names its `side`, a step its `seconds`). When an exit and the next
+   * clip's enter meet at one boundary they run together, the outgoing
+   * frozen on its last frame sliding away while the incoming plays: a
+   * push. The first clip's enter and the last clip's exit are the CARD's
+   * own (`frame.anim`) and are ignored here. Absent = a hard cut.
+   */
+  anim?: Anim
   /** @deprecated migrated on read into a `FreezeSpan` at this segment's `out`. */
   hold?: number
 }
@@ -237,6 +248,12 @@ export interface StepSpan {
   tEnd: number
   /** the selector never became visible — the gesture did not run. */
   skipped?: boolean
+  /**
+   * The page's URL changed while the step ran: a click that navigated, or
+   * the `wait` that let a navigation land. The planner proposes a
+   * transition at the page change.
+   */
+  navigated?: boolean
 }
 
 /** Everything the capture extension hands off to the studio. */
@@ -948,11 +965,13 @@ export type OverlayTransition = 'none' | 'fade' | 'rise'
 /**
  * THE animation vocabulary, one for every visual primitive. Which kinds a
  * thing accepts is its own (`anim.ts` holds the tables): the card enters by
- * `tilt-in`, `pull-out`, `rise` or `fade` and leaves by `recede` or `fade`;
- * words enter by the block transitions or per unit (`pop`, `blur`,
+ * `tilt-in`, `pull-out`, `rise`, `fade` or `slide` and leaves by `recede` or
+ * `fade`; words enter by the block transitions or per unit (`pop`, `blur`,
  * `typewriter`, or a `fade`/`rise` that names its unit); an image or a
  * video clip enters and leaves by `fade` or `rise`; a prop idles by `spin`
- * or `float`. `none` is an explicit nothing; absent is the house default.
+ * or `float`; a FOOTAGE clip meets the clip beside it by `slide`, `fade` or
+ * `scale` (a transition at the boundary). `none` is an explicit nothing;
+ * absent is the house default.
  */
 export type AnimKind =
   | 'none'
@@ -964,6 +983,14 @@ export type AnimKind =
   | 'tilt-in'
   | 'pull-out'
   | 'recede'
+  | 'slide'
+  | 'scale'
+
+/**
+ * The side a slide comes from (an enter) or leaves to (an exit), as seen on
+ * screen: `right` enters from the right edge, `left` leaves off the left.
+ */
+export type AnimSide = 'left' | 'right' | 'up' | 'down'
 
 /** What a thing does while it stays. */
 export type IdleKind = 'spin' | 'float'
@@ -982,6 +1009,12 @@ export interface AnimStep {
   direction?: TextFxDirection
   /** Words only: seconds between one unit's start and the next. */
   stagger?: number
+  /**
+   * A slide's side: where an enter comes FROM, where an exit goes TO.
+   * Absent: an enter comes from the right, an exit leaves to the left (the
+   * page turns forward).
+   */
+  side?: AnimSide
 }
 
 export interface Anim {

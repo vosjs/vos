@@ -101,7 +101,7 @@ const HELP = `vos — record a browser flow, plan effects, render a product vide
 Take pipeline
   vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--max-duration <s>] [--background <slug|url|none>] [render flags] [--json]
   vos record --actions actions.json [--url <url>] [--out take] [--strict] [--max-duration <s>] [--background <slug|url|none>] [--json]
-  vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|none] [--end-card on|none|<doc.json|vosId>] [--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
+  vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--at-still] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
   vos deliver <take> --to cws,producthunt,x,linkedin,og,github,youtube (or all) [--launch LAUNCH.md] [--look plate|gradient|dark|none] [--brand BRAND.md] [--composed] [--set path=value] [--release v2.1] [--out dir] [--times a,b] [--range a..b] [--parallel N] [--json]
@@ -247,7 +247,7 @@ from BRAND.md logoUrl and a freeze of the last frame under it, from:
 endcard; offline, the house clips stand in), a CAPTION per
 actions.json step at the step's moment, a music BED from LAUNCH.md's music
 role (a catalog slug or a mood) and a click sound on every press when the
-take has no mic. LAUNCH.md's entrance, endCard, captions, music and clicks
+take has no mic. LAUNCH.md's entrance, transitions, endCard, captions, music and clicks
 roles, or the flags, change or switch each off; a deleted proposal stays
 deleted on a refresh. deliver applies each destination's MECHANICS and
 nothing more: the README loop drops the card's motion, every clip a
@@ -745,7 +745,7 @@ async function cmdPlan(argv: string[]): Promise<number> {
 /**
  * The release's inputs beside a take, for `plan`: the words (LAUNCH.md's
  * headline and kicker roles, BRAND.md's wordmark; flags override), the
- * motion roles (LAUNCH.md's music, entrance, endCard, captions, clicks;
+ * motion roles (LAUNCH.md's music, entrance, transitions, endCard, captions, clicks;
  * flags override), the end card's ink from the brand's look, the brand's
  * mark fetched into `<take>/brand/`, the step captions from actions.json,
  * and the music catalog when a bed is asked for (one network read, only
@@ -795,6 +795,7 @@ async function releaseInputs(
   for (const [flag, role] of [
     ['music', 'music'],
     ['entrance', 'entrance'],
+    ['transitions', 'transitions'],
     ['end-card', 'endCard'],
     ['captions', 'captions'],
     ['clicks', 'clicks'],

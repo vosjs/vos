@@ -32,8 +32,9 @@ import {
   sameMedia,
   spanOutputExtent,
 } from '@vosjs/studio-core'
-import { stepOutputTime } from './moments'
+import { STEP_SETTLE_SECONDS, stepOutputTime } from './moments'
 import type {
+  Anim,
   AnimKind,
   Destination,
   EndCard,
@@ -94,6 +95,67 @@ export interface MotionProposals {
 
 const off = (v: string | undefined) =>
   v !== undefined && /^(none|off|false|no)$/i.test(v.trim())
+
+/** The kinds a boundary moves by. */
+export type TransitionKind = 'slide' | 'fade' | 'scale'
+
+const round3 = (v: number): number => Math.round(v * 1000) / 1000
+
+/** A clip on either side of a page change keeps at least this much footage. */
+const TRANSITION_CLIP_MIN = 1
+
+/**
+ * A transition at every page change: a recorded step that navigated (a
+ * click, or the wait that let the load land) splits its clip, the outgoing
+ * ending on the frame BEFORE the change and the incoming beginning once
+ * the page has settled (the load between them is dropped), and the two
+ * meet by the kind. A boundary that already sits there is left as it is
+ * (a re-plan never doubles a cut); a change too close to a clip's edge is
+ * named and skipped. Pure; the primary's steps only.
+ */
+export function proposeTransitions(
+  input: ProjectDoc,
+  kind: TransitionKind,
+): { doc: ProjectDoc; count: number; skipped: string[] } {
+  const doc = structuredClone(input)
+  const skipped: string[] = []
+  let count = 0
+  const steps = doc.source.meta.steps ?? []
+  for (const step of steps) {
+    if (!step.navigated || step.skipped) continue
+    const name = step.id ?? String(step.step)
+    const wait = step.do === 'wait'
+    const outEnd = round3(wait ? step.tStart : step.tEnd)
+    const inStart = round3(wait ? step.tEnd : step.tEnd + STEP_SETTLE_SECONDS)
+    const segs = doc.segments
+    if (
+      segs.some(
+        (s) => !s.media && Math.abs(s.out - outEnd) < 0.05 && s !== segs.at(-1),
+      )
+    )
+      continue
+    const i = segs.findIndex(
+      (s) =>
+        !s.media &&
+        outEnd >= s.in + TRANSITION_CLIP_MIN &&
+        inStart <= s.out - TRANSITION_CLIP_MIN,
+    )
+    if (i < 0) {
+      skipped.push(
+        `no transition at step ${name}: the page change sits too close to a clip's edge`,
+      )
+      continue
+    }
+    const seg = segs[i]
+    const before = { ...seg, out: outEnd, anim: { exit: kind } as Anim }
+    const after = { ...seg, in: inStart, anim: { enter: kind } as Anim }
+    if (seg.anim?.enter !== undefined) before.anim.enter = seg.anim.enter
+    if (seg.anim?.exit !== undefined) after.anim.exit = seg.anim.exit
+    doc.segments = [...segs.slice(0, i), before, after, ...segs.slice(i + 1)]
+    count++
+  }
+  return { doc, count, skipped }
+}
 
 /**
  * The bed: LAUNCH.md names a track slug or a mood; a mood picks the first
@@ -227,6 +289,21 @@ export function proposeMotion(
     const { enter: _enter, ...rest } = doc.frame.anim
     if (Object.keys(rest).length) doc.frame.anim = rest
     else delete doc.frame.anim
+  }
+
+  // Page changes: a recorded step that navigated is a cut with a
+  // transition at the boundary. LAUNCH.md's `transitions` role picks the
+  // kind (slide, the house default; fade; scale; none switches it off).
+  const trRole = launch.transitions
+  if (!off(trRole)) {
+    const trKind =
+      trRole && /^(slide|fade|scale)$/.test(trRole.trim())
+        ? (trRole.trim() as TransitionKind)
+        : 'slide'
+    const made = proposeTransitions(doc, trKind)
+    doc = made.doc
+    if (made.count) notes.push(`${made.count} transition(s) ${trKind}`)
+    for (const n of made.skipped) skipped.push(n)
   }
 
   // The end card the recipe names, or the official one the platform holds,

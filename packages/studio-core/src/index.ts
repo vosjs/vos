@@ -89,6 +89,13 @@ export {
   CARD_ENTER_KINDS,
   CARD_EXIT_KINDS,
   IDLE_KINDS,
+  SEGMENT_ENTER_KINDS,
+  SEGMENT_EXIT_KINDS,
+  TRANSITION_SECONDS,
+  TRANSITION_SECONDS_MAX,
+  TRANSITION_SECONDS_MIN,
+  slideSide,
+  transitionSeconds,
   MEDIA_ENTER_KINDS,
   MEDIA_EXIT_KINDS,
   TEXT_ENTER_KINDS,
@@ -255,6 +262,22 @@ export {
   withHolds,
 } from './lower/motion'
 export type { FreezeExtent } from './lower/motion'
+export {
+  docTransitions,
+  restSpansThroughTransitions,
+} from './lower/transitions'
+export type {
+  Transition,
+  TransitionKind,
+  TransitionMove,
+  TransitionOut,
+} from './lower/transitions'
+export {
+  segmentOutputExtents,
+  segmentStarts,
+  outputLen as segmentOutputLen,
+} from './lower/segmentStarts'
+export type { SegmentExtent } from './lower/segmentStarts'
 export {
   PRIMARY_MEDIA,
   cardFields,
