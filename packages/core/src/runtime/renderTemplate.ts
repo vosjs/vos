@@ -1,3 +1,4 @@
+import { tweenRuntimeCode } from '@vosjs/tween/bundle'
 import {
   CDN_ORIGIN,
   dracoDecoderPath,
@@ -127,17 +128,23 @@ export interface RenderTemplateOptions {
   /** Additional importmap entries (e.g. for external packages) */
   additionalImportmapEntries?: Record<string, string>
   /**
-   * Which tween backend supplies `deps.gsap` (default 'gsap').
+   * Which tween backend supplies `deps.gsap` (default 'vos').
    *
-   * - `'gsap'`: real GSAP via the CDN importmap — current behavior.
-   * - `'vos'`: the deterministic @vosjs/tween recorder/sampler; requires
-   *   `tweenBundleCode`. No GSAP is imported by the template. The `gsap`
-   *   importmap entry is still emitted so legacy compiled artifacts that
-   *   `import gsap from 'gsap'` keep resolving (their `ctx.gsap` still comes
-   *   from deps, so they run on the vos backend regardless).
+   * - `'vos'`: the deterministic @vosjs/tween recorder/sampler, inlined from
+   *   `tweenBundleCode` (which defaults to the runtime this package already
+   *   depends on). No GSAP is imported by the template, and nothing is
+   *   fetched for it. The `gsap` importmap entry is still emitted so legacy
+   *   compiled artifacts that `import gsap from 'gsap'` keep resolving
+   *   (their `ctx.gsap` still comes from deps, so they run on the vos
+   *   backend regardless).
+   * - `'gsap'`: real GSAP via the CDN importmap. The legacy backend: it
+   *   cannot retime a running timeline (`READY.canRetimeTweens` is false).
    */
   tweenEngine?: 'gsap' | 'vos'
-  /** IIFE string for the vos tween runtime (from @vosjs/tween/bundle) */
+  /**
+   * IIFE string for the vos tween runtime. Defaults to `tweenRuntimeCode`
+   * from `@vosjs/tween/bundle`; pass your own only to pin a different build.
+   */
   tweenBundleCode?: string
 }
 
@@ -161,8 +168,8 @@ export function generateRenderTemplate(
     capture,
     preloadModuleUrls = [],
     additionalImportmapEntries = {},
-    tweenEngine = 'gsap',
-    tweenBundleCode,
+    tweenEngine = 'vos',
+    tweenBundleCode = tweenRuntimeCode,
   } = options
 
   if (tweenEngine === 'vos' && !tweenBundleCode) {

@@ -12,17 +12,16 @@ Part of [vos](https://github.com/vosjs/vos), the open programmatic video engine 
 ## Install
 
 ```bash
-pnpm add @vosjs/core @vosjs/tween three
+pnpm add @vosjs/core three
 ```
 
-`three` is an optional peer dependency. You bring your own version; the engine never bundles it, and a compiled program loads it from an import map at run time. Animation runs on the deterministic `@vosjs/tween` sampler: GSAP is the dialect `ctx.gsap` speaks, not a runtime dependency.
+`three` is an optional peer dependency. You bring your own version; the engine never bundles it, and a compiled program loads it from an import map at run time. Animation runs on the deterministic `@vosjs/tween` sampler, which ships with the engine: GSAP is the dialect `ctx.gsap` speaks, not a runtime dependency.
 
 ## Quick start
 
 ```ts
 import { compileVosConfig, vosConfigJsonSchema } from '@vosjs/core'
 import { generateRenderTemplate } from '@vosjs/core/runtime'
-import { tweenRuntimeCode } from '@vosjs/tween/bundle'
 
 const config = {
   version: 2,
@@ -35,13 +34,8 @@ const config = {
 }
 
 vosConfigJsonSchema.parse(config) // throws on an invalid config
-// an ES module string: export const initVos = async (container, deps) => …
-const program = compileVosConfig(config, { tweenEngine: 'vos' })
-const html = generateRenderTemplate(program, {
-  mode: 'playback',
-  tweenEngine: 'vos',
-  tweenBundleCode: tweenRuntimeCode,
-})
+const program = compileVosConfig(config) // an ES module string: export const initVos = async (container, deps) => …
+const html = generateRenderTemplate(program, { mode: 'playback' })
 ```
 
 `version`, `duration`, `camera`, `createContent` and `createTimeline` are the required fields. Functions are authored as strings and compiled into code, so they are plain JavaScript: no TypeScript syntax inside them.
@@ -56,7 +50,7 @@ The template has three modes, and one template serves all three, so what you pre
 
 Other `generateRenderTemplate` options: `elementsBundleCode` (the `@vosjs/elements` bundle, needed for `elements`), `editor` (enables hit-testing and drag-preview messages), `capture` (`width`, `height`, `duration`, `fps`, `format: 'webm' | 'mp4'`, `range`, `encoder`, `uploadUrl`, `data`), `threeVersion`, `gsapVersion`, `preloadModuleUrls`, `additionalImportmapEntries`, `tweenEngine`, `tweenBundleCode`. `transformModuleCode(code, 'server' | 'client')` rewrites a compiled module for a server render (import-map globals) or a client export (dependencies injected on `globalThis`).
 
-`tweenEngine` picks the timeline backend. `'vos'`, with `tweenBundleCode` from `@vosjs/tween/bundle`, records and samples the timeline deterministically and is what every vos renderer ships. `'gsap'` is the legacy backend, still the option default so that programs compiled against it keep playing: it imports real GSAP from the import map at `gsapVersion`, and it cannot retime a running timeline (`READY.canRetimeTweens` is false). New hosts should pass `'vos'`.
+`tweenEngine` picks the timeline backend, and defaults to `'vos'`: the `@vosjs/tween` recorder and sampler, inlined from `tweenBundleCode` (which defaults to that package's own runtime, so there is nothing to pass). It records and samples the timeline deterministically, and no GSAP is imported or fetched. `'gsap'` is the legacy backend, kept for hosts that still drive playback with real GSAP: it imports it from the import map at `gsapVersion`, and it cannot retime a running timeline (`READY.canRetimeTweens` is false). The `gsap` import-map entry is emitted either way, so a program compiled before this default keeps resolving its own import.
 
 ## The config
 

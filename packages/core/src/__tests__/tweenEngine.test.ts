@@ -18,8 +18,23 @@ const base = {
 }
 
 describe('generateRenderTemplate tweenEngine', () => {
-  it('defaults to gsap mode (unchanged): imports gsap, preloads it, no tween bundle', () => {
+  it('defaults to vos mode: no gsap import or preload, bundle inlined', () => {
     const html = generateRenderTemplate('', { mode: 'playback' })
+    expect(html).not.toContain("import gsap from 'gsap';")
+    expect(html).not.toMatch(/modulepreload.*gsap/)
+    // Legacy compiled artifacts still resolve their (shadowed) gsap import.
+    expect(html).toContain('"gsap":') // importmap entry
+    expect(html).toContain('globalThis.__vosTween = __vosTween')
+    expect(html).toContain(
+      'const __gsapDep = () => globalThis.__vosTween.createTweenRecorder();',
+    )
+  })
+
+  it('gsap mode (legacy, opt-in): imports gsap, preloads it, no tween bundle', () => {
+    const html = generateRenderTemplate('', {
+      mode: 'playback',
+      tweenEngine: 'gsap',
+    })
     expect(html).toContain("import gsap from 'gsap';")
     expect(html).not.toContain('__vosTween') // no bundle reference
     expect(html).toMatch(/modulepreload.*gsap/)
@@ -43,9 +58,14 @@ describe('generateRenderTemplate tweenEngine', () => {
     )
   })
 
-  it('vos mode requires the bundle', () => {
+  it('supplies the tween runtime by default, and refuses an empty one', () => {
+    // The default no longer asks the caller for a bundle: core depends on
+    // @vosjs/tween, so it inlines that runtime itself.
+    expect(generateRenderTemplate('', { mode: 'playback' })).toContain(
+      'globalThis.__vosTween = __vosTween',
+    )
     expect(() =>
-      generateRenderTemplate('', { mode: 'playback', tweenEngine: 'vos' }),
+      generateRenderTemplate('', { mode: 'playback', tweenBundleCode: '' }),
     ).toThrow(/tweenBundleCode/)
   })
 
@@ -65,12 +85,16 @@ describe('generateRenderTemplate tweenEngine', () => {
 })
 
 describe('compileVosConfig tweenEngine', () => {
-  it('default emits the gsap import; vos mode omits it (deps supply ctx.gsap)', () => {
-    expect(compileVosConfig(base)).toContain("import gsap from 'gsap';")
-    const vos = compileVosConfig(base, { tweenEngine: 'vos' })
-    expect(vos).not.toContain("import gsap from 'gsap';")
+  it('default omits the gsap import; gsap mode emits it (deps supply ctx.gsap)', () => {
+    const def = compileVosConfig(base)
+    expect(def).not.toContain("import gsap from 'gsap';")
+    // The default IS vos mode, byte for byte.
+    expect(compileVosConfig(base, { tweenEngine: 'vos' })).toBe(def)
+    expect(compileVosConfig(base, { tweenEngine: 'gsap' })).toContain(
+      "import gsap from 'gsap';",
+    )
     // ctx.gsap still flows from deps — identical runtime shape.
-    expect(vos).toContain('const { THREE, gsap, resolution } = deps;')
+    expect(def).toContain('const { THREE, gsap, resolution } = deps;')
   })
 })
 

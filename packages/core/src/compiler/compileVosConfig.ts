@@ -45,7 +45,7 @@ import type { AuthoredVosConfigJson, VosConfigJson } from '../types'
  */
 export interface CompileVosConfigOptions {
   /**
-   * Which tween backend the compiled module targets (default 'gsap').
+   * Which tween backend the compiled module targets (default 'vos').
    *
    * The compiled code is backend-agnostic at runtime — `ctx.gsap` always
    * comes from `deps.gsap` (the host chooses the backend). This option only
@@ -106,7 +106,7 @@ export function compileVosConfig(
   const configForGenerators = config as any
 
   const imports = generateImports(configForGenerators, detectedAddons, {
-    includeGsap: options.tweenEngine !== 'vos',
+    includeGsap: options.tweenEngine === 'gsap',
   })
   const sceneSetup = generateSceneSetup(config.scene)
   const cameraSetup = generateCameraSetup(config.camera)
