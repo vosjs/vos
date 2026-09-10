@@ -39,7 +39,7 @@
     "@vosjs/timeline": "workspace:^"
   },
   "peerDependencies": {
-    "@vosjs/core": ">=0.10.0 <0.24.0"
+    "@vosjs/core": ">=0.10.0 <0.25.0"
   },
   "devDependencies": {
     "@types/three": "^0.182.0",
