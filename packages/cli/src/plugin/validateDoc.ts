@@ -1299,6 +1299,22 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
           `${name}.width must be a fraction of the frame width in (0..1] (got ${String(o.width)}; absent = the design size)`,
         )
       }
+      if (o.live !== undefined && typeof o.live !== 'boolean') {
+        problems.push(
+          `${name}.live must be true or absent: a live layer is re-rasterized per frame at clip-local t (its @keyframes scrubbed, its {{t}} and {{data.…}} filled)`,
+        )
+      }
+      if (o.data !== undefined) {
+        const bad =
+          !isObj(o.data) ||
+          Object.values(o.data).some(
+            (v) => !['string', 'number', 'boolean'].includes(typeof v),
+          )
+        if (bad)
+          problems.push(
+            `${name}.data must be a map of strings, numbers or booleans: the values a live layer's {{data.<name>}} placeholders read`,
+          )
+      }
       if (
         o.opacity !== undefined &&
         (!isNum(o.opacity) || o.opacity < 0 || o.opacity > 1)
