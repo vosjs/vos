@@ -830,11 +830,20 @@
           },
           "html": {
             "type": "string",
-            "description": "html kind: the layer's MARKUP, well-formed XML (foreignObject is XML, not HTML: <br />, &amp;, quoted attributes). A UI component authored as DOM, laid out and painted by the browser and composited over the footage sharp at any export size. Required for html. No script runs and nothing is fetched: an image or icon inside must be a data: URI; faces are found from the CSS"
+            "description": "html kind: the layer's MARKUP, well-formed XML (foreignObject is XML, not HTML: <br />, &amp;, quoted attributes). A UI component authored as DOM, laid out and painted by the browser and composited over the footage sharp at any export size. Required for html. No script runs. An image it names by URL is inlined for you when the URL is on https://assets.vos.so/ (upload it with vos asset upload); any other host paints blank, so inline it as a data: URI. Faces are found from the CSS"
           },
           "css": {
             "type": "string",
-            "description": "html kind: the layer's CSS, scoped by the layer's own wrapper (plain selectors are fine). Its box-shadow, border and radius ARE the layer's chrome (the compositor adds none). A font-family it names is resolved against the hosted catalog (GET https://vos.so/api/fonts) at every font-weight it names; an animation or transition inside runs on the wall clock, never the timeline, and validate warns"
+            "description": "html kind: the layer's CSS, scoped by the layer's own wrapper (plain selectors are fine). Its box-shadow, border and radius ARE the layer's chrome (the compositor adds none). A font-family it names is resolved against the hosted catalog (GET https://vos.so/api/fonts) at every font-weight it names. An animation or transition inside a STILL layer runs on the wall clock, never the timeline, and validate warns; on a live layer (live: true) its @keyframes are scrubbed to the clip's time"
+          },
+          "live": {
+            "type": "boolean",
+            "description": "html kind: a LIVE layer, the picture a function of clip-local time. CSS @keyframes inside it are scrubbed to t (paused, delayed by -t) and {{t}} / {{data.<name>}} placeholders in the markup and CSS fill per frame, so a counter, a progress bar or a typed line come out on the timeline's clock in the preview and in every export chunk alike. One rasterize per frame while on screen; an authored animation-delay is overridden (fold it into the keyframes). Absent = a still"
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": { "type": ["string", "number", "boolean"] },
+            "description": "html kind: values for a live layer's {{data.<name>}} placeholders, escaped as text (never markup)"
           },
           "box": {
             "type": "object",

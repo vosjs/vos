@@ -1,4 +1,5 @@
 import { timelineRuntimeCode } from '@vosjs/timeline/bundle'
+import { HTML_LAYER_LIVE_HZ } from '../htmlLayer'
 import { OVERLAY_FONT_FACES } from '../overlayText'
 import { CARD_FOV, CARD_Z } from '../stage'
 import {
@@ -60,17 +61,30 @@ export function studioEntry(data: Record<string, unknown>): StudioEntry {
  * import, so the composer is carried twice and `htmlOverlay.test.ts` pins
  * the two byte-for-byte. Change them together.
  */
-export const HTML_LAYER_SVG_CODE = `(src, faces) => {
+export const HTML_LAYER_SVG_CODE = `(src, faces, assets) => {
   const bleed = Math.max(0, Math.round(src.bleed || 0))
   const boxW = src.box.width + bleed * 2
   const boxH = src.box.height + bleed * 2
   let fontCss = ''
   for (const f of faces || []) fontCss += "@font-face{font-family:'" + f.family + "';src:url(" + f.dataUri + ") format('woff2');font-weight:" + f.weight + ";font-style:" + f.style + ";font-display:block}"
+  const t = src.t || 0
+  const fmtT = (n) => String(Math.round(n * 1000) / 1000)
+  const esc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const fill = (text) => {
+    let out = text
+    for (const a of assets || []) out = out.split(a.url).join(a.dataUri)
+    if (src.live) {
+      out = out.replace(/\\{\\{\\s*t\\s*\\}\\}/g, fmtT(t))
+      out = out.replace(/\\{\\{\\s*data\\.([A-Za-z0-9_.-]+)\\s*\\}\\}/g, (m, name) => { const v = src.data ? src.data[name] : undefined; return v == null ? '' : esc(v) })
+    }
+    return out
+  }
+  const scrub = src.live ? '.vos-html-layer{--vos-t:' + fmtT(t) + '}.vos-html-layer,.vos-html-layer *{animation-play-state:paused!important;animation-delay:calc(var(--vos-t) * -1s)!important}' : ''
   const wrapper = '.vos-html-layer{width:' + boxW + 'px;height:' + boxH + 'px;box-sizing:border-box;margin:0;padding:' + bleed + 'px;font-family:-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}'
   return '<svg xmlns="http://www.w3.org/2000/svg" width="' + boxW + '" height="' + boxH + '" viewBox="0 0 ' + boxW + ' ' + boxH + '">' +
     '<foreignObject x="0" y="0" width="' + boxW + '" height="' + boxH + '">' +
     '<div xmlns="http://www.w3.org/1999/xhtml" class="vos-html-layer">' +
-    '<style>' + fontCss + wrapper + (src.css || '') + '</style>' + src.html +
+    '<style>' + fontCss + wrapper + fill(src.css || '') + scrub + '</style>' + fill(src.html) +
     '</div></foreignObject></svg>'
 }`
 
@@ -165,38 +179,53 @@ export const STUDIO_SETUP = `async (ctx) => {
   ns.htmlLast = ns.htmlLast || {}
   ns.htmlKeys = ns.htmlKeys || {}
   ns.htmlErrors = ns.htmlErrors || {}
+  // One byte cache for faces AND the images a layer names by URL, keyed by
+  // URL: fetched once per page however many layers name it, inlined as a
+  // data: URI (a face is always woff2; an image carries its own type).
   const faceData = ns.faceData || (ns.faceData = new Map())
-  const faceOf = (f) => {
-    let p = faceData.get(f.url)
+  const bytesOf = (url, mime, what) => {
+    let p = faceData.get(url)
     if (p) return p
-    p = fetch(f.url).then(async (r) => {
+    p = fetch(url).then(async (r) => {
       if (!r.ok) throw new Error('HTTP ' + r.status)
       const buf = new Uint8Array(await r.arrayBuffer())
       // Chunked: String.fromCharCode.apply throws on a large spread.
       let str = ''
       for (let i = 0; i < buf.length; i += 0x8000) str += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000))
-      return 'data:font/woff2;base64,' + btoa(str)
+      const type = mime || ((r.headers.get('content-type') || 'application/octet-stream').split(';')[0])
+      return 'data:' + type + ';base64,' + btoa(str)
     }).catch((e) => {
-      // Fail open per face, and NOT sticky: the layer paints in the fallback
-      // stack now and the next build asks again.
-      faceData.delete(f.url)
-      console.warn('[voila] html layer face failed to load', f.url, e)
+      // Fail open per URL, and NOT sticky: the layer paints without it now
+      // and the next build asks again.
+      faceData.delete(url)
+      console.warn('[voila] html layer ' + what + ' failed to load', url, e)
       return ''
     })
-    faceData.set(f.url, p)
+    faceData.set(url, p)
     return p
   }
-  const buildHtmlLayer = async (oc) => {
-    const want = () => ns.htmlWant[oc.id] === oc.key
-    ns.htmlWant[oc.id] = oc.key
+  const faceOf = (f) => bytesOf(f.url, 'font/woff2', 'face')
+  const assetOf = (url) => bytesOf(url, '', 'asset')
+  // The second argument names the moment a LIVE layer is composed for: its
+  // own key (the clip's key plus the moment) and t. A still builds under
+  // the clip's key.
+  const buildHtmlLayer = async (oc, live) => {
+    const key = live ? live.key : oc.key
+    const want = () => ns.htmlWant[oc.id] === key
+    ns.htmlWant[oc.id] = key
     const h = oc.html
     const uris = await Promise.all((h.faces || []).map(faceOf))
+    const assetUris = await Promise.all((h.assets || []).map(assetOf))
     if (!want()) return
     const faces = []
     for (let i = 0; i < uris.length; i++) {
       if (uris[i]) faces.push({ family: h.faces[i].family, weight: h.faces[i].weight, style: h.faces[i].style, dataUri: uris[i] })
     }
-    const svg = htmlSvg({ html: h.markup, css: h.css, box: h.box, bleed: h.bleed }, faces)
+    const assets = []
+    for (let i = 0; i < assetUris.length; i++) {
+      if (assetUris[i]) assets.push({ url: h.assets[i], dataUri: assetUris[i] })
+    }
+    const svg = htmlSvg({ html: h.markup, css: h.css, box: h.box, bleed: h.bleed, live: !!live, t: live ? live.t : 0, data: h.data }, faces, assets)
     const uri = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)))
     const img = await new Promise((res, rej) => {
       const i = new Image()
@@ -224,24 +253,59 @@ export const STUDIO_SETUP = `async (ctx) => {
         console.error('[voila] html layers are off: this browser taints a canvas that draws a foreignObject SVG', e)
       }
     }
+    // One picture per clip in the cache: the previous key goes when a new
+    // one lands, which for a live layer is every frame.
     const prev = ns.htmlKeys[oc.id]
-    if (prev && prev !== oc.key) cache.delete(prev)
-    cache.set(oc.key, img)
-    ns.htmlKeys[oc.id] = oc.key
+    if (prev && prev !== key) cache.delete(prev)
+    cache.set(key, img)
+    ns.htmlKeys[oc.id] = key
     ns.htmlLast[oc.id] = img
     delete ns.htmlErrors[oc.id]
   }
   // ON_FRAME is its own function string, so the builder is handed over for a
   // layer that arrives by live edit after setup has run. A failure is
   // recorded on the clip and said at the level a render page forwards.
-  ns.buildHtmlLayer = (oc) => buildHtmlLayer(oc).catch((e) => {
+  ns.buildHtmlLayer = (oc, live) => buildHtmlLayer(oc, live).catch((e) => {
     ns.htmlErrors[oc.id] = String((e && e.message) || e)
     console.error('[voila] html layer ' + oc.id + ' ' + ns.htmlErrors[oc.id])
   })
+  // The capture contract for a LIVE layer, on ANY anchor. A recording's own
+  // program installs the settle machinery (pendingDecodes, the wait a
+  // capture awaits, a frame-prep hook that requests the frame's footage
+  // before the paint); a program anchor installs none of it, and a live
+  // layer on one would export a frame behind (the last landed picture),
+  // since nothing awaited the build. So the entry installs what is absent
+  // and registers its own hook: the moment every visible live layer needs
+  // at t is asked for BEFORE the paint and put on pendingDecodes, so the
+  // first paint draws the exact picture and a still at t is t. ON_FRAME
+  // asks the same way (one source, inlined in both scopes) for the preview,
+  // where the last landed picture stands in meanwhile.
+  ns.pendingDecodes = ns.pendingDecodes || new Set()
+  if (!ns.waitForVideosReady) ns.waitForVideosReady = async () => {
+    if (ns.pendingDecodes.size) await Promise.all([...ns.pendingDecodes])
+  }
+  ns.framePrep = ns.framePrep || new Map()
+  ns.framePrep.set('vosso.studio', (t) => {
+    if (ns.isPaused === false) return
+    for (const ol of (ctx.data.overlays || [])) {
+      if (!ol.html || !ol.html.live) continue
+      const olT = t - ol.start
+      if (olT < 0 || olT > ol.dur) continue
+      const q = Math.round(olT * ${HTML_LAYER_LIVE_HZ})
+      const key = ol.key + '@' + q
+      if (cache.get(key) || ns.htmlWant[ol.id] === key) continue
+      const p = ns.buildHtmlLayer(ol, { key, t: q / ${HTML_LAYER_LIVE_HZ} })
+      if (p && p.finally) {
+        ns.pendingDecodes.add(p)
+        p.finally(() => ns.pendingDecodes.delete(p))
+      }
+    }
+  })
   // Media overlays (V1b): warm-load through the shared cache so the first
   // frame draws complete. Fail-open per clip (a bad key just doesn't draw).
+  // A live layer warms at its first moment; ON_FRAME re-composes it per frame.
   for (const oc of (ctx.data.overlays || [])) {
-    if (oc.html) { await ns.buildHtmlLayer(oc); continue }
+    if (oc.html) { await ns.buildHtmlLayer(oc, oc.html.live ? { key: oc.key + '@0', t: 0 } : undefined); continue }
     if (oc.kind !== 'image' && oc.kind !== 'video') continue
     try {
       if (oc.kind === 'image') await loadImage(oc.key)
@@ -533,6 +597,8 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
     // until its picture lands, or the edit would not appear until something
     // else happened to dirty the canvas.
     if (ol0.html && !(ns.videoCache && ns.videoCache.get(ol0.key))) olAnim = true
+    // A LIVE html layer is a new picture every frame it is on screen.
+    if (ol0.html && ol0.html.live) olAnim = true
     // Video overlays advance every frame; images redraw until decoded.
     if (ol0.kind === 'video') olAnim = true
     else if (ol0.kind === 'image') {
@@ -570,6 +636,28 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
     // per key and let a later frame pick it up; a build that failed stays
     // asked, and the next source edit is a new key.
     if (ol.html) {
+      if (ol.html.live) {
+        // A live layer's picture is f(t): the key carries clip-local time on
+        // the ${HTML_LAYER_LIVE_HZ} Hz grid, the builder keeps ONE picture per clip
+        // (the previous moment's is evicted as the next lands) and the last
+        // landed picture is drawn while the next composes, so the preview
+        // never blinks. A build in flight for this very moment is not asked
+        // again (htmlWant holds the moment). In capture the build rides
+        // pendingDecodes, so the frame settles and paints again with the
+        // exact picture (the harness's two-phase settle): the export is
+        // deterministic where the preview is merely prompt.
+        var hlQ = Math.round(olT * ${HTML_LAYER_LIVE_HZ})
+        var hlKey = ol.key + '@' + hlQ
+        var hlEl = ns.videoCache ? ns.videoCache.get(hlKey) : null
+        if (!hlEl && ns.buildHtmlLayer && !(ns.htmlWant && ns.htmlWant[ol.id] === hlKey)) {
+          var hlP = ns.buildHtmlLayer(ol, { key: hlKey, t: hlQ / ${HTML_LAYER_LIVE_HZ} })
+          if (ns.pendingDecodes && hlP && hlP.finally) {
+            ns.pendingDecodes.add(hlP)
+            hlP.finally(function () { ns.pendingDecodes.delete(hlP) })
+          }
+        }
+        return hlEl || (ns.htmlLast && ns.htmlLast[ol.id]) || null
+      }
       if (!olEl && ns.buildHtmlLayer) {
         var hlB = ns.htmlBuilding || (ns.htmlBuilding = {})
         if (!hlB[ol.key]) { hlB[ol.key] = 1; ns.buildHtmlLayer(ol) }
