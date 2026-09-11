@@ -85,6 +85,27 @@ describe('createProgramVos', () => {
     expect(typeof body.client).toBe('string')
   })
 
+  it('carries the program document when one rides along', async () => {
+    // A fresh push of a program directory used to drop its doc.json: the
+    // document rode the version path only, and the vos it created carried
+    // no doc (so `--with` and the studio saw the config alone).
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    const doc = {
+      program: { config: { version: 2 } },
+      audio: [],
+      overlays: [{ id: 't', kind: 'text', text: 'Hi' }],
+    }
+    await createProgramVos({
+      origin,
+      key: 'vos_sk_test',
+      config: { version: 2 },
+      title: 'Layered',
+      doc,
+    })
+    expect(seen[0].body.doc).toEqual(doc)
+  })
+
   it('retries a DERIVED slug on 409 with a numbered suffix', async () => {
     const seen: Seen[] = []
     const origin = await serve(seen, 1)

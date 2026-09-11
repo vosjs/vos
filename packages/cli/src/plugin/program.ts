@@ -16,7 +16,7 @@ import {
   migrateConfig,
   vosConfigJsonSchema,
 } from '@vosjs/core'
-import { migrateHostedDoc } from '@vosjs/studio-core'
+import { lowerProgramDoc, migrateHostedDoc } from '@vosjs/studio-core'
 import { UsageError, parseArgs, strFlag } from './args'
 import { directoryKind } from '../loadConfig'
 import { EXIT_OK, createReporter } from './output'
@@ -306,6 +306,8 @@ export interface CreateProgramOptions {
   /** Attribution on v1: what you did and why — the first turn. */
   label?: string
   note?: string
+  /** The program document riding along (overlays, objects, audio, speed, tween edits). */
+  doc?: Record<string, unknown>
   log?: (msg: string) => void
 }
 
@@ -337,6 +339,7 @@ export async function createProgramVos(
     if (opts.remixOfId) body.remixOfId = opts.remixOfId
     if (opts.label) body.label = opts.label
     if (opts.note) body.note = opts.note
+    if (opts.doc) body.doc = opts.doc
     const res = await apiJson(opts.origin, '/api/vos', {
       method: 'POST',
       key: opts.key,
@@ -465,7 +468,10 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
       state && state.vosId === vosId && state.versionId
         ? state.versionId
         : undefined
-    const body: Record<string, unknown> = { config, client: clientId() }
+    const body: Record<string, unknown> = {
+      config: storedProgramConfig(config, programDoc),
+      client: clientId(),
+    }
     if (programDoc) body.doc = programDoc
     const base = strFlag(flags, 'base') ?? trackedBase
     if (base) body.baseVersionId = base
@@ -547,7 +553,12 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
   const created = await createProgramVos({
     origin,
     key,
-    config,
+    config: storedProgramConfig(config, programDoc),
+    // The document rode the version path and not the create path, so a
+    // fresh push of a program directory silently dropped its doc.json
+    // (found seeding one-layer members: `--with` then said the vos carried
+    // no doc).
+    doc: programDoc ?? undefined,
     title,
     slug: strFlag(flags, 'slug'),
     description: desc,
@@ -806,6 +817,25 @@ export function isTakeDir(target: string): boolean {
  * on the wire it carries it. Returns the doc as pushed (config attached) or
  * null when the directory has none.
  */
+/**
+ * What the platform STORES for a layered program: the COMPOSED config (the
+ * studio's own save shape, `lowerProgramDoc(doc).config`), never the user's
+ * config alone, which lives in the document's `program.config`. A push that
+ * sent the raw config stored a program whose layers the fleet never saw:
+ * its still and preview rendered the ground and nothing on it, while the
+ * studio (which composes on open) showed the layers. `fetch` and `pull`
+ * already write `config.json` from the document's own config, so the round
+ * trip is unchanged.
+ */
+export function storedProgramConfig(
+  config: Record<string, unknown>,
+  programDoc: Record<string, unknown> | null,
+): Record<string, unknown> {
+  if (!programDoc) return config
+  const doc = { audio: [], ...programDoc } as never
+  return lowerProgramDoc(doc).config as Record<string, unknown>
+}
+
 export async function readProgramDoc(
   dir: string,
   config: Record<string, unknown>,
