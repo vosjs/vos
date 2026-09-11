@@ -19,6 +19,7 @@ import {
   SEGMENT_EXIT_KINDS,
   enterOf,
   exitOf,
+  htmlLayerProblems,
   segmentOutputExtents,
   transitionSeconds,
   CARD_EXIT_KINDS,
@@ -997,9 +998,14 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       problems.push(`${name} must be an object`)
       continue
     }
-    if (o.kind !== 'text' && o.kind !== 'image' && o.kind !== 'video') {
+    if (
+      o.kind !== 'text' &&
+      o.kind !== 'image' &&
+      o.kind !== 'video' &&
+      o.kind !== 'html'
+    ) {
       problems.push(
-        `${name}.kind must be "text" | "image" | "video" (got ${String(o.kind)})`,
+        `${name}.kind must be "text" | "image" | "video" | "html" (got ${String(o.kind)})`,
       )
     }
     if (!isNum(o.start) || o.start < 0)
@@ -1236,6 +1242,75 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
         (!isNum(o.opacity) || o.opacity < 0 || o.opacity > 1)
       ) {
         problems.push(`${name}.opacity must be 0..1`)
+      }
+    }
+    if (o.kind === 'html') {
+      // An HTML layer keeps its SOURCE: markup and CSS laid out in a design
+      // box, rasterized in the page. The XML rules, the wall clock, the
+      // faces and the media fields it refuses are the pure gate's
+      // (`htmlLayerProblems`), the same words the studio panel shows.
+      if (typeof o.html !== 'string') {
+        problems.push(`${name}.html must be the layer's markup (a string)`)
+      }
+      if (o.css !== undefined && typeof o.css !== 'string') {
+        problems.push(`${name}.css must be a string of CSS`)
+      }
+      const box = isObj(o.box) ? o.box : undefined
+      if (
+        !box ||
+        !isNum(box.width) ||
+        !isNum(box.height) ||
+        box.width <= 0 ||
+        box.height <= 0
+      ) {
+        problems.push(
+          `${name}.box must be { width, height } in design px, both > 0 (the 1080p frame is 1920 wide)`,
+        )
+      }
+      if (o.bleed !== undefined && (!isNum(o.bleed) || o.bleed < 0)) {
+        problems.push(
+          `${name}.bleed must be ≥ 0 design px (absent = derived from the CSS's shadows)`,
+        )
+      }
+      if (o.fonts !== undefined) {
+        if (!Array.isArray(o.fonts)) {
+          problems.push(
+            `${name}.fonts must be an array of { family, url, weight?, style? }`,
+          )
+        } else {
+          o.fonts.forEach((f, fi) => {
+            if (
+              !isObj(f) ||
+              typeof f.family !== 'string' ||
+              typeof f.url !== 'string' ||
+              !/^https?:\/\//.test(f.url)
+            )
+              problems.push(
+                `${name}.fonts[${fi}] must be { family, url (https), weight?, style? }: a face the catalog does not host. A hosted family needs no entry; name it in the CSS`,
+              )
+          })
+        }
+      }
+      if (
+        o.width !== undefined &&
+        (!isNum(o.width) || o.width <= 0 || o.width > 1)
+      ) {
+        problems.push(
+          `${name}.width must be a fraction of the frame width in (0..1] (got ${String(o.width)}; absent = the design size)`,
+        )
+      }
+      if (
+        o.opacity !== undefined &&
+        (!isNum(o.opacity) || o.opacity < 0 || o.opacity > 1)
+      ) {
+        problems.push(`${name}.opacity must be 0..1`)
+      }
+      if (typeof o.html === 'string') {
+        for (const p of htmlLayerProblems(o as never)) {
+          ;(p.level === 'problem' ? problems : warnings).push(
+            `${name}: ${p.message}`,
+          )
+        }
       }
     }
     const tf = isObj(o.transform) ? o.transform : undefined

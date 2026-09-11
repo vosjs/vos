@@ -22,6 +22,7 @@ import {
   fontStack,
   nearestFontWeight,
 } from '@vosjs/shared'
+import { htmlLayerPictureBox, htmlLayerWidth } from './htmlLayer'
 import {
   OVERLAY_LINE_HEIGHT,
   OVERLAY_MEDIA_DEFAULT_WIDTH,
@@ -457,6 +458,14 @@ export function overlayRect(
     cx: clip.transform.x * frameW,
     cy: clip.transform.y * frameH,
     rotation: clip.transform.rotation || 0,
+  }
+  if (clip.kind === 'html') {
+    // An HTML layer's aspect is its own PICTURE box (the design box plus its
+    // bleed), known without probing anything, and its width defaults to the
+    // design size. MIRRORS the lowering's `htmlLayerPayload`.
+    const pb = htmlLayerPictureBox(clip)
+    const w = htmlLayerWidth(clip) * frameW * scale
+    return { ...base, w, h: w * (pb.height / pb.width) }
   }
   if (clip.kind !== 'text') {
     // MIRRORS ON_FRAME's media sizing: width fraction of the FRAME × scale,

@@ -206,9 +206,12 @@ export function copyLayout(
     next.duration = Math.max(0.3, Math.round(outDur * 1000) / 1000)
     if (next.kind === 'text') {
       if (mine?.kind === 'text') next.text = mine.text
+    } else if (next.kind === 'html') {
+      // An HTML layer has no key: its content IS its source. There is nothing
+      // to swap in, and nothing missing to skip the clip for.
     } else if (opts.keys?.[clip.id]) {
       next.key = opts.keys[clip.id]
-    } else if (mine && mine.kind !== 'text') {
+    } else if (mine && mine.kind !== 'text' && mine.kind !== 'html') {
       next.key = mine.key
     } else {
       skippedMarks.push(clip.id)
@@ -432,9 +435,11 @@ export function applyTemplate(
       const word = opts.words?.[clip.id]
       if (word !== undefined) next.text = word
       else if (mine?.kind === 'text') next.text = mine.text
+    } else if (next.kind === 'html') {
+      // No key to swap: an HTML layer carries its own source.
     } else if (opts.keys?.[clip.id]) {
       next.key = opts.keys[clip.id]
-    } else if (mine && mine.kind !== 'text') {
+    } else if (mine && mine.kind !== 'text' && mine.kind !== 'html') {
       next.key = mine.key
     } else if (!/^(https?:|\/\/)/.test(next.key)) {
       skipped.push(clip.id)
