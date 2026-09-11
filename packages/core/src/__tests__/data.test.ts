@@ -95,7 +95,7 @@ describe('setData keeps every program live', () => {
     // content and timeline are rebindable, and the timeline is read live
     expect(code).toContain('let content = createContent(context,')
     expect(code).toContain(
-      'let tl = createTimeline(context, content, DURATION);',
+      'let tl = __asCarrierIfEmpty(createTimeline(context, content, DURATION));',
     )
     expect(code).toContain('get timeline() { return tl; }')
     expect(code).not.toContain('timeline: tl,')
