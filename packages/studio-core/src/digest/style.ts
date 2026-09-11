@@ -286,7 +286,9 @@ export function copyLayout(
 
 /** The freeze at the end of the document's last segment, if any. */
 function trailingFreeze(doc: ProjectDoc): FreezeSpan | null {
-  const last = doc.segments.at(-1)
+  // A template may be a PROGRAM document (one-layer members, a component on
+  // the shelf): no footage, no segments, no freeze to carry.
+  const last = doc.segments?.at(-1)
   if (!last) return null
   return docFreezes(doc).find((f) => Math.abs(f.at - last.out) < 1e-9) ?? null
 }
@@ -466,9 +468,9 @@ export function applyTemplate(
   if (objects.length || doc.objects) doc.objects = objects
 
   const audio: AudioClip[] = doc.audio.filter(
-    (a) => !template.audio.some((t) => t.id === a.id),
+    (a) => !(template.audio ?? []).some((t) => t.id === a.id),
   )
-  for (const clip of template.audio) {
+  for (const clip of template.audio ?? []) {
     const next = structuredClone(clip) as AudioClip
     next.start = Math.max(0, round3(clip.start + shift))
     next.from = from
@@ -476,7 +478,7 @@ export function applyTemplate(
   }
   doc.audio = audio
 
-  if (template.frame.anim) {
+  if (template.frame?.anim) {
     doc.frame = {
       ...doc.frame,
       anim: { ...(doc.frame.anim ?? {}), ...template.frame.anim },
