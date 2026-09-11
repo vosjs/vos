@@ -1,3 +1,4 @@
+import { isKeyedOverlay } from '@vosjs/studio-core'
 /**
  * A hosted take comes home: download the recording (and the
  * mic/cam sidecars when the doc carries them) beside a pulled doc.json, and
@@ -90,7 +91,9 @@ export function docMediaRefs(
       })
   }
   for (const clip of doc.overlays ?? []) {
-    if (clip.kind === 'text' || !keep(clip.key)) continue
+    // An HTML layer has no key: its content IS its source, so there is no file
+    // to walk, rewrite or bring home.
+    if (!isKeyedOverlay(clip) || !keep(clip.key)) continue
     out.push({
       where: `overlay ${clip.id}`,
       key: clip.key,

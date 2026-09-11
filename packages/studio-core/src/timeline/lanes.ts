@@ -27,6 +27,7 @@ import {
 } from '../lower/segmentStarts'
 import { mediaAtOutput, mediaDuration, mediaSource } from '../media'
 import { docOutputDuration, voiceKey } from '../audioBeds'
+import { htmlLayerLabel } from '../htmlLayer'
 import { anchorSourceDuration } from '../doc/studioDoc'
 import {
   CAM_SPAN_MIN,
@@ -1367,9 +1368,11 @@ export const overlaysLane: LaneAdapter<ProjectDoc> = {
         label:
           o.kind === 'text'
             ? o.text.split('\n')[0].slice(0, 24) || 'Text'
-            : o.kind === 'image'
-              ? 'Image'
-              : 'Video',
+            : o.kind === 'html'
+              ? htmlLayerLabel(o)
+              : o.kind === 'image'
+                ? 'Image'
+                : 'Video',
       },
       // Pose diamonds render after the clips, so they sit on top.
       ...poseItems(o.id, o.start, o.duration, o.motion),

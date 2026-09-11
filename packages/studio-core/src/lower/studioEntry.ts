@@ -54,6 +54,26 @@ export function studioEntry(data: Record<string, unknown>): StudioEntry {
   }
 }
 
+/**
+ * The HTML layer's SVG document, as page JS. This is the MIRROR of
+ * `htmlLayerSvg` in `../htmlLayer.ts`: SETUP is a function string and cannot
+ * import, so the composer is carried twice and `htmlOverlay.test.ts` pins
+ * the two byte-for-byte. Change them together.
+ */
+export const HTML_LAYER_SVG_CODE = `(src, faces) => {
+  const bleed = Math.max(0, Math.round(src.bleed || 0))
+  const boxW = src.box.width + bleed * 2
+  const boxH = src.box.height + bleed * 2
+  let fontCss = ''
+  for (const f of faces || []) fontCss += "@font-face{font-family:'" + f.family + "';src:url(" + f.dataUri + ") format('woff2');font-weight:" + f.weight + ";font-style:" + f.style + ";font-display:block}"
+  const wrapper = '.vos-html-layer{width:' + boxW + 'px;height:' + boxH + 'px;box-sizing:border-box;margin:0;padding:' + bleed + 'px;font-family:-apple-system,system-ui,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:geometricPrecision}'
+  return '<svg xmlns="http://www.w3.org/2000/svg" width="' + boxW + '" height="' + boxH + '" viewBox="0 0 ' + boxW + ' ' + boxH + '">' +
+    '<foreignObject x="0" y="0" width="' + boxW + '" height="' + boxH + '">' +
+    '<div xmlns="http://www.w3.org/1999/xhtml" class="vos-html-layer">' +
+    '<style>' + fontCss + wrapper + (src.css || '') + '</style>' + src.html +
+    '</div></foreignObject></svg>'
+}`
+
 // Fonts, overlay media and prop assets warm-load here so the first captured
 // frame is complete (preview/export parity). The timeline runtime is installed
 // when the anchor's program did not (a user's config has no reason to).
@@ -123,9 +143,105 @@ export const STUDIO_SETUP = `async (ctx) => {
       ])
     } catch (e) { console.warn('[voila] overlay fonts failed to load', e) }
   }
+  // An HTML layer arrives as SOURCE, and the picture is built HERE.
+  //
+  // Two rules force this shape. An SVG carrying a <foreignObject> is
+  // origin-clean ONLY as a data: URI (served from a URL it taints the canvas
+  // even same-origin, and a tainted frame cannot be uploaded as a WebGL
+  // texture, so every layer vanishes at once), and an SVG loaded through
+  // <img> may fetch nothing of its own, so a @font-face naming a URL is
+  // silently ignored. So the faces are fetched here by ordinary fetch,
+  // inlined, and what lands in the cache is an inline, vector picture under
+  // the clip's content-addressed key.
+  //
+  // Per-clip state on the namespace: htmlWant (the key a clip wants NOW, so a
+  // build a keystroke made stale is dropped before it decodes), htmlLast (the
+  // last picture built for a clip, drawn while the next rasterizes so an edit
+  // never blinks the layer out), htmlKeys (the key in the cache for a clip,
+  // evicted when a new one lands), htmlErrors (why a clip did not decode).
+  // faceData caches a face's bytes by URL across every layer on the page.
+  const htmlSvg = ${HTML_LAYER_SVG_CODE}
+  ns.htmlWant = ns.htmlWant || {}
+  ns.htmlLast = ns.htmlLast || {}
+  ns.htmlKeys = ns.htmlKeys || {}
+  ns.htmlErrors = ns.htmlErrors || {}
+  const faceData = ns.faceData || (ns.faceData = new Map())
+  const faceOf = (f) => {
+    let p = faceData.get(f.url)
+    if (p) return p
+    p = fetch(f.url).then(async (r) => {
+      if (!r.ok) throw new Error('HTTP ' + r.status)
+      const buf = new Uint8Array(await r.arrayBuffer())
+      // Chunked: String.fromCharCode.apply throws on a large spread.
+      let str = ''
+      for (let i = 0; i < buf.length; i += 0x8000) str += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000))
+      return 'data:font/woff2;base64,' + btoa(str)
+    }).catch((e) => {
+      // Fail open per face, and NOT sticky: the layer paints in the fallback
+      // stack now and the next build asks again.
+      faceData.delete(f.url)
+      console.warn('[voila] html layer face failed to load', f.url, e)
+      return ''
+    })
+    faceData.set(f.url, p)
+    return p
+  }
+  const buildHtmlLayer = async (oc) => {
+    const want = () => ns.htmlWant[oc.id] === oc.key
+    ns.htmlWant[oc.id] = oc.key
+    const h = oc.html
+    const uris = await Promise.all((h.faces || []).map(faceOf))
+    if (!want()) return
+    const faces = []
+    for (let i = 0; i < uris.length; i++) {
+      if (uris[i]) faces.push({ family: h.faces[i].family, weight: h.faces[i].weight, style: h.faces[i].style, dataUri: uris[i] })
+    }
+    const svg = htmlSvg({ html: h.markup, css: h.css, box: h.box, bleed: h.bleed }, faces)
+    const uri = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)))
+    const img = await new Promise((res, rej) => {
+      const i = new Image()
+      i.onload = () => res(i)
+      // foreignObject is XML: malformed markup fails to DECODE, silently, and
+      // the layer would simply never appear. Say so instead.
+      i.onerror = () => rej(new Error('did not decode: is the markup well-formed XML?'))
+      i.src = uri
+    })
+    if (!want()) return
+    // A browser that taints a canvas drawing a foreignObject SVG (WebKit's
+    // history) would lose EVERY layer to one SecurityError at the texture
+    // upload. Probe once on a scratch canvas and, failing, drop the HTML
+    // layers and nothing else.
+    if (ns.htmlSafe === undefined) {
+      try {
+        const pc = document.createElement('canvas')
+        pc.width = pc.height = 1
+        const px = pc.getContext('2d')
+        px.drawImage(img, 0, 0, 1, 1)
+        px.getImageData(0, 0, 1, 1)
+        ns.htmlSafe = true
+      } catch (e) {
+        ns.htmlSafe = false
+        console.error('[voila] html layers are off: this browser taints a canvas that draws a foreignObject SVG', e)
+      }
+    }
+    const prev = ns.htmlKeys[oc.id]
+    if (prev && prev !== oc.key) cache.delete(prev)
+    cache.set(oc.key, img)
+    ns.htmlKeys[oc.id] = oc.key
+    ns.htmlLast[oc.id] = img
+    delete ns.htmlErrors[oc.id]
+  }
+  // ON_FRAME is its own function string, so the builder is handed over for a
+  // layer that arrives by live edit after setup has run. A failure is
+  // recorded on the clip and said at the level a render page forwards.
+  ns.buildHtmlLayer = (oc) => buildHtmlLayer(oc).catch((e) => {
+    ns.htmlErrors[oc.id] = String((e && e.message) || e)
+    console.error('[voila] html layer ' + oc.id + ' ' + ns.htmlErrors[oc.id])
+  })
   // Media overlays (V1b): warm-load through the shared cache so the first
   // frame draws complete. Fail-open per clip (a bad key just doesn't draw).
   for (const oc of (ctx.data.overlays || [])) {
+    if (oc.html) { await ns.buildHtmlLayer(oc); continue }
     if (oc.kind !== 'image' && oc.kind !== 'video') continue
     try {
       if (oc.kind === 'image') await loadImage(oc.key)
@@ -400,6 +516,8 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
   for (var oi = 0; oi < ols.length; oi++) {
     var ol0 = ols[oi]
     if (t < ol0.start || t > ol0.start + ol0.dur) continue
+    // A page that taints on foreignObject draws no HTML layer (setup's probe).
+    if (ol0.html && ns.htmlSafe === false) continue
     olVisSig += ol0.id + ':' + (ol0.text || ol0.key) + ':' + ol0.x + ',' + ol0.y + ',' + ol0.scale + ',' + ol0.rot + ',' + (ol0.fs || ol0.w) + ',' + (ol0.color || ol0.radius) + ',' + (ol0.opacity == null ? 1 : ol0.opacity) + (ol0.fx ? ',' + ol0.fx.k + ol0.fx.u + ol0.fx.d + ol0.fx.st : '') + (ol0.mw ? ',w' + ol0.mw : '') + ';'
     // fx widens the entrance window to the whole staggered span (tt);
     // without fx it is the legacy enter transition window.
@@ -411,11 +529,29 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
     if (ol0.track) olAnim = true
     // A layer CARD is painted on its own plane every frame it is visible.
     if (ol0.card) olAnim = true
+    // An HTML layer whose source just changed is rasterizing: keep repainting
+    // until its picture lands, or the edit would not appear until something
+    // else happened to dirty the canvas.
+    if (ol0.html && !(ns.videoCache && ns.videoCache.get(ol0.key))) olAnim = true
     // Video overlays advance every frame; images redraw until decoded.
     if (ol0.kind === 'video') olAnim = true
     else if (ol0.kind === 'image') {
       var olEl0 = ns.videoCache && ns.videoCache.get(ol0.key)
       if (!(olEl0 && olEl0.complete && olEl0.naturalWidth)) olAnim = true
+    }
+  }
+  // A clip that left the document takes its picture with it: the cache
+  // holds decoded images, and a session's edits would otherwise pile up.
+  if (ns.htmlLast) {
+    for (var hlK in ns.htmlLast) {
+      var hlSeen = false
+      for (var hlI = 0; hlI < ols.length; hlI++) if (ols[hlI].id === hlK) { hlSeen = true; break }
+      if (hlSeen) continue
+      if (ns.htmlKeys && ns.htmlKeys[hlK] && ns.videoCache) ns.videoCache.delete(ns.htmlKeys[hlK])
+      delete ns.htmlLast[hlK]
+      if (ns.htmlKeys) delete ns.htmlKeys[hlK]
+      if (ns.htmlWant) delete ns.htmlWant[hlK]
+      if (ns.htmlErrors) delete ns.htmlErrors[hlK]
     }
   }
   var ovSig = W + 'x' + H + '|' + olVisSig
@@ -429,6 +565,18 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
   // picture and the layer card.
   function olAcquire(ol, olT) {
     var olEl = ns.videoCache ? ns.videoCache.get(ol.key) : null
+    // An HTML layer's key is a CACHE HANDLE, not a URL: never hand it to an
+    // <img>. A miss means setup has not built it (a live edit), so ask once
+    // per key and let a later frame pick it up; a build that failed stays
+    // asked, and the next source edit is a new key.
+    if (ol.html) {
+      if (!olEl && ns.buildHtmlLayer) {
+        var hlB = ns.htmlBuilding || (ns.htmlBuilding = {})
+        if (!hlB[ol.key]) { hlB[ol.key] = 1; ns.buildHtmlLayer(ol) }
+      }
+      // While the edited source rasterizes, keep the clip's previous picture.
+      return olEl || (ns.htmlLast && ns.htmlLast[ol.id]) || null
+    }
     if (!olEl && ns.videoCache) {
       if (ol.kind === 'image') {
         olEl = new Image()
@@ -505,6 +653,7 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
     var ol = ols[oj]
     var olT = t - ol.start
     if (olT < 0 || olT > ol.dur) continue
+    if (ol.html && ns.htmlSafe === false) continue
     var olA = 1, olYof = 0, olScl = 1, olBlur = 0
     if (ol.fx && ol.fx.u === 'block') {
       // fx owns the entrance; block unit = the legacy presets generalized

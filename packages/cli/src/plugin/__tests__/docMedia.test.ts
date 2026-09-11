@@ -166,6 +166,24 @@ describe('docMediaRefs: the take’s other media', () => {
 })
 
 describe('docMediaRefs: a media reference is not a file', () => {
+  it('skips an html layer: it has no key, and is never an upload', () => {
+    const d = doc()
+    d.overlays = [
+      {
+        id: 'h0',
+        kind: 'html',
+        start: 0,
+        duration: 2,
+        html: '<div>x</div>',
+        box: { width: 100, height: 40 },
+        transform: { x: 0.5, y: 0.5, scale: 1, rotation: 0 },
+      },
+    ]
+    const before = JSON.stringify(d)
+    expect(docMediaRefs(d).map((r) => r.where)).not.toContain('overlay h0')
+    expect(JSON.stringify(d)).toBe(before)
+  })
+
   it('skips a media:<id> overlay key', () => {
     const d = doc()
     d.overlays = [
