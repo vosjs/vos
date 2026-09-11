@@ -1,6 +1,0 @@
----
-'@vosjs/studio-core': minor
-'@vosjs/cli': minor
----
-
-HTML layers: two rungs. **Images by URL**: an image the source names on `https://assets.vos.so/` (`<img src>`, `url()`) is fetched by the page and inlined the way faces are, keyed by URL in the same cache, so a design system's hosted icon paints; the lint now names any other host as one that paints blank. **Live layers** (`live: true`): the picture is a function of clip-local time. CSS `@keyframes` inside the layer are scrubbed to `t` (paused, delayed by `-t`), and `{{t}}` / `{{data.<name>}}` placeholders in the markup and CSS fill per frame from the clock and the clip's `data`, so a counter, a progress bar or a typed line come out on the timeline's clock in the preview and in every export chunk alike. One rasterize per frame while on screen, keyed by the moment on a 60 Hz grid, one picture per clip in the cache, the last landed picture drawn while the next composes; in capture the build rides the frame settle so the export is exact. A still layer is byte-identical to before. `vos validate` reads `live` and `data`, warns on an authored `animation-delay` under `live`, on placeholders in a still, and no longer on `animation` under `live`.
