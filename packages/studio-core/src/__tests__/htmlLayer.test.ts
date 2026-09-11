@@ -11,10 +11,12 @@ import {
   HTML_LAYER_MAX_BYTES,
   cssFamilies,
   cssWeights,
+  htmlLayerAssets,
   htmlLayerBleedFor,
   htmlLayerFaces,
   htmlLayerKey,
   htmlLayerLabel,
+  htmlLayerPayload,
   htmlLayerPictureBox,
   htmlLayerProblems,
   htmlLayerSvg,
@@ -393,5 +395,138 @@ describe('wellFormedXml: the real question, asked of a real parser', () => {
       ok: false,
       error: 'The markup is not well-formed XML.',
     })
+  })
+})
+
+describe('htmlLayerAssets: images the source names by URL', () => {
+  it('reads src attributes and url() values, deduped, protocol-relative included', () => {
+    const { inlinable, foreign } = htmlLayerAssets({
+      html: '<img src="https://assets.vos.so/i/a.png" /><img src="https://assets.vos.so/i/a.png" /><img src="//x.test/b.png" />',
+      css: '.a{background:url("https://assets.vos.so/i/c.svg")}.b{mask:url(//assets.vos.so/i/d.svg)}',
+    })
+    expect(inlinable).toEqual([
+      'https://assets.vos.so/i/a.png',
+      'https://assets.vos.so/i/c.svg',
+      '//assets.vos.so/i/d.svg',
+    ])
+    expect(foreign).toEqual(['//x.test/b.png'])
+  })
+
+  it('warns on a host the page cannot inline, names it, and says nothing about the hosted one', () => {
+    const list = htmlLayerProblems(
+      clip({
+        html: '<img src="https://assets.vos.so/i/a.png" /><img src="https://x.test/b.png" />',
+      }),
+    )
+    const ext = list.filter((p) => p.code === 'external-resource')
+    expect(ext).toHaveLength(1)
+    expect(ext[0].message).toContain('https://x.test/b.png')
+    expect(ext[0].message).toContain('assets.vos.so')
+  })
+})
+
+describe('htmlLayerProblems: a live layer', () => {
+  it('lets a live layer keep its keyframes: the scrub is the honest form', () => {
+    const css = '.a{animation:spin 1s linear infinite}'
+    expect(codes({ css })).toContain('wall-clock')
+    expect(codes({ css, live: true })).not.toContain('wall-clock')
+  })
+
+  it('warns when a live layer authors animation-delay: the scrub overrides it', () => {
+    const list = htmlLayerProblems(
+      clip({ css: '.a{animation:a 2s;animation-delay:.5s}', live: true }),
+    )
+    const d = list.find((p) => p.code === 'live-delay')
+    expect(d?.level).toBe('warning')
+    expect(d?.message).toContain('animation-delay')
+    expect(codes({ css: '.a{animation:a 2s}', live: true })).toEqual([])
+  })
+
+  it('warns on placeholders in a STILL layer, which shows them as written', () => {
+    expect(codes({ html: '<div>{{t}}</div>' })).toContain('placeholder-still')
+    expect(codes({ html: '<div>{{ data.count }}</div>' })).toContain(
+      'placeholder-still',
+    )
+    expect(codes({ html: '<div>{{t}}</div>', live: true })).toEqual([])
+  })
+})
+
+describe('htmlLayerSvg: assets and the live form', () => {
+  it('swaps every named asset for its bytes, in the markup and the CSS', () => {
+    const svg = htmlLayerSvg(
+      {
+        html: '<img src="https://assets.vos.so/i/a.png" />',
+        css: '.a{background:url(https://assets.vos.so/i/a.png)}',
+        box: { width: 10, height: 10 },
+      },
+      [],
+      [
+        {
+          url: 'https://assets.vos.so/i/a.png',
+          dataUri: 'data:image/png;base64,AAAA',
+        },
+      ],
+    )
+    expect(svg).not.toContain('assets.vos.so')
+    expect(svg.match(/data:image\/png;base64,AAAA/g)).toHaveLength(2)
+  })
+
+  it('a still leaves placeholders as written and carries no scrub block', () => {
+    const svg = htmlLayerSvg({
+      html: '<div>{{t}}</div>',
+      css: '.a{animation:a 2s}',
+      box: { width: 10, height: 10 },
+    })
+    expect(svg).toContain('{{t}}')
+    expect(svg).not.toContain('--vos-t')
+    expect(svg).not.toContain('animation-play-state')
+  })
+
+  it('a live layer fills t and data (escaped as text) and scrubs after the author CSS', () => {
+    const svg = htmlLayerSvg({
+      html: '<div>{{t}} · {{ data.name }} · {{data.missing}}</div>',
+      css: '.a{animation:a 2s}',
+      box: { width: 10, height: 10 },
+      live: true,
+      t: 1.23456,
+      data: { name: 'Tom & <Jerry>' },
+    })
+    expect(svg).toContain('1.235 · Tom &amp; &lt;Jerry&gt; · </div>')
+    expect(svg).toContain('.vos-html-layer{--vos-t:1.235}')
+    expect(svg).toContain(
+      '.vos-html-layer,.vos-html-layer *{animation-play-state:paused!important;animation-delay:calc(var(--vos-t) * -1s)!important}',
+    )
+    // After the author's CSS, so the scrub's !important wins a tie.
+    expect(svg.indexOf('.a{animation:a 2s}')).toBeLessThan(
+      svg.indexOf('animation-play-state'),
+    )
+  })
+})
+
+describe('htmlLayerKey and payload: assets and live', () => {
+  const base = clip({
+    html: '<img src="https://assets.vos.so/i/a.png" />',
+  })
+  it('keys on the named assets, and on live and its data', () => {
+    const k = (c: HtmlOverlayClip) => htmlLayerPayload(c).key
+    expect(k(base)).not.toBe(
+      k({ ...base, html: '<img src="https://assets.vos.so/i/b.png" />' }),
+    )
+    expect(k(base)).not.toBe(k({ ...base, live: true }))
+    expect(k({ ...base, live: true, data: { n: 1 } })).not.toBe(
+      k({ ...base, live: true, data: { n: 2 } }),
+    )
+    // Data without live changes nothing: a still reads no placeholders.
+    expect(k(base)).toBe(k({ ...base, data: { n: 1 } }))
+  })
+
+  it('hands the page the inlinable assets and the live flag with its data', () => {
+    expect(htmlLayerPayload(base).html.assets).toEqual([
+      'https://assets.vos.so/i/a.png',
+    ])
+    expect(htmlLayerPayload(base).html.live).toBeUndefined()
+    const live = htmlLayerPayload({ ...base, live: true, data: { n: 1 } }).html
+    expect(live.live).toBe(true)
+    expect(live.data).toEqual({ n: 1 })
   })
 })

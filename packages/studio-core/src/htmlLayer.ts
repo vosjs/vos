@@ -51,6 +51,14 @@ export interface HtmlLayerSource {
   css?: string
   box: { width: number; height: number }
   bleed?: number
+  /**
+   * A LIVE layer (§3.13): the picture is a function of clip-local time.
+   * `t` is the moment being drawn, `data` the clip's own values for the
+   * `{{data.<name>}}` placeholders. Absent = a still.
+   */
+  live?: boolean
+  t?: number
+  data?: Record<string, string | number | boolean>
 }
 export interface HtmlLayerInlineFace {
   family: string
@@ -58,6 +66,22 @@ export interface HtmlLayerInlineFace {
   style: 'normal' | 'italic'
   dataUri: string
 }
+/** An image the source names by URL, fetched and inlined by the page. */
+export interface HtmlLayerInlineAsset {
+  url: string
+  dataUri: string
+}
+
+/**
+ * The rate a live layer is re-rasterized at: clip-local time is quantised
+ * to this grid, so a frame asks for one picture and two frames at the same
+ * grid step share it. 60 Hz covers every export rate the product offers.
+ * MIRRORED in `HTML_LAYER_LIVE_HZ_CODE`'s user in `lower/studioEntry.ts`.
+ */
+export const HTML_LAYER_LIVE_HZ = 60
+
+/** The host an SVG image's page can fetch an asset from (CORS and the fleet). */
+export const HTML_LAYER_ASSET_HOST = 'https://assets.vos.so/'
 
 // ---------------------------------------------------------------- faces --
 
@@ -194,6 +218,56 @@ export function htmlLayerUnhostedFamilies(
   )
 }
 
+// --------------------------------------------------------------- assets --
+
+/**
+ * The images the source names by URL: `src="https://…"` in the markup and
+ * `url(https://…)` in the CSS. An SVG loaded through <img> fetches nothing,
+ * so the page fetches these the way it fetches faces and the composer
+ * swaps each URL for its bytes. Deduped, in source order. Only a host the
+ * page can fetch (CORS) and the fleet can reach counts as inlinable; the
+ * lint says so about any other.
+ */
+export function htmlLayerAssetUrls(
+  clip: Pick<HtmlOverlayClip, 'html' | 'css'>,
+): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  const add = (u: string) => {
+    if (!seen.has(u)) {
+      seen.add(u)
+      out.push(u)
+    }
+  }
+  // As written in the source (the composer swaps the literal), a
+  // protocol-relative `//host/…` included: it resolves against the page.
+  for (const m of clip.html.matchAll(
+    /\bsrc\s*=\s*["']((?:https?:)?\/\/[^"']+)["']/gi,
+  ))
+    add(m[1])
+  for (const text of [clip.html, clip.css ?? ''])
+    for (const m of text.matchAll(
+      /url\(\s*["']?((?:https?:)?\/\/[^"')\s]+)["']?\s*\)/gi,
+    ))
+      add(m[1])
+  return out
+}
+
+/** The named assets the page can inline, and the ones it cannot. */
+export function htmlLayerAssets(clip: Pick<HtmlOverlayClip, 'html' | 'css'>): {
+  inlinable: string[]
+  foreign: string[]
+} {
+  const inlinable: string[] = []
+  const foreign: string[] = []
+  for (const u of htmlLayerAssetUrls(clip))
+    (u.replace(/^\/\//, 'https://').startsWith(HTML_LAYER_ASSET_HOST)
+      ? inlinable
+      : foreign
+    ).push(u)
+  return { inlinable, foreign }
+}
+
 // ---------------------------------------------------------------- bleed --
 
 /**
@@ -325,7 +399,12 @@ export type HtmlLayerProblemCode =
   | 'shadow-clipped'
   | 'external-resource'
   | 'wall-clock'
+  | 'live-delay'
+  | 'placeholder-still'
   | 'unhosted-family'
+
+/** `{{t}}` or `{{data.<name>}}` anywhere in a text. */
+export const HTML_LAYER_PLACEHOLDER = /\{\{\s*(t|data\.[A-Za-z0-9_.-]+)\s*\}\}/
 
 export interface HtmlLayerProblem {
   code: HtmlLayerProblemCode
@@ -370,7 +449,7 @@ export const HTML_LAYER_FOREIGN_FIELDS = [
  * and in a test.
  */
 export function htmlLayerProblems(
-  clip: Pick<HtmlOverlayClip, 'html' | 'css' | 'bleed' | 'fonts'>,
+  clip: Pick<HtmlOverlayClip, 'html' | 'css' | 'bleed' | 'fonts' | 'live'>,
 ): HtmlLayerProblem[] {
   const html = clip.html ?? ''
   const css = clip.css
@@ -446,27 +525,50 @@ export function htmlLayerProblems(
       `The CSS paints up to ${needed}px outside the component and bleed is ${clip.bleed}, so the shadow is clipped square at the layer's edge. Set bleed to ${needed}, or leave it out to derive it.`,
     )
 
-  // An SVG loaded through <img> fetches nothing: a URL-backed image or
-  // stylesheet in the source paints as a blank.
-  const external =
-    /\b(src|href)\s*=\s*["']\s*(https?:)?\/\//i.test(html) ||
-    /url\(\s*["']?\s*(https?:)?\/\//i.test(css ?? '') ||
-    /url\(\s*["']?\s*(https?:)?\/\//i.test(html)
-  if (external)
+  // An SVG loaded through <img> fetches nothing, so the page fetches what
+  // the source names by URL and inlines it, the way it inlines faces. It
+  // can do that only from the host the page may read (CORS) and the fleet
+  // can reach; anything else paints as a blank.
+  for (const u of htmlLayerAssets({ html, css }).foreign)
     push(
       'external-resource',
       'warning',
-      'The source names a resource by URL. An SVG image fetches nothing, so it will not paint; inline it as a data: URI (faces are inlined for you when the CSS names a hosted family).',
+      `The source names ${u} by URL. The page inlines only ${HTML_LAYER_ASSET_HOST}… (the host it may fetch, and the one the fleet reaches), so this will paint blank. Upload it (vos asset upload) or inline it as a data: URI.`,
+    )
+  if (/\bhref\s*=\s*["']\s*(https?:)?\/\//i.test(html))
+    push(
+      'external-resource',
+      'warning',
+      'The source names a stylesheet or a link by URL. An SVG image fetches no href; inline the styles in the CSS.',
     )
 
-  // A CSS animation inside the layer runs on the WALL CLOCK from decode
+  // A CSS animation inside a STILL layer runs on the WALL CLOCK from decode
   // time, never on the video's t: an export that cold-seeks catches it at an
-  // arbitrary phase and never matches the preview.
-  if (/\b(animation|transition)(-[a-z-]+)?\s*:/i.test(css ?? ''))
+  // arbitrary phase and never matches the preview. A LIVE layer scrubs the
+  // same keyframes to t (paused, delayed by -t), which is the honest form;
+  // it overrides an authored delay to do so.
+  const animated = /\b(animation|transition)(-[a-z-]+)?\s*:/i.test(css ?? '')
+  if (animated && !clip.live)
     push(
       'wall-clock',
       'warning',
-      'CSS animations inside a layer run on the wall clock, not the timeline: the export will not match the preview. Animate the layer with motion and anim instead.',
+      "CSS animations inside a layer run on the wall clock, not the timeline: the export will not match the preview. Set live: true to scrub them to the clip's time, or animate the layer with motion and anim.",
+    )
+  if (clip.live && /\banimation-delay\s*:/i.test(css ?? ''))
+    push(
+      'live-delay',
+      'warning',
+      'A live layer scrubs its keyframes by setting animation-delay to -t, so the authored animation-delay is overridden. Fold the delay into the keyframes instead.',
+    )
+  if (
+    !clip.live &&
+    (HTML_LAYER_PLACEHOLDER.test(html) ||
+      HTML_LAYER_PLACEHOLDER.test(css ?? ''))
+  )
+    push(
+      'placeholder-still',
+      'warning',
+      'The source carries {{t}} or {{data.…}} placeholders, which fill only on a live layer (live: true); a still layer shows them as written.',
     )
 
   for (const family of htmlLayerUnhostedFamilies(clip))
@@ -515,6 +617,17 @@ function fontFaceCss(faces: readonly HtmlLayerInlineFace[]): string {
   return out
 }
 
+/** Clip-local time as it is written into the picture: up to 3 decimals, no trailing zeros. */
+const fmtT = (t: number): string => String(Math.round(t * 1000) / 1000)
+
+/** A placeholder's value, escaped for XML (a value is data, never markup). */
+const escapeXml = (v: string | number | boolean): string =>
+  String(v)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+
 /**
  * The SVG document for a layer: self-contained, laid out in DESIGN units
  * (the viewBox), so the browser rasterizes it at whatever size a frame asks
@@ -522,15 +635,43 @@ function fontFaceCss(faces: readonly HtmlLayerInlineFace[]): string {
  * resets the two properties an SVG document does not inherit sensibly;
  * everything else is the author's.
  *
+ * Assets the source names by URL are swapped for their bytes. A LIVE layer
+ * is composed for one moment: `{{t}}` and `{{data.<name>}}` fill, and a
+ * scrub block after the author's CSS pauses every animation and delays it
+ * by -t, so the browser lays the frame out at exactly that offset (the
+ * standard way to scrub a CSS animation, here applied per picture).
+ *
  * MIRRORED by `HTML_LAYER_SVG_CODE` in `lower/studioEntry.ts`. Change both.
  */
 export function htmlLayerSvg(
   src: HtmlLayerSource,
   faces: readonly HtmlLayerInlineFace[] = [],
+  assets: readonly HtmlLayerInlineAsset[] = [],
 ): string {
   const bleed = Math.max(0, Math.round(src.bleed ?? 0))
   const boxW = src.box.width + bleed * 2
   const boxH = src.box.height + bleed * 2
+  const t = src.t ?? 0
+  const fill = (text: string): string => {
+    let out = text
+    for (const a of assets) out = out.split(a.url).join(a.dataUri)
+    if (src.live) {
+      out = out.replace(/\{\{\s*t\s*\}\}/g, fmtT(t))
+      out = out.replace(
+        /\{\{\s*data\.([A-Za-z0-9_.-]+)\s*\}\}/g,
+        (_m, name: string) => {
+          const v = src.data ? src.data[name] : undefined
+          return v == null ? '' : escapeXml(v)
+        },
+      )
+    }
+    return out
+  }
+  const scrub = src.live
+    ? `.vos-html-layer{--vos-t:${fmtT(t)}}` +
+      `.vos-html-layer,.vos-html-layer *{animation-play-state:paused!important;` +
+      `animation-delay:calc(var(--vos-t) * -1s)!important}`
+    : ''
   const wrapper =
     `.vos-html-layer{width:${boxW}px;height:${boxH}px;` +
     `box-sizing:border-box;margin:0;padding:${bleed}px;` +
@@ -541,8 +682,8 @@ export function htmlLayerSvg(
     `width="${boxW}" height="${boxH}" viewBox="0 0 ${boxW} ${boxH}">` +
     `<foreignObject x="0" y="0" width="${boxW}" height="${boxH}">` +
     `<div xmlns="http://www.w3.org/1999/xhtml" class="vos-html-layer">` +
-    `<style>${fontFaceCss(faces)}${wrapper}${src.css ?? ''}</style>` +
-    src.html +
+    `<style>${fontFaceCss(faces)}${wrapper}${fill(src.css ?? '')}${scrub}</style>` +
+    fill(src.html) +
     `</div></foreignObject></svg>`
   )
 }
@@ -568,9 +709,10 @@ function fnv1a(s: string): string {
  * The key is a handle, never a URL: nothing may fetch it.
  */
 export function htmlLayerKey(
-  clip: Pick<HtmlOverlayClip, 'id' | 'html' | 'css' | 'box'>,
+  clip: Pick<HtmlOverlayClip, 'id' | 'html' | 'css' | 'box' | 'live' | 'data'>,
   faces: readonly HtmlLayerFace[],
   bleed: number,
+  assets: readonly string[] = [],
 ): string {
   const src =
     clip.html +
@@ -583,7 +725,12 @@ export function htmlLayerKey(
     ' ' +
     bleed +
     ' ' +
-    faces.map((f) => `${f.family}:${f.url}:${f.weight}:${f.style}`).join('|')
+    faces.map((f) => `${f.family}:${f.url}:${f.weight}:${f.style}`).join('|') +
+    ' ' +
+    assets.join('|') +
+    // A live layer's picture is also a function of t: ON_FRAME appends the
+    // moment to this key per frame. The data rides here, the moment there.
+    (clip.live ? ' live ' + JSON.stringify(clip.data ?? null) : '')
   return `html:${clip.id}:${fnv1a(src)}`
 }
 
@@ -594,6 +741,11 @@ export interface HtmlLayerPayload {
   box: { width: number; height: number }
   bleed: number
   faces: HtmlLayerFace[]
+  /** Images the source names by URL, for the page to fetch and inline. */
+  assets: string[]
+  /** A live layer: the page composes the picture per frame at clip-local t. */
+  live?: true
+  data?: Record<string, string | number | boolean>
 }
 
 /** Everything the lowering emits for a layer, from the clip alone. */
@@ -604,8 +756,9 @@ export function htmlLayerPayload(clip: HtmlOverlayClip): {
 } {
   const faces = htmlLayerFaces(clip)
   const bleed = htmlLayerBleed(clip)
+  const assets = htmlLayerAssets(clip).inlinable
   return {
-    key: htmlLayerKey(clip, faces, bleed),
+    key: htmlLayerKey(clip, faces, bleed, assets),
     width: htmlLayerWidth(clip),
     html: {
       markup: clip.html,
@@ -613,6 +766,10 @@ export function htmlLayerPayload(clip: HtmlOverlayClip): {
       box: { width: clip.box.width, height: clip.box.height },
       bleed,
       faces,
+      assets,
+      ...(clip.live
+        ? { live: true as const, ...(clip.data ? { data: clip.data } : {}) }
+        : {}),
     },
   }
 }

@@ -441,6 +441,41 @@ describe('lintDoc', () => {
     expect(r.warnings.some((w) => w.includes('data: URI'))).toBe(true)
   })
 
+  it('reads live and data, and turns the wall-clock warning into the scrub rules', () => {
+    const live = withOverlays([
+      htmlClip({
+        live: true,
+        data: { label: 'Rendering', n: 3, on: true },
+        html: '<div>{{data.label}} {{t}}</div>',
+        css: '.a{animation:fill 4s linear forwards;animation-delay:.5s}',
+      }),
+    ])
+    expect(live.problems).toEqual([])
+    expect(live.warnings.some((w) => w.includes('wall clock'))).toBe(false)
+    expect(live.warnings.some((w) => w.includes('animation-delay'))).toBe(true)
+
+    const still = withOverlays([htmlClip({ html: '<div>{{t}}</div>' })])
+    expect(still.warnings.some((w) => w.includes('live: true'))).toBe(true)
+
+    const bad = withOverlays([
+      htmlClip({ live: 'yes', data: { deep: { no: 1 } } } as never),
+    ])
+    expect(bad.problems.some((p) => p.includes('.live must be'))).toBe(true)
+    expect(bad.problems.some((p) => p.includes('.data must be'))).toBe(true)
+  })
+
+  it('names the host an image must be on, and says nothing about a hosted one', () => {
+    const r = withOverlays([
+      htmlClip({
+        html: '<img src="https://assets.vos.so/i/a.png" /><img src="https://x.test/b.png" />',
+      }),
+    ])
+    const ext = r.warnings.filter((w) => w.includes('by URL'))
+    expect(ext).toHaveLength(1)
+    expect(ext[0]).toContain('https://x.test/b.png')
+    expect(ext[0]).toContain('assets.vos.so')
+  })
+
   it('holds an html layer to the media anim table and the fraction transform', () => {
     const r = withOverlays([
       htmlClip({

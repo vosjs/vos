@@ -1309,6 +1309,18 @@ export interface HtmlOverlayClip extends OverlayClipBase {
    * component designed at 452 px lands at 452 px in a 1080p frame.
    */
   width?: number
+  /**
+   * A LIVE layer: the picture is a function of clip-local time. CSS
+   * `@keyframes` inside it are scrubbed to t (paused, delayed by -t), and
+   * `{{t}}` / `{{data.<name>}}` placeholders in the markup and CSS fill per
+   * frame, so a counter, a progress bar or a typed line come out on the
+   * timeline's clock in the preview and in every export chunk alike. One
+   * rasterize per frame while on screen. Absent = a still, byte-identical
+   * to before the field existed.
+   */
+  live?: boolean
+  /** Values for a live layer's `{{data.<name>}}` placeholders. */
+  data?: Record<string, string | number | boolean>
   /** Opacity 0..1. Absent = 1. */
   opacity?: number
 }

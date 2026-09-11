@@ -9,7 +9,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { lerpArray, mapTime, sample } from '@vosjs/timeline'
 import { htmlLayerSvg } from '../htmlLayer'
-import { HTML_LAYER_SVG_CODE } from '../lower/studioEntry'
+import { HTML_LAYER_SVG_CODE, STUDIO_SETUP } from '../lower/studioEntry'
 import {
   DEFAULT_CAM_STYLE,
   DEFAULT_CURSOR_STYLE,
@@ -468,5 +468,158 @@ describe('a kind:html layer, painted', () => {
     expect(vos.htmlKeys).toEqual({})
     expect(vos.htmlWant).toEqual({})
     expect(vos.htmlErrors).toEqual({})
+  })
+
+  it('a LIVE layer asks the builder for THE MOMENT, once, rides the capture settle, and repaints every frame', () => {
+    // The clip starts at 1 s, so t = 2 is clip-local 1 s: moment 60 on the
+    // 60 Hz grid. The same moment in flight is not asked twice; a new
+    // moment is. The build's promise sits on pendingDecodes, which is what
+    // makes a capture settle and paint again with the exact picture.
+    const doc = makeDoc({
+      overlays: [htmlClip({ live: true, css: '.card{animation:a 2s}' })],
+    })
+    const asked: unknown[] = []
+    const pending = new Set<unknown>()
+    const built = Promise.resolve()
+    const vos: Record<string, unknown> = {
+      htmlWant: {} as Record<string, string>,
+      pendingDecodes: pending,
+      buildHtmlLayer: (
+        oc: { id: string },
+        live: { key: string; t: number },
+      ) => {
+        asked.push(live)
+        ;(vos.htmlWant as Record<string, string>)[oc.id] = live.key
+        return built
+      },
+    }
+    const run = makeRunner(doc, new Map(), vos)
+    run.frame(2)
+    expect(asked).toEqual([{ key: keyOf(doc) + '@60', t: 1 }])
+    // Beside the card's own video seek, which the harness's main program
+    // registers on the same set.
+    expect(pending.has(built)).toBe(true)
+    expect(run.ovTex.needsUpdate).toBe(true)
+    run.frame(2)
+    expect(asked).toEqual([{ key: keyOf(doc) + '@60', t: 1 }])
+    run.frame(2.5)
+    expect(asked).toHaveLength(2)
+    expect(asked[1]).toEqual({ key: keyOf(doc) + '@90', t: 1.5 })
+    expect(run.ovTex.needsUpdate).toBe(true)
+  })
+
+  it('a LIVE layer draws the moment when it is cached, and the last landed picture until then', () => {
+    const doc = makeDoc({ overlays: [htmlClip({ live: true })] })
+    const landed = picture(660, 510)
+    const last = picture(10, 10)
+    const run = makeRunner(doc, new Map([[keyOf(doc) + '@60', landed]]), {
+      htmlLast: { h1: last },
+      buildHtmlLayer: () => Promise.resolve(),
+    })
+    run.frame(2)
+    expect(run.draws.some((d) => d[0] === landed)).toBe(true)
+    expect(run.draws.some((d) => d[0] === last)).toBe(false)
+    run.frame(2.5)
+    expect(run.draws.some((d) => d[0] === last)).toBe(true)
+  })
+
+  it('a still layer is byte-identical to before live existed: no moment on its key, one ask', () => {
+    const doc = makeDoc({ overlays: [htmlClip()] })
+    const asked: unknown[][] = []
+    const run = makeRunner(doc, new Map(), {
+      buildHtmlLayer: (...args: unknown[]) => asked.push(args),
+    })
+    run.frame(2)
+    run.frame(2.5)
+    expect(asked).toHaveLength(1)
+    expect((asked[0][0] as { key: string }).key).toBe(keyOf(doc))
+    expect(asked[0][1]).toBeUndefined()
+  })
+})
+
+describe('one composer, two homes: assets and the live form', () => {
+  const pageSvg = new Function(`return (${HTML_LAYER_SVG_CODE})`)() as (
+    src: unknown,
+    faces: unknown,
+    assets: unknown,
+  ) => string
+
+  const cases: [
+    string,
+    Parameters<typeof htmlLayerSvg>[0],
+    Parameters<typeof htmlLayerSvg>[1],
+    Parameters<typeof htmlLayerSvg>[2],
+  ][] = [
+    [
+      'an asset swapped in the markup and the CSS',
+      {
+        html: '<img src="https://assets.vos.so/i/a.png" />',
+        css: '.a{background:url(https://assets.vos.so/i/a.png)}',
+        box: { width: 10, height: 10 },
+      },
+      [],
+      [
+        {
+          url: 'https://assets.vos.so/i/a.png',
+          dataUri: 'data:image/png;base64,AAAA',
+        },
+      ],
+    ],
+    [
+      'live at a moment, with data',
+      {
+        html: '<div>{{t}} {{ data.n }} {{data.s}} {{data.missing}}</div>',
+        css: '.a{animation:a 2s;color:{{data.c}}}',
+        box: { width: 10, height: 10 },
+        live: true,
+        t: 1.23456,
+        data: { n: 1, s: 'a&b<c>"d"', c: 'red' },
+      },
+      [],
+      [],
+    ],
+    [
+      'live with placeholders and no data',
+      {
+        html: '<div>{{t}} {{data.n}}</div>',
+        box: { width: 10, height: 10 },
+        live: true,
+        t: 0,
+      },
+      [],
+      [],
+    ],
+    [
+      'a still with placeholders, untouched',
+      {
+        html: '<div>{{t}}</div>',
+        css: '.a{animation:a 2s}',
+        box: { width: 10, height: 10 },
+      },
+      [],
+      [],
+    ],
+  ]
+
+  for (const [name, src, faces, assets] of cases)
+    it(`the page builder mirrors the pure composer byte for byte: ${name}`, () => {
+      expect(pageSvg(src, faces, assets)).toBe(htmlLayerSvg(src, faces, assets))
+    })
+})
+
+describe('the capture contract for a live layer, on any anchor', () => {
+  // A program anchor installs none of the recording's settle machinery, so
+  // a live layer on one exported a frame behind (measured: the frame at
+  // 1.0 s carried the 0.5 s picture) until the entry installed its own.
+  it('the entry installs the settle wait and a frame-prep hook that asks for the moment before the paint', () => {
+    expect(STUDIO_SETUP).toContain(
+      'ns.pendingDecodes = ns.pendingDecodes || new Set()',
+    )
+    expect(STUDIO_SETUP).toContain(
+      'if (!ns.waitForVideosReady) ns.waitForVideosReady = async () =>',
+    )
+    expect(STUDIO_SETUP).toContain("ns.framePrep.set('vosso.studio', (t) =>")
+    expect(STUDIO_SETUP).toContain('if (!ol.html || !ol.html.live) continue')
+    expect(STUDIO_SETUP).toContain('ns.pendingDecodes.add(p)')
   })
 })
