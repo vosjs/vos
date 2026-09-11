@@ -84,6 +84,35 @@ describe('setDuration capability (T2.5)', () => {
     tl.kill()
   })
 
+  it('pads an EMPTY timeline to the declared duration and marks it a carrier', () => {
+    // Mirrors the generated __asCarrierIfEmpty 1:1 against real gsap. A
+    // program whose createTimeline returns a bare timeline has a 0 s
+    // timeline; the play driver has no end to wrap at, so the transport
+    // counted past the duration forever.
+    const DURATION = 4
+    const asCarrierIfEmpty = (t: gsap.core.Timeline) => {
+      if (DURATION > 0 && !(t.duration() > 0)) {
+        t.to({}, { duration: DURATION, ease: 'none' }, 0)
+        t.data = Object.assign({}, t.data, { vosCarrier: true })
+      }
+      return t
+    }
+    const empty = asCarrierIfEmpty(gsap.timeline({ paused: true }))
+    expect(empty.duration()).toBe(4)
+    expect(empty.data?.vosCarrier).toBe(true)
+    empty.seek(10, false)
+    expect(empty.time()).toBe(4)
+
+    // A timeline with tweens of its own is left exactly as written.
+    const own = gsap.timeline()
+    own.to({}, { duration: 2 })
+    asCarrierIfEmpty(own)
+    expect(own.duration()).toBe(2)
+    expect(own.data?.vosCarrier).toBeUndefined()
+    empty.kill()
+    own.kill()
+  })
+
   it('freeform timelines (no opt-in) get no setDuration', () => {
     // The gate in the generated code — nothing sets tl.data.vosCarrier.
     const tl = gsap.timeline()

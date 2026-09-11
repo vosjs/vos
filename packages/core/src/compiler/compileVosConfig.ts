@@ -307,7 +307,20 @@ export const initVos = async (container, deps) => {
   ${globalComposerSetup}
 
   const createTimeline = ${timelineCreation};
-  let tl = createTimeline(context, content, DURATION);
+  // An EMPTY timeline under a declared duration is a carrier of that length.
+  // A program with no tweens of its own (a ground under studio layers, a
+  // scene that only reads ctx.time) returns a 0 s timeline, and the driver
+  // has no end to wrap at, so the transport counted past the duration
+  // forever. Padded, it wraps at DURATION like every program and retimes
+  // live (setDuration) like the carrier it is.
+  const __asCarrierIfEmpty = (t) => {
+    if (DURATION > 0 && !(t.duration() > 0)) {
+      t.to({}, { duration: DURATION, ease: 'none' }, 0);
+      t.data = Object.assign({}, t.data, { vosCarrier: true });
+    }
+    return t;
+  };
+  let tl = __asCarrierIfEmpty(createTimeline(context, content, DURATION));
   tl.repeat(-1);
   tl.pause();
 ${
@@ -389,7 +402,7 @@ ${
     __resetLayers();
     content = createContent(context, ${setupDataArg});${stack.remount}
     __assignLayers();${hasPerLayer ? '\n    __buildLayerComposers();' : ''}
-    tl = createTimeline(context, content, DURATION);
+    tl = __asCarrierIfEmpty(createTimeline(context, content, DURATION));
     tl.repeat(-1);
     tl.pause();
     if (prevOnUpdate) tl.eventCallback('onUpdate', prevOnUpdate);

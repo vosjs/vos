@@ -110,6 +110,26 @@ describe('engine transport sequences against the vos backend', () => {
     return tl
   }
 
+  it('pads an EMPTY timeline to the declared duration, so the driver has an end to wrap at', () => {
+    // Mirrors the generated __asCarrierIfEmpty against the vos recorder: an
+    // empty timeline records a 0 s duration, which the play driver never
+    // wraps (time ran past the duration forever in the studio).
+    const DURATION = 4
+    const rec = createTweenRecorder()
+    const tl = rec.timeline({ paused: true })
+    expect(tl.duration()).toBe(0)
+    if (DURATION > 0 && !(tl.duration() > 0)) {
+      tl.to({}, { duration: DURATION, ease: 'none' }, 0)
+      tl.data = Object.assign({}, tl.data, { vosCarrier: true })
+    }
+    tl.repeat(-1)
+    tl.pause()
+    expect(tl.duration()).toBe(4)
+    expect((tl.data as { vosCarrier?: boolean }).vosCarrier).toBe(true)
+    tl.seek(10, false)
+    expect(tl.time()).toBe(4)
+  })
+
   it('mirrors the generated __setDuration logic (vosCarrier retiming)', () => {
     const tl = master()
     tl.seek(4, false)

@@ -168,3 +168,24 @@ describe.skipIf(!hasFixtures)('compileVosConfig', () => {
     })
   })
 })
+
+describe('the empty-timeline carrier pad', () => {
+  it('runs every timeline, first and rebuilt, through __asCarrierIfEmpty', () => {
+    const output = compileVosConfig({
+      version: 2,
+      duration: 4,
+      camera: { preset: 'fullscreen' },
+      createContent: '(ctx) => ({ objects: [] })',
+      createTimeline: '(ctx) => ctx.gsap.timeline({ paused: true })',
+    })
+    expect(output).toContain('const __asCarrierIfEmpty = (t) => {')
+    expect(output).toContain(
+      "t.to({}, { duration: DURATION, ease: 'none' }, 0);",
+    )
+    expect(
+      output.match(
+        /__asCarrierIfEmpty\(createTimeline\(context, content, DURATION\)\)/g,
+      ),
+    ).toHaveLength(2)
+  })
+})
