@@ -311,6 +311,24 @@ const EDITS: [string, ProjectDoc][] = [
 
   // --- Overlays ------------------------------------------------------------
   [
+    'FIRST html layer added',
+    {
+      ...base,
+      overlays: [
+        {
+          id: 'h1',
+          kind: 'html',
+          start: 0.5,
+          duration: 2,
+          html: '<div class="card">Open Code</div>',
+          css: ".card{font-family:'Inter';box-shadow:0 20px 40px #000}",
+          box: { width: 452, height: 302 },
+          transform: { x: 0.7, y: 0.5, scale: 1, rotation: 0 },
+        },
+      ],
+    },
+  ],
+  [
     'FIRST text overlay added',
     {
       ...base,

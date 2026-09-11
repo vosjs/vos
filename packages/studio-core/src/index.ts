@@ -202,7 +202,42 @@ export {
 } from './destinations'
 export type { Destination } from './destinations'
 export type { LowerProgramOptions } from './lower/lowerStudioDoc'
-export { STUDIO_ENTRY_ID, studioEntry } from './lower/studioEntry'
+export {
+  HTML_LAYER_SVG_CODE,
+  STUDIO_ENTRY_ID,
+  studioEntry,
+} from './lower/studioEntry'
+export {
+  DESIGN_FRAME_WIDTH,
+  HTML_LAYER_FOREIGN_FIELDS,
+  HTML_LAYER_MAX_BYTES,
+  HTML_LAYER_WARN_BYTES,
+  cssFamilies,
+  cssWeights,
+  htmlLayerBleed,
+  htmlLayerBleedFor,
+  htmlLayerFaces,
+  htmlLayerKey,
+  htmlLayerLabel,
+  htmlLayerPayload,
+  htmlLayerPictureBox,
+  htmlLayerProblems,
+  htmlLayerSvg,
+  htmlLayerText,
+  htmlLayerUnhostedFamilies,
+  htmlLayerWidth,
+  wellFormedXml,
+} from './htmlLayer'
+export type {
+  HtmlLayerFace,
+  HtmlLayerInlineFace,
+  HtmlLayerPayload,
+  HtmlLayerProblem,
+  HtmlLayerProblemCode,
+  HtmlLayerSource,
+} from './htmlLayer'
+export { HTML_STARTERS, htmlStarterClip } from './htmlStarters'
+export type { HtmlStarter } from './htmlStarters'
 export { AUDIO_PLAN_STEP, envelopeAt, studioAudioPlan } from './lower/audioPlan'
 export type {
   AudioPlanPoint,

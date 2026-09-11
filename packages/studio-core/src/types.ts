@@ -954,7 +954,7 @@ export interface EndCard {
  * The first slice ships `kind: 'text'`; image/video kinds are the next slice and extend this
  * union without changing the anchoring or transform model.
  */
-export type OverlayKind = 'text' | 'image' | 'video'
+export type OverlayKind = 'text' | 'image' | 'video' | 'html'
 
 /** Named house text styles — resolved to concrete font/size/color at lowering. */
 export type TextOverlayPreset = 'title' | 'caption' | 'label'
@@ -1249,7 +1249,84 @@ export interface MediaOverlayClip extends OverlayClipBase {
   loop?: boolean
 }
 
-export type OverlayClip = TextOverlayClip | MediaOverlayClip
+/**
+ * A face an HTML layer sets type in that the CATALOG does not host, named by
+ * URL. A catalog family needs no entry here: the lowering finds it from the
+ * family the CSS names (`htmlLayerFaces`). The bytes are never stored: an SVG
+ * loaded through `<img>` may fetch nothing, so the page fetches the face by
+ * ordinary `fetch` at setup and inlines it into the picture.
+ */
+export interface HtmlOverlayFont {
+  family: string
+  url: string
+  weight?: number
+  style?: 'normal' | 'italic'
+}
+
+/**
+ * A layer authored as DOM: markup and CSS, laid out and painted by the
+ * browser itself, composited over the footage like any other picture.
+ *
+ * WHY IT IS SOURCE AND NOT A PICTURE. A product video points at a piece of
+ * UI, and the camera is the only pointing device a recording has: a zoom
+ * magnifies recorded pixels, so the thing the video is about becomes the
+ * blurriest thing on screen. A layer rasterized FROM SOURCE at the size each
+ * frame asks for has no such ceiling.
+ *
+ * WHY THE SOURCE CANNOT BE BAKED INTO A KEY. An SVG carrying a
+ * `<foreignObject>` is origin-clean ONLY as a `data:` URI (served from a URL
+ * it taints the canvas even same-origin, and a tainted frame cannot be
+ * uploaded as a WebGL texture, so every layer disappears), and a `data:` URI
+ * in the document costs tens of kilobytes per face per layer. Keeping the
+ * SOURCE here and building the picture in the page is small in the
+ * document, inline at draw time, and vector at any export size.
+ *
+ * It draws its OWN chrome: shadow, radius, border and any bar are the CSS's,
+ * so the compositor adds none (`shadow`, `radius`, `border`, `frame` are
+ * refused by the lint). It rides every other layer gesture unchanged: the
+ * timing, the fractional transform, `anim`, `motion`, z-order.
+ */
+export interface HtmlOverlayClip extends OverlayClipBase {
+  kind: 'html'
+  /** The markup. Well-formed XML: `foreignObject` is XML, not HTML. */
+  html: string
+  /** The CSS. Scoped by the layer's own wrapper, so plain selectors are fine. */
+  css?: string
+  /** The design box the markup is laid out in, in 1080p design px. */
+  box: { width: number; height: number }
+  /**
+   * Design px of room around the box for what paints OUTSIDE it: a shadow,
+   * a glow, a blur. The SVG viewport clips hard, so without room a shadow is
+   * sliced square at the edge. Absent = derived from the CSS at lowering
+   * (`htmlLayerBleedFor`); stated, it wins.
+   */
+  bleed?: number
+  /** Faces the CSS names that the catalog does not host, by URL. */
+  fonts?: HtmlOverlayFont[]
+  /**
+   * Base width as a fraction of the FRAME width. Absent = the design size,
+   * the picture box (the design box plus its bleed) over 1920, so a
+   * component designed at 452 px lands at 452 px in a 1080p frame.
+   */
+  width?: number
+  /** Opacity 0..1. Absent = 1. */
+  opacity?: number
+}
+
+export type OverlayClip = TextOverlayClip | MediaOverlayClip | HtmlOverlayClip
+
+/**
+ * Does this layer's picture come from a KEY? True for an asset, a take-dir
+ * file or a document media; false for words and for an HTML layer, which
+ * carry their own content.
+ *
+ * A predicate rather than `kind !== 'text'`, because that test silently
+ * became wrong the moment a second contentful kind existed, and the way it
+ * goes wrong is that a re-host tries to re-host something that has no key.
+ */
+export function isKeyedOverlay(c: OverlayClip): c is MediaOverlayClip {
+  return c.kind === 'image' || c.kind === 'video'
+}
 
 /**
  * A layer's own card. The bar is ALLOWED on any card and opens off; its

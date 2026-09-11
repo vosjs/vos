@@ -826,7 +826,47 @@
             "type": "string"
           },
           "kind": {
-            "enum": ["text", "image", "video"]
+            "enum": ["text", "image", "video", "html"]
+          },
+          "html": {
+            "type": "string",
+            "description": "html kind: the layer's MARKUP, well-formed XML (foreignObject is XML, not HTML: <br />, &amp;, quoted attributes). A UI component authored as DOM, laid out and painted by the browser and composited over the footage sharp at any export size. Required for html. No script runs and nothing is fetched: an image or icon inside must be a data: URI; faces are found from the CSS"
+          },
+          "css": {
+            "type": "string",
+            "description": "html kind: the layer's CSS, scoped by the layer's own wrapper (plain selectors are fine). Its box-shadow, border and radius ARE the layer's chrome (the compositor adds none). A font-family it names is resolved against the hosted catalog (GET https://vos.so/api/fonts) at every font-weight it names; an animation or transition inside runs on the wall clock, never the timeline, and validate warns"
+          },
+          "box": {
+            "type": "object",
+            "required": ["width", "height"],
+            "additionalProperties": false,
+            "properties": {
+              "width": { "type": "number", "exclusiveMinimum": 0 },
+              "height": { "type": "number", "exclusiveMinimum": 0 }
+            },
+            "description": "html kind: the design box the markup is laid out in, in 1080p design px (the frame is 1920 wide). Required for html"
+          },
+          "bleed": {
+            "type": "number",
+            "minimum": 0,
+            "description": "html kind: design px of room around the box for what paints OUTSIDE it (a shadow, a glow), or the SVG viewport clips it square. Absent = derived from the CSS's shadows; stated, it wins"
+          },
+          "fonts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["family", "url"],
+              "properties": {
+                "family": { "type": "string" },
+                "url": {
+                  "type": "string",
+                  "description": "https URL of a woff2 face"
+                },
+                "weight": { "type": "number", "minimum": 100, "maximum": 900 },
+                "style": { "enum": ["normal", "italic"] }
+              }
+            },
+            "description": "html kind: faces the CSS names that the catalog does NOT host, by URL (the page fetches and inlines them). A hosted family needs no entry: name it in the CSS"
           },
           "start": {
             "type": "number",
@@ -1103,7 +1143,7 @@
             "type": "number",
             "exclusiveMinimum": 0,
             "maximum": 1,
-            "description": "media kinds: base width as a FRACTION of the frame width (default 0.35); height follows the media's aspect; \u00d7 transform.scale"
+            "description": "media and html kinds: base width as a FRACTION of the frame width (media default 0.35; html default = the design size, the box plus its bleed over 1920); height follows the picture's aspect; \u00d7 transform.scale"
           },
           "radius": {
             "type": "number",
@@ -1114,7 +1154,7 @@
             "type": "number",
             "minimum": 0,
             "maximum": 1,
-            "description": "media kinds: opacity (default 1)"
+            "description": "media and html kinds: opacity (default 1)"
           },
           "loop": {
             "type": "boolean",

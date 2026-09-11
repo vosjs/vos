@@ -123,6 +123,7 @@ import {
   hexToRgbTriplet,
 } from './extractClicks'
 import { cardFields, layerMedia, mediaFrame, sameMedia } from '../media'
+import { htmlLayerPayload } from '../htmlLayer'
 import type { StudioDoc } from '../doc/studioDoc'
 import type { TimelineEdit } from '@vosjs/shared/timelineEdits'
 import type { Keyframe, KeyframeTrack, Segment } from '@vosjs/timeline'
@@ -2490,6 +2491,27 @@ export function studioLayerData(
                 )
                 return track.keyframes.length ? { track } : {}
               })(),
+            }
+            if (o.kind === 'html') {
+              // An HTML layer lowers to an IMAGE clip carrying its SOURCE:
+              // setup builds the picture into the cache under a
+              // content-addressed key and every paint path downstream is the
+              // one a picture already takes. The key is a cache handle, never
+              // a URL; nothing must ever fetch it. The compositor adds no
+              // chrome (the painter casts a clip's shadow from its BOX, and a
+              // layer is mostly transparent bleed, so a 'soft' default came
+              // out as a black rectangle): the CSS is the chrome.
+              const hl = htmlLayerPayload(o)
+              return {
+                ...base,
+                kind: 'image',
+                key: hl.key,
+                w: round(hl.width),
+                radius: 0,
+                shadow: 'none',
+                opacity: round(o.opacity ?? 1),
+                html: hl.html,
+              }
             }
             if (o.kind !== 'text') {
               // Media overlay: sized by frame-width fraction; corners in design

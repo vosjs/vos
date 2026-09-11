@@ -395,6 +395,65 @@ describe('lintDoc', () => {
     expect(r.warnings).toEqual([])
   })
 
+  const htmlClip = (over: Record<string, unknown> = {}) => ({
+    id: 'h0',
+    kind: 'html',
+    start: 1,
+    duration: 3,
+    html: '<div class="card">Open Code</div>',
+    css: ".card{font-family:'Inter';background:#0b0b0d;box-shadow:0 24px 60px rgba(0,0,0,.45)}",
+    box: { width: 452, height: 132 },
+    transform: { x: 0.7, y: 0.5, scale: 1, rotation: 0 },
+    ...over,
+  })
+
+  it('accepts a valid html layer, with nothing to say', () => {
+    const r = withOverlays([htmlClip()])
+    expect(r.problems).toEqual([])
+    expect(r.warnings).toEqual([])
+  })
+
+  it('refuses an html layer that would silently not paint, in words', () => {
+    const r = withOverlays([
+      htmlClip({ html: '<div>Tom & Jerry<br></div>', box: { width: 0 } }),
+    ])
+    expect(r.problems.some((p) => p.includes('&amp;'))).toBe(true)
+    expect(r.problems.some((p) => p.includes('<br />'))).toBe(true)
+    expect(r.problems.some((p) => p.includes('.box must be'))).toBe(true)
+  })
+
+  it("refuses a media clip's fields on an html layer by name", () => {
+    const r = withOverlays([htmlClip({ key: 'x.png', shadow: 'soft' })])
+    expect(r.problems.some((p) => p.includes('"key"'))).toBe(true)
+    expect(r.problems.some((p) => p.includes('"shadow"'))).toBe(true)
+  })
+
+  it('warns on the wall clock, an unhosted family and a URL resource', () => {
+    const r = withOverlays([
+      htmlClip({
+        css: ".a{font-family:'Geist';animation:spin 1s linear infinite}",
+        html: '<img src="https://x.test/a.png" />',
+      }),
+    ])
+    expect(r.problems).toEqual([])
+    expect(r.warnings.some((w) => w.includes('wall clock'))).toBe(true)
+    expect(r.warnings.some((w) => w.includes('Geist'))).toBe(true)
+    expect(r.warnings.some((w) => w.includes('data: URI'))).toBe(true)
+  })
+
+  it('holds an html layer to the media anim table and the fraction transform', () => {
+    const r = withOverlays([
+      htmlClip({
+        anim: { enter: 'typewriter' },
+        transform: { x: 640, y: 360, scale: 1, rotation: 0 },
+      }),
+    ])
+    expect(r.problems.some((p) => p.includes('cannot be "typewriter"'))).toBe(
+      true,
+    )
+    expect(r.problems.some((p) => p.includes('look like PIXELS'))).toBe(true)
+  })
+
   it('flags bad overlay kind, timing, transform, and transitions', () => {
     const r = withOverlays([
       {
