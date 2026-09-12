@@ -79,6 +79,30 @@ describe('momentsFromDoc', () => {
       expect(ms[i].source.in).toBeGreaterThanOrEqual(ms[i - 1].source.in)
   })
 
+  it('a press on a frame-sized element lists as a click moment marked surface', () => {
+    const ev = track()
+    // a press on a 1200×700 panel of the 1280×720 frame, 400 ms after the
+    // second button press: inside the buttons' chain, and set aside from it
+    const panel = { x: 40, y: 10, w: 1200, h: 700 }
+    ev.push({ t: 3000, x: 500, y: 300, type: 'down', button: 0, rect: panel })
+    ev.push({ t: 3100, x: 500, y: 300, type: 'up', button: 0, rect: panel })
+    ev.sort((a, b) => a.t - b.t)
+    const d = projectFromArtifact(
+      { videoKey: 'recording.webm', cursor: ev, meta: meta(20_000) },
+      'recording.webm',
+    ).doc
+    d.zoom = planAutoZoom(d.source.cursor, { width: W, height: H })
+    const ms = momentsFromDoc(d, planForDigest(d))
+    const clicks = ms.filter((m) => m.kind === 'click')
+    const buttons = clicks.find((m) => !m.surface)!
+    const surface = clicks.find((m) => m.surface)!
+    expect(buttons.clicks).toBe(2)
+    expect(buttons.proposed.zoom).toBeDefined() // the buttons keep their zoom
+    expect(surface.clicks).toBe(1)
+    expect(surface.at).toBe(3)
+    expect(surface.rect!.w).toBeCloseTo(1200 / W, 3)
+  })
+
   it('a click cluster carries normalized focus + rect that contain the click', () => {
     const d = doc()
     const ms = momentsFromDoc(d, planForDigest(d))

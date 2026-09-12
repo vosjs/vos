@@ -29,13 +29,28 @@ const DWELL_MAX = 2.6
 /** Min gap between accepted dwell centers (longest dwell wins). */
 const DWELL_SPACING = 1.8
 /**
- * A click cluster whose element FITS the frame at less than this level is
- * not a target: it is a drag (aiming, scrubbing, moving a thing across the
- * canvas) or a frame-sized surface, and a zoom on it says nothing. Five real
- * takes (2026-08-25) each carried 1-4 such clusters, planned at the floor
- * level for 10-25s; every one was dropped by hand. Now they plan nothing.
+ * A press whose element FITS the frame at less than this level is not a
+ * target: it is a drag (aiming, scrubbing, moving a thing across the canvas)
+ * or a frame-sized surface (a canvas, a panel, a modal clicked to focus or
+ * dismiss it), and a zoom on it says nothing. Five real takes (2026-08-25)
+ * each carried 1-4 clusters of these, planned at the floor level for 10-25s;
+ * every one was dropped by hand. Now they plan nothing.
+ *
+ * The rule is PER PRESS, never per cluster: a target cluster's level came
+ * from its LARGEST element, so one press on a panel inside a chain of button
+ * clicks read the whole chain as a drag and threw every zoom away — two real
+ * takes (2026-09-11) lost 5 of 8 and 4 of 4 clicks that way. A surface press
+ * is set aside before clustering; the targets around it keep their zoom.
  */
 export const DRAG_FIT_LEVEL = 1.15
+/**
+ * Two `down`s this close in time and space are ONE press seen twice: a
+ * recorder listening to pointer AND mouse events records each click as a
+ * pair 0-1 ms apart (the extension did for a year). Counting the echo made
+ * every lone click a two-click cluster and doubled the digest's counts.
+ */
+const PRESS_ECHO_MS = 4
+const PRESS_ECHO_PX = 2
 
 // ── typing sessions ────────────────────────────────────────────────────
 /** A session needs at least this many `key` pings (a lone Enter never zooms). */
@@ -114,12 +129,14 @@ export function groupTrack(
     clusterGap: number
     typingGap: number
     typingZoom: boolean
+    /** the style's fill target — what decides a press is on a SURFACE. */
+    targetFill: number
   },
-): { sessions: TypingSession[]; clusters: Click[][] } {
-  const { width, height, clusterGap, typingGap, typingZoom } = opts
-  const clicks: Click[] = track
-    .filter((e) => e.type === 'down')
-    .map((e) => ({ t: e.t / 1000, rect: e.rect, x: e.x, y: e.y }))
+): { sessions: TypingSession[]; clusters: Click[][]; surfaces: Click[][] } {
+  const { width, height, clusterGap, typingGap, typingZoom, targetFill } = opts
+  const clicks: Click[] = dedupePresses(
+    track.filter((e) => e.type === 'down'),
+  ).map((e) => ({ t: e.t / 1000, rect: e.rect, x: e.x, y: e.y }))
 
   const sessions = typingZoom
     ? typingSessions(track, width, height, typingGap)
@@ -143,16 +160,72 @@ export function groupTrack(
     }
   }
 
-  // Merge clusters of clicks that are close in time into one sustained zoom.
-  const clusters: Click[][] = []
+  // Surface presses (DRAG_FIT_LEVEL) are set aside BEFORE clustering, each
+  // press on its own: the targets around one keep their chain. A press that
+  // a typing session absorbed is its field, never a surface.
+  const targets: Click[] = []
+  const surfaces: Click[] = []
   for (const c of clicks) {
     if (absorbed.has(c)) continue
-    const last = clusters.at(-1) // Click[] | undefined
-    const prev = last?.at(-1)
-    if (last && prev && c.t - prev.t <= clusterGap) last.push(c)
-    else clusters.push([c])
+    if (isSurfacePress(c, width, height, targetFill)) surfaces.push(c)
+    else targets.push(c)
   }
-  return { sessions, clusters }
+  // Merge clicks that are close in time into one sustained zoom.
+  const chain = (list: Click[]): Click[][] => {
+    const clusters: Click[][] = []
+    for (const c of list) {
+      const last = clusters.at(-1) // Click[] | undefined
+      const prev = last?.at(-1)
+      if (last && prev && c.t - prev.t <= clusterGap) last.push(c)
+      else clusters.push([c])
+    }
+    return clusters
+  }
+  return { sessions, clusters: chain(targets), surfaces: chain(surfaces) }
+}
+
+/** Drop a `down` that echoes the previous one (PRESS_ECHO_MS/PX). */
+export function dedupePresses(downs: CursorTrack): CursorTrack {
+  const kept: CursorTrack = []
+  for (const e of downs) {
+    const prev = kept.at(-1)
+    if (
+      prev &&
+      e.t - prev.t <= PRESS_ECHO_MS &&
+      Math.abs(e.x - prev.x) <= PRESS_ECHO_PX &&
+      Math.abs(e.y - prev.y) <= PRESS_ECHO_PX
+    ) {
+      continue
+    }
+    kept.push(e)
+  }
+  return kept
+}
+
+/**
+ * The level at which the element fills `targetFill` of the frame — the
+ * planner's zoom level before clamping, and the drag test's measure. Null
+ * without a usable rect (a point press zooms at the ceiling).
+ */
+export function fitLevel(
+  rect: Rect | undefined,
+  width: number,
+  height: number,
+  targetFill: number,
+): number | null {
+  if (!rect || rect.w <= 0 || rect.h <= 0) return null
+  return Math.min((width * targetFill) / rect.w, (height * targetFill) / rect.h)
+}
+
+/** A press on a frame-sized element (a drag, a canvas, a panel): no target. */
+export function isSurfacePress(
+  c: Click,
+  width: number,
+  height: number,
+  targetFill: number,
+): boolean {
+  const fit = fitLevel(c.rect, width, height, targetFill)
+  return fit !== null && fit < DRAG_FIT_LEVEL
 }
 
 export function planAutoZoom(
@@ -179,12 +252,13 @@ export function planAutoZoom(
     typingMinLevel = style.typingMinLevel,
   } = options
 
-  const { sessions, clusters } = groupTrack(track, {
+  const { sessions, clusters, surfaces } = groupTrack(track, {
     width,
     height,
     clusterGap,
     typingGap,
     typingZoom,
+    targetFill,
   })
 
   interface Working {
@@ -200,26 +274,25 @@ export function planAutoZoom(
   // one stray click isn't worth a camera move — dwells may still cover it).
   const eligible = clusters.filter((c) => c.length >= minClusterClicks)
   const clickSpans: Working[] = []
-  // Drag clusters plan no zoom but still RESERVE their window: the cursor
-  // was working there, and the pauses between drags are not dwells.
-  const dragReserved: ZoomSpan[] = []
+  // Surface clusters (drags, canvas and panel presses) plan no zoom but still
+  // RESERVE their window: the cursor was working there, and the pauses
+  // between drags are not dwells.
+  const dragReserved: ZoomSpan[] = surfaces.map((cluster, i) => {
+    const f = clusterFocus(cluster, width, height)
+    return {
+      id: `drag${i}`,
+      in: Math.max(0, cluster[0].t - lead),
+      out: cluster[cluster.length - 1].t + hold,
+      level: 1,
+      cx: f.cx,
+      cy: f.cy,
+    }
+  })
   for (const cluster of eligible) {
     const first = cluster[0]
     const last = cluster[cluster.length - 1]
     // focus point + level from the element rect when present, else the point
     const f = focusFor(cluster, width, height, targetFill, minLevel, maxLevel)
-    // A drag or a frame-sized surface (DRAG_FIT_LEVEL): no zoom at all.
-    if (f.fit !== null && f.fit < DRAG_FIT_LEVEL) {
-      dragReserved.push({
-        id: `drag${dragReserved.length}`,
-        in: Math.max(0, first.t - lead),
-        out: last.t + hold,
-        level: 1,
-        cx: f.cx,
-        cy: f.cy,
-      })
-      continue
-    }
     clickSpans.push({
       in: Math.max(0, first.t - lead),
       out: last.t + hold,
@@ -474,7 +547,7 @@ function focusFor(
   targetFill: number,
   minLevel: number,
   maxLevel: number,
-): { cx: number; cy: number; level: number; fit: number | null } {
+): { cx: number; cy: number; level: number } {
   // Average the rect centers (or points) in the cluster.
   let sx = 0
   let sy = 0
@@ -495,17 +568,14 @@ function focusFor(
   const cx = clamp01(sx / n / width)
   const cy = clamp01(sy / n / height)
 
-  // Level: zoom so the element fills ~targetFill of the frame (element-aware).
-  // No rect → use the max level (point zoom).
-  let level = maxLevel
-  let fit: number | null = null
-  if (maxW > 0 && maxH > 0) {
-    const fitX = (width * targetFill) / maxW
-    const fitY = (height * targetFill) / maxH
-    level = Math.min(fitX, fitY)
-    fit = level
-  }
-  return { cx, cy, level: clamp(level, minLevel, maxLevel), fit }
+  // Level: zoom so the LARGEST element fills ~targetFill of the frame
+  // (element-aware). No rect → the max level (point zoom). Every member
+  // cleared DRAG_FIT_LEVEL on its own (groupTrack), so the level is a
+  // target's, never a surface's.
+  const level =
+    fitLevel({ x: 0, y: 0, w: maxW, h: maxH }, width, height, targetFill) ??
+    maxLevel
+  return { cx, cy, level: clamp(level, minLevel, maxLevel) }
 }
 
 /**
