@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { planAutoZoom } from '../planner/autoZoom'
+import { groupTrack, planAutoZoom } from '../planner/autoZoom'
 import { smoothCursor } from '../planner/smoothing'
 import type { CursorTrack } from '../types'
 
@@ -204,7 +204,9 @@ describe('planAutoZoom', () => {
     expect(snappy[0].focusMode).toBeUndefined()
   })
 
-  it('glide: a lone click earns no zoom (the ≥2-click rule)', () => {
+  it('glide: a lone click earns a zoom (the button press people miss when it goes)', () => {
+    // The ≥2-click rule glide carried was never in effect on a recorded
+    // take: the recorder counted each press twice. Every style is 1 now.
     const track: CursorTrack = [
       {
         t: 1000,
@@ -215,9 +217,107 @@ describe('planAutoZoom', () => {
       },
       { t: 8000, x: 100, y: 100, type: 'move' },
     ]
-    expect(
-      planAutoZoom(track, { width: W, height: H, style: 'glide' }),
-    ).toEqual([])
+    const spans = planAutoZoom(track, { width: W, height: H, style: 'glide' })
+    expect(spans).toHaveLength(1)
+    expect(spans[0].in).toBeCloseTo(0.5, 3)
+    expect(spans[0].out).toBeCloseTo(1.6, 3)
+  })
+
+  it('a surface press inside a target chain sets aside only itself', () => {
+    // The first five seconds of a real take (2026-09-11): four presses on
+    // buttons around ONE press on an 826×630 panel of a 1684×908 frame. The
+    // cluster-wide drag test read the chain's largest element and threw all
+    // five away; the per-press test keeps the four and reserves the one.
+    const w = 1684
+    const h = 908
+    const track: CursorTrack = [
+      {
+        t: 1025,
+        x: 443,
+        y: 416,
+        type: 'down',
+        rect: { x: 414, y: 390, w: 40, h: 40 },
+      },
+      {
+        t: 2195,
+        x: 783,
+        y: 310,
+        type: 'down',
+        rect: { x: 593, y: 167, w: 826, h: 630 },
+      },
+      {
+        t: 3161,
+        x: 783,
+        y: 286,
+        type: 'down',
+        rect: { x: 765, y: 273, w: 36, h: 31 },
+      },
+      {
+        t: 3786,
+        x: 835,
+        y: 371,
+        type: 'down',
+        rect: { x: 814, y: 357, w: 162, h: 33 },
+      },
+      {
+        t: 4494,
+        x: 463,
+        y: 320,
+        type: 'down',
+        rect: { x: 281, y: 305, w: 278, h: 40 },
+      },
+      { t: 9000, x: 100, y: 100, type: 'move' },
+    ]
+    const spans = planAutoZoom(track, { width: w, height: h, style: 'glide' })
+    expect(spans).toHaveLength(1)
+    expect(spans[0].id).toBe('z0')
+    expect(spans[0].in).toBeCloseTo(0.525, 3) // first button 1.025 − lead 0.5
+    expect(spans[0].out).toBeCloseTo(5.094, 3) // last button 4.494 + hold 0.6
+    expect(spans[0].level).toBe(1.8) // the buttons' level, never the panel's
+    const g = groupTrack(track, {
+      width: w,
+      height: h,
+      clusterGap: 3,
+      typingGap: 2.5,
+      typingZoom: true,
+      targetFill: 0.42,
+    })
+    expect(g.clusters.map((c) => c.length)).toEqual([4])
+    expect(g.surfaces.map((c) => c.length)).toEqual([1])
+    expect(g.surfaces[0][0].t).toBe(2.195)
+  })
+
+  it('a press seen twice (a pointer and its mouse echo) is one press', () => {
+    // The extension recorded every click as a pair 0-1 ms apart, ≤1 px
+    // apart. A real double-click, 200 ms apart, stays two presses.
+    const rect = { x: 900, y: 500, w: 120, h: 80 }
+    const echo: CursorTrack = [
+      { t: 1025, x: 443, y: 416, type: 'down', rect },
+      { t: 1026, x: 442, y: 416, type: 'down', rect },
+      { t: 8000, x: 100, y: 100, type: 'move' },
+    ]
+    const dbl: CursorTrack = [
+      { t: 1025, x: 443, y: 416, type: 'down', rect },
+      { t: 1225, x: 443, y: 416, type: 'down', rect },
+      { t: 8000, x: 100, y: 100, type: 'move' },
+    ]
+    const opts = {
+      width: W,
+      height: H,
+      clusterGap: 3,
+      typingGap: 2.5,
+      typingZoom: true,
+      targetFill: 0.42,
+    }
+    expect(groupTrack(echo, opts).clusters.map((c) => c.length)).toEqual([1])
+    expect(groupTrack(dbl, opts).clusters.map((c) => c.length)).toEqual([2])
+    // and the zoom is the same either way
+    expect(planAutoZoom(echo, { width: W, height: H, style: 'glide' })).toEqual(
+      planAutoZoom(
+        echo.filter((_, i) => i !== 1),
+        { width: W, height: H, style: 'glide' },
+      ),
+    )
   })
 
   it('none: the planner emits nothing (manual zooms only)', () => {
@@ -242,19 +342,20 @@ describe('planAutoZoom', () => {
       },
       { t: 8000, x: 100, y: 100, type: 'move' },
     ]
-    // glide's ≥2-click rule drops the lone click…
-    expect(
-      planAutoZoom(track, { width: W, height: H, style: 'glide' }),
-    ).toEqual([])
-    // …unless a doc.zoomParams override relaxes it
-    const spans = planAutoZoom(track, {
-      width: W,
-      height: H,
-      style: 'glide',
-      params: { minClusterClicks: 1 },
-    })
+    // glide zooms the lone click…
+    const spans = planAutoZoom(track, { width: W, height: H, style: 'glide' })
     expect(spans).toHaveLength(1)
-    expect(spans[0].focusMode).toBe('auto') // rest of glide still applies
+    expect(spans[0].focusMode).toBe('auto')
+    // …unless a doc.zoomParams override asks for a cluster (the rest of
+    // glide still applies to what survives)
+    expect(
+      planAutoZoom(track, {
+        width: W,
+        height: H,
+        style: 'glide',
+        params: { minClusterClicks: 2 },
+      }),
+    ).toEqual([])
   })
 
   it('emits nothing for continuous motion (no clicks, no rests)', () => {

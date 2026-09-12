@@ -69,7 +69,13 @@ export interface ZoomStyleParams {
   autoZoom: boolean
   /** clicks within this many seconds merge into one span (session merge). */
   clusterGap: number
-  /** minimum clicks for a cluster to earn a zoom (Cursorful's ≥2 rule). */
+  /**
+   * Minimum clicks for a cluster to earn a zoom. Every style is 1: the
+   * Cursorful ≥2 rule glide and keynote carried was never in effect on a
+   * recorded take (the recorder counted each press twice, so a lone click
+   * was a pair on most pages and a stray on the rest), and the lone click on
+   * a button is the zoom people miss when it goes.
+   */
   minClusterClicks: number
   /** zoom so the clicked element fills ~this fraction of the frame. */
   targetFill: number
@@ -127,7 +133,7 @@ export const ZOOM_STYLES: Record<ZoomStyleName, ZoomStyleParams> = {
   glide: {
     autoZoom: true,
     clusterGap: 3.0,
-    minClusterClicks: 2,
+    minClusterClicks: 1,
     targetFill: 0.42,
     minLevel: 1.3,
     maxLevel: 1.8,
@@ -300,7 +306,7 @@ export const ZOOM_STYLES: Record<ZoomStyleName, ZoomStyleParams> = {
   keynote: {
     autoZoom: true,
     clusterGap: 3.0,
-    minClusterClicks: 2,
+    minClusterClicks: 1,
     targetFill: 0.42,
     minLevel: 1.3,
     maxLevel: 1.8,

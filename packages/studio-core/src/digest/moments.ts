@@ -63,6 +63,12 @@ export interface Moment {
   /** Normalized target bounds (element rect union), when the events had one. */
   rect: NormRect | null
   clicks?: number
+  /**
+   * A click cluster on a frame-sized element (a canvas, a panel, a drag):
+   * the planner frames nothing on it (DRAG_FIT_LEVEL), so a zoom here is
+   * the agent's call, never a proposal.
+   */
+  surface?: boolean
   pings?: number
   /** Motion in the window, 0..1 (fraction of changed pixels), null without frames. */
   activity: number | null
@@ -133,6 +139,7 @@ interface Draft {
   focus: { cx: number; cy: number } | null
   rect: NormRect | null
   clicks?: number
+  surface?: boolean
   pings?: number
 }
 
@@ -168,14 +175,15 @@ export function momentsFromDoc(
   })
 
   if (track.length) {
-    const { sessions, clusters } = groupTrack(track, {
+    const { sessions, clusters, surfaces } = groupTrack(track, {
       width,
       height,
       clusterGap: style.clusterGap,
       typingGap: style.typingGap,
       typingZoom: style.typingZoom,
+      targetFill: style.targetFill,
     })
-    for (const c of clusters) {
+    const pressed = (c: Click[], surface: boolean) => {
       const f = clusterFocus(c, width, height)
       drafts.push({
         kind: 'click',
@@ -187,8 +195,11 @@ export function momentsFromDoc(
         focus: { cx: f.cx, cy: f.cy },
         rect: f.rect,
         clicks: c.length,
+        ...(surface ? { surface: true } : {}),
       })
     }
+    for (const c of clusters) pressed(c, false)
+    for (const c of surfaces) pressed(c, true)
     for (const s of sessions) {
       const f = clusterFocus(s.events, width, height)
       drafts.push({
@@ -323,6 +334,7 @@ export function momentsFromDoc(
           }
         : null,
       ...(d.clicks !== undefined ? { clicks: d.clicks } : {}),
+      ...(d.surface ? { surface: true } : {}),
       ...(d.pings !== undefined ? { pings: d.pings } : {}),
       activity: activityOf(opts.bins, d),
       proposed,
