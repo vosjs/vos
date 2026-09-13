@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { lerpArray, mapTime, sample } from '@vosjs/timeline'
+import type { KeyframeTrack } from '@vosjs/timeline'
 import { lowerToComposition } from '../lower/lowerToComposition'
 import { clampFocus, computeCardLayout, zoomView } from '../layout'
 import {
@@ -134,10 +135,8 @@ describe('ON_FRAME camera parity', () => {
       },
     }
     onFrame(ctx, content, 1 / 30)
-    const track = data.zoomTrack as {
-      keyframes: { time: number; value: number[] }[]
-    }
-    const trackValue = sample(track, t, lerpArray) as number[]
+    const track = data.zoomTrack as KeyframeTrack<number[]>
+    const trackValue = sample(track, t, lerpArray)
     return { calls, trackValue }
   }
 
