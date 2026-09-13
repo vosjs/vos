@@ -130,6 +130,12 @@ export interface ZoomStyleParams {
 
 export const ZOOM_STYLES: Record<ZoomStyleName, ZoomStyleParams> = {
   // Cursorful strategy — one steady zoom per activity session, travel by pans.
+  // The camera's timing was measured against a Cursorful take of the same
+  // steps: a zoom-in of ~0.55 s on a heavy ease-out (most of the move in
+  // the first quarter second, a long settle), a zoom-out of ~0.45 s, and
+  // holds of four to five seconds per beat. The old 1.1 s ramp started
+  // 0.75 s BEFORE the click and landed 0.35 s after it, so the frame was
+  // moving more of the time than it was resting.
   glide: {
     autoZoom: true,
     clusterGap: 3.0,
@@ -137,22 +143,22 @@ export const ZOOM_STYLES: Record<ZoomStyleName, ZoomStyleParams> = {
     targetFill: 0.42,
     minLevel: 1.3,
     maxLevel: 1.8,
-    lead: 0.5,
-    hold: 0.6,
+    lead: 0.35,
+    hold: 1.2,
     followByDefault: true,
     typingZoom: true,
     typingGap: 2.5,
     typingHold: 1.1,
     typingMinLevel: 1.4,
-    rampIn: 1.1,
-    rampInOverlap: 0.35,
-    rampOut: 1.0,
-    chainGap: 2.5,
-    pan: 1.0,
-    ease: 'css-bezier(0.26, 0, 0.16, 1)',
-    panEase: 'css-bezier(0.3, 0, 0.2, 1)',
+    rampIn: 0.55,
+    rampInOverlap: 0.2,
+    rampOut: 0.5,
+    chainGap: 3.0,
+    pan: 0.55,
+    ease: 'css-bezier(0.16, 1, 0.3, 1)',
+    panEase: 'css-bezier(0.22, 1, 0.36, 1)',
     followSafeRatio: 0.45,
-    followRecenter: 0.8,
+    followRecenter: 0.55,
     followLookahead: 0.4,
     tilt: { intensity: 'off' },
   },
