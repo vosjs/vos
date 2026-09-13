@@ -195,8 +195,8 @@ describe('planAutoZoom', () => {
     ]
     const glide = planAutoZoom(track, { width: W, height: H, style: 'glide' })
     expect(glide).toHaveLength(1)
-    expect(glide[0].in).toBeCloseTo(0.5, 3) // click 1.0s − lead 0.5
-    expect(glide[0].out).toBeCloseTo(4.6, 3) // last click 4.0s + hold 0.6
+    expect(glide[0].in).toBeCloseTo(0.65, 3) // click 1.0s − lead 0.35
+    expect(glide[0].out).toBeCloseTo(5.2, 3) // last click 4.0s + hold 1.2
     expect(glide[0].focusMode).toBe('auto') // camera follows the cursor
     expect(glide[0].level).toBeLessThanOrEqual(1.8) // modest ceiling
     const snappy = planAutoZoom(track, { width: W, height: H, style: 'snappy' })
@@ -219,8 +219,8 @@ describe('planAutoZoom', () => {
     ]
     const spans = planAutoZoom(track, { width: W, height: H, style: 'glide' })
     expect(spans).toHaveLength(1)
-    expect(spans[0].in).toBeCloseTo(0.5, 3)
-    expect(spans[0].out).toBeCloseTo(1.6, 3)
+    expect(spans[0].in).toBeCloseTo(0.65, 3)
+    expect(spans[0].out).toBeCloseTo(2.2, 3)
   })
 
   it('a surface press inside a target chain sets aside only itself', () => {
@@ -271,8 +271,8 @@ describe('planAutoZoom', () => {
     const spans = planAutoZoom(track, { width: w, height: h, style: 'glide' })
     expect(spans).toHaveLength(1)
     expect(spans[0].id).toBe('z0')
-    expect(spans[0].in).toBeCloseTo(0.525, 3) // first button 1.025 − lead 0.5
-    expect(spans[0].out).toBeCloseTo(5.094, 3) // last button 4.494 + hold 0.6
+    expect(spans[0].in).toBeCloseTo(0.675, 3) // first button 1.025 − lead 0.35
+    expect(spans[0].out).toBeCloseTo(5.694, 3) // last button 4.494 + hold 1.2
     expect(spans[0].level).toBe(1.8) // the buttons' level, never the panel's
     const g = groupTrack(track, {
       width: w,
@@ -395,7 +395,7 @@ describe('planAutoZoom — typing sessions (TZ)', () => {
     const spans = planAutoZoom(track, { width: W, height: H, style: 'glide' })
     expect(spans).toHaveLength(1)
     expect(spans[0].id).toBe('k0')
-    expect(spans[0].in).toBeCloseTo(0.5, 3) // absorbed click 1.0s − lead 0.5
+    expect(spans[0].in).toBeCloseTo(0.65, 3) // absorbed click 1.0s − lead 0.35
     expect(spans[0].out).toBeCloseTo(3.7, 3) // last ping 2.6s + typingHold 1.1
     expect(spans[0].cx).toBeCloseTo(FX / W, 3) // frames the FIELD
     expect(spans[0].cy).toBeCloseTo(FY / H, 3)
