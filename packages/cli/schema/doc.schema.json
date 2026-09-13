@@ -518,6 +518,11 @@
               "enum": ["contain", "cover"],
               "description": "How footage meets an off-ratio frame. contain (default) letterboxes the card onto the background; cover makes the padded area the card and fills it with footage, cropped around `focus` \u2014 what a 440x280 store tile or a 2.5:1 marquee demands"
             },
+            "camera": {
+              "type": "string",
+              "enum": ["card", "stage"],
+              "description": "The zoom camera's model. card (absent; every older take) is the magnifier: the card scales about the focus, which stays where it is on screen, and the focus is clamped so the zoomed card always covers the canvas. stage is a camera: the card scales and slides so the focus lands at the frame's centre, the focus is never clamped, and past the card's edge the frame shows the ground. New takes open on stage"
+            },
             "focus": {
               "type": "object",
               "additionalProperties": false,
@@ -662,6 +667,9 @@
                   },
                   "fit": {
                     "$ref": "#/oneOf/0/properties/frame/properties/fit"
+                  },
+                  "camera": {
+                    "$ref": "#/oneOf/0/properties/frame/properties/camera"
                   },
                   "focus": {
                     "$ref": "#/oneOf/0/properties/frame/properties/focus"

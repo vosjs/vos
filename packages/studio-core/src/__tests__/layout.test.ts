@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CAMERA_CENTRE_RAMP,
+  CAMERA_COVER_MIN,
+  cameraCentring,
+  cameraModel,
   clampFocus,
   computeCardLayout,
   docCardLayout,
   focusBounds,
+  focusForViewportCentre,
   levelForFocusFraction,
+  zoomView,
+  zoomViewport,
 } from '../layout'
 import { DEFAULT_BROWSER_BAR, DEFAULT_FRAME_STYLE } from '../types'
 import type { CardLayout } from '../layout'
@@ -192,5 +199,117 @@ describe('levelForFocusFraction (the corner drag is a level drag)', () => {
   it('a degenerate size means the tightest zoom, not NaN', () => {
     expect(levelForFocusFraction(0)).toBe(5)
     expect(levelForFocusFraction(-1)).toBe(5)
+  })
+})
+
+describe('the camera models (zoomView / zoomViewport / focusForViewportCentre)', () => {
+  const l = computeCardLayout(
+    DEFAULT_FRAME_STYLE,
+    { width: 1600, height: 900 },
+    1920,
+    1080,
+  )
+
+  it('the magnifier is the old "scale about the focus" window, written the long way', () => {
+    for (const level of [1.2, 1.5, 1.8, 2.5])
+      for (const [cx, cy] of [
+        [0.5, 0.5],
+        [0.2, 0.8],
+        [0.9, 0.1],
+      ]) {
+        const v = zoomViewport(level, cx, cy, l, 'card')
+        const fx = l.dx + cx * l.dw
+        const fy = l.dy + cy * l.dh
+        expect(v.x * l.W).toBeCloseTo(fx - fx / level, 6)
+        expect(v.y * l.H).toBeCloseTo(fy - fy / level, 6)
+        expect(v.w).toBeCloseTo(1 / level, 9)
+      }
+  })
+
+  it('the stage camera puts the focus at the frame centre once the centring has ramped in', () => {
+    for (const level of [1 + CAMERA_CENTRE_RAMP, 1.5, 1.8, 3])
+      for (const [cx, cy] of [
+        [0, 1],
+        [1, 0],
+        [0.05, 0.5],
+        [0.5, 0.5],
+      ]) {
+        const v = zoomView(level, cx, cy, l, 'stage')
+        expect(v.wcx).toBeCloseTo(v.fx, 6)
+        expect(v.wcy).toBeCloseTo(v.fy, 6)
+        const p = zoomViewport(level, cx, cy, l, 'stage')
+        expect((p.x + p.w / 2) * l.W).toBeCloseTo(v.fx, 6)
+        expect((p.y + p.h / 2) * l.H).toBeCloseTo(v.fy, 6)
+      }
+  })
+
+  it('both models are the identity at level 1 and continuous just above it', () => {
+    for (const camera of ['card', 'stage'] as const) {
+      const at1 = zoomViewport(1, 0.05, 0.9, l, camera)
+      expect(at1).toEqual({ x: 0, y: 0, w: 1, h: 1 })
+      const just = zoomViewport(1.001, 0.05, 0.9, l, camera)
+      expect(Math.abs(just.x)).toBeLessThan(0.01)
+      expect(Math.abs(just.y)).toBeLessThan(0.01)
+    }
+    expect(cameraCentring(1)).toBe(0)
+    expect(cameraCentring(1 + CAMERA_CENTRE_RAMP)).toBe(1)
+    expect(cameraCentring(1 + CAMERA_CENTRE_RAMP / 2)).toBeCloseTo(0.5, 9)
+  })
+
+  it('the stage camera clamps only to the cover band; the magnifier to the whole frame', () => {
+    for (const level of [1.5, 1.8, 2.5, 4]) {
+      const stage = focusBounds(level, l, 'stage')
+      // The band, analytically: the focus may come within b/L of the card's
+      // edge, b = CAMERA_COVER_MIN/2 of the frame. (The magnifier's bounds
+      // are not comparable: they bound where the WINDOW may sit, and a
+      // focus at its bound puts the target at the frame's edge; here a
+      // focus at the bound puts the target at the centre.)
+      const b = (CAMERA_COVER_MIN / 2) * l.W
+      expect(stage.minX).toBeCloseTo((l.cardX + b / level - l.dx) / l.dw, 9)
+      expect(stage.maxX).toBeCloseTo(
+        (l.cardX + l.cardW - b / level - l.dx) / l.dw,
+        9,
+      )
+      expect(clampFocus(0.5, 0.5, level, l, 'stage')).toEqual({
+        cx: 0.5,
+        cy: 0.5,
+      })
+      // A corner focus lands where the card's corner leaves exactly
+      // (1 − CAMERA_COVER_MIN) / 2 of the frame as ground on each side.
+      const f = clampFocus(0, 0, level, l, 'stage')
+      const v = zoomViewport(level, f.cx, f.cy, l, 'stage')
+      const cornerX = (l.cardX - v.x * l.W) * level // screen px of the card's left edge
+      expect(cornerX / l.W).toBeCloseTo((1 - CAMERA_COVER_MIN) / 2, 3)
+    }
+    // Level 1 pins to the centre in both (nothing to aim).
+    expect(focusBounds(1, l, 'stage')).toEqual(focusBounds(1, l, 'card'))
+  })
+
+  it('focusForViewportCentre inverts the viewport centre in both models', () => {
+    for (const camera of ['card', 'stage'] as const)
+      for (const level of [1.15, 1.3, 1.8, 2.5])
+        for (const [cx, cy] of [
+          [0.5, 0.5],
+          [0.15, 0.85],
+          [0.95, 0.2],
+        ]) {
+          const p = zoomViewport(level, cx, cy, l, camera)
+          const f = focusForViewportCentre(
+            p.x + p.w / 2,
+            p.y + p.h / 2,
+            level,
+            l,
+            camera,
+          )
+          expect(f.cx).toBeCloseTo(cx, 6)
+          expect(f.cy).toBeCloseTo(cy, 6)
+        }
+  })
+
+  it('cameraModel reads the frame field, absent = the magnifier', () => {
+    expect(cameraModel(undefined)).toBe('card')
+    expect(cameraModel({})).toBe('card')
+    expect(cameraModel({ camera: 'stage' })).toBe('stage')
+    expect(cameraModel({ camera: 'card' })).toBe('card')
   })
 })

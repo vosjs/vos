@@ -44,7 +44,13 @@ import {
   totalDuration,
 } from '@vosjs/timeline'
 import { timelineRuntimeCode } from '@vosjs/timeline/bundle'
-import { camBubbleRect, clampFocus, docCardLayout } from '../layout'
+import {
+  CAMERA_CENTRE_RAMP,
+  camBubbleRect,
+  cameraModel,
+  clampFocus,
+  docCardLayout,
+} from '../layout'
 import { smoothCursor } from '../planner/smoothing'
 import {
   BACKGROUND_Z,
@@ -1861,9 +1867,28 @@ const ON_FRAME = `(ctx, content, dt) => {
   // ceZs = the zoom transform's device scale, for the two values below that
   // are sized in DEVICE pixels inside a scaled user space.
   var ceZs = 1
+  // The camera model (cfr.camera; MIRRORS layout.ts zoomView — change them
+  // together). The magnifier scales the card about the focus, which stays
+  // where it is on screen; the stage camera also slides the card so the
+  // focus lands at the frame's centre, blended in over CAMERA_CENTRE_RAMP
+  // of level (a smoothstep, 0 at level 1) so a ramp through the band slides
+  // without a kink, and past the card's edge the ground shows. wcx/wcy is
+  // the content point at the frame's centre under either model; the two
+  // branches are the same map, the magnifier's kept in its old float order
+  // so every existing document renders byte-identically.
+  var camStage = cfr.camera === 'stage'
+  var fx = dx + zx * dw, fy = dy + zy * dh
+  var wcx = fx, wcy = fy
   if (lvl > 1.001 && !d.zoomSuppressed) {
-    var fx = dx + zx * dw, fy = dy + zy * dh
-    c.translate(fx, fy); c.scale(lvl, lvl); c.translate(-fx, -fy)
+    if (camStage) {
+      var ctu = Math.max(0, Math.min(1, (lvl - 1) / ${CAMERA_CENTRE_RAMP}))
+      var ctt = ctu * ctu * (3 - 2 * ctu)
+      wcx = fx + ((W / 2 - fx) / lvl) * (1 - ctt)
+      wcy = fy + ((H / 2 - fy) / lvl) * (1 - ctt)
+      c.translate(W / 2, H / 2); c.scale(lvl, lvl); c.translate(-wcx, -wcy)
+    } else {
+      c.translate(fx, fy); c.scale(lvl, lvl); c.translate(-fx, -fy)
+    }
     ceZs = lvl
   }
   // The card's shadows are cast by a body drawn OFF-CANVAS and brought back
@@ -2178,7 +2203,10 @@ const ON_FRAME = `(ctx, content, dt) => {
     // moving: each pass leaves its point, mapped out of the zoom.
     if (trOut) {
       var tqX = ax, tqY = ay
-      if (lvl > 1.001 && !d.zoomSuppressed) { tqX = fx + (ax - fx) * lvl; tqY = fy + (ay - fy) * lvl }
+      if (lvl > 1.001 && !d.zoomSuppressed) {
+        if (camStage) { tqX = W / 2 + (ax - wcx) * lvl; tqY = H / 2 + (ay - wcy) * lvl }
+        else { tqX = fx + (ax - fx) * lvl; tqY = fy + (ay - fy) * lvl }
+      }
       if (tpG) trQa = [tqX, tqY]
       else { trQb = [tqX, tqY]; trQs = curSize * ckPress; trQw = s2 }
     } else if (cuA > 0.01) {
@@ -2705,6 +2733,9 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
   const layout = docCardLayout(doc)
   const meta = doc.source.meta
   const zoomStyle = resolveZoomStyle(doc.zoomStyle, doc.zoomParams)
+  // The frame's camera model: the stage camera never clamps (the window may
+  // show the ground past the card), the magnifier always does.
+  const camera = cameraModel(doc.frame)
   const zoomSpans: LoweredZoomSpan[] = restSpansThroughTransitions(
     doc.zoom,
     rated,
@@ -2721,12 +2752,16 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
           safeRatio: zoomStyle.followSafeRatio,
           recenter: zoomStyle.followRecenter,
           lookahead: zoomStyle.followLookahead,
+          camera,
         },
       )
       if (f.entry)
         return { ...z, cx: f.entry.cx, cy: f.entry.cy, followEvents: f.events }
     }
-    return { ...z, ...clampFocus(z.cx, z.cy, clampZoomLevel(z.level), layout) }
+    return {
+      ...z,
+      ...clampFocus(z.cx, z.cy, clampZoomLevel(z.level), layout, camera),
+    }
   })
 
   const data = {
