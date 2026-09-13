@@ -100,7 +100,9 @@ export function projectFromArtifact(
     segments: [{ in: 0, out: artifact.meta.durationMs / 1000 }], // canonical full-source span
     zoom: [], // planner runs once the doc is loaded (editor) or planned (CLI)
     audio: [],
-    cursor: { ...DEFAULT_CURSOR_STYLE },
+    // A new take wears the OS pointer; DEFAULT_CURSOR_STYLE keeps the dot
+    // so a document that stores it renders as it was cut.
+    cursor: { ...DEFAULT_CURSOR_STYLE, style: 'arrow' },
     cam: { ...DEFAULT_CAM_STYLE },
     frame: {
       ...baseFrame,
