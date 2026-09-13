@@ -67,9 +67,10 @@ describe('lowerToComposition', () => {
     expect(data.frame).toEqual(DEFAULT_FRAME_STYLE)
   })
 
-  it('clamps span focus so the zoomed card always covers the canvas', () => {
+  it('clamps span focus so the zoomed card always covers the canvas (the magnifier)', () => {
     const { data } = lowerToComposition({
       ...doc,
+      frame: { ...DEFAULT_FRAME_STYLE, camera: 'card' },
       zoom: [{ id: 'z0', in: 1, out: 2, level: 5, cx: 0, cy: 1 }],
     })
     const arrival = (data.zoomTrack as { keyframes: { value: number[] }[] })
@@ -77,6 +78,23 @@ describe('lowerToComposition', () => {
     expect(arrival.value[0]).toBe(5)
     expect(arrival.value[1]).toBeGreaterThan(0) // cx pulled off the raw edge
     expect(arrival.value[2]).toBeLessThan(1) // cy likewise
+  })
+
+  it('clamps a focus only to the cover band under the stage camera (a new take opens on it)', () => {
+    expect(DEFAULT_FRAME_STYLE.camera).toBe('stage')
+    const { data } = lowerToComposition({
+      ...doc,
+      zoom: [{ id: 'z0', in: 1, out: 2, level: 5, cx: 0, cy: 1 }],
+    })
+    const arrival = (data.zoomTrack as { keyframes: { value: number[] }[] })
+      .keyframes[1]
+    expect(arrival.value[0]).toBe(5)
+    // Pulled off the raw corner by the band only: far less than the
+    // magnifier's pull at the same level.
+    expect(arrival.value[1]).toBeGreaterThan(0)
+    expect(arrival.value[1]).toBeLessThan(0.12)
+    expect(arrival.value[2]).toBeLessThan(1)
+    expect(arrival.value[2]).toBeGreaterThan(0.88)
   })
 
   it('emits a Canvas2D compositor (setup loads video, onFrame paints from ctx.data)', () => {

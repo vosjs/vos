@@ -45,6 +45,7 @@ import {
   recommendedExportResolution,
   spanOutputExtent,
   zoomCoversRect,
+  cameraModel,
 } from '@vosjs/studio-core'
 import { TYPEFACE_CATALOG, findFontFamily, findTypeface } from '@vosjs/shared'
 import type {
@@ -810,6 +811,12 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
         if (v !== undefined && (!isNum(v) || v < 0 || v > 1)) {
           problems.push(`frame.${k} must be 0..1 (got ${String(v)})`)
         }
+      }
+      const cam = frame.camera
+      if (cam !== undefined && cam !== 'card' && cam !== 'stage') {
+        problems.push(
+          `frame.camera must be "card" or "stage" (got ${String(cam)}); absent = card, the clamped magnifier every older take was cut with`,
+        )
       }
     }
 
@@ -1709,7 +1716,13 @@ function framingWarnings(
       }
       const rect = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
       if (
-        !zoomCoversRect({ level: z.level, cx: z.cx, cy: z.cy }, rect, layout)
+        !zoomCoversRect(
+          { level: z.level, cx: z.cx, cy: z.cy },
+          rect,
+          layout,
+          0.02,
+          cameraModel(docIn.frame),
+        )
       ) {
         warnings.push(
           `${spanName('zoom', z)}: points beside what was clicked at ${under[0].t.toFixed(1)}s — the target (center ${((x0 + x1) / 2).toFixed(2)}, ${((y0 + y1) / 2).toFixed(2)}) sits outside the visible window; move cx/cy toward it or lower the level`,

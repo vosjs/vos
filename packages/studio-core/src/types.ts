@@ -883,6 +883,20 @@ export interface FrameStyle {
    * crops. Absent = center. Ignored under contain.
    */
   focus?: { cx: number; cy: number }
+  /**
+   * The zoom camera's model. `'card'` (absent; every existing document) is
+   * the magnifier: the card scales about the focus point, which stays where
+   * it is on screen, and the lowering clamps the focus so the zoomed card
+   * always covers the canvas, which means a target near a card edge can
+   * never sit near the frame's centre. `'stage'` is a camera: the card
+   * scales AND slides so the focus lands at the frame's centre (blended in
+   * over the first CAMERA_CENTRE_RAMP of level, so level 1 is the identity),
+   * the focus is never clamped, and past the card's edge the frame shows
+   * the ground, radius and shadow, the way a filmed card reads. New takes
+   * open on `'stage'` (BASE_FRAME_STYLE); the layout helpers, the digest's
+   * framing window and the studio's aiming rect all read this field.
+   */
+  camera?: 'card' | 'stage'
   aspectRatio: string
   browserBar: BrowserBarStyle
   /**
@@ -1711,6 +1725,10 @@ export const BASE_FRAME_STYLE: FrameStyle = {
   radius: 12,
   shadow: 0.4,
   border: 0,
+  // The stage camera: a new take's zoom centres its target and shows the
+  // ground past the card's edge. A document without the field keeps the
+  // clamped magnifier it was cut with (see FrameStyle.camera).
+  camera: 'stage',
   // 'native' = the recording's own aspect ratio (meta.width/height). See ASPECT_RATIOS.
   aspectRatio: 'native',
   browserBar: DEFAULT_BROWSER_BAR,
