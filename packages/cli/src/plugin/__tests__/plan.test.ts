@@ -152,7 +152,7 @@ describe('planTake', () => {
     const doc = await readJson<ProjectDoc>(join(dir, 'doc.json'))
     const typing = doc.zoom.filter((z) => z.id.startsWith('k'))
     expect(typing).toHaveLength(1)
-    expect(typing[0].in).toBeCloseTo(0, 3) // absorbed click 0.5s − lead 0.5
+    expect(typing[0].in).toBeCloseTo(0.15, 3) // absorbed click 0.5s − lead 0.35
     expect(typing[0].out).toBeCloseTo(2.8, 3) // last ping 1.7s + typingHold 1.1
     expect(typing[0].cx).toBeCloseTo(560 / 1280, 2) // the field, not the mouse
   })

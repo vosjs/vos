@@ -86,13 +86,14 @@ export function followFocusEvents(
     }))
   if (!pts.length) return { entry: null, events: [] }
 
-  // Entry: the last sample at/before span.in (the first sample if none precede).
-  let entryPt = pts[0]
-  for (const p of pts) {
-    if (p.t > span.in) break
-    entryPt = p
-  }
-  const entry = clampFocus(entryPt.nx, entryPt.ny, level, layout, camera)
+  // Entry: the span's OWN focus. The planner derived it from the clicked
+  // element's rect (or a hand wrote it), and that is where the camera must
+  // land; the follow then steers from there. Seeding from the cursor's
+  // last sample before span.in landed the camera where the pointer was
+  // `lead` seconds before it reached the target, and the first correction
+  // could not fire for another recenter period, so a click zoom opened
+  // beside its target every time.
+  const entry = clampFocus(span.cx, span.cy, level, layout, camera)
 
   // Exit threshold in normalized VIDEO units: the visible crop spans W/level
   // canvas px → (W/level)/dw of the video's width; half of that is the
