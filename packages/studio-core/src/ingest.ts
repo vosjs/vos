@@ -117,7 +117,9 @@ export function projectFromArtifact(
         url: pageDisplayUrl(artifact.meta.pageUrl),
       },
     },
-    export: { resolution: '1080p', fps: 30, format: 'mp4' },
+    // 60 fps: the footage duplicates frames, the camera does not, and a
+    // 0.5 s glide at 30 fps is fifteen visible steps.
+    export: { resolution: '1080p', fps: 60, format: 'mp4' },
   }
   return { doc, videoUrl }
 }

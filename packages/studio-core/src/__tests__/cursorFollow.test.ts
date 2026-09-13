@@ -38,16 +38,16 @@ const moves = (pts: [number, number, number][]): CursorTrack =>
   }))
 
 describe('followFocusEvents', () => {
-  it('enters at the cursor position at span.in', () => {
+  it("enters at the span's own focus, never at the cursor's pre-click position", () => {
     const track = moves([
       [0, 0.2, 0.3],
-      [1500, 0.3, 0.4], // last sample before span.in = 2s
+      [1500, 0.3, 0.4], // last sample before span.in = 2s: NOT the entry
       [5000, 0.31, 0.41],
     ])
     const { entry } = followFocusEvents(span, track, SPACE, layout)
     expect(entry).not.toBeNull()
-    expect(entry!.cx).toBeCloseTo(0.3, 2)
-    expect(entry!.cy).toBeCloseTo(0.4, 2)
+    expect(entry!.cx).toBeCloseTo(span.cx, 6)
+    expect(entry!.cy).toBeCloseTo(span.cy, 6)
   })
 
   it('recenters only when the cursor exits the safe zone', () => {
@@ -132,10 +132,10 @@ describe('follow spans through the lowering', () => {
     const track = lowerToComposition(doc).data.zoomTrack as KeyframeTrack<
       number[]
     >
-    // entry focus = cursor at span.in (0.3, 0.3-ish, clamped)
+    // entry focus = the span's own focus (the target), not the cursor
     const atHoldStart = sample(track, 2.5, lerpArray)
     expect(atHoldStart[0]).toBe(2)
-    expect(atHoldStart[1]).toBeLessThan(0.5) // entered at the cursor, not span.cx
+    expect(atHoldStart[1]).toBeCloseTo(0.5, 3) // entered on the target
     // after the recenter glide the focus moved toward the cursor
     const late = sample(track, 5.5, lerpArray)
     expect(late[1]).toBeGreaterThan(atHoldStart[1])
