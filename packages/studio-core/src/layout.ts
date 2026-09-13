@@ -267,11 +267,39 @@ export interface FocusBounds {
  * the bounds cross — collapse to their midpoint (the least-uncovered focus;
  * 0.5 for a centered card, matching OpenScreen's margin collapse).
  */
-export function focusBounds(level: number, layout: CardLayout): FocusBounds {
+export function focusBounds(
+  level: number,
+  layout: CardLayout,
+  camera: CameraModel = 'card',
+): FocusBounds {
   if (level <= 1.001) {
     // Identity transform — focus is irrelevant; pin to center like OpenScreen
     // (margin = min(0.5, ratio/2L) also collapses to [0.5, 0.5] at L = 1).
     return { minX: 0.5, maxX: 0.5, minY: 0.5, maxY: 0.5 }
+  }
+  if (camera === 'stage') {
+    // The stage camera clamps only to the cover band: the card must still
+    // cover the central CAMERA_COVER_MIN of the frame at the apex, so a
+    // corner target sits near the centre with a strip of ground beside it
+    // rather than half a frame of it (a centred corner would put the card's
+    // edge at the centre).
+    const x = stageAxisBounds(
+      layout.dx,
+      layout.dw,
+      layout.cardX,
+      layout.cardW,
+      layout.W,
+      level,
+    )
+    const y = stageAxisBounds(
+      layout.dy,
+      layout.dh,
+      layout.cardY,
+      layout.cardH,
+      layout.H,
+      level,
+    )
+    return { minX: x.min, maxX: x.max, minY: y.min, maxY: y.max }
   }
   const x = axisBounds(
     layout.dx,
@@ -317,14 +345,41 @@ function axisBounds(
   return { min: clamp01(lo), max: clamp01(hi) }
 }
 
+/**
+ * The stage camera's axis bounds. With the focus centred, the frame's
+ * central band of half-width `b = CAMERA_COVER_MIN / 2 · viewport` shows
+ * content [f − b/L, f + b/L]; requiring that inside the cover range gives
+ * f ∈ [o + b/L, o + c − b/L]. Bounds that cross (a level too low for the
+ * band) collapse to their midpoint, like the magnifier's.
+ */
+function stageAxisBounds(
+  anchorOff: number,
+  anchorSize: number,
+  coverOff: number,
+  coverSize: number,
+  viewport: number,
+  level: number,
+): { min: number; max: number } {
+  const b = (CAMERA_COVER_MIN / 2) * viewport
+  let lo = (coverOff + b / level - anchorOff) / anchorSize
+  let hi = (coverOff + coverSize - b / level - anchorOff) / anchorSize
+  if (lo > hi) {
+    const mid = (lo + hi) / 2
+    lo = mid
+    hi = mid
+  }
+  return { min: clamp01(lo), max: clamp01(hi) }
+}
+
 /** Clamp a focus point into the bounds for its zoom level. */
 export function clampFocus(
   cx: number,
   cy: number,
   level: number,
   layout: CardLayout,
+  camera: CameraModel = 'card',
 ): { cx: number; cy: number } {
-  const b = focusBounds(level, layout)
+  const b = focusBounds(level, layout, camera)
   return {
     cx: Math.min(b.maxX, Math.max(b.minX, cx)),
     cy: Math.min(b.maxY, Math.max(b.minY, cy)),
@@ -333,6 +388,126 @@ export function clampFocus(
 
 function clamp01(v: number): number {
   return Math.max(0, Math.min(1, v))
+}
+
+/**
+ * The zoom camera's model (FrameStyle.camera): the clamped magnifier every
+ * existing document was cut with, or the stage camera a new take opens on.
+ */
+export type CameraModel = 'card' | 'stage'
+
+/** The frame's camera model; absent = the magnifier. */
+export function cameraModel(
+  frame: { camera?: string | null } | null | undefined,
+): CameraModel {
+  return frame?.camera === 'stage' ? 'stage' : 'card'
+}
+
+/**
+ * How much of the level the stage camera spends pulling the focus to the
+ * frame's centre: 0 at level 1 (the identity), fully centred from level
+ * 1 + CAMERA_CENTRE_RAMP. A smoothstep, so a ramp that passes through the
+ * band slides the card without a kink.
+ */
+export const CAMERA_CENTRE_RAMP = 0.3
+
+/**
+ * The fraction of the frame (each axis, centred) the card must still cover
+ * at a stage-camera apex. 0.8 leaves a strip of ground a tenth of the
+ * frame wide beside a corner target, the composition a filmed card reads
+ * as; 1 would be the magnifier's rule, 0 no clamp at all.
+ */
+export const CAMERA_COVER_MIN = 0.8
+
+/** 0..1: the stage camera's centring at `level` (MIRRORS ON_FRAME). */
+export function cameraCentring(level: number): number {
+  const u = clamp01((level - 1) / CAMERA_CENTRE_RAMP)
+  return u * u * (3 - 2 * u)
+}
+
+/**
+ * The zoom transform at one instant, in canvas px: content point p maps to
+ * `(ox + (p.x − wcx)·level, oy + (p.y − wcy)·level)`. `fx/fy` is the focus
+ * in canvas px; `wcx/wcy` is the content point that lands at the frame's
+ * centre `ox/oy`. Under the magnifier `wc = f + (o − f) / L`, which is the
+ * old "scale about the focus" transform written the long way (the focus
+ * stays where it is on screen); under the stage camera that pull toward
+ * the focus fades out with cameraCentring, so `wc → f` and the target sits
+ * at the centre. ON_FRAME's zoom block mirrors this — change them together
+ * (layout.test.ts pins the pair).
+ */
+export interface ZoomView {
+  level: number
+  fx: number
+  fy: number
+  wcx: number
+  wcy: number
+  ox: number
+  oy: number
+}
+
+export function zoomView(
+  level: number,
+  cx: number,
+  cy: number,
+  layout: CardLayout,
+  camera: CameraModel = 'card',
+): ZoomView {
+  const L = Math.max(1, level)
+  const fx = layout.dx + cx * layout.dw
+  const fy = layout.dy + cy * layout.dh
+  const ox = layout.W / 2
+  const oy = layout.H / 2
+  const t = camera === 'stage' ? cameraCentring(L) : 0
+  const wcx = fx + ((ox - fx) / L) * (1 - t)
+  const wcy = fy + ((oy - fy) / L) * (1 - t)
+  return { level: L, fx, fy, wcx, wcy, ox, oy }
+}
+
+/**
+ * The visible window as fractions of the canvas (x/y its top-left, w/h its
+ * size, both 1/level): what the studio's aiming rect draws and what the
+ * framing lint tests a click rect against. The window may leave the card
+ * under the stage camera; it never does under the magnifier once the focus
+ * is clamped.
+ */
+export function zoomViewport(
+  level: number,
+  cx: number,
+  cy: number,
+  layout: CardLayout,
+  camera: CameraModel = 'card',
+): { x: number; y: number; w: number; h: number } {
+  const v = zoomView(level, cx, cy, layout, camera)
+  const size = 1 / v.level
+  return {
+    x: (v.wcx - layout.W / (2 * v.level)) / layout.W,
+    y: (v.wcy - layout.H / (2 * v.level)) / layout.H,
+    w: size,
+    h: size,
+  }
+}
+
+/**
+ * The inverse of zoomViewport's centre: the focus (normalized video coords)
+ * that puts the visible window's centre at canvas fractions `cX/cY` at
+ * `level`. The aiming rect's corner drag re-derives its focus through this
+ * so the rect stays under the pointer in either camera model.
+ */
+export function focusForViewportCentre(
+  cX: number,
+  cY: number,
+  level: number,
+  layout: CardLayout,
+  camera: CameraModel = 'card',
+): { cx: number; cy: number } {
+  const L = Math.max(1, level)
+  const t = camera === 'stage' ? cameraCentring(L) : 0
+  const a = 1 - (1 - t) / L
+  if (a <= 1e-6) return { cx: 0.5, cy: 0.5 }
+  const fx = (cX * layout.W - ((layout.W / 2) * (1 - t)) / L) / a
+  const fy = (cY * layout.H - ((layout.H / 2) * (1 - t)) / L) / a
+  return { cx: (fx - layout.dx) / layout.dw, cy: (fy - layout.dy) / layout.dh }
 }
 
 /**

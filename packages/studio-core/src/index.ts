@@ -249,15 +249,28 @@ export type { StudioEntry } from './lower/studioEntry'
 export type { LoweredZoomSpan } from './lower/lowerToComposition'
 export type { MotionKey } from './lower/lowerToComposition'
 export {
+  CAMERA_CENTRE_RAMP,
+  CAMERA_COVER_MIN,
   camBubbleRect,
+  cameraCentring,
+  cameraModel,
   clampFocus,
   computeCardLayout,
   docCardLayout,
   focusBounds,
+  focusForViewportCentre,
   levelForFocusFraction,
   recommendedExportResolution,
+  zoomView,
+  zoomViewport,
 } from './layout'
-export type { CamBubbleRect, CardLayout, FocusBounds } from './layout'
+export type {
+  CamBubbleRect,
+  CameraModel,
+  CardLayout,
+  FocusBounds,
+  ZoomView,
+} from './layout'
 export {
   DARK_GROUND,
   HOUSE_GRADIENT,

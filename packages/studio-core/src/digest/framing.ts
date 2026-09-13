@@ -7,8 +7,8 @@
  * two together. Lowering clamps the focus first (clampFocus), so the window
  * is computed from the clamped focus, exactly what renders.
  */
-import { clampFocus } from '../layout'
-import type { CardLayout } from '../layout'
+import { clampFocus, zoomViewport } from '../layout'
+import type { CameraModel, CardLayout } from '../layout'
 import type { NormRect } from './moments'
 
 export interface ZoomWindow {
@@ -18,19 +18,23 @@ export interface ZoomWindow {
   y1: number
 }
 
-/** The visible window in normalized video coords at `level` around the focus. */
+/**
+ * The visible window in normalized video coords at `level` around the
+ * focus, under the frame's camera model (absent = the magnifier, whose
+ * focus is clamped first exactly as the lowering clamps it).
+ */
 export function zoomWindow(
   span: { level: number; cx: number; cy: number },
   layout: CardLayout,
+  camera: CameraModel = 'card',
 ): ZoomWindow {
   const L = Math.max(1, span.level)
-  const { cx, cy } = clampFocus(span.cx, span.cy, L, layout)
-  const fx = layout.dx + cx * layout.dw
-  const fy = layout.dy + cy * layout.dh
-  const px0 = fx - fx / L
-  const px1 = fx + (layout.W - fx) / L
-  const py0 = fy - fy / L
-  const py1 = fy + (layout.H - fy) / L
+  const { cx, cy } = clampFocus(span.cx, span.cy, L, layout, camera)
+  const v = zoomViewport(L, cx, cy, layout, camera)
+  const px0 = v.x * layout.W
+  const px1 = (v.x + v.w) * layout.W
+  const py0 = v.y * layout.H
+  const py1 = (v.y + v.h) * layout.H
   return {
     x0: (px0 - layout.dx) / layout.dw,
     x1: (px1 - layout.dx) / layout.dw,
@@ -49,9 +53,10 @@ export function zoomCoversRect(
   rect: NormRect,
   layout: CardLayout,
   tol = 0.02,
+  camera: CameraModel = 'card',
 ): boolean {
   if (span.level <= 1.001) return true
-  const w = zoomWindow(span, layout)
+  const w = zoomWindow(span, layout, camera)
   return (
     rect.x >= w.x0 - tol &&
     rect.x + rect.w <= w.x1 + tol &&

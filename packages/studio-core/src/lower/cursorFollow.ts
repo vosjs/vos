@@ -29,7 +29,7 @@
 import { clampFocus } from '../layout'
 import { clampZoomLevel } from '../types'
 import { ZOOM_STYLES } from '../zoomStyle'
-import type { CardLayout } from '../layout'
+import type { CameraModel, CardLayout } from '../layout'
 import type { CursorTrack, ZoomSpan } from '../types'
 
 /** Legacy defaults (= the default style's values); prefer FollowOptions. */
@@ -43,6 +43,8 @@ export interface FollowOptions {
   recenter?: number
   /** target the cursor this many seconds ahead of the exit moment. */
   lookahead?: number
+  /** the frame's camera model: the stage camera never clamps a focus. */
+  camera?: CameraModel
 }
 
 export interface FollowEvent {
@@ -68,6 +70,7 @@ export function followFocusEvents(
   const safeRatio = options.safeRatio ?? FOLLOW_SAFE_RATIO
   const recenter = options.recenter ?? FOLLOW_RECENTER
   const lookahead = options.lookahead ?? 0
+  const camera = options.camera ?? 'card'
   const level = clampZoomLevel(span.level)
   if (!cursor.length || !space.w || !space.h || level <= 1.001) {
     return { entry: null, events: [] }
@@ -89,7 +92,7 @@ export function followFocusEvents(
     if (p.t > span.in) break
     entryPt = p
   }
-  const entry = clampFocus(entryPt.nx, entryPt.ny, level, layout)
+  const entry = clampFocus(entryPt.nx, entryPt.ny, level, layout, camera)
 
   // Exit threshold in normalized VIDEO units: the visible crop spans W/level
   // canvas px → (W/level)/dw of the video's width; half of that is the
@@ -110,7 +113,7 @@ export function followFocusEvents(
       // Look-ahead: aim at where the cursor will be, not where it was.
       const target =
         lookahead > 0 ? sampleAt(pts, Math.min(p.t + lookahead, span.out)) : p
-      const f = clampFocus(target.nx, target.ny, level, layout)
+      const f = clampFocus(target.nx, target.ny, level, layout, camera)
       // The clamp can pin distinct cursor points to the same focus — skip no-ops.
       if (Math.abs(f.cx - cx) < 1e-3 && Math.abs(f.cy - cy) < 1e-3) continue
       events.push({ t: round(p.t), cx: round(f.cx), cy: round(f.cy) })
