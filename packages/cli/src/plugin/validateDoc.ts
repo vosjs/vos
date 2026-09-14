@@ -44,6 +44,7 @@ import {
   findStep,
   outputEnd,
   pinBox,
+  pinCandidates,
   pinRectOnScreen,
   pinReferent,
   ratedSegments,
@@ -1882,6 +1883,23 @@ function framingWarnings(
       const tf = isObj(o.transform) ? o.transform : null
       if (!tf || !isNum(tf.x) || !isNum(tf.y)) return
       const pinned = pins.get(String(o.id))
+      // An unpinned callout-shaped layer (html or media) whose window holds
+      // a step with an element: name the pin it could carry.
+      if (
+        !pinned &&
+        o.pin === undefined &&
+        (o.kind === 'html' || o.kind === 'image' || o.kind === 'video')
+      ) {
+        const cands = pinCandidates(docIn, {
+          start: o.start,
+          duration: o.duration,
+        })
+        if (cands.length) {
+          warnings.push(
+            `overlays[${i}] is not pinned, and ${cands.length === 1 ? 'a step with an element sits' : 'steps with an element sit'} inside its window: ${cands.map((c) => `${String(c.step)} (${c.do}${c.selector ? ` ${c.selector}` : ''})`).join(', ')} — a callout about one of them says so: pin: { step: "${String(cands[0].step)}" }`,
+          )
+        }
+      }
       if (pinned) {
         if (pinned.clamped > 4) {
           warnings.push(
