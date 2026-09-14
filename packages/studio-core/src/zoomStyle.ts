@@ -155,8 +155,13 @@ export const ZOOM_STYLES: Record<ZoomStyleName, ZoomStyleParams> = {
     rampOut: 0.5,
     chainGap: 3.0,
     pan: 0.55,
-    ease: 'css-bezier(0.16, 1, 0.3, 1)',
-    panEase: 'css-bezier(0.22, 1, 0.36, 1)',
+    // The reference's corner trace at 60 fps: a quarter of the move by a
+    // fifth of the time, two thirds by half, the rest a settle. That is
+    // CSS `ease` (0.25, 0.1, 0.25, 1), a small lead-in and a long tail;
+    // (0.16, 1, 0.3, 1) put half the move in the first sixty milliseconds
+    // and read as a twitch.
+    ease: 'css-bezier(0.25, 0.1, 0.25, 1)',
+    panEase: 'css-bezier(0.3, 0.05, 0.25, 1)',
     followSafeRatio: 0.45,
     followRecenter: 0.55,
     followLookahead: 0.4,
