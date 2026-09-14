@@ -9,6 +9,20 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { writeJson } from './take'
 import { capReached, cappedLine, clampWait } from './recordingCap'
+import {
+  PRESS_HOLD_MS,
+  PRESS_LEAD_MS,
+  SCROLL_SETTLE_MS,
+  TRAILING_HOLD_MS,
+  askedMs,
+  clockMotion,
+  clockTyping,
+  paceLine,
+  paceReport,
+  pointerTravelMs,
+  settleMs,
+} from './pace'
+import type { PaceReport, StepPace } from './pace'
 import type { Browser } from 'playwright'
 import type {
   CursorEvent,
@@ -44,6 +58,8 @@ export interface RecordResult {
   events: CursorEvent[]
   frames: FrameRec[]
   meta: RecordingMeta
+  /** The take's pace: what the script asked, what the gestures added, what the page cost. */
+  pace: PaceReport
   /** steps whose selector never became visible — the take continued without them. */
   skipped: SkippedStep[]
   /** the initial goto never reached networkidle (recording proceeded anyway). */
@@ -65,9 +81,7 @@ export interface RecordOpts {
   maxDurationSeconds?: number
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-const easeInOutCubic = (u: number) =>
-  u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 
 /** Minimal JPEG SOF parse for real encoded dimensions. */
 function jpegDims(buf: Buffer): { w: number; h: number } | null {
@@ -153,27 +167,42 @@ export async function recordTake(
   await page.mouse.move(cur.x, cur.y)
   emit({ x: cur.x, y: cur.y, type: 'move' })
 
+  const clock = { now: () => Date.now(), sleep }
+  // The pointer's travel is driven by the CLOCK (pace.ts): its position is
+  // a function of the elapsed time and it ends when the travel's duration
+  // has elapsed, so a page that answers each mouse.move slowly costs
+  // samples, never seconds. Every sample the page took is a cursor event
+  // at its real time, which is what the smoothing and the follow read.
   const moveTo = async (tx: number, ty: number) => {
     const dist = Math.hypot(tx - cur.x, ty - cur.y)
-    const dur = Math.min(1200, Math.max(350, dist * 1.4))
-    const steps = Math.max(6, Math.round(dur / 16))
     const from = { ...cur }
-    for (let i = 1; i <= steps; i++) {
-      const u = easeInOutCubic(i / steps)
-      cur.x = from.x + (tx - from.x) * u
-      cur.y = from.y + (ty - from.y) * u
-      await page.mouse.move(cur.x, cur.y)
-      emit({ x: Math.round(cur.x), y: Math.round(cur.y), type: 'move' })
-      await sleep(14)
-    }
+    await clockMotion(
+      pointerTravelMs(dist),
+      async (u) => {
+        cur.x = from.x + (tx - from.x) * u
+        cur.y = from.y + (ty - from.y) * u
+        await page.mouse.move(cur.x, cur.y)
+        emit({ x: Math.round(cur.x), y: Math.round(cur.y), type: 'move' })
+      },
+      clock,
+    )
   }
 
   const boxOf = async (selector: string): Promise<Rect | null> => {
     const loc = page.locator(selector).first()
     try {
       await loc.waitFor({ state: 'visible', timeout: 8000 })
+      const before = await page
+        .evaluate(() => [window.scrollX, window.scrollY])
+        .catch(() => [0, 0])
       await loc.scrollIntoViewIfNeeded()
-      await sleep(250)
+      const after = await page
+        .evaluate(() => [window.scrollX, window.scrollY])
+        .catch(() => before)
+      // A lookup that scrolled the page lets the scroll land; one that
+      // did not costs nothing.
+      if (before[0] !== after[0] || before[1] !== after[1])
+        await sleep(SCROLL_SETTLE_MS)
       const bb = await loc.boundingBox()
       if (!bb) return null
       return { x: bb.x, y: bb.y, w: bb.width, h: bb.height }
@@ -185,7 +214,7 @@ export async function recordTake(
 
   const clickAt = async (rect: Rect) => {
     await moveTo(rect.x + rect.w / 2, rect.y + rect.h / 2)
-    await sleep(120)
+    await sleep(PRESS_LEAD_MS)
     emit({
       x: Math.round(cur.x),
       y: Math.round(cur.y),
@@ -194,7 +223,7 @@ export async function recordTake(
       rect,
     })
     await page.mouse.down()
-    await sleep(90)
+    await sleep(PRESS_HOLD_MS)
     await page.mouse.up()
     emit({
       x: Math.round(cur.x),
@@ -211,6 +240,7 @@ export async function recordTake(
   // script (`vos plan --reuse`). Every step that STARTED is recorded; a
   // skipped selector is marked, never silently absent.
   const stepSpans: StepSpan[] = []
+  const paces: StepPace[] = []
   let capped = false
   for (const [stepIdx, step] of actions.steps.entries()) {
     // The cap is checked between steps (a step is one gesture and runs
@@ -221,6 +251,16 @@ export async function recordTake(
       break
     }
     const stepStart = now()
+    // The gesture the recorder adds by design around this step's ask: the
+    // pointer's travel, the press, the settle. Everything else the step's
+    // wall time holds is the page's (a slow round trip, a scroll landing).
+    let gestureMs = 0
+    const gesture = async <T>(fn: () => Promise<T>): Promise<T> => {
+      const t = now()
+      const out = await fn()
+      gestureMs += now() - t
+      return out
+    }
     const skippedBefore = skipped.length
     // A step that changes the page's URL (a click that navigates, the
     // wait that lets the load land) is marked: the planner proposes a
@@ -240,7 +280,7 @@ export async function recordTake(
         const rect = await boxOf(step.selector)
         stepRect = rect
         if (rect) {
-          await moveTo(rect.x + rect.w / 2, rect.y + rect.h / 2)
+          await gesture(() => moveTo(rect.x + rect.w / 2, rect.y + rect.h / 2))
           log(`hover ${step.selector}`)
           await sleep(step.ms ?? 700) // parked cursor = dwell signal for the planner
         } else
@@ -251,9 +291,9 @@ export async function recordTake(
         const rect = await boxOf(step.selector)
         stepRect = rect
         if (rect) {
-          await clickAt(rect)
+          await gesture(() => clickAt(rect))
           log(`click ${step.selector}`)
-          await sleep(500)
+          await gesture(() => sleep(settleMs(step)))
         } else
           skipped.push({ step: stepIdx, do: step.do, selector: step.selector })
         break
@@ -266,7 +306,7 @@ export async function recordTake(
           // only finishes earlier typing (a submitting Enter) passes
           // focus:false: the field is already focused and a second click
           // rings a click effect on empty space beside the text.
-          if (step.focus !== false) await clickAt(rect)
+          if (step.focus !== false) await gesture(() => clickAt(rect))
           // Typing-activity pings (TZ): one per ~350ms while characters land,
           // plus one at completion so the planner's hold starts at the true
           // typing end. When-and-where only — a ping never carries the text.
@@ -281,17 +321,21 @@ export async function recordTake(
               rect,
             })
           let lastPing = -Infinity
-          for (const ch of step.text) {
-            if (now() - lastPing >= 350) {
-              lastPing = now()
-              ping()
-            }
-            await page.keyboard.type(ch)
-            await sleep(delay)
-          }
+          await clockTyping(
+            [...step.text],
+            delay,
+            async (ch) => {
+              if (now() - lastPing >= 350) {
+                lastPing = now()
+                ping()
+              }
+              await page.keyboard.type(ch)
+            },
+            clock,
+          )
           ping()
           log(`type "${step.text}" into ${step.selector}`)
-          await sleep(300)
+          await gesture(() => sleep(settleMs(step)))
         } else
           skipped.push({ step: stepIdx, do: step.do, selector: step.selector })
         break
@@ -304,7 +348,7 @@ export async function recordTake(
           emit({ x: Math.round(cur.x), y: Math.round(cur.y), type: 'scroll' })
           await sleep(40)
         }
-        await sleep(400)
+        await gesture(() => sleep(settleMs(step)))
         break
       }
       case 'drag': {
@@ -329,8 +373,8 @@ export async function recordTake(
           start = { x: step.x, y: step.y }
         }
         if (!start) break
-        await moveTo(start.x, start.y)
-        await sleep(140)
+        await gesture(() => moveTo(start.x, start.y))
+        await gesture(() => sleep(PRESS_LEAD_MS))
         emit({
           x: Math.round(cur.x),
           y: Math.round(cur.y),
@@ -339,19 +383,22 @@ export async function recordTake(
           rect,
         })
         await page.mouse.down()
-        await sleep(90)
+        await gesture(() => sleep(PRESS_HOLD_MS))
+        // The drag is the ask: `ms` of travel by the clock, however slowly
+        // the page answers each move (a slider re-rendering per sample).
         const dur = step.ms ?? 700
-        const steps = Math.max(8, Math.round(dur / 16))
         const from = { ...cur }
-        for (let i = 1; i <= steps; i++) {
-          const u = easeInOutCubic(i / steps)
-          cur.x = from.x + (step.tx - from.x) * u
-          cur.y = from.y + (step.ty - from.y) * u
-          await page.mouse.move(cur.x, cur.y)
-          emit({ x: Math.round(cur.x), y: Math.round(cur.y), type: 'move' })
-          await sleep(14)
-        }
-        await sleep(100)
+        await clockMotion(
+          dur,
+          async (u) => {
+            cur.x = from.x + (step.tx - from.x) * u
+            cur.y = from.y + (step.ty - from.y) * u
+            await page.mouse.move(cur.x, cur.y)
+            emit({ x: Math.round(cur.x), y: Math.round(cur.y), type: 'move' })
+          },
+          clock,
+        )
+        await gesture(() => sleep(settleMs({ do: 'drag' })))
         await page.mouse.up()
         emit({
           x: Math.round(cur.x),
@@ -388,8 +435,15 @@ export async function recordTake(
           }
         : {}),
     })
+    paces.push({
+      step: stepIdx,
+      do: step.do,
+      askedMs: askedMs(step as Parameters<typeof askedMs>[0]),
+      gestureMs,
+      wallMs: now() - stepStart,
+    })
   }
-  if (!capped) await sleep(600) // trailing hold
+  if (!capped) await sleep(TRAILING_HOLD_MS) // trailing hold
   if (capped || capReached(now(), maxSeconds)) {
     capped = true
     log(`   ${cappedLine(maxSeconds)}`)
@@ -454,10 +508,13 @@ export async function recordTake(
   await writeJson(paths.meta, meta, true)
   await writeJson(paths.framesIndex, frames)
   await writeJson(paths.actions, { ...actions, url }, true)
+  const pace = paceReport(paces)
+  log(`   ${paceLine(pace)}`)
   return {
     events,
     frames,
     meta,
+    pace,
     skipped,
     navTimeout,
     freezes,

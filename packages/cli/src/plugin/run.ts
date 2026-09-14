@@ -499,6 +499,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
         freezes: rec.freezes,
         freezePct: rec.freezePct,
         capped: rec.capped,
+        pace: rec.pace,
         ...(strictFail ? { strictFailed: true } : {}),
       },
       strictFail
