@@ -1,5 +1,0 @@
----
-'@vosjs/cli': minor
----
-
-The recorder's pace is the script's. A pointer gesture (the travel to a target, a drag) is driven by the clock: its position is a function of the elapsed time and it ends when its duration has elapsed, so a page that answers each pointer sample slowly (a slider re-rendering per move) costs samples, never seconds. The pointer travels at a hand's pace (0.7 ms per px, 250 to 800 ms). Typing is paced by the clock at `delayMs`. The fixed sleeps are gone: a selector lookup settles only when it scrolled the page, the press is 80 ms lead and 70 ms hold, and the settle after a click, a type or a scroll is data (`ms` on the step, defaults 150, 150 and 200), the script's own `wait` steps carrying the pauses that mean something. `vos record` ends with a pace line (what the script asked, what the gestures added, what the page cost, the steps that ran slow) and the `--json` done event carries it as `pace`. Measured on the same tweakcn script: 41.2 s before, 26.2 s after, with hovers from 2× to 1.4× of their ask and drags from 4.8× to 1.7×.
