@@ -35,6 +35,7 @@ import {
   TEXT_ENTER_KINDS,
   TEXT_EXIT_KINDS,
   TILT_DEG_MAX,
+  RETIRED_ZOOM_STYLES,
   TILT_SPAN_MIN,
   ZOOM_LEVEL_MAX,
   ZOOM_LEVEL_MIN,
@@ -672,6 +673,17 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
           `${name}: span ${(t.out - t.in).toFixed(2)}s is under the ${TILT_SPAN_MIN}s minimum the studio enforces (a pose needs ~0.9s ramps to settle)`,
         )
       }
+    }
+    // A retired camera style name still reads (its live style plus the tilt
+    // intensity the name carried); say so rather than refuse an old take.
+    if (
+      typeof doc.zoomStyle === 'string' &&
+      doc.zoomStyle in RETIRED_ZOOM_STYLES
+    ) {
+      const r = RETIRED_ZOOM_STYLES[doc.zoomStyle]
+      warnings.push(
+        `zoomStyle "${doc.zoomStyle}" is retired: it reads as "${r.style}" with tiltStyle "${r.tilt}" (write those instead)`,
+      )
     }
     if (
       doc.tiltStyle !== undefined &&

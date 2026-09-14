@@ -164,7 +164,7 @@ describe('migrateMotion: a segment hold becomes a freeze', () => {
     }
     const out = migrateHostedDoc(raw)
     expect(out.docSchemaVersion).toBe(DOC_SCHEMA_VERSION)
-    expect(DOC_SCHEMA_VERSION).toBe(4)
+    expect(DOC_SCHEMA_VERSION).toBe(5)
     expect(out.segments).toEqual([{ in: 0, out: 10 }])
     expect(out.freeze).toEqual([{ id: 'f0', at: 10, seconds: 2 }])
   })

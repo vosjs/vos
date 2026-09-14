@@ -27,7 +27,7 @@ describe('planAutoZoom', () => {
     expect(spans[0].id).toBe('z0')
     expect(spans[0].level).toBeGreaterThan(1)
     expect(spans[0].in).toBeCloseTo(0.75, 3) // click 1.0s − lead 0.25
-    expect(spans[0].out).toBeCloseTo(2.0, 3) // click 1.0s + hold 1.0
+    expect(spans[0].out).toBeCloseTo(2.2, 3) // click 1.0s + hold 1.2
     expect(spans[0].source).toBe('auto')
   })
 
@@ -132,7 +132,7 @@ describe('planAutoZoom', () => {
       clusterGap: 1.2,
     })
     expect(spans).toHaveLength(1) // one cluster → one span, not 3 separate zooms
-    expect(spans[0].out).toBeCloseTo(2.9, 3) // last click 1.9s + hold
+    expect(spans[0].out).toBeCloseTo(3.1, 3) // last click 1.9s + hold 1.2
   })
 
   it('is deterministic (same track → identical spans)', () => {
@@ -152,18 +152,34 @@ describe('planAutoZoom', () => {
 
   it('suggests a point zoom for a click-less dwell (parked cursor = sample gap)', () => {
     // The recorder's distance gate means a parked cursor emits no samples: the
-    // dwell is the 2s gap between the tiny drift at t=0..1s and the break at 2s.
+    // dwell is the 2s gap between the tiny drift at t=1..2s and the break at
+    // 3s; the sample at t=0 is the cursor arriving (the opening run, which
+    // never dwells).
     const track: CursorTrack = [
-      { t: 0, x: 0.5 * W, y: 0.5 * H, type: 'move' },
-      { t: 1000, x: 0.5 * W + 2, y: 0.5 * H, type: 'move' },
-      { t: 2000, x: 0.9 * W, y: 0.9 * H, type: 'move' },
+      { t: 0, x: 0.1 * W, y: 0.1 * H, type: 'move' },
+      { t: 1000, x: 0.5 * W, y: 0.5 * H, type: 'move' },
+      { t: 2000, x: 0.5 * W + 2, y: 0.5 * H, type: 'move' },
+      { t: 3000, x: 0.9 * W, y: 0.9 * H, type: 'move' },
     ]
     const spans = planAutoZoom(track, { width: W, height: H, style: 'snappy' })
     expect(spans).toHaveLength(1)
     expect(spans[0].id).toBe('d0')
     expect(spans[0].source).toBe('auto')
     expect(spans[0].cx).toBeCloseTo(0.5, 2)
-    expect(spans[0].level).toBeCloseTo(2.5, 2) // no rect → planner ceiling
+    expect(spans[0].level).toBeCloseTo(2.2, 2) // no rect → planner ceiling
+  })
+
+  it('never dwells on the opening run (the parked cursor before the first move)', () => {
+    // A CLI take's synthetic cursor rests at the corner until the first
+    // step; six of eight real takes opened on a corner zoom at the ceiling.
+    const track: CursorTrack = [
+      { t: 0, x: 0.04 * W, y: 0.06 * H, type: 'move' },
+      { t: 1500, x: 0.5 * W, y: 0.5 * H, type: 'move' },
+      { t: 1600, x: 0.9 * W, y: 0.9 * H, type: 'move' },
+    ]
+    expect(
+      planAutoZoom(track, { width: W, height: H, style: 'glide' }),
+    ).toEqual([])
   })
 
   it('drops dwells that would overlap a click span', () => {
@@ -489,16 +505,17 @@ describe('planAutoZoom — typing sessions (TZ)', () => {
     // The mouse parks at (300,300) while typing happens in the field — the
     // dwell detector would zoom the parked DOT, not the field.
     const parked: CursorTrack = [
-      { t: 0, x: 300, y: 300, type: 'move' },
+      { t: 0, x: 1200, y: 800, type: 'move' }, // arriving (the opening run)
+      { t: 100, x: 300, y: 300, type: 'move' },
       { t: 500, x: 302, y: 300, type: 'move' },
       { t: 2500, x: 1700, y: 900, type: 'move' },
     ]
     const typed: CursorTrack = [
-      ...parked.slice(0, 2),
+      ...parked.slice(0, 3),
       ping(800),
       ping(1300),
       ping(1900),
-      parked[2],
+      parked[3],
     ]
     const without = planAutoZoom(typed, {
       width: W,
@@ -523,7 +540,7 @@ describe('planAutoZoom — typing sessions (TZ)', () => {
     expect(spans).toHaveLength(1)
     expect(spans[0].id).toBe('k0')
     expect(spans[0].in).toBeCloseTo(0.55, 3) // first click 0.8s − lead 0.25
-    expect(spans[0].out).toBeCloseTo(3.0, 3) // last ping 2.2s + typingHold 0.8
+    expect(spans[0].out).toBeCloseTo(3.1, 3) // last ping 2.2s + typingHold 0.9
   })
 
   it('cedes the overlap to a different-field click beat (travel by pan)', () => {

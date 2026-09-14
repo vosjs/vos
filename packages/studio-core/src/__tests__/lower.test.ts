@@ -242,10 +242,13 @@ describe('zoomTrackFromDoc', () => {
 
   it('follows footage through trims (extent remaps, ramp clamps at 0)', () => {
     // keep 2..10: only [2, 2.5] survives → clip at output [0, 0.5]; the ramp
-    // start clamps to 0 and the arrival stays one full ramp later.
+    // start clamps to 0 and the ramp FITS the room: the full ramp would land
+    // past the span's end, so it lands AT the end (0.5) instead of a 1 ms
+    // collapse of the hold and the exit.
     const track = zoomTrackFromDoc([span], [{ in: 2, out: 10 }])
     expect(track.keyframes[0].t).toBe(0)
-    expect(sample(track, ZOOM_RAMP_IN, lerpArray)[0]).toBe(2)
+    expect(sample(track, 0.5, lerpArray)[0]).toBe(2)
+    expect(sample(track, ZOOM_RAMP_IN_OVERLAP, lerpArray)[0]).toBeLessThan(2)
     // fully cut away → no keyframes at all
     expect(zoomTrackFromDoc([span], [{ in: 3, out: 10 }]).keyframes).toEqual([])
   })
