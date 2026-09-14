@@ -46,7 +46,13 @@ export {
   planAutoSpeed,
   scrollRuns,
 } from './planner/autoSpeed'
-export { DRAG_FIT_LEVEL } from './planner/autoZoom'
+export {
+  DRAG_FIT_LEVEL,
+  DRAG_MIN_S,
+  DRAG_MIN_TRAVEL_FRAC,
+  dragsFromTrack,
+} from './planner/autoZoom'
+export type { Drag } from './planner/autoZoom'
 export type { SpeedParams } from './planner/autoSpeed'
 export { momentsFromDoc, planForDigest } from './digest/moments'
 export type {

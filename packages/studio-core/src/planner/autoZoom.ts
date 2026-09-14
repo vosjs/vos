@@ -51,6 +51,69 @@ export const DRAG_FIT_LEVEL = 1.15
  */
 const PRESS_ECHO_MS = 4
 const PRESS_ECHO_PX = 2
+/**
+ * A press that TRAVELS before its release is a drag (a slider thumb, a
+ * scrubber, a thing moved across a canvas): the pointer's path is the
+ * content, so the camera follows it for the whole press at the style's
+ * dragLevel instead of framing the press as a click. Travel is the farthest
+ * the pointer gets from the press point, as a fraction of the frame width;
+ * a press held still (a long click) stays a click.
+ */
+export const DRAG_MIN_TRAVEL_FRAC = 0.015
+export const DRAG_MIN_S = 0.2
+
+/** A press that travelled before its release, in seconds and frame fractions. */
+export interface Drag {
+  /** the press and the release, seconds */
+  t0: number
+  t1: number
+  /** the press point, normalized */
+  nx: number
+  ny: number
+  /** the pointer's farthest excursion from the press point, frame widths */
+  travel: number
+}
+
+/**
+ * The drags in a cursor track: each `down` paired with the next `up`, kept
+ * when the pointer travelled ≥ DRAG_MIN_TRAVEL_FRAC between them over
+ * ≥ DRAG_MIN_S. Shared by the planner (a drag plans a follow span, and its
+ * press is not a click) and the lowering's cursor follow (a drag inside any
+ * follow span is tracked as a path).
+ */
+export function dragsFromTrack(
+  track: CursorTrack,
+  width: number,
+  height: number,
+): Drag[] {
+  if (!(width > 0) || !(height > 0)) return []
+  const downs = dedupePresses(track.filter((e) => e.type === 'down'))
+  const out: Drag[] = []
+  for (const d of downs) {
+    const up = track.find((e) => e.type === 'up' && e.t > d.t)
+    if (!up) continue
+    const t0 = d.t / 1000
+    const t1 = up.t / 1000
+    if (t1 - t0 < DRAG_MIN_S) continue
+    let travel = 0
+    for (const e of track) {
+      if (e.t < d.t) continue
+      if (e.t > up.t) break
+      if (e.type !== 'move' && e.type !== 'up') continue
+      const dist = Math.hypot(e.x - d.x, e.y - d.y) / width
+      if (dist > travel) travel = dist
+    }
+    if (travel < DRAG_MIN_TRAVEL_FRAC) continue
+    out.push({
+      t0,
+      t1,
+      nx: clamp01(d.x / width),
+      ny: clamp01(d.y / height),
+      travel,
+    })
+  }
+  return out
+}
 
 // ── typing sessions ────────────────────────────────────────────────────
 /** A session needs at least this many `key` pings (a lone Enter never zooms). */
@@ -93,6 +156,8 @@ export interface PlanOptions {
   hold?: number
   /** minimum clicks for a cluster to earn a zoom (Cursorful's ≥2 rule). */
   minClusterClicks?: number
+  /** the level a drag is followed at (see ZoomStyleParams.dragLevel). */
+  dragLevel?: number
   /** emit spans with focusMode 'auto' (cursor-follow camera). */
   followByDefault?: boolean
   /** typing sessions plan spans. */
@@ -245,6 +310,7 @@ export function planAutoZoom(
     lead = style.lead,
     hold = style.hold,
     minClusterClicks = style.minClusterClicks,
+    dragLevel = style.dragLevel,
     followByDefault = style.followByDefault,
     typingZoom = style.typingZoom,
     typingGap = style.typingGap,
@@ -252,7 +318,7 @@ export function planAutoZoom(
     typingMinLevel = style.typingMinLevel,
   } = options
 
-  const { sessions, clusters, surfaces } = groupTrack(track, {
+  const grouped = groupTrack(track, {
     width,
     height,
     clusterGap,
@@ -260,6 +326,18 @@ export function planAutoZoom(
     typingZoom,
     targetFill,
   })
+  const { sessions } = grouped
+
+  // A drag's press is the drag's, never a click: it leaves its cluster (a
+  // target's or a surface's) before the clusters plan anything.
+  const drags = dragsFromTrack(track, width, height)
+  const dragPress = new Set(drags.map((d) => round(d.t0)))
+  const withoutDrags = (list: Click[][]): Click[][] =>
+    list
+      .map((cl) => cl.filter((c) => !dragPress.has(round(c.t))))
+      .filter((cl) => cl.length > 0)
+  const clusters = withoutDrags(grouped.clusters)
+  const surfaces = withoutDrags(grouped.surfaces)
 
   interface Working {
     in: number
@@ -269,6 +347,20 @@ export function planAutoZoom(
     level: number
     dead?: boolean
   }
+
+  // One follow span per drag, at the drag level, from the press to the
+  // release: the lowering's cursor follow tracks the pointer's path for
+  // the whole press.
+  const dragSpans: ZoomSpan[] = drags.map((d, i) => ({
+    id: `g${i}`,
+    in: round(Math.max(0, d.t0 - lead)),
+    out: round(d.t1 + hold),
+    level: clampZoomLevel(Math.min(Math.max(dragLevel, 1.1), maxLevel)),
+    cx: round(d.nx),
+    cy: round(d.ny),
+    focusMode: 'auto' as const,
+    source: 'auto',
+  }))
 
   // Lone clicks below the cluster minimum earn no zoom (the Cursorful rule:
   // one stray click isn't worth a camera move — dwells may still cover it).
@@ -380,9 +472,10 @@ export function planAutoZoom(
     // the FIELD is the anchor, and a follow would be a no-op at best.
     source: 'auto',
   }))
-  const spans = [...zSpans, ...kSpans].sort((a, b) => a.in - b.in)
+  const spans = [...zSpans, ...kSpans, ...dragSpans].sort((a, b) => a.in - b.in)
 
-  // Dwell augmentation: sustained cursor rests no click/typing span covers.
+  // Dwell augmentation: sustained cursor rests no click/typing/drag span
+  // covers.
   const dwells = dwellSpans(track, width, height, maxLevel, [
     ...spans,
     ...dragReserved,

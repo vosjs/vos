@@ -411,12 +411,28 @@ export function zoomTrackFromDoc(
     // Cursor-follow recenters (focusMode 'auto', baked by the lowering): hold
     // at the current focus, glide to the recentered one over the style's
     // recenter duration.
+    let inPath = false
     for (const e of z.followEvents ?? []) {
       const eOut = sourceToTimeline(segments, e.t)
       if (eOut === null || eOut <= tIn || eOut >= tOut) continue
       const next = [cur[0], e.cx, e.cy, 1]
-      push(eOut, cur, 'none')
-      push(Math.min(eOut + style.followRecenter, tOut), next, panEase)
+      if (e.path) {
+        // A path sample: the camera is HERE at this time. The first sample
+        // of a run is reached by a glide of the recenter length from the
+        // held focus (a hold keyframe pins the start), every later one by
+        // a linear segment, so the pan reads as the pointer's own motion.
+        if (!inPath) {
+          push(Math.max(tIn, eOut - style.followRecenter), cur, 'none')
+          push(eOut, next, panEase)
+          inPath = true
+        } else {
+          push(eOut, next, 'linear')
+        }
+      } else {
+        inPath = false
+        push(eOut, cur, 'none')
+        push(Math.min(eOut + style.followRecenter, tOut), next, panEase)
+      }
       cur = next
     }
 

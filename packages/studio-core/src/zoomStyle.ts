@@ -81,6 +81,14 @@ export interface ZoomStyleParams {
   targetFill: number
   minLevel: number
   maxLevel: number
+  /**
+   * The level a DRAG is followed at (a press that travels before its
+   * release: a slider thumb, a scrubber, a thing moved across a canvas).
+   * The camera pans WITH the pointer for the whole press (a path follow,
+   * not a dead zone), so the level stays mild: the thumb and what it drives
+   * both stay in the window.
+   */
+  dragLevel: number
   /** span lead-in before the first click / hold after the last (seconds). */
   lead: number
   hold: number
@@ -143,6 +151,7 @@ export const ZOOM_STYLES: Record<ZoomStyleName, ZoomStyleParams> = {
     targetFill: 0.42,
     minLevel: 1.3,
     maxLevel: 1.8,
+    dragLevel: 1.5,
     lead: 0.35,
     hold: 1.2,
     followByDefault: true,
@@ -175,6 +184,7 @@ export const ZOOM_STYLES: Record<ZoomStyleName, ZoomStyleParams> = {
     targetFill: 0.5,
     minLevel: 1.5,
     maxLevel: 2.2,
+    dragLevel: 1.7,
     lead: 0.35,
     hold: 1.0,
     followByDefault: false,
@@ -202,6 +212,7 @@ export const ZOOM_STYLES: Record<ZoomStyleName, ZoomStyleParams> = {
     targetFill: 0.45,
     minLevel: 1.35,
     maxLevel: 2.0,
+    dragLevel: 1.5,
     lead: 0.6,
     hold: 1.4,
     followByDefault: true,
@@ -229,6 +240,7 @@ export const ZOOM_STYLES: Record<ZoomStyleName, ZoomStyleParams> = {
     targetFill: 0.5,
     minLevel: 1.4,
     maxLevel: 2.5,
+    dragLevel: 1.7,
     lead: 0.25,
     hold: 1.0,
     followByDefault: false,
@@ -256,6 +268,7 @@ export const ZOOM_STYLES: Record<ZoomStyleName, ZoomStyleParams> = {
     targetFill: 0.5,
     minLevel: 1.5,
     maxLevel: 2.2,
+    dragLevel: 1.7,
     lead: 0.2,
     hold: 1.0,
     followByDefault: false,
@@ -284,6 +297,7 @@ export const ZOOM_STYLES: Record<ZoomStyleName, ZoomStyleParams> = {
     targetFill: 0.42,
     minLevel: 1.3,
     maxLevel: 1.8,
+    dragLevel: 1.5,
     lead: 0.5,
     hold: 0.6,
     followByDefault: false,
@@ -321,6 +335,7 @@ export const ZOOM_STYLES: Record<ZoomStyleName, ZoomStyleParams> = {
     targetFill: 0.42,
     minLevel: 1.3,
     maxLevel: 1.8,
+    dragLevel: 1.5,
     lead: 0.5,
     hold: 0.7,
     followByDefault: true,
@@ -358,6 +373,7 @@ export const ZOOM_STYLES: Record<ZoomStyleName, ZoomStyleParams> = {
     targetFill: 0.45,
     minLevel: 1.35,
     maxLevel: 2.0,
+    dragLevel: 1.5,
     lead: 0.6,
     hold: 1.4,
     followByDefault: true,
