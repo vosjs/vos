@@ -530,7 +530,15 @@ export interface CursorStyle {
   smoothing: number
   /** rendered cursor size in px. */
   size: number
-  style: 'default' | 'dot' | 'ring'
+  /**
+   * What the pointer is drawn as. `'arrow'` is an OS-style pointer (a
+   * black arrow with a white edge, its tip on the recorded point), the
+   * default for new takes: it is the pointer the viewer's own screen wears,
+   * so the frame reads as a screen and not as a screen recorder's overlay.
+   * `'default'`, `'dot'` and `'ring'` all draw the white dot every earlier
+   * take was cut with. Click effects bloom under the tip either way.
+   */
+  style: 'default' | 'dot' | 'ring' | 'arrow'
   hideWhenIdle: boolean
   clickFx: ClickFxStyle
 }
@@ -1691,6 +1699,9 @@ export const DEFAULT_CURSOR_STYLE: CursorStyle = {
   visible: true,
   smoothing: 0.15,
   size: 24,
+  // The dot every earlier take was cut with; a NEW take opens on the
+  // arrow (projectFromArtifact sets it), so a document that stores
+  // 'default' keeps its dot.
   style: 'default',
   hideWhenIdle: true,
   clickFx: DEFAULT_CLICK_FX,
