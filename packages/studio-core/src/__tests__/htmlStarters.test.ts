@@ -13,15 +13,16 @@ import {
 import { HTML_STARTERS, htmlStarterClip } from '../htmlStarters'
 
 describe('the html starters', () => {
-  it('are five, each a distinct id and name', () => {
+  it("are six, the grammar's three shapes first, each a distinct id and name", () => {
     expect(HTML_STARTERS.map((s) => s.id)).toEqual([
-      'callout',
+      'note',
+      'tag',
       'code',
       'terminal',
       'keys',
       'badge',
     ])
-    expect(new Set(HTML_STARTERS.map((s) => s.name)).size).toBe(5)
+    expect(new Set(HTML_STARTERS.map((s) => s.name)).size).toBe(6)
   })
 
   for (const starter of HTML_STARTERS) {
