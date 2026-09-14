@@ -245,12 +245,20 @@ describe('the camera models (zoomView / zoomViewport / focusForViewportCentre)',
 
   it('both models are the identity at level 1 and continuous just above it', () => {
     for (const camera of ['card', 'stage'] as const) {
-      const at1 = zoomViewport(1, 0.05, 0.9, l, camera)
+      // A rest keyframe carries centring 0, so the identity holds for both.
+      const at1 = zoomViewport(1, 0.05, 0.9, l, camera, 0)
       expect(at1).toEqual({ x: 0, y: 0, w: 1, h: 1 })
-      const just = zoomViewport(1.001, 0.05, 0.9, l, camera)
+      const just = zoomViewport(1.001, 0.05, 0.9, l, camera, 0)
       expect(Math.abs(just.x)).toBeLessThan(0.01)
       expect(Math.abs(just.y)).toBeLessThan(0.01)
     }
+    // The centring is what moves the window's centre toward the focus,
+    // linearly: half the centring is half the way.
+    const f = zoomView(1.5, 0.05, 0.9, l, 'stage', 1)
+    const half = zoomView(1.5, 0.05, 0.9, l, 'stage', 0.5)
+    const none = zoomView(1.5, 0.05, 0.9, l, 'stage', 0)
+    expect(half.wcx).toBeCloseTo((f.wcx + none.wcx) / 2, 9)
+    expect(f.wcx).toBeCloseTo(f.fx, 9)
     expect(cameraCentring(1)).toBe(0)
     expect(cameraCentring(1 + CAMERA_CENTRE_RAMP)).toBe(1)
     expect(cameraCentring(1 + CAMERA_CENTRE_RAMP / 2)).toBeCloseTo(0.5, 9)

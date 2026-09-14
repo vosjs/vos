@@ -215,15 +215,15 @@ describe('zoomTrackFromDoc', () => {
   it('ramps in before the span, holds to its end, ramps out after', () => {
     const track = zoomTrackFromDoc([span], full)
     // at rest before the ramp starts
-    expect(sample(track, rampStart - 0.1, lerpArray)).toEqual([1, 0.6, 0.4])
+    expect(sample(track, rampStart - 0.1, lerpArray)).toEqual([1, 0.6, 0.4, 0])
     // arrival lands ZOOM_RAMP_IN_OVERLAP into the span
     expect(sample(track, rampStart + ZOOM_RAMP_IN, lerpArray)).toEqual([
-      2, 0.6, 0.4,
+      2, 0.6, 0.4, 1,
     ])
     expect(rampStart + ZOOM_RAMP_IN).toBeCloseTo(1 + ZOOM_RAMP_IN_OVERLAP, 6)
     // hold through the span
-    expect(sample(track, 2.0, lerpArray)).toEqual([2, 0.6, 0.4])
-    expect(sample(track, 2.5, lerpArray)).toEqual([2, 0.6, 0.4])
+    expect(sample(track, 2.0, lerpArray)).toEqual([2, 0.6, 0.4, 1])
+    expect(sample(track, 2.5, lerpArray)).toEqual([2, 0.6, 0.4, 1])
     // ramp midpoint eases with the default zoom ease
     const u = resolveEase(ZOOM_EASE)(0.5)
     expect(
@@ -267,9 +267,9 @@ describe('zoomTrackFromDoc', () => {
     // …and the next state is fully held from the pan arrival (which lands
     // rampInOverlap into span b) through span b's end
     expect(sample(track, 3.5 + ZOOM_RAMP_IN_OVERLAP, lerpArray)).toEqual([
-      3, 0.8, 0.7,
+      3, 0.8, 0.7, 1,
     ])
-    expect(sample(track, 4.5, lerpArray)).toEqual([3, 0.8, 0.7])
+    expect(sample(track, 4.5, lerpArray)).toEqual([3, 0.8, 0.7, 1])
     // mid-pan interpolates between the two states
     const mid = sample(track, 2.9, lerpArray)
     expect(mid[0]).toBeGreaterThan(2)

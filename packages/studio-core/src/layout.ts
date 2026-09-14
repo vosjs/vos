@@ -404,10 +404,12 @@ export function cameraModel(
 }
 
 /**
- * How much of the level the stage camera spends pulling the focus to the
- * frame's centre: 0 at level 1 (the identity), fully centred from level
- * 1 + CAMERA_CENTRE_RAMP. A smoothstep, so a ramp that passes through the
- * band slides the card without a kink.
+ * The stage camera's centring is a component of the zoom TRACK (0 at rest,
+ * 1 at an apex, eased with the level), so the card's slide and its scale
+ * are one motion. This band is the FALLBACK for a track lowered before the
+ * component existed: centring as a smoothstep of the level over
+ * 1 .. 1 + CAMERA_CENTRE_RAMP. Keyed to the level it front-loaded the
+ * slide, since any ease crosses the band in its first frames (the twitch).
  */
 export const CAMERA_CENTRE_RAMP = 0.3
 
@@ -452,13 +454,20 @@ export function zoomView(
   cy: number,
   layout: CardLayout,
   camera: CameraModel = 'card',
+  /**
+   * The stage camera's centring at this instant, 0..1: the zoom track's
+   * fourth component (0 at rest, 1 at an apex, eased with the level).
+   * Absent = the apex (1) under the stage camera, which is what a span's
+   * stored focus describes; always 0 under the magnifier.
+   */
+  centring?: number,
 ): ZoomView {
   const L = Math.max(1, level)
   const fx = layout.dx + cx * layout.dw
   const fy = layout.dy + cy * layout.dh
   const ox = layout.W / 2
   const oy = layout.H / 2
-  const t = camera === 'stage' ? cameraCentring(L) : 0
+  const t = camera === 'stage' ? clamp01(centring ?? 1) : 0
   const wcx = fx + ((ox - fx) / L) * (1 - t)
   const wcy = fy + ((oy - fy) / L) * (1 - t)
   return { level: L, fx, fy, wcx, wcy, ox, oy }
@@ -477,8 +486,9 @@ export function zoomViewport(
   cy: number,
   layout: CardLayout,
   camera: CameraModel = 'card',
+  centring?: number,
 ): { x: number; y: number; w: number; h: number } {
-  const v = zoomView(level, cx, cy, layout, camera)
+  const v = zoomView(level, cx, cy, layout, camera, centring)
   const size = 1 / v.level
   return {
     x: (v.wcx - layout.W / (2 * v.level)) / layout.W,
@@ -500,9 +510,10 @@ export function focusForViewportCentre(
   level: number,
   layout: CardLayout,
   camera: CameraModel = 'card',
+  centring?: number,
 ): { cx: number; cy: number } {
   const L = Math.max(1, level)
-  const t = camera === 'stage' ? cameraCentring(L) : 0
+  const t = camera === 'stage' ? clamp01(centring ?? 1) : 0
   const a = 1 - (1 - t) / L
   if (a <= 1e-6) return { cx: 0.5, cy: 0.5 }
   const fx = (cX * layout.W - ((layout.W / 2) * (1 - t)) / L) / a
