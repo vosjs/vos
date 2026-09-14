@@ -226,6 +226,9 @@ export async function recordTake(
     // wait that lets the load land) is marked: the planner proposes a
     // transition at the page change.
     const urlBefore = page.url()
+    // The selector's box at the gesture: kept on the step so a layer can
+    // name what the step touched (`overlays[].pin.step`).
+    let stepRect: Rect | null = null
     switch (step.do) {
       case 'wait':
         await sleep(clampWait(step.ms, now(), maxSeconds))
@@ -235,6 +238,7 @@ export async function recordTake(
         break
       case 'hover': {
         const rect = await boxOf(step.selector)
+        stepRect = rect
         if (rect) {
           await moveTo(rect.x + rect.w / 2, rect.y + rect.h / 2)
           log(`hover ${step.selector}`)
@@ -245,6 +249,7 @@ export async function recordTake(
       }
       case 'click': {
         const rect = await boxOf(step.selector)
+        stepRect = rect
         if (rect) {
           await clickAt(rect)
           log(`click ${step.selector}`)
@@ -255,6 +260,7 @@ export async function recordTake(
       }
       case 'type': {
         const rect = await boxOf(step.selector)
+        stepRect = rect
         if (rect) {
           // The click is what opens the typing zoom on the field. A step that
           // only finishes earlier typing (a submitting Enter) passes
@@ -307,6 +313,7 @@ export async function recordTake(
         let rect: Rect | undefined
         if (step.selector) {
           const box = await boxOf(step.selector)
+          stepRect = box
           if (box) {
             rect = box
             start = { x: box.x + box.w / 2, y: box.y + box.h / 2 }
@@ -370,6 +377,16 @@ export async function recordTake(
       tEnd: +(now() / 1000).toFixed(3),
       ...(skipped.length > skippedBefore ? { skipped: true } : {}),
       ...(page.url() !== urlBefore ? { navigated: true } : {}),
+      ...(stepRect
+        ? {
+            rect: {
+              x: +stepRect.x.toFixed(1),
+              y: +stepRect.y.toFixed(1),
+              w: +stepRect.w.toFixed(1),
+              h: +stepRect.h.toFixed(1),
+            },
+          }
+        : {}),
     })
   }
   if (!capped) await sleep(600) // trailing hold

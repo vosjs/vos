@@ -40,9 +40,15 @@ import {
   ZOOM_LEVEL_MIN,
   ZOOM_SPAN_MIN,
   docCardLayout,
+  docZoomTrack,
+  findStep,
   outputEnd,
+  pinBox,
+  pinRectOnScreen,
+  pinReferent,
   ratedSegments,
   recommendedExportResolution,
+  resolvePins,
   spanOutputExtent,
   zoomCoversRect,
   cameraModel,
@@ -52,6 +58,8 @@ import type {
   ExportResolution,
   ProjectDoc,
   StudioDoc,
+  OverlayClip,
+  OverlayPin,
 } from '@vosjs/studio-core'
 
 const STEP_KINDS_ALL = [
@@ -1020,6 +1028,7 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
     if (!isNum(o.duration) || o.duration <= 0) {
       problems.push(`${name}.duration must be > 0 (seconds)`)
     }
+    checkPin(o, name, docIn, recording, problems, warnings)
     if (o.kind === 'text') {
       if (typeof o.text !== 'string')
         problems.push(`${name}.text must be a string`)
@@ -1673,6 +1682,134 @@ function clicksWithRects(source: Json): DownEvent[] {
  * clicked. Both need a cursor track with rects; a browser-recorder take
  * has none and warns nothing.
  */
+const PIN_SIDES = ['auto', 'right', 'left', 'below', 'above']
+const PIN_MARKS = ['none', 'ring', 'underline']
+
+/**
+ * A layer's pin names its referent, and a pin that names nothing is a
+ * problem said in words (a silently ignored pin is a layer that claims to
+ * be a callout and is placed like a caption). A pin whose referent may
+ * have moved under the layer (a later scroll or navigation inside the
+ * layer's window) is a warning.
+ */
+function checkPin(
+  o: Json,
+  name: string,
+  docIn: StudioDoc,
+  recording: boolean,
+  problems: string[],
+  warnings: string[],
+): void {
+  if (o.pin === undefined) return
+  if (!isObj(o.pin)) {
+    problems.push(
+      `${name}.pin must be { step | press | rect, side?, gap?, mark?, leader?, color? }`,
+    )
+    return
+  }
+  const p = o.pin
+  const named = ['step', 'press', 'rect'].filter((k) => p[k] !== undefined)
+  if (named.length !== 1) {
+    problems.push(
+      `${name}.pin names its referent by exactly one of step (a recorder step id or index), press (a source second) or rect (video fractions)${named.length ? ` — got ${named.join(' and ')}` : ''}`,
+    )
+    return
+  }
+  if (
+    p.step !== undefined &&
+    typeof p.step !== 'string' &&
+    !(isNum(p.step) && Number.isInteger(p.step) && p.step >= 0)
+  ) {
+    problems.push(
+      `${name}.pin.step must be a step id (string) or index (integer ≥ 0)`,
+    )
+  }
+  if (p.press !== undefined && !isNum(p.press))
+    problems.push(`${name}.pin.press must be a source second (number)`)
+  if (p.rect !== undefined) {
+    const r = isObj(p.rect) ? p.rect : null
+    if (!r || !isNum(r.x) || !isNum(r.y) || !isNum(r.w) || !isNum(r.h)) {
+      problems.push(`${name}.pin.rect must be { x, y, w, h }`)
+    } else if (Math.abs(r.x) > 2 || Math.abs(r.y) > 2 || r.w > 2 || r.h > 2) {
+      problems.push(
+        `${name}.pin.rect looks like PIXELS (${String(r.x)}, ${String(r.y)}, ${String(r.w)}×${String(r.h)}) — it is FRACTIONS of the video frame [0..1] (the zoom cx/cy convention)`,
+      )
+    } else if (r.w <= 0 || r.h <= 0) {
+      problems.push(`${name}.pin.rect must have w > 0 and h > 0`)
+    }
+  }
+  if (p.side !== undefined && !PIN_SIDES.includes(p.side as string))
+    problems.push(`${name}.pin.side must be one of ${PIN_SIDES.join(' | ')}`)
+  if (p.gap !== undefined && (!isNum(p.gap) || p.gap < 0))
+    problems.push(`${name}.pin.gap must be design px ≥ 0`)
+  if (p.mark !== undefined && !PIN_MARKS.includes(p.mark as string))
+    problems.push(`${name}.pin.mark must be one of ${PIN_MARKS.join(' | ')}`)
+  if (p.leader !== undefined && typeof p.leader !== 'boolean')
+    problems.push(`${name}.pin.leader must be true or false`)
+  if (p.color !== undefined && typeof p.color !== 'string')
+    problems.push(`${name}.pin.color must be a CSS colour string`)
+  if (problems.some((m) => m.startsWith(`${name}.pin`))) return
+  if (!recording) {
+    problems.push(
+      `${name}.pin names something on a recording's page; a program has no referents — place the layer with transform`,
+    )
+    return
+  }
+  const doc = docIn as ProjectDoc
+  const steps = doc.source.meta.steps ?? []
+  if (p.step !== undefined) {
+    const step = findStep(steps, p.step as string | number)
+    if (!step) {
+      const known = steps
+        .filter((s) => s.selector)
+        .map((s) => (s.id !== undefined ? s.id : String(s.step)))
+      problems.push(
+        `${name}.pin.step "${String(p.step)}" is not a step of this take${known.length ? ` — steps with an element: ${known.join(', ')}` : ' — the take has no step timeline (a human recording); pin by press or rect'}`,
+      )
+      return
+    }
+    if (step.skipped) {
+      problems.push(
+        `${name}.pin.step "${String(p.step)}" was skipped at record time (its selector never became visible), so it has no element to point at`,
+      )
+      return
+    }
+  }
+  let ref
+  try {
+    ref = pinReferent(doc, p as unknown as OverlayPin)
+  } catch {
+    ref = null
+  }
+  if (!ref) {
+    problems.push(
+      p.step !== undefined
+        ? `${name}.pin.step "${String(p.step)}" has no element rect and no press inside its window (a wait, scroll or move step touches nothing) — pin a hover, click, type or drag step, or a press`
+        : p.press !== undefined
+          ? `${name}.pin.press ${String(p.press)}s has no press with an element rect within half a second — the presses are the cursor track's down events`
+          : `${name}.pin.rect could not be read`,
+    )
+    return
+  }
+  // The referent was measured at one moment; a later scroll or navigation
+  // inside the layer's window moves what was under it.
+  if (ref.at !== null && isNum(o.start) && isNum(o.duration)) {
+    const rated = ratedSegments(doc)
+    for (const s of steps) {
+      if (s.tStart <= ref.at) continue
+      if (s.do !== 'scroll' && !s.navigated) continue
+      const out = spanOutputExtent(rated, s.tStart, s.tEnd)
+      if (!out) continue
+      if (out.start < o.start + o.duration && out.end > o.start) {
+        warnings.push(
+          `${name} is pinned to something measured at ${ref.at.toFixed(1)}s, but ${s.do === 'scroll' ? 'a scroll' : 'a navigation'} at ${s.tStart.toFixed(1)}s (output ${out.start.toFixed(1)}s) falls inside the layer's window — the referent may have moved; end the layer before it`,
+        )
+        break
+      }
+    }
+  }
+}
+
 function framingWarnings(
   docIn: ProjectDoc,
   doc: Json,
@@ -1730,31 +1867,65 @@ function framingWarnings(
       }
     }
 
+    // A layer's BOX against the clicked element as the CAMERA shows it at
+    // the click's output moment, for every kind: the old check read a
+    // caption's anchor point against the rect at rest, so a card beside its
+    // anchor point covered the target under a zoom and warned nothing.
+    // A pinned layer sits beside its referent by construction; it reports
+    // only when the frame had no room for it there.
     const rated = ratedSegments(docIn)
-    const toFrame = (nx: number, ny: number) => ({
-      x: (layout.dx + nx * layout.dw) / layout.W,
-      y: (layout.dy + ny * layout.dh) / layout.H,
-    })
+    const camera = cameraModel(docIn.frame)
+    const zoomTrack = docZoomTrack(docIn)
+    const pins = resolvePins(docIn, layout, camera, zoomTrack)
     overlays.forEach((o, i) => {
-      if (!isObj(o) || (o.kind !== undefined && o.kind !== 'text')) return
+      if (!isObj(o) || !isNum(o.start) || !isNum(o.duration)) return
       const tf = isObj(o.transform) ? o.transform : null
-      if (
-        !tf ||
-        !isNum(tf.x) ||
-        !isNum(tf.y) ||
-        !isNum(o.start) ||
-        !isNum(o.duration)
-      )
+      if (!tf || !isNum(tf.x) || !isNum(tf.y)) return
+      const pinned = pins.get(String(o.id))
+      if (pinned) {
+        if (pinned.clamped > 4) {
+          warnings.push(
+            `overlays[${i}] is pinned ${pinned.side} of its referent but the frame has no room there — it sits ${Math.round(pinned.clamped)} design px off; a smaller box, another side, or a lower zoom level keeps it beside what it names`,
+          )
+        }
         return
+      }
+      let box: { w: number; h: number }
+      try {
+        box = pinBox(o as unknown as OverlayClip, layout)
+      } catch {
+        return
+      }
       for (const c of clicks) {
         const out = spanOutputExtent(rated, c.t, c.t + 0.001)
         if (!out || out.start < o.start || out.start > o.start + o.duration)
           continue
-        const a = toFrame(c.rect.x / w, c.rect.y / h)
-        const b = toFrame((c.rect.x + c.rect.w) / w, (c.rect.y + c.rect.h) / h)
-        if (tf.x >= a.x && tf.x <= b.x && tf.y >= a.y && tf.y <= b.y) {
+        const target = pinRectOnScreen(
+          {
+            x: c.rect.x / w,
+            y: c.rect.y / h,
+            w: c.rect.w / w,
+            h: c.rect.h / h,
+          },
+          out.start,
+          layout,
+          camera,
+          zoomTrack,
+        )
+        const L = {
+          x: tf.x * layout.W - box.w / 2,
+          y: tf.y * layout.H - box.h / 2,
+          w: box.w,
+          h: box.h,
+        }
+        const overlaps =
+          L.x < target.x + target.w &&
+          L.x + L.w > target.x &&
+          L.y < target.y + target.h &&
+          L.y + L.h > target.y
+        if (overlaps) {
           warnings.push(
-            `overlays[${i}] sits over the thing being clicked at ${c.t.toFixed(1)}s (output ${out.start.toFixed(1)}s) — move it off the target`,
+            `overlays[${i}] sits over the thing being clicked at ${c.t.toFixed(1)}s (output ${out.start.toFixed(1)}s) — pin it to that step (pin: { step }) so it sits beside the target and follows it, or move it off`,
           )
           break
         }

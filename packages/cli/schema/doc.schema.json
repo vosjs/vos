@@ -824,7 +824,7 @@
     },
     "overlays": {
       "type": "array",
-      "description": "Compositor v2 (V1): screen-space text clips drawn ABOVE the card, outside the zoom transform. OUTPUT-anchored (start is final-cut seconds \u2014 trims/speed never retime a title). Optional; absent = none.",
+      "description": "Screen-space layers drawn ABOVE the card, outside the zoom transform. OUTPUT-anchored (start is final-cut seconds \u2014 trims/speed never retime a title). A layer about something on the page names it with `pin` and is placed beside it, following it as the camera moves; a layer with no referent is a caption and sits in the margin. Optional; absent = none.",
       "items": {
         "type": "object",
         "required": ["id", "kind", "start", "duration", "transform"],
@@ -835,6 +835,54 @@
           },
           "kind": {
             "enum": ["text", "image", "video", "html"]
+          },
+          "pin": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "The layer's REFERENT: the thing on the page it is about. Exactly one of step, press or rect names it. The lowering places the layer a gap off one side of the referent and carries it with the referent through the camera (the layer keeps its screen size), so the statement and its subject stay bound; transform.x/y stay the fallback when the pin cannot resolve (validate says why). Not the re-record `anchor` on spans.",
+            "properties": {
+              "step": {
+                "type": ["string", "integer"],
+                "description": "a recorder step (actions.json `id`, else its index in meta.steps) whose element rect is the referent \u2014 hover, click, type and drag steps carry one; an older take resolves it from the presses inside the step's window"
+              },
+              "press": {
+                "type": "number",
+                "description": "SOURCE seconds: the press nearest this moment (within 0.5 s) names the referent \u2014 for a human recording, which has no steps"
+              },
+              "rect": {
+                "type": "object",
+                "required": ["x", "y", "w", "h"],
+                "additionalProperties": false,
+                "properties": {
+                  "x": { "type": "number" },
+                  "y": { "type": "number" },
+                  "w": { "type": "number", "exclusiveMinimum": 0 },
+                  "h": { "type": "number", "exclusiveMinimum": 0 }
+                },
+                "description": "the referent itself, in FRACTIONS of the video frame [0..1] (the zoom cx/cy convention; NOT pixels)"
+              },
+              "side": {
+                "enum": ["auto", "right", "left", "below", "above"],
+                "description": "which side of the referent the layer sits on; auto (the default) takes the first of right, left, below, above whose box fits inside the frame through the layer's life, else the roomiest"
+              },
+              "gap": {
+                "type": "number",
+                "minimum": 0,
+                "description": "design px between the referent and the layer's visible box (default 24)"
+              },
+              "mark": {
+                "enum": ["none", "ring", "underline"],
+                "description": "a standing mark on the referent for the layer's life: a rounded ring around it, or a bar under it (default none)"
+              },
+              "leader": {
+                "type": "boolean",
+                "description": "a hairline from the layer's near edge to the referent, with a dot at the referent"
+              },
+              "color": {
+                "type": "string",
+                "description": "the mark's and the leader's ink (CSS colour; default white over a dark rim, legible on any ground)"
+              }
+            }
           },
           "html": {
             "type": "string",

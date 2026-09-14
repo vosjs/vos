@@ -105,6 +105,7 @@ import { DEFAULT_ZOOM_STYLE, ZOOM_STYLES, resolveZoomStyle } from '../zoomStyle'
 import { isRecordingDoc, programDuration } from '../doc/studioDoc'
 import { clipEnvelope } from './audioEnvelope'
 import { followFocusEvents } from './cursorFollow'
+import { pinPlacement, pinReferent } from './pin'
 import { cursorIdleFade } from './cursorIdle'
 import { STUDIO_ENTRY_ID, studioEntry } from './studioEntry'
 import {
@@ -134,8 +135,9 @@ import type { StudioDoc } from '../doc/studioDoc'
 import type { TimelineEdit } from '@vosjs/shared/timelineEdits'
 import type { Keyframe, KeyframeTrack, Segment } from '@vosjs/timeline'
 import type { ZoomStyleParams } from '../zoomStyle'
-import type { CamBubbleRect } from '../layout'
+import type { CamBubbleRect, CameraModel, CardLayout } from '../layout'
 import type { FollowEvent } from './cursorFollow'
+import type { PinPlacement } from './pin'
 import type {
   AudioClip,
   CamPoseSpan,
@@ -2229,6 +2231,50 @@ const ON_FRAME = `(ctx, content, dt) => {
     }
   }
 
+  // pinned layers' marks — a standing ring or underline on a layer's
+  // REFERENT for the layer's life (d.pins: OUTPUT-anchored records baked at
+  // lowering, the referent in normalised video fractions). Painted inside the
+  // zoom transform so the mark sits on the element under any level or pose,
+  // at a constant on-screen weight (÷ ceZs), with the layer's own entrance
+  // and exit. Locals are pn-prefixed (one var scope). Skipped on the ghost
+  // pass like the effects.
+  var pns = d.pins || []
+  if (pns.length && !tpG) {
+    for (var pi = 0; pi < pns.length; pi++) {
+      var pn = pns[pi]
+      if (!pn.mark || pn.mark === 'none') continue
+      var pnT = t - pn.start
+      if (pnT < 0 || pnT > pn.dur) continue
+      var pnA = 1
+      if (pnT < 0.35) { var pnU = pnT / 0.35; pnA = 1 - Math.pow(1 - pnU, 3) }
+      if (pn.dur - pnT < 0.35) { var pnV = (pn.dur - pnT) / 0.35; pnA = Math.min(pnA, 1 - Math.pow(1 - pnV, 3)) }
+      if (pnA <= 0.004) continue
+      var pnX = dx + pn.x * dw, pnY = dy + pn.y * dh, pnW = pn.w * dw, pnH = pn.h * dh
+      var pnLw = 2 * s2 / ceZs, pnPad = 6 * s2 / ceZs
+      var pnCol = pn.color || 'rgba(255,255,255,0.95)'
+      c.save()
+      c.globalAlpha = pnA
+      if (pn.mark === 'underline') {
+        // a bar under the referent: dark rim, then the ink
+        var pnBy = pnY + pnH + pnPad * 0.5
+        c.fillStyle = 'rgba(0,0,0,0.35)'
+        c.fillRect(pnX - pnLw, pnBy - pnLw, pnW + pnLw * 2, pnLw * 1.5 + pnLw * 2)
+        c.fillStyle = pnCol
+        c.fillRect(pnX, pnBy, pnW, pnLw * 1.5)
+      } else {
+        // a ring around the referent: the cursor's dual stroke, a dark rim
+        // under the ink, legible on any content
+        c.lineWidth = pnLw + 2 * s2 / ceZs
+        c.strokeStyle = 'rgba(0,0,0,0.35)'
+        rr(pnX - pnPad, pnY - pnPad, pnW + pnPad * 2, pnH + pnPad * 2, pnPad, c); c.stroke()
+        c.lineWidth = pnLw
+        c.strokeStyle = pnCol
+        rr(pnX - pnPad, pnY - pnPad, pnW + pnPad * 2, pnH + pnPad * 2, pnPad, c); c.stroke()
+      }
+      c.restore()
+    }
+  }
+
   // cursor (SOURCE-anchored samples, read at the on-screen source moment).
   // The dot is the only thing cursorStyle.visible hides — the track still drives
   // cursor-follow zoom, and click effects draw above on their own switch.
@@ -2291,8 +2337,15 @@ const ON_FRAME = `(ctx, content, dt) => {
   // Wait only for the FIRST decoded frame, then keep drawing through seeks.
   if (camV && camV.readyState >= 2) r.camHasFrame = true
   var camActiveNow = !!(camV && camOn && camS.visible !== false && r.camHasFrame)
+  // A pinned layer's leader is live for the layer's life: the overlay layer
+  // repaints while one is up (the referent moves with the camera).
+  var pqs = d.pins || [], pqLive = false
+  for (var pl = 0; pl < pqs.length; pl++) {
+    var pq0 = pqs[pl]
+    if (pq0.leader && t >= pq0.start && t <= pq0.start + pq0.dur) { pqLive = true; break }
+  }
   var ovSig = W + 'x' + H
-  var ovDirty = ov.sig !== ovSig || camActiveNow || ov.active || !!trOut
+  var ovDirty = ov.sig !== ovSig || camActiveNow || ov.active || !!trOut || pqLive
   if (ovDirty) {
   ovC.clearRect(0, 0, W, H)
   // webcam bubble — pinned to the frame corner regardless of card tilt/zoom.
@@ -2342,6 +2395,57 @@ const ON_FRAME = `(ctx, content, dt) => {
       ovC.restore()
     }
   }
+  // pinned layers' leaders — a hairline from the layer's near edge (the
+  // baked tip track, clip-local frame fractions) to the referent's near
+  // edge, the referent mapped through the camera the way the boundary dot
+  // is, with a dot at the referent. Fades with the layer; rides the rise
+  // entrance so the line meets the card as it lands.
+  if (pqLive) {
+    for (var pj = 0; pj < pqs.length; pj++) {
+      var pq = pqs[pj]
+      if (!pq.leader) continue
+      var pqT = t - pq.start
+      if (pqT < 0 || pqT > pq.dur) continue
+      var pqA = 1, pqRise = 0
+      if (pqT < 0.35) {
+        var pqU = 1 - Math.pow(1 - pqT / 0.35, 3)
+        pqA = pqU
+        if (pq.enter === 'rise') pqRise = (1 - pqU) * 24 * s
+      }
+      if (pq.dur - pqT < 0.35) { var pqV = (pq.dur - pqT) / 0.35; pqA = Math.min(pqA, 1 - Math.pow(1 - pqV, 3)) }
+      if (pqA <= 0.004 || !pq.tip || !pq.tip.keyframes || !pq.tip.keyframes.length) continue
+      var pqTip = TL.sample(pq.tip, pqT, TL.lerpArray)
+      var pqTx = pqTip[0] * W, pqTy = pqTip[1] * H + pqRise
+      // the referent's corners in frame space under the live camera
+      var pqAx = dx + pq.x * dw, pqAy = dy + pq.y * dh
+      var pqBx = dx + (pq.x + pq.w) * dw, pqBy = dy + (pq.y + pq.h) * dh
+      if (lvl > 1.001 && !d.zoomSuppressed) {
+        if (camStage) {
+          pqAx = W / 2 + (pqAx - wcx) * lvl; pqAy = H / 2 + (pqAy - wcy) * lvl
+          pqBx = W / 2 + (pqBx - wcx) * lvl; pqBy = H / 2 + (pqBy - wcy) * lvl
+        } else {
+          pqAx = fx + (pqAx - fx) * lvl; pqAy = fy + (pqAy - fy) * lvl
+          pqBx = fx + (pqBx - fx) * lvl; pqBy = fy + (pqBy - fy) * lvl
+        }
+      }
+      var pqRx = pq.side === 'right' ? pqBx : pq.side === 'left' ? pqAx : (pqAx + pqBx) / 2
+      var pqRy = pq.side === 'below' ? pqBy : pq.side === 'above' ? pqAy : (pqAy + pqBy) / 2
+      var pqCol = pq.color || 'rgba(255,255,255,0.95)'
+      var pqLw = 2 * s
+      ovC.save()
+      ovC.globalAlpha = pqA
+      ovC.lineCap = 'round'
+      ovC.strokeStyle = 'rgba(0,0,0,0.35)'; ovC.lineWidth = pqLw + 2 * s
+      ovC.beginPath(); ovC.moveTo(pqTx, pqTy); ovC.lineTo(pqRx, pqRy); ovC.stroke()
+      ovC.strokeStyle = pqCol; ovC.lineWidth = pqLw
+      ovC.beginPath(); ovC.moveTo(pqTx, pqTy); ovC.lineTo(pqRx, pqRy); ovC.stroke()
+      ovC.fillStyle = 'rgba(0,0,0,0.35)'
+      ovC.beginPath(); ovC.arc(pqRx, pqRy, 5 * s, 0, Math.PI * 2); ovC.fill()
+      ovC.fillStyle = pqCol
+      ovC.beginPath(); ovC.arc(pqRx, pqRy, 4 * s, 0, Math.PI * 2); ovC.fill()
+      ovC.restore()
+    }
+  }
   // The boundary dot: the outgoing card's last cursor point and the
   // incoming's current one, each carried by its card's move, one dot on
   // the eased lerp between them (the idle fade never fires across a page
@@ -2356,7 +2460,7 @@ const ON_FRAME = `(ctx, content, dt) => {
     drawCur(ovC, tqX2, tqY2, tqR, 1, 2 * (trQw || s))
   }
   ov.sig = ovSig
-  ov.active = camActiveNow || !!trOut
+  ov.active = camActiveNow || !!trOut || pqLive
   if (ov.texture) ov.texture.needsUpdate = true
   }
 
@@ -2465,6 +2569,13 @@ export function studioLayerData(
     audio?: AudioClip[]
   },
   duration: number,
+  /**
+   * Pinned layers' placements by clip id (resolvePins): a pinned clip's
+   * track is its place beside its referent through the camera, in the
+   * same clip-local shape a `motion` pose bakes to. Absent for a program
+   * document, which has no referents.
+   */
+  pins?: ReadonlyMap<string, PinPlacement>,
 ): Record<string, unknown> {
   // A media layer resolves against the RECORDING it rides (a program
   // document has no media to show).
@@ -2558,6 +2669,8 @@ export function studioLayerData(
               // track, sampled in ON_FRAME at t − start. Omitted when the clip
               // has no motion — data byte parity.
               ...(() => {
+                const pinned = pins?.get(o.id)
+                if (pinned) return { track: pinned.track }
                 if (!o.motion || !o.motion.length) return {}
                 const mb = overlayMotionBase(o)
                 const track = motionTrack(
@@ -2779,38 +2892,26 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
   // their entry focus + dead-zone recenters baked from the cursor track
   // (followFocusEvents clamps internally).
   const layout = docCardLayout(doc)
-  const meta = doc.source.meta
   const zoomStyle = resolveZoomStyle(doc.zoomStyle, doc.zoomParams)
   // The frame's camera model: the stage camera never clamps (the window may
   // show the ground past the card), the magnifier always does.
   const camera = cameraModel(doc.frame)
-  const zoomSpans: LoweredZoomSpan[] = restSpansThroughTransitions(
-    doc.zoom,
+  const zoomSpans = loweredZoomSpans(
+    doc,
     rated,
     transitions,
-    ZOOM_SPAN_MIN,
-  ).map((z) => {
-    if (z.focusMode === 'auto') {
-      const f = followFocusEvents(
-        z,
-        doc.source.cursor,
-        { w: meta.width, h: meta.height },
-        layout,
-        {
-          safeRatio: zoomStyle.followSafeRatio,
-          recenter: zoomStyle.followRecenter,
-          lookahead: zoomStyle.followLookahead,
-          camera,
-        },
-      )
-      if (f.entry)
-        return { ...z, cx: f.entry.cx, cy: f.entry.cy, followEvents: f.events }
-    }
-    return {
-      ...z,
-      ...clampFocus(z.cx, z.cy, clampZoomLevel(z.level), layout, camera),
-    }
-  })
+    layout,
+    camera,
+    zoomStyle,
+  )
+  // The OUTPUT-time zoom track; a pull-out entrance writes its head.
+  const zoomTrack = prependEntrance(
+    zoomTrackFromDoc(zoomSpans, rated, zoomStyle),
+    entranceZoomKeyframes(cardEnter(doc.frame)),
+  )
+  // Pinned layers: each resolved beside its referent through this camera.
+  const pins = resolvePins(doc, layout, camera, zoomTrack)
+  const pinsData = pinsDataOf(doc, pins)
 
   const data = {
     videoSrc: doc.source.videoKey,
@@ -2901,11 +3002,11 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
     // intensities/colors become numbers HERE — ON_FRAME reads no registry).
     ...clickFxData(doc, rated),
     // Rated segments so zoom spans land at their speed-adjusted output times.
-    // A pull-out entrance writes the track's head.
-    zoomTrack: prependEntrance(
-      zoomTrackFromDoc(zoomSpans, rated, zoomStyle),
-      entranceZoomKeyframes(cardEnter(doc.frame)),
-    ),
+    zoomTrack,
+    // Pinned layers' marks and leaders: the referent (normalised video
+    // fractions) plus the leader's tip track, painted by ON_FRAME beside the
+    // camera. Absent when no pinned layer asks for either — byte parity.
+    ...(pinsData.length ? { pins: pinsData } : {}),
     // Tilt spans: OUTPUT-time [rx, ry] degree track. The rest pose is
     // FLAT — there is no static card tilt any more — and the motion constants
     // come from the camera style's tilt personality ('drift' slows its
@@ -2946,7 +3047,7 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
   // entry carries no lights, its scene has its own.
   const entryData: Record<string, unknown> = {
     lights: true,
-    ...studioLayerData(doc, duration),
+    ...studioLayerData(doc, duration, pins),
   }
 
   const config: Record<string, unknown> = {
@@ -2973,6 +3074,180 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
   }
 
   return { config, data, stack: { [STUDIO_ENTRY_ID]: entryData }, duration }
+}
+
+/**
+ * The zoom spans as the camera reads them: rested through the transition
+ * windows, focus clamped under the frame's camera model, an auto-focus
+ * span's entry and dead-zone recenters baked from the cursor track.
+ */
+function loweredZoomSpans(
+  doc: ProjectDoc,
+  rated: Segment[],
+  transitions: ReturnType<typeof docTransitions>,
+  layout: CardLayout,
+  camera: CameraModel,
+  zoomStyle: ZoomStyleParams,
+): LoweredZoomSpan[] {
+  const meta = doc.source.meta
+  return restSpansThroughTransitions(
+    doc.zoom,
+    rated,
+    transitions,
+    ZOOM_SPAN_MIN,
+  ).map((z) => {
+    if (z.focusMode === 'auto') {
+      const f = followFocusEvents(
+        z,
+        doc.source.cursor,
+        { w: meta.width, h: meta.height },
+        layout,
+        {
+          safeRatio: zoomStyle.followSafeRatio,
+          recenter: zoomStyle.followRecenter,
+          lookahead: zoomStyle.followLookahead,
+          camera,
+        },
+      )
+      if (f.entry)
+        return { ...z, cx: f.entry.cx, cy: f.entry.cy, followEvents: f.events }
+    }
+    return {
+      ...z,
+      ...clampFocus(z.cx, z.cy, clampZoomLevel(z.level), layout, camera),
+    }
+  })
+}
+
+/**
+ * The document's OUTPUT-time zoom track — the camera as ON_FRAME samples
+ * it, for a host that needs the camera without lowering everything (a
+ * pinned layer's on-canvas rect).
+ */
+export function docZoomTrack(
+  input: ProjectDoc,
+): KeyframeTrack<number[]> | undefined {
+  const doc = migrateMotion(input)
+  const rated = ratedSegments(doc)
+  const transitions = docTransitions(doc)
+  const layout = docCardLayout(doc)
+  const camera = cameraModel(doc.frame)
+  const zoomStyle = resolveZoomStyle(doc.zoomStyle, doc.zoomParams)
+  const spans = loweredZoomSpans(
+    doc,
+    rated,
+    transitions,
+    layout,
+    camera,
+    zoomStyle,
+  )
+  return prependEntrance(
+    zoomTrackFromDoc(spans, rated, zoomStyle),
+    entranceZoomKeyframes(cardEnter(doc.frame)),
+  )
+}
+
+/**
+ * Every pinned layer's placement, by clip id. A pin that names nothing
+ * (an unknown step, a step without a rect or a press) resolves to nothing
+ * and the layer keeps its `transform` — the lint says why.
+ */
+export function resolvePins(
+  doc: ProjectDoc,
+  layout: CardLayout,
+  camera: CameraModel,
+  zoomTrack: KeyframeTrack<number[]> | undefined,
+): Map<string, PinPlacement> {
+  const out = new Map<string, PinPlacement>()
+  for (const o of doc.overlays ?? []) {
+    if (!o.pin) continue
+    const ref = pinReferent(doc, o.pin)
+    if (!ref) continue
+    const base = overlayMotionBase(o)
+    const motion =
+      o.motion && o.motion.length
+        ? motionTrack(
+            base,
+            overlayMotionKeys(o, base),
+            Math.max(OVERLAY_MIN_DURATION, o.duration),
+          )
+        : null
+    out.set(
+      o.id,
+      pinPlacement({
+        clip: o,
+        referent: ref.rect,
+        layout,
+        camera,
+        zoomTrack,
+        base,
+        motion,
+      }),
+    )
+  }
+  return out
+}
+
+/**
+ * A pinned layer's effective [x, y, scale, rotation, opacity] at CLIP-LOCAL
+ * time t — the host-side mirror the picking layer substitutes into the
+ * clip's transform, the way overlayMotionPoseAt does for a `motion` clip.
+ * Null when the clip is not pinned or its pin resolves to nothing.
+ */
+export function overlayPinPoseAt(
+  doc: ProjectDoc,
+  o: OverlayClip,
+  t: number,
+): number[] | null {
+  if (!o.pin) return null
+  const layout = docCardLayout(doc)
+  const camera = cameraModel(doc.frame)
+  const pins = resolvePins(
+    { ...doc, overlays: [o] },
+    layout,
+    camera,
+    docZoomTrack(doc),
+  )
+  const p = pins.get(o.id)
+  if (!p) return null
+  return [...sample(p.track, t, lerpArray)]
+}
+
+/** The `pins` slice of ctx.data: one record per pinned layer that asks for a mark or a leader. */
+function pinsDataOf(
+  doc: ProjectDoc,
+  pins: ReadonlyMap<string, PinPlacement>,
+): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = []
+  for (const o of doc.overlays ?? []) {
+    const p = o.pin
+    const placed = p ? pins.get(o.id) : undefined
+    if (!p || !placed) continue
+    const mark = p.mark ?? 'none'
+    if (mark === 'none' && !p.leader) continue
+    const ref = pinReferent(doc, p)
+    if (!ref) continue
+    out.push({
+      id: o.id,
+      start: round(o.start),
+      dur: round(Math.max(OVERLAY_MIN_DURATION, o.duration)),
+      x: round4(ref.rect.x),
+      y: round4(ref.rect.y),
+      w: round4(ref.rect.w),
+      h: round4(ref.rect.h),
+      side: placed.side,
+      mark,
+      leader: !!p.leader,
+      ...(p.color ? { color: p.color } : {}),
+      enter: enterKey(o),
+      tip: placed.tip,
+    })
+  }
+  return out
+}
+
+function round4(v: number): number {
+  return Math.round(v * 100000) / 100000
 }
 
 /**

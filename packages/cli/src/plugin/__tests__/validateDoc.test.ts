@@ -749,6 +749,32 @@ describe('framing warnings', () => {
     expect(w).toContain('0.34, 0.28')
   })
 
+  it('a card whose BOX covers the clicked element under the camera warns, whatever its kind', () => {
+    // The anchor point sits beside the target, but a 420-wide card centred
+    // there covers it; the old point test warned nothing.
+    const r = lintDoc(
+      withClick({
+        overlays: [
+          {
+            id: 'h0',
+            kind: 'html',
+            start: 1,
+            duration: 3,
+            html: '<div>Export</div>',
+            css: 'div{color:#fff}',
+            box: { width: 420, height: 120 },
+            transform: { x: 0.44, y: 0.31, scale: 1, rotation: 0 },
+          },
+        ],
+      }),
+    )
+    const w = r.warnings.find((x) =>
+      x.includes('sits over the thing being clicked'),
+    )
+    expect(w).toBeDefined()
+    expect(w).toContain('pin it to that step')
+  })
+
   it('a caption over the thing being clicked warns; one beside it does not', () => {
     const over = lintDoc(
       withClick({
@@ -1017,5 +1043,161 @@ describe('lintDoc: a layer that shows a document media, as a card', () => {
     expect(wide.problems.join('\n')).toMatch(
       /frame\.padding: not a layer card field/,
     )
+  })
+})
+
+describe('pinned layers', () => {
+  const COPY = { x: 1100, y: 80, w: 96, h: 36 }
+  const steps = [
+    { step: 0, do: 'wait', tStart: 0, tEnd: 1.5 },
+    {
+      step: 1,
+      id: 'copy',
+      do: 'click',
+      selector: 'button',
+      tStart: 1.6,
+      tEnd: 2.4,
+      rect: COPY,
+    },
+    { step: 2, do: 'scroll', tStart: 6, tEnd: 6.5 },
+    {
+      step: 3,
+      id: 'gone',
+      do: 'click',
+      selector: 'x',
+      tStart: 7,
+      tEnd: 7.4,
+      skipped: true,
+    },
+  ]
+  const withSteps = (over: Partial<ProjectDoc>) => {
+    const base = makeDoc()
+    return makeDoc({
+      ...over,
+      source: {
+        ...base.source,
+        cursor: [
+          { t: 2000, x: 1148, y: 98, type: 'down', button: 0, rect: COPY },
+          { t: 2100, x: 1148, y: 98, type: 'up', button: 0, rect: COPY },
+        ],
+        meta: { ...base.source.meta, steps },
+      } as ProjectDoc['source'],
+    })
+  }
+  const card = (
+    pin: Record<string, unknown>,
+    over: Record<string, unknown> = {},
+  ) => ({
+    id: 'h0',
+    kind: 'html' as const,
+    start: 1.5,
+    duration: 3,
+    html: '<div>Copy</div>',
+    css: 'div{color:#fff}',
+    box: { width: 420, height: 120 },
+    transform: { x: 0.5, y: 0.82, scale: 1, rotation: 0 },
+    pin,
+    ...over,
+  })
+
+  it('a well-formed pin to a step with a rect lints clean', () => {
+    const r = lintDoc(
+      withSteps({
+        overlays: [card({ step: 'copy', mark: 'ring', leader: true })],
+      }),
+    )
+    expect(r.problems).toEqual([])
+    expect(r.warnings.filter((w) => w.includes('overlays[0]'))).toEqual([])
+  })
+
+  it('a pin must name exactly one referent, in the right shapes', () => {
+    const none = lintDoc(withSteps({ overlays: [card({ side: 'left' })] }))
+    expect(none.problems.some((m) => m.includes('exactly one of step'))).toBe(
+      true,
+    )
+    const two = lintDoc(
+      withSteps({ overlays: [card({ step: 'copy', press: 2 })] }),
+    )
+    expect(two.problems.some((m) => m.includes('exactly one of step'))).toBe(
+      true,
+    )
+    const px = lintDoc(
+      withSteps({
+        overlays: [card({ rect: { x: 1100, y: 80, w: 96, h: 36 } })],
+      }),
+    )
+    expect(px.problems.some((m) => m.includes('looks like PIXELS'))).toBe(true)
+    const bad = lintDoc(
+      withSteps({
+        overlays: [
+          card({
+            step: 'copy',
+            side: 'up',
+            mark: 'glow',
+            gap: -1,
+            leader: 'yes',
+          }),
+        ],
+      }),
+    )
+    expect(bad.problems.some((m) => m.includes('pin.side'))).toBe(true)
+    expect(bad.problems.some((m) => m.includes('pin.mark'))).toBe(true)
+    expect(bad.problems.some((m) => m.includes('pin.gap'))).toBe(true)
+    expect(bad.problems.some((m) => m.includes('pin.leader'))).toBe(true)
+  })
+
+  it('an unknown step is a problem that lists the steps with an element; a skipped one says so', () => {
+    const r = lintDoc(withSteps({ overlays: [card({ step: 'nope' })] }))
+    const m = r.problems.find((x) => x.includes('is not a step of this take'))
+    expect(m).toBeDefined()
+    expect(m).toContain('copy')
+    const skipped = lintDoc(withSteps({ overlays: [card({ step: 'gone' })] }))
+    expect(
+      skipped.problems.some((x) => x.includes('was skipped at record time')),
+    ).toBe(true)
+    const wait = lintDoc(withSteps({ overlays: [card({ step: 0 })] }))
+    expect(
+      wait.problems.some((x) => x.includes('has no element rect and no press')),
+    ).toBe(true)
+  })
+
+  it('a scroll inside the pinned layer window warns that the referent may have moved', () => {
+    const r = lintDoc(
+      withSteps({
+        overlays: [card({ step: 'copy' }, { start: 1.5, duration: 6 })],
+      }),
+    )
+    expect(r.problems).toEqual([])
+    const w = r.warnings.find((x) => x.includes('referent may have moved'))
+    expect(w).toBeDefined()
+    expect(w).toContain('a scroll at 6.0s')
+  })
+
+  it('a pin on a program is a problem', () => {
+    const r = lintDoc({
+      source: 'program',
+      program: { config: { version: 2, duration: 4 } },
+      overlays: [card({ step: 'copy' })],
+    } as never)
+    expect(
+      r.problems.some((x) => x.includes('a program has no referents')),
+    ).toBe(true)
+  })
+
+  it('a pinned layer that the frame has no room for reports the side and the distance', () => {
+    const r = lintDoc(
+      withSteps({
+        overlays: [
+          card(
+            { step: 'copy', side: 'right' },
+            { box: { width: 900, height: 120 } },
+          ),
+        ],
+      }),
+    )
+    expect(r.problems).toEqual([])
+    const w = r.warnings.find((x) => x.includes('no room there'))
+    expect(w).toBeDefined()
+    expect(w).toContain('pinned right')
   })
 })
