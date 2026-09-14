@@ -28,6 +28,7 @@ import {
   readLaunchBesideTake,
   resolveChannels,
   resolveLook,
+  readBrandBesideTake,
 } from './deliver'
 import { fetchBrandMarks } from './markAsset'
 import { endCardInk } from './motionPlan'
@@ -37,12 +38,25 @@ import type { OfficialRow } from './officialTemplates'
 import { fetchMusicCatalog } from './music'
 import { judgeKit, winRate } from './judge'
 import { resolveStepTime } from './moments'
+import {
+  composeCallout,
+  footageFrames,
+  groundFindings,
+  isCalloutShape,
+  registerFrom,
+} from './callout'
 import { formatFinding } from './kitPicture'
 import { validateKit } from './validateKit'
 import { digestTake, parseTranscript } from './digestTake'
 import { apiJson, platformOrigin, resolveCredential } from './platform'
 import { startTakeServer } from './server'
-import { PREV_DOC_NAME, ensureTakeDir, loadTake, prepareReRecord } from './take'
+import {
+  PREV_DOC_NAME,
+  ensureTakeDir,
+  loadTake,
+  prepareReRecord,
+  writeJson,
+} from './take'
 import { BrowserUnavailableError, launchBrowser } from '../browser'
 import { recordTake } from './recorder'
 import {
@@ -92,6 +106,7 @@ const BOOLEAN_FLAGS = new Set([
   'composed',
   'check',
   'motion',
+  'leader',
 ])
 /** Repeatable value flags (accumulate): --set path=value on render/frames, --override id on push. */
 const MULTI_FLAGS = new Set(['set', 'override'])
@@ -108,6 +123,7 @@ Take pipeline
   vos digest <take> [--out dir] [--full 960] [--crop 640] [--no-frames] [--transcript <file.json>] [--style <doc.json|vosId>] [--json]
   vos brand <url> [--out BRAND.md] [--json]
   vos open <take> [--studio <url>] [--print]
+  vos callout <take> <note|tag|code> --step <id> [--title "…"] [--body "…"] [--kicker "…"] [--code "…"|--code-file f] [--seconds 3] [--side auto|right|left|below|above] [--mark ring|underline|none] [--leader] [--color #hex] [--brand BRAND.md] [--ground #hex] [--accent #hex] [--font "…"] [--body-px 14] [--id x] [--print] [--json]
   vos validate <actions.json|take|kit.json> [--picture] [--json]
   vos judge <kit.json> --against <MANIFEST.json> [--out dir] [--json]
   vos actions from-agent-browser <steps.jsonl> [--out actions.json] [--url <url>] [--viewport WxH] [--json]
@@ -1437,6 +1453,108 @@ async function cmdJudge(argv: string[]): Promise<number> {
   return EXIT_OK
 }
 
+async function cmdCallout(argv: string[]): Promise<number> {
+  const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
+  const dir = positionals[0]
+  const shape = positionals[1]
+  if (!dir || !shape || !isCalloutShape(shape))
+    throw new UsageError(
+      'vos callout <take> <note|tag|code> --step <id> [--title "…"] [--body "…"] [--kicker "…"] [--code "…"|--code-file f] [--seconds 3] [--side …] [--mark ring|underline|none] [--leader] [--color #hex] [--brand BRAND.md] [--ground #hex --accent #hex] [--font "…"] [--body-px 14] [--id x] [--print] [--json]',
+    )
+  const r = createReporter(flags.json === true)
+  const take = await loadTake(dir)
+  if (!take.doc) throw new UsageError(`${dir} has no doc.json — run plan first`)
+  const brand = await readBrandBesideTake(dir, strFlag(flags, 'brand'))
+  const bodyPx = strFlag(flags, 'body-px')
+  const register = registerFrom(brand?.roles ?? null, {
+    ground: strFlag(flags, 'ground'),
+    accent: strFlag(flags, 'accent'),
+    face: strFlag(flags, 'font'),
+    mono: strFlag(flags, 'mono'),
+    body: bodyPx !== undefined ? Number(bodyPx) : undefined,
+  })
+  if (!register)
+    throw new UsageError(
+      `no register: put a BRAND.md beside the take (vos brand <url> --out BRAND.md; its bgA and accent are the ground and the accent), or pass --ground #hex --accent #hex`,
+    )
+  const codeFile = strFlag(flags, 'code-file')
+  const code = codeFile
+    ? await readFile(codeFile, 'utf8')
+    : strFlag(flags, 'code')
+  const words = {
+    kicker: strFlag(flags, 'kicker'),
+    title: strFlag(flags, 'title'),
+    body: strFlag(flags, 'body'),
+    code: code?.replace(/\\n/g, '\n'),
+  }
+  if (shape === 'code' && !words.code)
+    throw new UsageError(
+      'a code callout needs --code "…" or --code-file <file>',
+    )
+  if (shape === 'note' && !words.title)
+    throw new UsageError('a note needs --title "…"')
+  if (shape === 'tag' && !words.kicker && !words.title)
+    throw new UsageError('a tag needs --kicker "…"')
+  const stepRaw = strFlag(flags, 'step')
+  const atRaw = strFlag(flags, 'at')
+  const secondsRaw = strFlag(flags, 'seconds')
+  const side = strFlag(flags, 'side')
+  const mark = strFlag(flags, 'mark')
+  let composed
+  try {
+    composed = composeCallout(take.doc, register, {
+      shape,
+      words,
+      id: strFlag(flags, 'id'),
+      step:
+        stepRaw !== undefined
+          ? /^\d+$/.test(stepRaw)
+            ? Number(stepRaw)
+            : stepRaw
+          : undefined,
+      at: atRaw !== undefined ? Number(atRaw) : undefined,
+      seconds: secondsRaw !== undefined ? Number(secondsRaw) : undefined,
+      side: side as never,
+      mark: mark as never,
+      leader: flags.leader === true,
+      color: strFlag(flags, 'color'),
+    })
+  } catch (e) {
+    throw new UsageError(e instanceof Error ? e.message : String(e))
+  }
+  const { clip, window } = composed
+  if (flags.print === true) {
+    r.done(
+      { clip, window, register, brand: brand?.file ?? null },
+      JSON.stringify(clip, null, 2),
+    )
+    return EXIT_OK
+  }
+  const doc = take.doc
+  const overlays = (doc.overlays ?? []).filter((o) => o.id !== clip.id)
+  const next = { ...doc, overlays: [...overlays, clip] }
+  const lint = lintDoc(next)
+  if (lint.problems.length) {
+    r.done(
+      { valid: false, problems: lint.problems, warnings: lint.warnings, clip },
+      `the callout would not validate:\n  ${lint.problems.join('\n  ')}`,
+    )
+    return EXIT_ERROR
+  }
+  await writeJson(take.paths.doc, next, true)
+  r.done(
+    {
+      clip,
+      window,
+      register,
+      brand: brand?.file ?? null,
+      warnings: lint.warnings,
+    },
+    `${shape} "${clip.id}" at ${window.start.toFixed(2)}s for ${window.duration.toFixed(2)}s${clip.pin ? `, pinned to ${clip.pin.step !== undefined ? `step ${String(clip.pin.step)}` : `the press at ${String(clip.pin.press)}s`}` : ''}, ground ${register.ground} → card in the product's hue, written to ${take.paths.doc}${lint.warnings.length ? `\n  warnings:\n  ${lint.warnings.join('\n  ')}` : ''}`,
+  )
+  return EXIT_OK
+}
+
 async function cmdValidate(argv: string[]): Promise<number> {
   const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
   const target = positionals[0]
@@ -1534,6 +1652,44 @@ async function cmdValidate(argv: string[]): Promise<number> {
     )
     problems.push(...probe.problems)
     warnings.push(...probe.warnings)
+    // --picture: each html layer's ground against the footage it covers, as
+    // the camera shows it at the layer's start (one browser session, the
+    // footage rendered without layers).
+    if (
+      flags.picture === true &&
+      (take.doc.overlays ?? []).some((o) => o.kind === 'html')
+    ) {
+      const doc = take.doc
+      const times = [
+        ...new Set(
+          (doc.overlays ?? [])
+            .filter((o) => o.kind === 'html')
+            .map((o) => +(o.start + Math.min(0.35, o.duration / 2)).toFixed(3)),
+        ),
+      ]
+      const browser = await launchBrowser()
+      try {
+        const frames = await footageFrames(
+          browser,
+          target,
+          doc,
+          times,
+          framesTake,
+        )
+        const findings = await groundFindings(
+          doc,
+          async (t) => frames.get(+t.toFixed(3)) ?? null,
+        )
+        for (const f of findings) {
+          if (f.level === 'problem') problems.push(`doc.json: ${f.message}`)
+          else if (f.level === 'warning')
+            warnings.push(`doc.json: ${f.message}`)
+          else r.event({ event: 'ground', ...f })
+        }
+      } finally {
+        await browser.close()
+      }
+    }
   }
   if (problems.length) {
     r.done(
@@ -1665,6 +1821,8 @@ export async function run(argv: string[]): Promise<number> {
         return await cmdOpen(rest)
       case 'validate':
         return await cmdValidate(rest)
+      case 'callout':
+        return await cmdCallout(rest)
       case 'judge':
         return await cmdJudge(rest)
       case 'fetch':
