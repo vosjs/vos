@@ -254,6 +254,14 @@ export interface StepSpan {
    * transition at the page change.
    */
   navigated?: boolean
+  /**
+   * The selector's element bounds at the gesture, in the cursor track's
+   * space (the recorded viewport's CSS px, `meta.width` × `meta.height`) —
+   * what a pinned layer names (`overlays[].pin.step`). Absent on a step
+   * without a selector, and on takes recorded before the recorder kept it
+   * (a pin then reads the presses inside the step's window).
+   */
+  rect?: Rect
 }
 
 /** Everything the capture extension hands off to the studio. */
@@ -1118,6 +1126,46 @@ export interface OverlayTransform {
   rotation: number
 }
 
+/** Which side of its referent a pinned layer sits on. */
+export type PinSide = 'auto' | 'right' | 'left' | 'below' | 'above'
+
+/** The standing mark a pinned layer leaves on its referent. */
+export type PinMark = 'none' | 'ring' | 'underline'
+
+/**
+ * A layer's REFERENT: the thing on the page it is about. A pinned layer is
+ * placed beside that rect and follows it as the camera moves it on screen,
+ * so the statement and its subject stay bound (proximity), optionally with
+ * a hairline between them (a connector) and a standing mark on the subject.
+ * One of `step`, `press` or `rect` names it. Resolved at lowering into the
+ * clip's motion track through the frame's camera; `transform.x/y` stay the
+ * author's fallback for a pin that cannot resolve. Not the re-record
+ * `anchor` (a time tie the lowering never reads).
+ */
+export interface OverlayPin {
+  /** A recorder step (`meta.steps[].id`, else its index) whose element
+   *  rect is the referent. */
+  step?: string | number
+  /** The press nearest this SOURCE second (a human recording has no
+   *  script): the referent is that click's element rect. */
+  press?: number
+  /** The referent itself, in normalised video fractions [0..1] (the zoom
+   *  cx/cy convention — never pixels). */
+  rect?: Rect
+  /** Absent = 'auto': the first of right, left, below, above whose box
+   *  fits inside the frame through the layer's life, else the roomiest. */
+  side?: PinSide
+  /** Design px between the referent and the layer's visible box (24). */
+  gap?: number
+  /** A standing mark on the referent for the layer's life (absent = none). */
+  mark?: PinMark
+  /** A hairline from the layer's near edge to the referent. */
+  leader?: boolean
+  /** The mark's and the leader's ink (CSS colour; absent = white over a
+   *  dark rim, legible on any ground). */
+  color?: string
+}
+
 interface OverlayClipBase {
   /** Stable identity for selection/editing in the timeline UI. */
   id: string
@@ -1125,6 +1173,12 @@ interface OverlayClipBase {
   start: number
   duration: number
   transform: OverlayTransform
+  /**
+   * The layer's referent (see OverlayPin). A pinned layer's place is
+   * computed from the pin; `motion` poses keep their scale, rotation and
+   * opacity, and their x/y are ignored.
+   */
+  pin?: OverlayPin
   /**
    * How the clip enters and leaves (see Anim). Absent = the house motion:
    * a rise in, a fade out.
