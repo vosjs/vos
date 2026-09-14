@@ -2250,6 +2250,15 @@ const ON_FRAME = `(ctx, content, dt) => {
       if (pn.dur - pnT < 0.35) { var pnV = (pn.dur - pnT) / 0.35; pnA = Math.min(pnA, 1 - Math.pow(1 - pnV, 3)) }
       if (pnA <= 0.004) continue
       var pnX = dx + pn.x * dw, pnY = dy + pn.y * dh, pnW = pn.w * dw, pnH = pn.h * dh
+      // a carried referent (a drag): moved by where the pointer has taken
+      // it at the on-screen source moment, held at the release
+      if (pn.carry) {
+        var pcC = (actM ? actM.cursor : d.cursor) || []
+        var pcT = Math.max(pn.carry.t0, Math.min(pn.carry.t1, srcT))
+        var pcx = -1, pcy = -1
+        for (var pk = 0; pk < pcC.length; pk++) { if (pcC[pk].t <= pcT) { pcx = pcC[pk].x; pcy = pcC[pk].y } }
+        if (pcx >= 0) { pnX += (pcx / (space.w || vw) - pn.carry.x0) * dw; pnY += (pcy / (space.h || vh) - pn.carry.y0) * dh }
+      }
       var pnLw = 2 * s2 / ceZs, pnPad = 6 * s2 / ceZs
       var pnCol = pn.color || 'rgba(255,255,255,0.95)'
       c.save()
@@ -2419,6 +2428,15 @@ const ON_FRAME = `(ctx, content, dt) => {
       // the referent's corners in frame space under the live camera
       var pqAx = dx + pq.x * dw, pqAy = dy + pq.y * dh
       var pqBx = dx + (pq.x + pq.w) * dw, pqBy = dy + (pq.y + pq.h) * dh
+      if (pq.carry) {
+        var pqcT = Math.max(pq.carry.t0, Math.min(pq.carry.t1, srcT))
+        var pqcx = -1, pqcy = -1
+        for (var pqk = 0; pqk < cur.length; pqk++) { if (cur[pqk].t <= pqcT) { pqcx = cur[pqk].x; pqcy = cur[pqk].y } }
+        if (pqcx >= 0) {
+          var pqOx = (pqcx / (space.w || vw) - pq.carry.x0) * dw, pqOy = (pqcy / (space.h || vh) - pq.carry.y0) * dh
+          pqAx += pqOx; pqBx += pqOx; pqAy += pqOy; pqBy += pqOy
+        }
+      }
       if (lvl > 1.001 && !d.zoomSuppressed) {
         if (camStage) {
           pqAx = W / 2 + (pqAx - wcx) * lvl; pqAy = H / 2 + (pqAy - wcy) * lvl
@@ -3159,6 +3177,8 @@ export function resolvePins(
   zoomTrack: KeyframeTrack<number[]> | undefined,
 ): Map<string, PinPlacement> {
   const out = new Map<string, PinPlacement>()
+  const rated = ratedSegments(doc)
+  const space = { w: doc.source.meta.width, h: doc.source.meta.height }
   for (const o of doc.overlays ?? []) {
     if (!o.pin) continue
     const ref = pinReferent(doc, o.pin)
@@ -3182,6 +3202,10 @@ export function resolvePins(
         zoomTrack,
         base,
         motion,
+        carry: ref.carry ?? null,
+        cursor: doc.source.cursor,
+        space,
+        rated,
       }),
     )
   }
@@ -3239,6 +3263,18 @@ function pinsDataOf(
       mark,
       leader: !!p.leader,
       ...(p.color ? { color: p.color } : {}),
+      // A carried referent (a drag): ON_FRAME moves the mark and the
+      // leader's end with the pointer through [t0, t1], source seconds.
+      ...(ref.carry
+        ? {
+            carry: {
+              t0: round(ref.carry.t0),
+              t1: round(ref.carry.t1),
+              x0: round4(ref.carry.x0),
+              y0: round4(ref.carry.y0),
+            },
+          }
+        : {}),
       enter: enterKey(o),
       tip: placed.tip,
     })

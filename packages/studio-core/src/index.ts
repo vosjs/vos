@@ -265,8 +265,10 @@ export {
   pinPlacement,
   pinRectOnScreen,
   pinReferent,
+  pinReferentAt,
 } from './lower/pin'
 export type {
+  PinCarry,
   PinPlacement,
   PinPlacementInput,
   PinReferent,
