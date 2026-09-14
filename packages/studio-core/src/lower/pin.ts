@@ -20,14 +20,16 @@
  * callout is the video's, not the app's, so it never shrinks with the app;
  * only its place follows.
  */
-import { lerpArray, sample } from '@vosjs/timeline'
+import { lerpArray, mapTime, sample } from '@vosjs/timeline'
 import { htmlLayerPictureBox, htmlLayerWidth } from '../htmlLayer'
 import { zoomView } from '../layout'
 import { overlayRect } from '../overlayText'
+import { dragsFromTrack } from '../planner/autoZoom'
 import { OVERLAY_MEDIA_DEFAULT_WIDTH } from '../types'
-import type { Keyframe, KeyframeTrack } from '@vosjs/timeline'
+import type { Keyframe, KeyframeTrack, Segment } from '@vosjs/timeline'
 import type { CameraModel, CardLayout } from '../layout'
 import type {
+  CursorTrack,
   OverlayClip,
   OverlayPin,
   PinSide,
@@ -54,6 +56,19 @@ const PIN_TEXT_ADVANCE = 0.55
 export type PinSideResolved = Exclude<PinSide, 'auto'>
 const SIDE_ORDER: PinSideResolved[] = ['right', 'left', 'below', 'above']
 
+/**
+ * A referent the POINTER carries: a slider thumb, a scrubber, a card being
+ * dragged. Its rect was measured at the press; through the drag it sits
+ * wherever the pointer has taken it, and it stays at the release. SOURCE
+ * seconds; `x0`/`y0` the press in normalised video fractions.
+ */
+export interface PinCarry {
+  t0: number
+  t1: number
+  x0: number
+  y0: number
+}
+
 /** The referent's rect in normalised video fractions, and how it was found. */
 export interface PinReferent {
   rect: Rect
@@ -62,6 +77,8 @@ export interface PinReferent {
   step?: StepSpan
   /** SOURCE second the referent was measured at (a step's start, the press). */
   at: number | null
+  /** Set when the press began a drag: the referent moves with the pointer. */
+  carry?: PinCarry
 }
 
 /**
@@ -85,19 +102,27 @@ export function pinReferent(
   if (pin.step !== undefined) {
     const step = findStep(meta.steps ?? [], pin.step)
     if (!step || step.skipped) return null
+    const carry = dragCarry(doc, step.tStart - 0.05, step.tEnd + 0.05)
     if (step.rect && validRect(step.rect) && w > 0 && h > 0) {
       return {
         rect: normRect(step.rect, w, h),
         by: 'step',
         step,
         at: step.tStart,
+        ...(carry ? { carry } : {}),
       }
     }
     const union = unionRects(
       pressRects(doc, step.tStart - 0.05, step.tEnd + 0.05),
     )
     if (!union || w <= 0 || h <= 0) return null
-    return { rect: normRect(union, w, h), by: 'step', step, at: step.tStart }
+    return {
+      rect: normRect(union, w, h),
+      by: 'step',
+      step,
+      at: step.tStart,
+      ...(carry ? { carry } : {}),
+    }
   }
   if (pin.press !== undefined && Number.isFinite(pin.press)) {
     let best: { t: number; rect: Rect } | null = null
@@ -109,9 +134,54 @@ export function pinReferent(
       if (!best || d < Math.abs(best.t - pin.press)) best = { t, rect: e.rect }
     }
     if (!best || w <= 0 || h <= 0) return null
-    return { rect: normRect(best.rect, w, h), by: 'press', at: best.t }
+    const carry = dragCarry(doc, best.t - 0.01, best.t + 0.01)
+    return {
+      rect: normRect(best.rect, w, h),
+      by: 'press',
+      at: best.t,
+      ...(carry ? { carry } : {}),
+    }
   }
   return null
+}
+
+/**
+ * The drag that begins inside [from, to], as a carry: the planner's own
+ * drag test (a press that travelled before its release), so a press held
+ * still stays a still referent.
+ */
+function dragCarry(doc: ProjectDoc, from: number, to: number): PinCarry | null {
+  const meta = doc.source.meta
+  if (!(meta.width > 0) || !(meta.height > 0)) return null
+  const d = dragsFromTrack(doc.source.cursor, meta.width, meta.height).find(
+    (g) => g.t0 >= from && g.t0 <= to,
+  )
+  if (!d) return null
+  return { t0: d.t0, t1: d.t1, x0: d.nx, y0: d.ny }
+}
+
+/** The raw pointer position at SOURCE second t, normalised: interpolated
+ *  between the samples around t, held at the ends. */
+export function cursorAt(
+  cursor: CursorTrack,
+  t: number,
+  space: { w: number; h: number },
+): { nx: number; ny: number } | null {
+  let prev: { t: number; nx: number; ny: number } | null = null
+  for (const e of cursor) {
+    if (e.type !== 'move' && e.type !== 'down' && e.type !== 'up') continue
+    const cur = { t: e.t / 1000, nx: e.x / space.w, ny: e.y / space.h }
+    if (cur.t >= t) {
+      if (!prev) return { nx: cur.nx, ny: cur.ny }
+      const k = cur.t > prev.t ? (t - prev.t) / (cur.t - prev.t) : 1
+      return {
+        nx: prev.nx + (cur.nx - prev.nx) * k,
+        ny: prev.ny + (cur.ny - prev.ny) * k,
+      }
+    }
+    prev = cur
+  }
+  return prev ? { nx: prev.nx, ny: prev.ny } : null
 }
 
 /** The step a pin names: its id first, then its record-time index. */
@@ -253,6 +323,39 @@ export interface PinPlacementInput {
   base: readonly number[]
   /** The clip's own motion track, for scale, rotation and opacity. */
   motion?: KeyframeTrack<number[]> | null
+  /**
+   * A carried referent (a drag): the rect is offset by the pointer's
+   * displacement at each sample's SOURCE moment, read from `cursor` in
+   * `space` through `rated` (output → source).
+   */
+  carry?: PinCarry | null
+  cursor?: CursorTrack
+  space?: { w: number; h: number }
+  rated?: readonly Segment[]
+}
+
+/**
+ * The referent's rect at OUTPUT time t: the measured rect, moved by where
+ * the pointer has carried it when the press began a drag (held at the
+ * release; nothing before the press).
+ */
+export function pinReferentAt(
+  referent: Rect,
+  t: number,
+  input: Pick<PinPlacementInput, 'carry' | 'cursor' | 'space' | 'rated'>,
+): Rect {
+  const { carry, cursor, space, rated } = input
+  if (!carry || !cursor || !space || !rated) return referent
+  const s = mapTime(rated as Segment[], t)
+  const sc = Math.max(carry.t0, Math.min(carry.t1, s))
+  const p = cursorAt(cursor, sc, space)
+  if (!p) return referent
+  return {
+    x: referent.x + (p.nx - carry.x0),
+    y: referent.y + (p.ny - carry.y0),
+    w: referent.w,
+    h: referent.h,
+  }
 }
 
 export interface PinPlacement {
@@ -284,7 +387,13 @@ export function pinPlacement(input: PinPlacementInput): PinPlacement {
   const H = layout.H
 
   const refAt = (local: number): Rect =>
-    pinRectOnScreen(referent, clip.start + local, layout, camera, zoomTrack)
+    pinRectOnScreen(
+      pinReferentAt(referent, clip.start + local, input),
+      clip.start + local,
+      layout,
+      camera,
+      zoomTrack,
+    )
 
   const centreFor = (r: Rect, side: PinSideResolved) => {
     switch (side) {
