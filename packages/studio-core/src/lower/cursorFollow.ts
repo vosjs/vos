@@ -27,6 +27,7 @@
  * → no recenters), and the look-ahead interpolates between real samples.
  */
 import { clampFocus } from '../layout'
+import { dragsFromTrack } from '../planner/autoZoom'
 import { clampZoomLevel } from '../types'
 import { ZOOM_STYLES } from '../zoomStyle'
 import type { CameraModel, CardLayout } from '../layout'
@@ -35,6 +36,10 @@ import type { CursorTrack, ZoomSpan } from '../types'
 /** Legacy defaults (= the default style's values); prefer FollowOptions. */
 export const FOLLOW_SAFE_RATIO = ZOOM_STYLES.glide.followSafeRatio
 export const FOLLOW_RECENTER = ZOOM_STYLES.glide.followRecenter
+/** seconds between path samples through a drag (10 Hz reads as a pan). */
+export const FOLLOW_PATH_STEP = 0.1
+/** the path's smoothing window, seconds each side of a sample. */
+export const FOLLOW_PATH_SMOOTH = 0.08
 
 export interface FollowOptions {
   /** recenter when the cursor exits this central fraction of the crop. */
@@ -50,6 +55,13 @@ export interface FollowOptions {
 export interface FollowEvent {
   /** SOURCE seconds — the moment the recenter starts. */
   t: number
+  /**
+   * A PATH sample: the camera is at this focus AT `t` (a linear segment
+   * from the previous keyframe), not the start of a glide toward it. Baked
+   * every FOLLOW_PATH_STEP through a drag, so the camera pans with the
+   * pointer for the whole press.
+   */
+  path?: true
   cx: number
   cy: number
 }
@@ -106,9 +118,55 @@ export function followFocusEvents(
   let cy = entry.cy
   // Give the zoom-in arrival room to land before the first recenter.
   let nextAllowed = span.in + recenter
+
+  // Drags inside the span are PATH-followed: a sample every FOLLOW_PATH_STEP
+  // at the pointer's smoothed position for the whole press, so the camera
+  // pans with a slider thumb or a scrubber instead of waiting for it to
+  // leave the dead zone. The dead-zone follow resumes from the release.
+  const drags = dragsFromTrack(cursor, space.w, space.h).filter(
+    (d) => d.t1 > span.in && d.t0 < span.out,
+  )
+  const pathEvents: FollowEvent[] = []
+  for (const d of drags) {
+    const from = Math.max(d.t0, span.in)
+    const to = Math.min(d.t1, span.out)
+    for (let t = from; ; t += FOLLOW_PATH_STEP) {
+      const at = Math.min(t, to)
+      const a = sampleAt(pts, at - FOLLOW_PATH_SMOOTH)
+      const b = sampleAt(pts, at)
+      const c = sampleAt(pts, at + FOLLOW_PATH_SMOOTH)
+      const f = clampFocus(
+        (a.nx + b.nx + c.nx) / 3,
+        (a.ny + b.ny + c.ny) / 3,
+        level,
+        layout,
+        camera,
+      )
+      pathEvents.push({
+        t: round(at),
+        path: true,
+        cx: round(f.cx),
+        cy: round(f.cy),
+      })
+      if (at >= to) break
+    }
+  }
+  let dragIdx = 0
   for (const p of pts) {
     if (p.t < span.in) continue
     if (p.t > span.out) break
+    // Inside a drag the path owns the camera; past its release the
+    // dead-zone follow measures from where the path left it.
+    while (dragIdx < drags.length && p.t > drags[dragIdx].t1) {
+      const last = pathEvents.filter((e) => e.t <= drags[dragIdx].t1).at(-1)
+      if (last) {
+        cx = last.cx
+        cy = last.cy
+      }
+      nextAllowed = drags[dragIdx].t1 + recenter
+      dragIdx++
+    }
+    if (dragIdx < drags.length && p.t >= drags[dragIdx].t0) continue
     if (p.t < nextAllowed) continue
     if (Math.abs(p.nx - cx) > thrX || Math.abs(p.ny - cy) > thrY) {
       // Look-ahead: aim at where the cursor will be, not where it was.
@@ -123,7 +181,8 @@ export function followFocusEvents(
       nextAllowed = p.t + recenter
     }
   }
-  return { entry, events }
+  const merged = [...events, ...pathEvents].sort((a, b) => a.t - b.t)
+  return { entry, events: merged }
 }
 
 /** Interpolate the cursor position at time t (holds the ends; pts time-sorted). */
