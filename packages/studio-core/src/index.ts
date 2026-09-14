@@ -45,7 +45,11 @@ export {
 export type { CaptureNormalization } from './capture'
 export { projectFromArtifact } from './ingest'
 export type { IngestOptions } from './ingest'
-export { DOC_SCHEMA_VERSION, migrateHostedDoc } from './docVersion'
+export {
+  DOC_SCHEMA_VERSION,
+  migrateHostedDoc,
+  migrateZoomStyle,
+} from './docVersion'
 export { anchorKindOf, isProgramDoc, isRecordingDoc } from './doc/studioDoc'
 export type {
   AnchorKind,
@@ -170,8 +174,12 @@ export {
 } from './timeline/rangeActions'
 export {
   DEFAULT_ZOOM_STYLE,
+  PUMP_REST,
+  RETIRED_ZOOM_STYLES,
   ZOOM_STYLES,
   ZOOM_STYLE_OPTIONS,
+  liveZoomStyleName,
+  pumpFreeChainGap,
   resolveZoomStyle,
 } from './zoomStyle'
 export type {

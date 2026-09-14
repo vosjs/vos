@@ -192,12 +192,13 @@ export const ZOOM_EASE = ZOOM_STYLES[DEFAULT_ZOOM_STYLE].ease
 export const ZOOM_PAN_EASE = ZOOM_STYLES[DEFAULT_ZOOM_STYLE].panEase
 
 /**
- * Tilt transition shape (tilt spans). Fixed constants, deliberately NOT the
- * zoom style's (switching
- * "Camera style" must not silently change tilt feel; a tiltParams override
- * layer can arrive later if real use demands it). The eases are the same
- * measured css-bezier family the default zoom style uses. Unlike zoom, the
- * pose is SETTLED at span.in (the ramp starts TILT_RAMP_IN before, with no
+ * Tilt transition shape (tilt spans): the FALLBACK for a bare
+ * tiltTrackFromDoc call. The lowering hands the track the camera style's
+ * own tilt motion (`ZoomStyleParams.tilt`, the style's zoom tempo), so a
+ * lean lands WITH its zoom in every style — the one thing the retired
+ * keynote style had right, generalized. The eases are the same measured
+ * css-bezier family the default zoom style uses. Unlike zoom, the pose is
+ * SETTLED at span.in (the ramp starts TILT_RAMP_IN before, with no
  * overlap-into-span): tilt frames a moment, it doesn't chase content.
  */
 export const TILT_RAMP_IN = 0.9
@@ -316,6 +317,40 @@ function spanEase(
 }
 
 /**
+ * The shortest ramp the tracks ever emit (seconds): the cut style's own
+ * arrival, eight frames at 60 fps. A ramp that collides with the keyframe
+ * before it shrinks to the room it has, never below this, instead of the
+ * emitter's 1 ms nudge, which turned every ramp longer than its span (a
+ * dwell of a second under a 1.8 s cinema ramp, a click under a 3× speed
+ * span) into a hard cut inside a style sold as smooth.
+ */
+export const RAMP_FLOOR = 0.14
+
+/**
+ * Where a ramp lands. Unclamped (the emitter accepted the wanted start),
+ * the landing is exactly start + duration, float-identical to the old
+ * expression so a fitting track stays byte-identical. Clamped (the ramp
+ * would have begun before t = 0, or before the previous keyframe), the
+ * ramp keeps its full duration when the span has the room (a clip that
+ * opens mid-zoom-in reads as the camera already moving, the way it
+ * always did), lands at the span's end when it does not, and never lands
+ * before its designed point (`startWanted + duration`, rampInOverlap into
+ * the span) or less than RAMP_FLOOR after the actual start. The hold pin
+ * and the exit take over from there.
+ */
+function rampLanding(
+  start: number,
+  startWanted: number,
+  duration: number,
+  spanEnd: number,
+): number {
+  if (Math.abs(start - startWanted) < 1e-9) return start + duration
+  const landWanted = startWanted + duration
+  const landFull = Math.min(start + duration, spanEnd)
+  return Math.max(start + RAMP_FLOOR, landWanted, landFull)
+}
+
+/**
  * Monotonic keyframe emitter shared by every span→track expansion (zoom,
  * tilt): clamps into strictly-increasing time, skips exact no-op repeats,
  * nudges 1ms on time collisions. Extracted so the tracks can never drift on
@@ -402,12 +437,13 @@ export function zoomTrackFromDoc(
     if (!chained) {
       // Rest until the ramp starts; scale in place around this span's focus
       // (level 1 renders identically for any focus, so the rest focus is free).
-      const start = push(
-        tIn - (style.rampIn - style.rampInOverlap) * m,
-        [1, z.cx, z.cy, 0],
-        'none',
+      const startWanted = tIn - (style.rampIn - style.rampInOverlap) * m
+      const start = push(startWanted, [1, z.cx, z.cy, 0], 'none')
+      push(
+        rampLanding(start, startWanted, style.rampIn * m, tOut),
+        entry,
+        spanEase(z.ease, style.ease),
       )
-      push(start + style.rampIn * m, entry, spanEase(z.ease, style.ease))
     }
 
     // Cursor-follow recenters (focusMode 'auto', baked by the lowering): hold
@@ -417,6 +453,10 @@ export function zoomTrackFromDoc(
     for (const e of z.followEvents ?? []) {
       const eOut = sourceToTimeline(segments, e.t)
       if (eOut === null || eOut <= tIn || eOut >= tOut) continue
+      // A recenter with less than RAMP_FLOOR of room after the arrival or
+      // before the exit would compress into a jump (the focus freezes for
+      // the zoom-out anyway); it is dropped, and the next one glides.
+      if (eOut - tIn < RAMP_FLOOR || tOut - eOut < RAMP_FLOOR) continue
       const next = [cur[0], e.cx, e.cy, 1]
       if (e.path) {
         // A path sample: the camera is HERE at this time. The first sample
@@ -449,9 +489,12 @@ export function zoomTrackFromDoc(
       const mNext = transitionMult(next.z.transition)
       const nextValue = [clampZoomLevel(next.z.level), next.z.cx, next.z.cy, 1]
       push(
-        Math.min(
-          tOut + style.pan * mNext,
-          next.tIn + style.rampInOverlap * mNext,
+        Math.max(
+          tOut + RAMP_FLOOR,
+          Math.min(
+            tOut + style.pan * mNext,
+            next.tIn + style.rampInOverlap * mNext,
+          ),
         ),
         nextValue,
         panEase,
@@ -529,8 +572,13 @@ export function tiltTrackFromDoc(
 
     if (!chained) {
       // Rest until the ramp starts; arrive settled exactly at the span start.
-      const start = push(tIn - rampInDur * m, rest, 'none')
-      push(start + rampInDur * m, pose, spanEase(z.ease, TILT_EASE))
+      const startWanted = tIn - rampInDur * m
+      const start = push(startWanted, rest, 'none')
+      push(
+        rampLanding(start, startWanted, rampInDur * m, tOut),
+        pose,
+        spanEase(z.ease, TILT_EASE),
+      )
     }
 
     // Pin the hold to the span's end — the exit transition starts here.
@@ -542,7 +590,10 @@ export function tiltTrackFromDoc(
       // start — the next span's arrival, so its transition speed governs.
       const nextPose = [clampTiltDeg(next.z.rx), clampTiltDeg(next.z.ry)]
       push(
-        Math.min(tOut + panDur * transitionMult(next.z.transition), next.tIn),
+        Math.max(
+          tOut + RAMP_FLOOR,
+          Math.min(tOut + panDur * transitionMult(next.z.transition), next.tIn),
+        ),
         nextPose,
         panEase,
       )

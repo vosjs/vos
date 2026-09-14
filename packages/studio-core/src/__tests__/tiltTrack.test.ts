@@ -190,23 +190,7 @@ describe('camera-style tilt personalities', () => {
     }
   })
 
-  it('keynote leans medium with tilt ramps MATCHED to its zoom ramps', () => {
-    const s = ZOOM_STYLES.keynote
-    expect(s.tilt.intensity).toBe('medium')
-    expect(s.tilt.rampIn).toBe(s.rampIn)
-    expect(s.tilt.rampOut).toBe(s.rampOut)
-    expect(s.tilt.chainGap).toBe(s.chainGap)
-  })
-
-  it('drift leans subtle, slower than the house constants, longer chains', () => {
-    const s = ZOOM_STYLES.drift
-    expect(s.tilt.intensity).toBe('subtle')
-    expect(s.tilt.rampIn!).toBeGreaterThan(TILT_RAMP_IN)
-    expect(s.tilt.rampOut!).toBeGreaterThan(TILT_RAMP_OUT)
-    expect(s.tilt.chainGap!).toBeGreaterThan(TILT_CHAIN_GAP)
-  })
-
-  it('pre-existing styles stay flat — no silent motion change (tilt off)', () => {
+  it('every style ships tilt off: intensity is the Dynamic tilt dial, never a name', () => {
     for (const name of [
       'glide',
       'focus',
@@ -217,6 +201,19 @@ describe('camera-style tilt personalities', () => {
     ] as const) {
       expect(ZOOM_STYLES[name].tilt.intensity).toBe('off')
     }
+  })
+
+  it("every style's tilt motion is its own zoom tempo (a lean lands with its zoom)", () => {
+    for (const name of ['glide', 'focus', 'cinema', 'snappy'] as const) {
+      const s = ZOOM_STYLES[name]
+      expect(s.tilt.rampIn).toBe(s.rampIn)
+      expect(s.tilt.rampOut).toBe(s.rampOut)
+      expect(s.tilt.chainGap).toBe(s.chainGap)
+      expect(s.tilt.pan).toBe(s.pan)
+    }
+    // A cut's lean is a short swing, not an eight-frame snap.
+    expect(ZOOM_STYLES.cut.tilt.rampIn).toBeGreaterThan(ZOOM_STYLES.cut.rampIn)
+    expect(ZOOM_STYLES.none.tilt).toEqual(ZOOM_STYLES.glide.tilt)
   })
 
   it('motion overrides stretch the track ramps', () => {
@@ -236,12 +233,12 @@ describe('camera-style tilt personalities', () => {
     // makeDoc's footage is 3s — span at 1.8..2.9 keeps the drift ramp in range.
     const { data } = lowerToComposition({
       ...makeDoc([span({ in: 1.8, out: 2.9 })]),
-      zoomStyle: 'drift',
+      zoomStyle: 'cinema',
     })
     const tr = data.tiltTrack as { keyframes: { t: number; value: number[] }[] }
-    // drift's 1.6s tilt ramp: at rest 1.65s before the span, already moving
-    // 0.95s before (where the default 0.9s ramp would not have started).
-    expect(at(tr, 1.8 - 1.65)).toEqual([0, 0])
+    // cinema's 1.2s tilt ramp: at rest 1.25s before the span, already moving
+    // 0.95s before (where the house 0.9s ramp would not have started).
+    expect(at(tr, 1.8 - 1.25)).toEqual([0, 0])
     expect(at(tr, 1.8 - 0.95)[0]).toBeGreaterThan(0)
   })
 })

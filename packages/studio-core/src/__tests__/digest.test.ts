@@ -234,14 +234,14 @@ describe('zoomCoversRect', () => {
 describe('copyStyle', () => {
   it('carries exactly the style fields and removes what the seed lacks', () => {
     const from = doc()
-    from.zoomStyle = 'keynote'
+    from.zoomStyle = 'focus'
     from.zoomParams = { hold: 2 }
     from.frame.padding = 96
     const to = doc()
     to.tiltStyle = 'strong'
     to.zoom = [{ id: 'u0', in: 1, out: 2, level: 2, cx: 0.5, cy: 0.5 }]
     const next = copyStyle(from, to)
-    expect(next.zoomStyle).toBe('keynote')
+    expect(next.zoomStyle).toBe('focus')
     expect(next.zoomParams).toEqual({ hold: 2 })
     expect(next.frame.padding).toBe(96)
     expect(next.tiltStyle).toBeUndefined()
