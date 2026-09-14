@@ -583,7 +583,12 @@ export function dwellSpans(
     if (!breaks) continue
     const endT = i < moves.length ? moves[i].t : trackEnd
     const dur = endT - moves[start].t
-    if (dur >= DWELL_MIN && dur <= DWELL_MAX) {
+    // The run that starts at the track's FIRST sample is the cursor before
+    // it has done anything: on a CLI take it is parked at the frame's
+    // corner until the first step, and six of eight real takes opened on a
+    // point zoom at the ceiling onto that corner. Not a moment.
+    const opening = start === 0
+    if (!opening && dur >= DWELL_MIN && dur <= DWELL_MAX) {
       const run = moves.slice(start, i)
       candidates.push({
         center: (moves[start].t + endT) / 2,

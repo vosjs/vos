@@ -151,15 +151,15 @@
         "zoomStyle": {
           "enum": [
             "glide",
-            "keynote",
-            "drift",
             "focus",
             "cinema",
             "snappy",
             "cut",
-            "none"
+            "none",
+            "keynote",
+            "drift"
           ],
-          "description": "Camera style preset driving planner + camera motion. Absent = 'glide'. 'none' disables auto-zoom planning (manual spans keep default motion). 'keynote' and 'drift' are tilt-forward styles: they carry a tilt personality (keynote = medium lean toward each zoom's focus with tilt ramps matched to the zoom ramps; drift = subtle lean, slower 1.6s ramps, longer chains) \u2014 in the studio, picking one stamps tiltStyle and plans auto tilt spans; in doc.json, set tiltStyle + tilt spans yourself (the style still shapes tilt MOTION at render)."
+          "description": "Camera style preset driving planner + camera motion: glide (default), focus, cinema, snappy, cut, none. Absent = 'glide'. 'none' disables auto-zoom planning (manual spans move like glide). Every style also sets the tempo of the tilt track (a lean lands with its zoom); the lean's intensity is tiltStyle. 'keynote' and 'drift' are RETIRED names still accepted for old documents: they read as glide + tiltStyle medium and cinema + tiltStyle subtle (docSchemaVersion 5 rewrites them on read)."
         },
         "zoomParams": {
           "type": "object",
