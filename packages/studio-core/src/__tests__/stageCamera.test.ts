@@ -211,6 +211,29 @@ describe('ON_FRAME camera parity', () => {
     }
   })
 
+  it('the centring rides the track with the level: one ease for the slide and the scale', () => {
+    const { data } = lowerToComposition(
+      makeDoc({ ...DEFAULT_FRAME_STYLE, camera: 'stage' }),
+    )
+    const track = data.zoomTrack as KeyframeTrack<number[]>
+    const apexIdx = track.keyframes.findIndex((k) => k.value[0] > 1 + 1e-9)
+    const apex = track.keyframes[apexIdx]
+    const rest = track.keyframes[apexIdx - 1]
+    expect(rest.value[3]).toBe(0)
+    expect(apex.value[3]).toBe(1)
+    // Anywhere on the ramp the centring equals the level's own progress.
+    for (const u of [0.15, 0.4, 0.7, 0.95]) {
+      const t = rest.t + (apex.t - rest.t) * u
+      const v = sample(track, t, lerpArray)
+      const progress = (v[0] - 1) / (apex.value[0] - 1)
+      expect(v[3]).toBeCloseTo(progress, 9)
+    }
+    // And the zoom-out returns both to rest together.
+    const last = track.keyframes[track.keyframes.length - 1]
+    expect(last.value[0]).toBe(1)
+    expect(last.value[3]).toBe(0)
+  })
+
   it('at rest (level 1, before the ramp-in starts) neither model emits a zoom transform', () => {
     for (const camera of ['card', 'stage'] as const) {
       const { calls } = zoomCalls({ ...DEFAULT_FRAME_STYLE, camera }, 0.1)

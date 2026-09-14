@@ -383,7 +383,14 @@ export function zoomTrackFromDoc(
   let chained = false
   for (let i = 0; i < mapped.length; i++) {
     const { z, tIn, tOut } = mapped[i]
-    const entry = [clampZoomLevel(z.level), z.cx, z.cy]
+    // [level, cx, cy, centring]: the fourth component is the stage camera's
+    // pull of the focus toward the frame's centre, 0 at rest and 1 at the
+    // apex, interpolated by the SAME ease as the level so the card's slide
+    // and its scale are one motion. Keyed to the level over a fixed band it
+    // was a jump: any ease reaches level 1.3 in its first frames, so the
+    // whole slide landed at once and the corner drifted back out as the
+    // scale caught up (the twitch measured on the tweakcn take).
+    const entry = [clampZoomLevel(z.level), z.cx, z.cy, 1]
     // The camera's current state within the span — advanced by follow recenters.
     let cur = entry
     // Per-span transition speed: a multiplier on the style's ramps.
@@ -395,7 +402,7 @@ export function zoomTrackFromDoc(
       // (level 1 renders identically for any focus, so the rest focus is free).
       const start = push(
         tIn - (style.rampIn - style.rampInOverlap) * m,
-        [1, z.cx, z.cy],
+        [1, z.cx, z.cy, 0],
         'none',
       )
       push(start + style.rampIn * m, entry, spanEase(z.ease, style.ease))
@@ -407,7 +414,7 @@ export function zoomTrackFromDoc(
     for (const e of z.followEvents ?? []) {
       const eOut = sourceToTimeline(segments, e.t)
       if (eOut === null || eOut <= tIn || eOut >= tOut) continue
-      const next = [cur[0], e.cx, e.cy]
+      const next = [cur[0], e.cx, e.cy, 1]
       push(eOut, cur, 'none')
       push(Math.min(eOut + style.followRecenter, tOut), next, panEase)
       cur = next
@@ -422,7 +429,7 @@ export function zoomTrackFromDoc(
       // get a real pan by letting it land up to rampInOverlap into the next.
       // The pan is the NEXT span's arrival, so its transition speed governs.
       const mNext = transitionMult(next.z.transition)
-      const nextValue = [clampZoomLevel(next.z.level), next.z.cx, next.z.cy]
+      const nextValue = [clampZoomLevel(next.z.level), next.z.cx, next.z.cy, 1]
       push(
         Math.min(
           tOut + style.pan * mNext,
@@ -437,7 +444,7 @@ export function zoomTrackFromDoc(
       // back from wherever the follow left it, no parting pan.
       push(
         tOut + style.rampOut * m,
-        [1, cur[1], cur[2]],
+        [1, cur[1], cur[2], 0],
         spanEase(z.ease, style.ease),
       )
       chained = false
@@ -1814,11 +1821,15 @@ const ON_FRAME = `(ctx, content, dt) => {
   // current zoom — a standard keyframe track in OUTPUT time (hold + arrival pairs
   // expanded by the lowering), sampled with the shared deterministic interpolator.
   // Sampled here, before the rect math, so a cover crop can follow it.
-  var lvl = 1, zx = 0.5, zy = 0.5
+  var lvl = 1, zx = 0.5, zy = 0.5, zc = -1
   var zt = d.zoomTrack
   if (zt && zt.keyframes && zt.keyframes.length) {
     var z = TL.sample(zt, tpT, TL.lerpArray)
     lvl = z[0]; zx = z[1]; zy = z[2]
+    // The stage camera's centring rides the track (0 rest, 1 apex, eased
+    // with the level); a three-component track (a document lowered before
+    // the component existed) falls back to the level band below.
+    if (z.length > 3) zc = z[3]
   }
   var barH = bar.kind && bar.kind !== 'none' ? (bar.height || 44) * s2 : 0
   var availW = Math.max(1, W - ipL - ipR), availH = Math.max(1, H - ipT - ipB - barH)
@@ -1881,8 +1892,11 @@ const ON_FRAME = `(ctx, content, dt) => {
   var wcx = fx, wcy = fy
   if (lvl > 1.001 && !d.zoomSuppressed) {
     if (camStage) {
-      var ctu = Math.max(0, Math.min(1, (lvl - 1) / ${CAMERA_CENTRE_RAMP}))
-      var ctt = ctu * ctu * (3 - 2 * ctu)
+      var ctt = zc
+      if (ctt < 0) {
+        var ctu = Math.max(0, Math.min(1, (lvl - 1) / ${CAMERA_CENTRE_RAMP}))
+        ctt = ctu * ctu * (3 - 2 * ctu)
+      }
       wcx = fx + ((W / 2 - fx) / lvl) * (1 - ctt)
       wcy = fy + ((H / 2 - fy) / lvl) * (1 - ctt)
       c.translate(W / 2, H / 2); c.scale(lvl, lvl); c.translate(-wcx, -wcy)
