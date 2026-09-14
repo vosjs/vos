@@ -184,6 +184,17 @@ export function cursorAt(
   return prev ? { nx: prev.nx, ny: prev.ny } : null
 }
 
+/** A step a layer could be pinned to: it has an element, and its window overlaps the layer's. */
+export interface PinCandidate {
+  step: string | number
+  do: string
+  selector?: string
+  /** The step's OUTPUT window. */
+  output: { start: number; end: number }
+  /** Seconds of the layer's window the step's covers. */
+  overlap: number
+}
+
 /** The step a pin names: its id first, then its record-time index. */
 export function findStep(
   steps: readonly StepSpan[],

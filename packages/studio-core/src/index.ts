@@ -10,6 +10,31 @@
  */
 export * from './types'
 export {
+  CALLOUT_DEFAULT_BODY_PX,
+  CALLOUT_SHAPES,
+  CALLOUT_TYPE_RATIO,
+  HOUSE_REGISTER,
+  calloutBox,
+  calloutClip,
+  calloutGroundOf,
+  calloutLook,
+  calloutSource,
+  deltaE,
+  hexToRgb,
+  parseCssColour,
+  relativeLuminance,
+  rgbToHex,
+} from './callout'
+export type {
+  CalloutBox,
+  CalloutClipOptions,
+  CalloutLook,
+  CalloutRegister,
+  CalloutShape,
+  CalloutWords,
+  Rgb,
+} from './callout'
+export {
   CAPTURE_COVERAGE_MIN,
   WINDOW_FOCUS_MIN,
   deriveViewportCrop,
@@ -185,6 +210,7 @@ export {
   overlayMotionPoseAt,
   overlayPinPoseAt,
   docZoomTrack,
+  pinCandidates,
   resolvePins,
   lowerToComposition,
   ratedSegments,
@@ -268,6 +294,7 @@ export {
   pinReferentAt,
 } from './lower/pin'
 export type {
+  PinCandidate,
   PinCarry,
   PinPlacement,
   PinPlacementInput,

@@ -137,7 +137,7 @@ import type { Keyframe, KeyframeTrack, Segment } from '@vosjs/timeline'
 import type { ZoomStyleParams } from '../zoomStyle'
 import type { CamBubbleRect, CameraModel, CardLayout } from '../layout'
 import type { FollowEvent } from './cursorFollow'
-import type { PinPlacement } from './pin'
+import type { PinCandidate, PinPlacement } from './pin'
 import type {
   AudioClip,
   CamPoseSpan,
@@ -3210,6 +3210,39 @@ export function resolvePins(
     )
   }
   return out
+}
+
+/**
+ * The steps an unpinned layer could name: every step with an element (a
+ * rect, or presses inside its window) whose output window overlaps the
+ * layer's, most overlap first. The studio's Pin-to select and the lint's
+ * advice read this.
+ */
+export function pinCandidates(
+  doc: ProjectDoc,
+  clip: { start: number; duration: number },
+): PinCandidate[] {
+  const rated = ratedSegments(doc)
+  const out: PinCandidate[] = []
+  const a0 = clip.start
+  const a1 = clip.start + clip.duration
+  for (const s of doc.source.meta.steps ?? []) {
+    if (s.skipped) continue
+    const ref = pinReferent(doc, { step: s.id ?? s.step })
+    if (!ref) continue
+    const ext = spanOutputExtent(rated, s.tStart, s.tEnd)
+    if (!ext) continue
+    const overlap = Math.min(a1, ext.end) - Math.max(a0, ext.start)
+    if (overlap <= 0) continue
+    out.push({
+      step: s.id ?? s.step,
+      do: s.do,
+      ...(s.selector ? { selector: s.selector } : {}),
+      output: { start: round(ext.start), end: round(ext.end) },
+      overlap: round(overlap),
+    })
+  }
+  return out.sort((x, y) => y.overlap - x.overlap)
 }
 
 /**

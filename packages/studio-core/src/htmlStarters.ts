@@ -11,14 +11,30 @@
  * bleed is exercised. `htmlStarters.test.ts` proves every one passes the
  * gate with no problem and no warning.
  */
+import { HOUSE_REGISTER, calloutClip } from './callout'
 import type { HtmlOverlayClip } from './types'
 
 export interface HtmlStarter {
-  id: 'callout' | 'code' | 'terminal' | 'keys' | 'badge'
+  id: 'note' | 'tag' | 'code' | 'terminal' | 'keys' | 'badge'
   name: string
   html: string
   css: string
   box: { width: number; height: number }
+}
+
+/** The grammar's shape as a starter: its source in the house register. */
+function grammarStarter(
+  id: 'note' | 'tag' | 'code',
+  name: string,
+  words: Parameters<typeof calloutClip>[2],
+): HtmlStarter {
+  const clip = calloutClip(id, HOUSE_REGISTER, words, {
+    id,
+    start: 0,
+    duration: 1,
+    scale: 1.4,
+  })
+  return { id, name, html: clip.html, css: clip.css ?? '', box: clip.box }
 }
 
 const WORDS =
@@ -28,35 +44,18 @@ const CARD =
   'background:#0b0b0d;border:1px solid rgba(255,255,255,.08);border-radius:16px;box-shadow:0 24px 60px rgba(0,0,0,.45);'
 
 export const HTML_STARTERS: readonly HtmlStarter[] = [
-  {
-    id: 'callout',
-    name: 'Callout',
-    box: { width: 420, height: 132 },
-    html:
-      '<div class="callout">' +
-      '<div class="head"><span class="dot"></span><span class="title">Title</span></div>' +
-      '<div class="body">One line that says what this is.</div>' +
-      '</div>',
-    css:
-      `.callout{${WORDS}${CARD}box-sizing:border-box;width:420px;height:132px;padding:22px 24px}` +
-      '.head{display:flex;align-items:center;gap:10px}' +
-      '.dot{width:8px;height:8px;border-radius:99px;background:#4ade80;box-shadow:0 0 10px rgba(74,222,128,.9)}' +
-      '.title{font-size:20px;font-weight:600;letter-spacing:-0.01em}' +
-      '.body{margin-top:12px;font-size:15px;line-height:1.5;color:#8b8b94}',
-  },
-  {
-    id: 'code',
-    name: 'Code',
-    box: { width: 460, height: 168 },
-    html:
-      '<div class="code"><span class="mut">// button.tsx</span>\n' +
-      '<span class="kw">export function</span> <span class="fn">Button</span>({ variant }) {\n' +
-      '  <span class="kw">return</span> <span class="tag">&lt;button</span> className={<span class="fn">cn</span>(variant)} <span class="tag">/&gt;</span>\n' +
-      '}</div>',
-    css:
-      `.code{${MONO}${CARD}color:#e8e8ec;box-sizing:border-box;width:460px;height:168px;padding:22px 24px;font-size:14px;line-height:1.8;white-space:pre;letter-spacing:-0.01em}` +
-      '.kw{color:#c4b5fd}.fn{color:#7dd3fc}.tag{color:#f0abfc}.mut{color:#5b5b66}',
-  },
+  // The callout grammar (three shapes a viewer learns once), in the house
+  // register: a dark card in the house hue over a light app.
+  grammarStarter('note', 'Note', {
+    kicker: 'Presets',
+    title: 'One of 43, picked here.',
+    body: 'One line that says what this is about.',
+  }),
+  grammarStarter('tag', 'Tag', { kicker: 'New in 2.0' }),
+  grammarStarter('code', 'Code', {
+    kicker: 'index.css',
+    code: ':root {\n  --primary: oklch(0.63 0.06 4.6);\n  --radius: 2.25rem;\n}',
+  }),
   {
     id: 'terminal',
     name: 'Terminal',
