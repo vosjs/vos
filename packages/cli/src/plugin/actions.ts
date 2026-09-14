@@ -15,7 +15,8 @@ export interface ActionsFile {
 export type ActionStep = (
   | { do: 'wait'; ms: number }
   | { do: 'hover'; selector: string; ms?: number }
-  | { do: 'click'; selector: string }
+  /** `ms` is the settle after the press (default 150). */
+  | { do: 'click'; selector: string; ms?: number }
   /**
    * Type into `selector`. The recorder clicks the field first, which is what
    * opens the typing zoom on it; `focus: false` types into the field as it is
@@ -29,8 +30,11 @@ export type ActionStep = (
       text: string
       delayMs?: number
       focus?: boolean
+      /** the settle after the last character (default 150) */
+      ms?: number
     }
-  | { do: 'scroll'; dy: number }
+  /** `ms` is the settle after the scroll lands (default 200). */
+  | { do: 'scroll'; dy: number; ms?: number }
   | { do: 'move'; x: number; y: number }
   /**
    * Press-move-release — real edits (drag an element on the stage canvas,
@@ -116,6 +120,11 @@ export function validateActions(value: unknown): string[] {
       errors.push(`${at}: ${s.do} needs a selector`)
     if (s.do === 'wait' && typeof s.ms !== 'number')
       errors.push(`${at}: wait needs ms`)
+    if (
+      s.ms !== undefined &&
+      (typeof s.ms !== 'number' || !Number.isFinite(s.ms) || s.ms < 0)
+    )
+      errors.push(`${at}: ms must be a number of milliseconds ≥ 0`)
     if (s.do === 'type' && typeof s.text !== 'string')
       errors.push(`${at}: type needs text`)
     if (
