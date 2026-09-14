@@ -263,6 +263,7 @@ export {
   findStep,
   pinBox,
   pinPlacement,
+  pinRectOnScreen,
   pinReferent,
 } from './lower/pin'
 export type {

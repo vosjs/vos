@@ -205,6 +205,43 @@ function estimateMeasure(
   return text.length * (px * PIN_TEXT_ADVANCE + letterSpacingPx)
 }
 
+/**
+ * A rect in normalised video fractions as the camera shows it at OUTPUT
+ * time t, in design px: the zoom track sampled at t, mapped through
+ * zoomView (the one camera function ON_FRAME mirrors).
+ */
+export function pinRectOnScreen(
+  rect: Rect,
+  t: number,
+  layout: CardLayout,
+  camera: CameraModel,
+  zoomTrack?: KeyframeTrack<number[]> | null,
+): Rect {
+  let level = 1
+  let cx = 0.5
+  let cy = 0.5
+  let centring: number | undefined
+  if (zoomTrack && zoomTrack.keyframes.length) {
+    const z = sample(zoomTrack, t, lerpArray)
+    level = z[0]
+    cx = z[1]
+    cy = z[2]
+    if (z.length > 3) centring = z[3]
+  }
+  const v = zoomView(level, cx, cy, layout, camera, centring)
+  const map = (nx: number, ny: number) => {
+    const px = layout.dx + nx * layout.dw
+    const py = layout.dy + ny * layout.dh
+    return {
+      x: v.ox + (px - v.wcx) * v.level,
+      y: v.oy + (py - v.wcy) * v.level,
+    }
+  }
+  const a = map(rect.x, rect.y)
+  const b = map(rect.x + rect.w, rect.y + rect.h)
+  return { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y }
+}
+
 export interface PinPlacementInput {
   clip: OverlayClip
   referent: Rect
@@ -246,32 +283,8 @@ export function pinPlacement(input: PinPlacementInput): PinPlacement {
   const W = layout.W
   const H = layout.H
 
-  const refAt = (local: number): Rect => {
-    const t = clip.start + local
-    let level = 1
-    let cx = 0.5
-    let cy = 0.5
-    let centring: number | undefined
-    if (zoomTrack && zoomTrack.keyframes.length) {
-      const z = sample(zoomTrack, t, lerpArray)
-      level = z[0]
-      cx = z[1]
-      cy = z[2]
-      if (z.length > 3) centring = z[3]
-    }
-    const v = zoomView(level, cx, cy, layout, camera, centring)
-    const map = (nx: number, ny: number) => {
-      const px = layout.dx + nx * layout.dw
-      const py = layout.dy + ny * layout.dh
-      return {
-        x: v.ox + (px - v.wcx) * v.level,
-        y: v.oy + (py - v.wcy) * v.level,
-      }
-    }
-    const a = map(referent.x, referent.y)
-    const b = map(referent.x + referent.w, referent.y + referent.h)
-    return { x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y }
-  }
+  const refAt = (local: number): Rect =>
+    pinRectOnScreen(referent, clip.start + local, layout, camera, zoomTrack)
 
   const centreFor = (r: Rect, side: PinSideResolved) => {
     switch (side) {
