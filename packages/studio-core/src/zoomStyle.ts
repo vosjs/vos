@@ -159,18 +159,21 @@ export const ZOOM_STYLES: Record<ZoomStyleName, ZoomStyleParams> = {
     typingGap: 2.5,
     typingHold: 1.1,
     typingMinLevel: 1.4,
-    rampIn: 0.55,
+    rampIn: 0.6,
     rampInOverlap: 0.2,
     rampOut: 0.5,
     chainGap: 3.0,
     pan: 0.55,
     // The reference's corner trace at 60 fps: a quarter of the move by a
-    // fifth of the time, two thirds by half, the rest a settle. That is
-    // CSS `ease` (0.25, 0.1, 0.25, 1), a small lead-in and a long tail;
-    // (0.16, 1, 0.3, 1) put half the move in the first sixty milliseconds
-    // and read as a twitch.
-    ease: 'css-bezier(0.25, 0.1, 0.25, 1)',
-    panEase: 'css-bezier(0.3, 0.05, 0.25, 1)',
+    // fifth of the time, two thirds by half, nine tenths by three
+    // quarters, over ~0.6 s. Fitted against those three points,
+    // (0.36, 0, 0.4, 1) is the closest cubic (15 / 64 / 93 %; half the
+    // move at ~245 ms and 90 % at ~425 ms at 0.6 s): a gentle start and a
+    // long settle. CSS ease (0.25, 0.1, 0.25, 1) reached the midpoint
+    // 70 ms earlier and read a touch fast; (0.16, 1, 0.3, 1) put half the
+    // move in the first sixty milliseconds and read as a twitch.
+    ease: 'css-bezier(0.36, 0, 0.4, 1)',
+    panEase: 'css-bezier(0.36, 0, 0.4, 1)',
     followSafeRatio: 0.45,
     followRecenter: 0.55,
     followLookahead: 0.4,
