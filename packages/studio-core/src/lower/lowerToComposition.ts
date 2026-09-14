@@ -2030,6 +2030,34 @@ const ON_FRAME = `(ctx, content, dt) => {
   // cursor coordinate space + drawn radius (shared by click effects + the dot)
   var space = (actM ? actM.cursorSpace : d.cursorSpace) || { w: vw, h: vh }
   var curSize = ((d.cursorStyle && d.cursorStyle.size) || 24) * s2 * 0.5
+  // The pointer's shape: an OS-style arrow (tip on the recorded point, a
+  // black body with a white edge, the shape of the pointer on the viewer's
+  // own screen) or the white dot every earlier take was cut with. One
+  // painter for both draw sites (in the card, and the ghost across a
+  // boundary); r is the dot's radius, so an arrow stands 2r tall.
+  var curArrow = !!(d.cursorStyle && d.cursorStyle.style === 'arrow')
+  function drawCur(cc, x, y, r, a, lw) {
+    cc.save()
+    if (curArrow) {
+      var h = 2 * r
+      var P = [[0, 0], [0, 0.72], [0.19, 0.55], [0.31, 0.83], [0.43, 0.78], [0.31, 0.5], [0.55, 0.5]]
+      cc.beginPath()
+      cc.moveTo(x, y)
+      for (var pi = 1; pi < P.length; pi++) cc.lineTo(x + P[pi][0] * h, y + P[pi][1] * h)
+      cc.closePath()
+      cc.lineJoin = 'round'
+      cc.fillStyle = 'rgba(0,0,0,' + (0.92 * a) + ')'
+      cc.strokeStyle = 'rgba(255,255,255,' + (0.95 * a) + ')'
+      cc.lineWidth = Math.max(1, lw * 0.75)
+      cc.fill(); cc.stroke()
+    } else {
+      cc.fillStyle = 'rgba(255,255,255,' + (0.95 * a) + ')'
+      cc.strokeStyle = 'rgba(0,0,0,' + (0.4 * a) + ')'
+      cc.lineWidth = lw
+      cc.beginPath(); cc.arc(x, y, r, 0, Math.PI * 2); cc.fill(); cc.stroke()
+    }
+    cc.restore()
+  }
 
   // click effects — pure f(t): d.clicks are
   // OUTPUT-anchored records baked at lowering (sorted by ot; re-baked on every
@@ -2210,12 +2238,7 @@ const ON_FRAME = `(ctx, content, dt) => {
       if (tpG) trQa = [tqX, tqY]
       else { trQb = [tqX, tqY]; trQs = curSize * ckPress; trQw = s2 }
     } else if (cuA > 0.01) {
-      c.save()
-      c.fillStyle = 'rgba(255,255,255,' + (0.95 * cuA) + ')'
-      c.strokeStyle = 'rgba(0,0,0,' + (0.4 * cuA) + ')'
-      c.lineWidth = 2 * s2
-      c.beginPath(); c.arc(ax, ay, curSize * ckPress, 0, Math.PI * 2); c.fill(); c.stroke()
-      c.restore()
+      drawCur(c, ax, ay, curSize * ckPress, cuA, 2 * s2)
     }
   }
   if (fitCover) c.restore()
@@ -2300,12 +2323,7 @@ const ON_FRAME = `(ctx, content, dt) => {
     var tqBx = (tqB[0] - W / 2) * trSc + W / 2 + trOx * W, tqBy = (tqB[1] - H / 2) * trSc + H / 2 - trOy * H
     var tqX2 = tqAx + (tqBx - tqAx) * tqP, tqY2 = tqAy + (tqBy - tqAy) * tqP
     var tqR = trQs || (((d.cursorStyle && d.cursorStyle.size) || 24) * s * 0.5)
-    ovC.save()
-    ovC.fillStyle = 'rgba(255,255,255,0.95)'
-    ovC.strokeStyle = 'rgba(0,0,0,0.4)'
-    ovC.lineWidth = 2 * (trQw || s)
-    ovC.beginPath(); ovC.arc(tqX2, tqY2, tqR, 0, Math.PI * 2); ovC.fill(); ovC.stroke()
-    ovC.restore()
+    drawCur(ovC, tqX2, tqY2, tqR, 1, 2 * (trQw || s))
   }
   ov.sig = ovSig
   ov.active = camActiveNow || !!trOut
