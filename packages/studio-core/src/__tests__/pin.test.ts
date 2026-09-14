@@ -300,6 +300,88 @@ describe('pinPlacement', () => {
   })
 })
 
+describe('a carried referent (a drag)', () => {
+  /** A slider drag: press at x 200, travel to x 500 over a second, release. */
+  const dragCursor: CursorTrack = [
+    { t: 0, x: 100, y: 100, type: 'move' },
+    {
+      t: 5000,
+      x: 200,
+      y: 400,
+      type: 'down',
+      rect: { x: 192, y: 392, w: 16, h: 16 },
+    },
+    ...[1, 2, 3, 4, 5].map((i) => ({
+      t: 5000 + i * 200,
+      x: 200 + i * 60,
+      y: 400,
+      type: 'move' as const,
+    })),
+    {
+      t: 6000,
+      x: 500,
+      y: 400,
+      type: 'up',
+      rect: { x: 192, y: 392, w: 16, h: 16 },
+    },
+    { t: 8000, x: 500, y: 400, type: 'move' },
+  ]
+  const dragSteps: StepSpan[] = [
+    {
+      step: 0,
+      id: 'thumb',
+      do: 'drag',
+      selector: 'input',
+      tStart: 4.9,
+      tEnd: 6.1,
+    },
+  ]
+  const dragDoc = (over: Partial<ProjectDoc> = {}) =>
+    makeDoc({
+      source: {
+        ...makeDoc().source,
+        cursor: dragCursor,
+        meta: { ...makeDoc().source.meta, steps: dragSteps },
+      },
+      ...over,
+    })
+
+  it('a drag step names a carried referent; a still press does not', () => {
+    const r = pinReferent(dragDoc(), { step: 'thumb' })
+    expect(r?.carry).toEqual({ t0: 5, t1: 6, x0: 200 / VW, y0: 400 / VH })
+    expect(pinReferent(makeDoc(), { step: 'copy' })?.carry).toBeUndefined()
+  })
+
+  it('the layer and the mark follow the pointer through the drag and hold at the release', () => {
+    const doc = dragDoc({
+      overlays: [
+        note(
+          { step: 'thumb', side: 'above', mark: 'ring', color: '#7c3aed' },
+          { start: 4.5, duration: 4 },
+        ),
+      ],
+    })
+    const layout = docCardLayout(doc)
+    const pins = resolvePins(doc, layout, 'stage', docZoomTrack(doc))
+    const p = pins.get('n1')!
+    // output = source here (no trims, rate 1): at 5.5 s the pointer is at x 350
+    const atPress = sample(p.track, 0.5, lerpArray)[0] * layout.W
+    const mid = sample(p.track, 1.0, lerpArray)[0] * layout.W
+    const held = sample(p.track, 3.5, lerpArray)[0] * layout.W
+    expect(mid - atPress).toBeCloseTo((150 / VW) * layout.dw, 0)
+    expect(held - atPress).toBeCloseTo((300 / VW) * layout.dw, 0)
+    // and data.pins carries the drag for ON_FRAME
+    const { data } = lowerToComposition(doc)
+    const pin = (data.pins as Record<string, unknown>[])[0]
+    expect(pin.carry).toEqual({
+      t0: 5,
+      t1: 6,
+      x0: +(200 / VW).toFixed(5),
+      y0: +(400 / VH).toFixed(5),
+    })
+  })
+})
+
 describe('simplify', () => {
   const key = (t: number, v: number[]): Keyframe<number[]> => ({
     t,
