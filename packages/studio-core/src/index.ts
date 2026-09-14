@@ -183,6 +183,9 @@ export {
   objectMotionPoseAt,
   overlayMotionBase,
   overlayMotionPoseAt,
+  overlayPinPoseAt,
+  docZoomTrack,
+  resolvePins,
   lowerToComposition,
   ratedSegments,
   spanOutputExtent,
@@ -254,6 +257,20 @@ export type {
 export type { StudioEntry } from './lower/studioEntry'
 export type { LoweredZoomSpan } from './lower/lowerToComposition'
 export type { MotionKey } from './lower/lowerToComposition'
+export {
+  PIN_GAP,
+  PIN_MARGIN,
+  findStep,
+  pinBox,
+  pinPlacement,
+  pinReferent,
+} from './lower/pin'
+export type {
+  PinPlacement,
+  PinPlacementInput,
+  PinReferent,
+  PinSideResolved,
+} from './lower/pin'
 export {
   CAMERA_CENTRE_RAMP,
   CAMERA_COVER_MIN,
