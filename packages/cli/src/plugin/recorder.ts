@@ -79,6 +79,14 @@ export interface RecordResult {
 export interface RecordOpts {
   /** Stop the capture at this many seconds (the hosted cap). */
   maxDurationSeconds?: number
+  /**
+   * Path to a Playwright storage state (cookies + origin storage), so the
+   * recorder drives a SIGNED-IN product. A demo of anything behind a login
+   * needs it, and a sign-in form cannot always be scripted (an emailed code,
+   * an SSO hop). Export one from a real browser, or with
+   * `context.storageState({ path })`.
+   */
+  storageState?: string
 }
 
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
@@ -118,6 +126,7 @@ export async function recordTake(
   const context = await browser.newContext({
     viewport: { width: vw, height: vh },
     deviceScaleFactor: 1,
+    ...(opts.storageState ? { storageState: opts.storageState } : {}),
   })
   const page = await context.newPage()
   page.on('console', (m) => {
