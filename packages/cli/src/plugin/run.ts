@@ -121,8 +121,8 @@ const MULTI_FLAGS = new Set(['set', 'override'])
 export const HELP = `vos — record a browser flow, plan effects, render a product video; sync with vos.so
 
 Take pipeline
-  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--max-duration <s>] [--storage-state <file>] [--background <slug|url|none>] [render flags] [--json]
-  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--max-duration <s>] [--storage-state <file>] [--background <slug|url|none>] [--json]
+  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--max-duration <s>] [--storage-state <file>] [--browser-arg <switch>] [--background <slug|url|none>] [render flags] [--json]
+  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--max-duration <s>] [--storage-state <file>] [--browser-arg <switch>] [--background <slug|url|none>] [--json]
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--at-still] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
@@ -432,6 +432,17 @@ function strictReason(rec: {
  * needs it, and a sign-in form cannot always be scripted (an emailed code,
  * an SSO hop, a passkey). Export one from a real browser session.
  */
+/**
+ * `--browser-arg <switch>`, repeatable: extra Chromium switches for the
+ * recording browser. Some product surfaces cannot be reached without one
+ * (a fake capture device to pass a permission prompt, a loaded extension).
+ */
+function takeBrowserArgs(flags: ParsedArgs['flags']): string[] {
+  const raw = flags['browser-arg']
+  if (raw == null || raw === true) return []
+  return (Array.isArray(raw) ? raw : [raw]).map(String).filter(Boolean)
+}
+
 function takeStorageState(flags: ParsedArgs['flags']): string | undefined {
   const raw = strFlag(flags, 'storage-state')
   if (!raw) return undefined
@@ -472,6 +483,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
   const backdrop = await takeBackdrop(flags, r)
   const maxDurationSeconds = await maxDuration(flags, r)
   const storageState = takeStorageState(flags)
+  const browserArgs = takeBrowserArgs(flags)
 
   if (existsSync(join(outDir, 'meta.json'))) {
     // A re-record replaces the FOOTAGE, never the cut. The previous
@@ -490,7 +502,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
   await mkdir(outDir, { recursive: true })
   const paths = await ensureTakeDir(outDir)
 
-  const browser = await launchBrowser()
+  const browser = await launchBrowser(browserArgs)
   try {
     r.log('recording…')
     r.event({ event: 'phase', phase: 'record' })
@@ -576,6 +588,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
   const backdrop = await takeBackdrop(flags, r)
   const maxDurationSeconds = await maxDuration(flags, r)
   const storageState = takeStorageState(flags)
+  const browserArgs = takeBrowserArgs(flags)
 
   if (existsSync(join(outDir, 'meta.json'))) {
     // A re-record replaces the FOOTAGE, never the cut. The previous
@@ -594,7 +607,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
   await mkdir(outDir, { recursive: true })
   const paths = await ensureTakeDir(outDir)
 
-  const browser = await launchBrowser()
+  const browser = await launchBrowser(browserArgs)
   try {
     r.log('recording…')
     r.event({ event: 'phase', phase: 'record' })
