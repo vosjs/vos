@@ -28,7 +28,7 @@ import {
   planForDigest,
   sceneChanges,
 } from '@vosjs/studio-core'
-import { RECORDING_NAME, loadTake, readJson } from './take'
+import { loadTake, readJson } from './take'
 import { startTakeServer, waitForPageDone } from './server'
 import type {
   Digest,
@@ -333,7 +333,10 @@ export async function digestTake(
   const boxes = new Map<string, PxRect>()
 
   // The frame source: screencast JPEGs when the take has them, else the video.
-  let source: FrameSource = { kind: 'video', url: `/${RECORDING_NAME}` }
+  let source: FrameSource = {
+    kind: 'video',
+    url: `/${take.paths.recordingName}`,
+  }
   if (existsSync(take.paths.framesIndex) && existsSync(take.paths.framesDir)) {
     const index = await readJson<{ file: string; tMs: number }[]>(
       take.paths.framesIndex,
@@ -352,7 +355,7 @@ export async function digestTake(
   if (wantFrames) {
     if (source.kind === 'video' && !existsSync(take.paths.recording))
       throw new Error(
-        `${dir} has no ${RECORDING_NAME} — pull it with \`vos pull --media\` first`,
+        `${dir} has no recording — pull it with \`vos pull --media\` first`,
       )
     const server = await startTakeServer(dir, {
       '/digest.html': digestPageHtml(),

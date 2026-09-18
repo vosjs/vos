@@ -17,7 +17,7 @@ import {
   resolveExportSize,
   studioAudioPlan,
 } from '@vosjs/studio-core'
-import { RECORDING_NAME, loadTake } from './take'
+import { loadTake } from './take'
 import { renderAnimation } from './renderAnimation'
 import {
   applyAndValidate,
@@ -161,7 +161,7 @@ export async function renderTake(
   const result = await renderAnimation(browser, {
     animationCode,
     workDir: dir,
-    videoFile: RECORDING_NAME,
+    videoFile: take.paths.recordingName,
     videoToken: VIDEO_TOKEN,
     width,
     height,

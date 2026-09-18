@@ -16,6 +16,8 @@ import {
 } from './output'
 import { validateActions } from './actions'
 import { lintDoc } from './validateDoc'
+import { containerMismatch } from './container'
+import { readMediaHead } from './media'
 import {
   collectConfigMediaUrls,
   collectDocMediaUrls,
@@ -1372,7 +1374,7 @@ async function cmdOpen(argv: string[]): Promise<number> {
   const r = createReporter(flags.json === true)
   const take = await loadTake(dir) // validates it IS a take (meta.json)
   if (!existsSync(take.paths.recording)) {
-    throw new UsageError(`${dir} has no recording.webm — re-run record`)
+    throw new UsageError(`${dir} has no recording — re-run record`)
   }
 
   const studio = (strFlag(flags, 'studio') ?? 'http://localhost:6060').replace(
@@ -1641,8 +1643,15 @@ async function cmdValidate(argv: string[]): Promise<number> {
   const take = await loadTake(target)
   const problems: string[] = []
   const warnings: string[] = []
-  if (!existsSync(take.paths.recording))
-    problems.push('missing recording.webm (re-run record)')
+  if (!existsSync(take.paths.recording)) {
+    problems.push('missing recording (re-run record)')
+  } else {
+    const mismatch = containerMismatch(
+      take.paths.recordingName,
+      await readMediaHead(take.paths.recording),
+    )
+    if (mismatch) warnings.push(mismatch)
+  }
   if (!take.doc) problems.push('missing doc.json (run plan)')
   if (take.doc) {
     const lint = lintDoc(take.doc)

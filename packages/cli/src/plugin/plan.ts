@@ -32,7 +32,7 @@ import {
   withBackdrop,
   migrateMotion,
 } from '@vosjs/studio-core'
-import { RECORDING_NAME, loadTake, writeJson } from './take'
+import { loadTake, writeJson } from './take'
 import { retimeCut } from './reuse'
 import { proposeMotion } from './motionPlan'
 import type { MotionProposalInput } from './motionPlan'
@@ -237,11 +237,11 @@ export async function planTake(
     // clips and a card exit, which ride along like the other overlays).
     const prev = migrateMotion(opts.reuse.doc)
     const artifact: RecordingArtifact = {
-      videoKey: RECORDING_NAME,
+      videoKey: take.paths.recordingName,
       cursor,
       meta,
     }
-    doc = projectFromArtifact(artifact, RECORDING_NAME, ingest).doc
+    doc = projectFromArtifact(artifact, take.paths.recordingName, ingest).doc
     doc = copyStyle(prev, doc)
     const rt = retimeCut(prev, meta.steps ?? [], meta.durationMs)
     doc.segments = rt.segments
@@ -347,11 +347,11 @@ export async function planTake(
     }
   } else {
     const artifact: RecordingArtifact = {
-      videoKey: RECORDING_NAME,
+      videoKey: take.paths.recordingName,
       cursor,
       meta,
     }
-    doc = projectFromArtifact(artifact, RECORDING_NAME, ingest).doc
+    doc = projectFromArtifact(artifact, take.paths.recordingName, ingest).doc
     if (opts.style) {
       const applied = applyStyle(opts.style.doc, doc, opts)
       doc = applied.doc
