@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  apcaContrast,
-  duplicateFindings,
-  stillFindings,
-} from '../kitPicture'
+import { apcaContrast, duplicateFindings, stillFindings } from '../kitPicture'
 import { differenceHash, measureStill } from '../picture'
 import type { PictureAsset } from '../kitPicture'
 import type { Rgba } from '../picture'
@@ -19,7 +15,14 @@ function raster(w: number, h: number, fill: [number, number, number]): Rgba {
   return { w, h, data }
 }
 
-function rect(img: Rgba, x: number, y: number, w: number, h: number, c: [number, number, number]) {
+function rect(
+  img: Rgba,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  c: [number, number, number],
+) {
   for (let yy = y; yy < y + h; yy++)
     for (let xx = x; xx < x + w; xx++) {
       if (xx < 0 || yy < 0 || xx >= img.w || yy >= img.h) continue
@@ -44,12 +47,25 @@ const card = (over: Partial<PictureAsset> = {}): PictureAsset => ({
   destination: 'og-card',
   path: 'og-card.png',
   file: '/x/og-card.png',
-  spec: { genre: 'card', kind: 'still', text: 'expected', safe: SAFE, px: { w: 600, h: 315 } },
+  spec: {
+    genre: 'card',
+    kind: 'still',
+    text: 'expected',
+    safe: SAFE,
+    px: { w: 600, h: 315 },
+  },
   ...over,
 })
 
 /** A soft shadow under a card: the delta from the ground fades over `len` rows. */
-function shadowBand(img: Rgba, x: number, y: number, w: number, len: number, ground: [number, number, number]) {
+function shadowBand(
+  img: Rgba,
+  x: number,
+  y: number,
+  w: number,
+  len: number,
+  ground: [number, number, number],
+) {
   for (let i = 0; i < len; i++) {
     const k = Math.round(50 * (1 - i / len))
     rect(img, x, y + i, w, 1, [ground[0] - k, ground[1] - k, ground[2] - k])
@@ -73,10 +89,13 @@ describe('stillFindings on a card', () => {
 
   it('a crop on all four sides is a subject finding; a wallpaper is blank too', () => {
     const img = raster(600, 315, [4, 6, 60])
-    for (let i = 0; i < 30; i++) rect(img, (i * 41) % 590, (i * 67) % 305, 3, 3, [230, 230, 255])
+    for (let i = 0; i < 30; i++)
+      rect(img, (i * 41) % 590, (i * 67) % 305, 3, 3, [230, 230, 255])
     rect(img, 0, 0, 3, 3, [230, 230, 255])
     rect(img, 597, 312, 3, 3, [230, 230, 255])
-    const codes = stillFindings(card(), img, measureStill(img)).map((f) => f.code)
+    const codes = stillFindings(card(), img, measureStill(img)).map(
+      (f) => f.code,
+    )
     expect(codes).toContain('subject')
     expect(codes).toContain('blank')
   })
@@ -87,25 +106,43 @@ describe('stillFindings on a card', () => {
     populate(img, 70, 50, 460, 220)
     const f = stillFindings(card(), img, measureStill(img))
     expect(f.map((x) => x.code)).toContain('separation')
-    expect(f.find((x) => x.code === 'separation')!.fixHint).toMatch(/contact shadow/)
+    expect(f.find((x) => x.code === 'separation')!.fixHint).toMatch(
+      /contact shadow/,
+    )
   })
 
   it('a card off the band is a subject finding with its width in the message', () => {
     const img = raster(600, 315, [240, 242, 244])
     rect(img, 210, 100, 180, 100, [255, 255, 255])
     populate(img, 215, 105, 170, 90)
-    const f = stillFindings(card(), img, measureStill(img)).find((x) => x.code === 'subject')
+    const f = stillFindings(card(), img, measureStill(img)).find(
+      (x) => x.code === 'subject',
+    )
     expect(f).toBeDefined()
     expect(f!.message).toMatch(/the card is (2\d|30)% of the width/)
   })
 
   it('a composed screenshot is a subject finding; the picture alone never says so', () => {
     const img = goodCard()
-    const spec = { genre: 'screenshot' as const, kind: 'still-set' as const, text: 'none' as const, safe: { x: 0, y: 0, w: 1, h: 1 }, px: { w: 600, h: 315 } }
-    const composed = card({ destination: 'cws-screenshot', spec, composed: true })
-    expect(stillFindings(composed, img, measureStill(img)).map((f) => f.code)).toContain('subject')
+    const spec = {
+      genre: 'screenshot' as const,
+      kind: 'still-set' as const,
+      text: 'none' as const,
+      safe: { x: 0, y: 0, w: 1, h: 1 },
+      px: { w: 600, h: 315 },
+    }
+    const composed = card({
+      destination: 'cws-screenshot',
+      spec,
+      composed: true,
+    })
+    expect(
+      stillFindings(composed, img, measureStill(img)).map((f) => f.code),
+    ).toContain('subject')
     const plain = card({ destination: 'cws-screenshot', spec })
-    expect(stillFindings(plain, img, measureStill(img)).map((f) => f.code)).not.toContain('subject')
+    expect(
+      stillFindings(plain, img, measureStill(img)).map((f) => f.code),
+    ).not.toContain('subject')
   })
 })
 
@@ -116,8 +153,22 @@ describe('text boxes', () => {
     const f = stillFindings(
       card({
         text: [
-          { x: 0.7, y: 0.85, w: 0.5, h: 0.1, label: 'Ship v2', color: '#111111' },
-          { x: 0.02, y: 0.85, w: 0.3, h: 0.1, label: 'kicker', color: '#dddddd' },
+          {
+            x: 0.7,
+            y: 0.85,
+            w: 0.5,
+            h: 0.1,
+            label: 'Ship v2',
+            color: '#111111',
+          },
+          {
+            x: 0.02,
+            y: 0.85,
+            w: 0.3,
+            h: 0.1,
+            label: 'kicker',
+            color: '#dddddd',
+          },
         ],
       }),
       img,
@@ -134,10 +185,20 @@ describe('text boxes', () => {
     const img = goodCard()
     const tile = card({
       destination: 'cws-small-promo-tile',
-      spec: { genre: 'card', kind: 'still', text: 'none', safe: { x: 0, y: 0, w: 1, h: 1 }, px: { w: 600, h: 315 } },
+      spec: {
+        genre: 'card',
+        kind: 'still',
+        text: 'none',
+        safe: { x: 0, y: 0, w: 1, h: 1 },
+        px: { w: 600, h: 315 },
+      },
       text: [{ x: 0.1, y: 0.1, w: 0.3, h: 0.1 }],
     })
-    expect(stillFindings(tile, img, measureStill(img)).some((f) => f.code === 'safe' && /wants no text/.test(f.message))).toBe(true)
+    expect(
+      stillFindings(tile, img, measureStill(img)).some(
+        (f) => f.code === 'safe' && /wants no text/.test(f.message),
+      ),
+    ).toBe(true)
   })
 })
 
@@ -148,20 +209,60 @@ describe('duplicates and APCA', () => {
     const c = raster(600, 315, [240, 242, 244])
     populate(c, 0, 0, 600, 315)
     const f = duplicateFindings([
-      { destination: 'og-card', hash: differenceHash(a), time: 4.4, genre: 'card' },
-      { destination: 'x-feed-image', hash: differenceHash(b), time: 4.4, genre: 'card' },
-      { destination: 'linkedin-feed-image', hash: differenceHash(c), time: 9, genre: 'card' },
-      { destination: 'cws-screenshot', hash: differenceHash(a), time: 4.4, genre: 'screenshot' },
-      { destination: 'producthunt-gallery', hash: differenceHash(a), time: 4.4, genre: 'screenshot' },
+      {
+        destination: 'og-card',
+        hash: differenceHash(a),
+        time: 4.4,
+        genre: 'card',
+      },
+      {
+        destination: 'x-feed-image',
+        hash: differenceHash(b),
+        time: 4.4,
+        genre: 'card',
+      },
+      {
+        destination: 'linkedin-feed-image',
+        hash: differenceHash(c),
+        time: 9,
+        genre: 'card',
+      },
+      {
+        destination: 'cws-screenshot',
+        hash: differenceHash(a),
+        time: 4.4,
+        genre: 'screenshot',
+      },
+      {
+        destination: 'producthunt-gallery',
+        hash: differenceHash(a),
+        time: 4.4,
+        genre: 'screenshot',
+      },
     ])
     expect(f).toHaveLength(1)
     expect(f[0].asset).toBe('og-card, x-feed-image')
     expect(f[0].severity).toBe('warning')
     expect(f[0].message).toMatch(/2 assets share one frame \(4.40s\)/)
     const three = duplicateFindings([
-      { destination: 'og-card', hash: differenceHash(a), time: 4.4, genre: 'card' },
-      { destination: 'x-feed-image', hash: differenceHash(b), time: 4.4, genre: 'card' },
-      { destination: 'cws-marquee', hash: differenceHash(a), time: 4.4, genre: 'card' },
+      {
+        destination: 'og-card',
+        hash: differenceHash(a),
+        time: 4.4,
+        genre: 'card',
+      },
+      {
+        destination: 'x-feed-image',
+        hash: differenceHash(b),
+        time: 4.4,
+        genre: 'card',
+      },
+      {
+        destination: 'cws-marquee',
+        hash: differenceHash(a),
+        time: 4.4,
+        genre: 'card',
+      },
     ])
     expect(three[0].severity).toBe('error')
   })

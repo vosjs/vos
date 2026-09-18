@@ -97,35 +97,54 @@ export function aspectOf(size: { w: number; h: number }): TemplateAspect {
  */
 export function templateProblems(config: Config): string[] {
   const t = templateOf(config)
-  if (!t) return ['no template block: a poster template declares config.template']
+  if (!t)
+    return ['no template block: a poster template declares config.template']
   const out: string[] = []
-  const elements = (Array.isArray(config.elements) ? config.elements : []) as Element[]
-  const byId = new Map(elements.filter((e) => e.id).map((e) => [e.id as string, e]))
-  const params = (Array.isArray(config.params) ? config.params : []) as { key?: string }[]
+  const elements = (
+    Array.isArray(config.elements) ? config.elements : []
+  ) as Element[]
+  const byId = new Map(
+    elements.filter((e) => e.id).map((e) => [e.id as string, e]),
+  )
+  const params = (Array.isArray(config.params) ? config.params : []) as {
+    key?: string
+  }[]
   const keys = new Set(params.map((p) => p.key).filter(Boolean) as string[])
   if (!t.family) out.push('template.family is missing')
   for (const s of t.slots ?? []) {
     const el = byId.get(s.id)
     if (!el) out.push(`template.slots: no element with id "${s.id}"`)
     else if (el.type !== s.kind)
-      out.push(`template.slots: "${s.id}" is a ${String(el.type)} element, the slot wants ${s.kind}`)
+      out.push(
+        `template.slots: "${s.id}" is a ${String(el.type)} element, the slot wants ${s.kind}`,
+      )
   }
   for (const x of t.text ?? []) {
     const el = byId.get(x.element)
     if (!el) out.push(`template.text: no element with id "${x.element}"`)
-    else if (el.type !== 'text') out.push(`template.text: "${x.element}" is not a text element`)
-    if (!keys.has(x.param)) out.push(`template.text: param "${x.param}" is not declared in config.params`)
+    else if (el.type !== 'text')
+      out.push(`template.text: "${x.element}" is not a text element`)
+    if (!keys.has(x.param))
+      out.push(
+        `template.text: param "${x.param}" is not declared in config.params`,
+      )
     const bound = el?.content as { $data?: string } | undefined
     if (el && (!bound || typeof bound !== 'object' || bound.$data !== x.param))
-      out.push(`template.text: "${x.element}" must bind its content to {$data: "${x.param}"}`)
+      out.push(
+        `template.text: "${x.element}" must bind its content to {$data: "${x.param}"}`,
+      )
   }
   for (const k of t.params?.required ?? []) {
-    if (!keys.has(k)) out.push(`template.params.required: "${k}" is not declared in config.params`)
+    if (!keys.has(k))
+      out.push(
+        `template.params.required: "${k}" is not declared in config.params`,
+      )
   }
   if (!t.layouts?.landscape) out.push('template.layouts.landscape is required')
   for (const [name, layout] of Object.entries(t.layouts ?? {})) {
     for (const s of t.slots ?? []) {
-      if (!layout?.slots?.[s.id]) out.push(`template.layouts.${name}: slot "${s.id}" is not placed`)
+      if (!layout?.slots?.[s.id])
+        out.push(`template.layouts.${name}: slot "${s.id}" is not placed`)
     }
   }
   return out
@@ -177,8 +196,12 @@ export function fillTemplate(config: Config, input: FillInput): FillResult {
   const out = structuredClone(config)
   const designH = 1080
   const designW = (designH * input.size.w) / input.size.h
-  const elements = (Array.isArray(out.elements) ? out.elements : []) as Element[]
-  const byId = new Map(elements.filter((e) => e.id).map((e) => [e.id as string, e]))
+  const elements = (
+    Array.isArray(out.elements) ? out.elements : []
+  ) as Element[]
+  const byId = new Map(
+    elements.filter((e) => e.id).map((e) => [e.id as string, e]),
+  )
 
   // The slots: src + geometry from the layout's placement.
   const slotRects: FillResult['slots'] = {}
@@ -197,19 +220,33 @@ export function fillTemplate(config: Config, input: FillInput): FillResult {
     }
     const w = place.w * designW * (1 + 2 * pad)
     const x = place.x - place.w * pad
-    const y = place.y - (place.w * pad * (input.size.w / input.size.h)) / (src?.aspect ?? 16 / 9)
-    el.position = { x: `${(x * 100).toFixed(2)}%`, y: `${(y * 100).toFixed(2)}%` }
+    const y =
+      place.y -
+      (place.w * pad * (input.size.w / input.size.h)) / (src?.aspect ?? 16 / 9)
+    el.position = {
+      x: `${(x * 100).toFixed(2)}%`,
+      y: `${(y * 100).toFixed(2)}%`,
+    }
     el.anchor = 'top-left'
     el.size = { ...(el.size ?? {}), width: Math.round(w), height: 'auto' }
     if (!src && s.required) el.opacity = 0
   }
 
   // The words: data values (+ param defaults), positions and sizes.
-  const data = (out.data && typeof out.data === 'object' ? { ...(out.data as Config) } : {}) as Config
-  const params = (Array.isArray(out.params) ? out.params : []) as { key?: string; default?: unknown }[]
+  const data = (
+    out.data && typeof out.data === 'object' ? { ...(out.data as Config) } : {}
+  ) as Config
+  const params = (Array.isArray(out.params) ? out.params : []) as {
+    key?: string
+    default?: unknown
+  }[]
   const missing: string[] = []
   for (const k of [...(t.params.required ?? []), ...(t.params.brand ?? [])]) {
-    if (input.values[k] === undefined || input.values[k] === null || input.values[k] === '') {
+    if (
+      input.values[k] === undefined ||
+      input.values[k] === null ||
+      input.values[k] === ''
+    ) {
       if ((t.params.required ?? []).includes(k)) missing.push(k)
       continue
     }
@@ -242,7 +279,12 @@ export function fillTemplate(config: Config, input: FillInput): FillResult {
     }
     const value = data[x.param]
     if (typeof value !== 'string' || !value.trim()) continue
-    const font = (el.font ?? {}) as { size?: number; lineHeight?: number; color?: unknown; align?: string }
+    const font = (el.font ?? {}) as {
+      size?: number
+      lineHeight?: number
+      color?: unknown
+      align?: string
+    }
     const px = typeof font.size === 'number' ? font.size : 40
     const lines = value.split('\n')
     const longest = Math.max(...lines.map((l) => l.length))
@@ -263,7 +305,9 @@ export function fillTemplate(config: Config, input: FillInput): FillResult {
     const color =
       typeof rawColor === 'string'
         ? rawColor
-        : rawColor && typeof rawColor === 'object' && typeof rawColor.$data === 'string'
+        : rawColor &&
+            typeof rawColor === 'object' &&
+            typeof rawColor.$data === 'string'
           ? (data[rawColor.$data] as string | undefined)
           : undefined
     boxes.push({
@@ -284,7 +328,10 @@ export function fillTemplate(config: Config, input: FillInput): FillResult {
 }
 
 /** A headline's shape against the template's own limits, in words. */
-export function textLimitProblems(t: TemplateSpec, values: Record<string, unknown>): string[] {
+export function textLimitProblems(
+  t: TemplateSpec,
+  values: Record<string, unknown>,
+): string[] {
   const out: string[] = []
   for (const x of t.text) {
     const v = values[x.param]

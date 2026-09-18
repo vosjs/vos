@@ -8,7 +8,10 @@ import {
 import { DEFAULT_CAM_STYLE, DEFAULT_CURSOR_STYLE } from '@vosjs/studio-core'
 import type { ProjectDoc, StepSpan } from '@vosjs/studio-core'
 
-function doc(steps: StepSpan[] | undefined, zoom: ProjectDoc['zoom'] = []): ProjectDoc {
+function doc(
+  steps: StepSpan[] | undefined,
+  zoom: ProjectDoc['zoom'] = [],
+): ProjectDoc {
   return {
     source: {
       videoKey: 'blob:recording',
@@ -36,7 +39,13 @@ function doc(steps: StepSpan[] | undefined, zoom: ProjectDoc['zoom'] = []): Proj
       shadow: 0.4,
       border: 0,
       aspectRatio: 'native',
-      browserBar: { kind: 'none', url: '', showUrl: true, showControls: true, height: 44 },
+      browserBar: {
+        kind: 'none',
+        url: '',
+        showUrl: true,
+        showControls: true,
+        height: 44,
+      },
     },
     export: { resolution: '1080p', fps: 30, format: 'mp4' },
   }
@@ -70,10 +79,21 @@ describe('momentCandidates', () => {
   it('zoom apexes follow the steps and the spread only fills an empty list', () => {
     const z = [{ id: 'z', in: 8, out: 12, level: 1.8, cx: 0.5, cy: 0.5 }]
     const withSteps = momentCandidates(doc(STEPS, z), 16).candidates
-    expect(withSteps.map((c) => c.source)).toEqual(['step', 'step', 'step', 'zoom'])
+    expect(withSteps.map((c) => c.source)).toEqual([
+      'step',
+      'step',
+      'step',
+      'zoom',
+    ])
     expect(withSteps[3].time).toBeCloseTo(8, 6) // (6 + 10) / 2 in output time
     const bare = momentCandidates(doc(undefined), 16).candidates
-    expect(bare.map((c) => c.source)).toEqual(['spread', 'spread', 'spread', 'spread', 'spread'])
+    expect(bare.map((c) => c.source)).toEqual([
+      'spread',
+      'spread',
+      'spread',
+      'spread',
+      'spread',
+    ])
     expect(bare[0].time).toBeCloseTo(1.6, 6)
   })
 
@@ -107,22 +127,34 @@ describe('momentCandidates', () => {
 describe('resolveStepTime', () => {
   it('reads step:<id>, step:<index> and an offset', () => {
     const d = doc(STEPS)
-    expect(resolveStepTime(d, 'step:open')).toBeCloseTo(4.1 - 2 + STEP_SETTLE_SECONDS, 6)
-    expect(resolveStepTime(d, 'step:2')).toBeCloseTo(4.1 - 2 + STEP_SETTLE_SECONDS, 6)
+    expect(resolveStepTime(d, 'step:open')).toBeCloseTo(
+      4.1 - 2 + STEP_SETTLE_SECONDS,
+      6,
+    )
+    expect(resolveStepTime(d, 'step:2')).toBeCloseTo(
+      4.1 - 2 + STEP_SETTLE_SECONDS,
+      6,
+    )
     expect(resolveStepTime(d, 'step:open+1.5')).toBeCloseTo(4.1 - 2 + 1.5, 6)
     expect(resolveStepTime(d, 'step:open-0.5')).toBeCloseTo(4.1 - 2 - 0.5, 6)
     expect(resolveStepTime(d, '3.5')).toBeNull()
   })
 
   it('an unknown or trimmed step is refused in words', () => {
-    expect(() => resolveStepTime(doc(STEPS), 'step:nope')).toThrow(/no step "nope".*hover-a/)
-    expect(() => resolveStepTime(doc(STEPS), 'step:late')).toThrow(/outside the cut/)
-    expect(() => resolveStepTime(doc(undefined), 'step:open')).toThrow(/carries none/)
+    expect(() => resolveStepTime(doc(STEPS), 'step:nope')).toThrow(
+      /no step "nope".*hover-a/,
+    )
+    expect(() => resolveStepTime(doc(STEPS), 'step:late')).toThrow(
+      /outside the cut/,
+    )
+    expect(() => resolveStepTime(doc(undefined), 'step:open')).toThrow(
+      /carries none/,
+    )
   })
 })
 
 describe('pickMoments', () => {
-  it('drops blanks against the take\'s own median and collapses one frame at two times', () => {
+  it("drops blanks against the take's own median and collapses one frame at two times", () => {
     const pick = pickMoments([
       { time: 1, ink: 0.31, hash: 'aaaaaaaaaaaaaaaa' },
       { time: 2, ink: 0.04, hash: '1111111111111111' },
@@ -130,7 +162,9 @@ describe('pickMoments', () => {
       { time: 4, ink: 0.28, hash: '5555555555555555' },
     ])
     expect(pick.times).toEqual([1, 4])
-    expect(pick.dropped[0]).toMatch(/blank at 2.00s: 4% ink \(the floor is 12%; the take's median is 30%\)/)
+    expect(pick.dropped[0]).toMatch(
+      /blank at 2.00s: 4% ink \(the floor is 12%; the take's median is 30%\)/,
+    )
     expect(pick.dropped[1]).toMatch(/3.00s is the same frame as 1.00s/)
   })
 
@@ -140,6 +174,8 @@ describe('pickMoments', () => {
       { time: 2, ink: 0.03, hash: '1111111111111111' },
     ])
     expect(pick.times).toEqual([2])
-    expect(pick.dropped.at(-1)).toMatch(/every candidate is under the blank floor; kept 2.00s/)
+    expect(pick.dropped.at(-1)).toMatch(
+      /every candidate is under the blank floor; kept 2.00s/,
+    )
   })
 })

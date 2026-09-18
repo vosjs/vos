@@ -63,7 +63,10 @@ export function cardOnGradient(): Record<string, unknown> {
     template: {
       family: 'card-on-gradient',
       slots: [{ id: 'shot', kind: 'image', required: true }],
-      params: { required: [], brand: ['bgA', 'blobA', 'blobB', 'blobC', 'grain'] },
+      params: {
+        required: [],
+        brand: ['bgA', 'blobA', 'blobB', 'blobC', 'grain'],
+      },
       text: [],
       layouts: {
         landscape: { slots: { shot: { x: 0.09, y: 0.12, w: 0.82 } } },
@@ -73,10 +76,33 @@ export function cardOnGradient(): Record<string, unknown> {
     },
     params: [
       { key: 'bgA', type: 'color', label: 'Ground', default: '#f3efe8' },
-      { key: 'blobA', type: 'color', label: 'Blob A', default: 'rgba(255,183,146,0.55)' },
-      { key: 'blobB', type: 'color', label: 'Blob B', default: 'rgba(170,196,255,0.5)' },
-      { key: 'blobC', type: 'color', label: 'Blob C', default: 'rgba(255,236,170,0.45)' },
-      { key: 'grain', type: 'number', label: 'Grain', default: 14, min: 0, max: 40, step: 1 },
+      {
+        key: 'blobA',
+        type: 'color',
+        label: 'Blob A',
+        default: 'rgba(255,183,146,0.55)',
+      },
+      {
+        key: 'blobB',
+        type: 'color',
+        label: 'Blob B',
+        default: 'rgba(170,196,255,0.5)',
+      },
+      {
+        key: 'blobC',
+        type: 'color',
+        label: 'Blob C',
+        default: 'rgba(255,236,170,0.45)',
+      },
+      {
+        key: 'grain',
+        type: 'number',
+        label: 'Grain',
+        default: 14,
+        min: 0,
+        max: 40,
+        step: 1,
+      },
     ],
     data: {
       bgA: '#f3efe8',
