@@ -32,6 +32,7 @@ import {
   takeRelativeFile,
 } from './media'
 import { listFolders, resolveFolder } from './folder'
+import { uploadAsset } from './uploadAsset'
 import {
   apiJson,
   clientId,
@@ -40,6 +41,7 @@ import {
   requireCredential,
   writeSyncState,
 } from './platform'
+import type { UploadedAsset } from './uploadAsset'
 import type { MediaPullResult } from './media'
 import type { ProjectDoc } from '@vosjs/studio-core'
 import type { Reporter } from './output'
@@ -177,36 +179,32 @@ export async function pushTake(
   }
 
   // 1. The recording, content-addressed — re-pushes reuse the same asset.
+  //    A take of any real length is past the single-request ceiling, so
+  //    this goes in parts; `uploadAsset` picks the transport by size.
   const bytes = await readFile(take.paths.recording)
   const hash = createHash('sha256').update(bytes).digest('hex')
   r.log(`uploading recording (${Math.round(bytes.length / 1024)} kB)…`)
-  const upload = await api(ctx, '/assets/recording', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'video/webm',
-      'Content-Length': String(bytes.length),
-      'X-Filename': RECORDING_NAME,
-      'X-Content-Hash': hash,
+  let upload: UploadedAsset
+  try {
+    upload = await uploadAsset(ctx, new Uint8Array(bytes), {
+      filename: RECORDING_NAME,
+      contentType: 'video/webm',
+      contentHash: hash,
       // The take's length so the server holds it to the plan's cap.
       ...(take.meta.durationMs > 0
-        ? { 'X-Content-Duration': (take.meta.durationMs / 1000).toFixed(3) }
+        ? { durationSeconds: take.meta.durationMs / 1000 }
         : {}),
-    },
-    raw: new Uint8Array(bytes),
-  })
-  if (upload.status !== 201 && upload.status !== 200) {
+      onPart: (done, total) => r.log(`  part ${done}/${total}`),
+    })
+  } catch (e) {
     throw new Error(
-      `recording upload failed (${upload.status}): ${String(upload.json.error ?? '')}`,
+      `recording upload failed: ${e instanceof Error ? e.message : String(e)}`,
     )
   }
-  const assetId = String(upload.json.id)
-  const assetUrl = String(upload.json.url)
-  r.event({
-    event: 'recording',
-    assetId,
-    reused: upload.json.reused === true,
-  })
-  if (upload.json.reused === true) r.log('  recording already hosted — reused')
+  const assetId = upload.id
+  const assetUrl = upload.url
+  r.event({ event: 'recording', assetId, reused: upload.reused })
+  if (upload.reused) r.log('  recording already hosted — reused')
 
   // 2. The doc, keys rewritten to hosted URLs; lower through the real
   //    pipeline so the hosted program is exactly what renders locally.
@@ -240,24 +238,21 @@ export async function pushTake(
     const media = await readFile(file)
     const mediaHash = createHash('sha256').update(media).digest('hex')
     const type = mediaContentType(file)
-    const put = await api(ctx, '/assets/recording', {
-      method: 'POST',
-      headers: {
-        'Content-Type': type,
-        'Content-Length': String(media.length),
-        'X-Filename': basename(file),
-        'X-Content-Hash': mediaHash,
-      },
-      raw: new Uint8Array(media),
-    })
-    if (put.status !== 201 && put.status !== 200) {
+    let put: UploadedAsset
+    try {
+      put = await uploadAsset(ctx, new Uint8Array(media), {
+        filename: basename(file),
+        contentType: type,
+        contentHash: mediaHash,
+      })
+    } catch (e) {
       throw new Error(
-        `${ref.where} upload failed (${put.status}): ${String(put.json.error ?? '')}`,
+        `${ref.where} upload failed: ${e instanceof Error ? e.message : String(e)}`,
       )
     }
-    ref.set(String(put.json.url))
+    ref.set(put.url)
     r.log(
-      `  ${ref.where}: ${ref.key} → asset ${String(put.json.id)}${put.json.reused === true ? ' (reused)' : ''}`,
+      `  ${ref.where}: ${ref.key} → asset ${put.id}${put.reused ? ' (reused)' : ''}`,
     )
   }
   const lowered = lowerToComposition(docForPush)
