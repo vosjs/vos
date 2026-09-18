@@ -244,6 +244,39 @@ describe('generateRenderTemplate', () => {
       expect(hinted).toContain('contentHint: "text"')
     })
 
+    it('passes keyFrameInterval through, and leaves it alone by default', () => {
+      const html = generateRenderTemplate(sampleCode, {
+        mode: 'capture-video',
+        capture,
+      })
+      // Untouched unless asked: a capture that will be watched start to
+      // finish should not pay for seekability it never uses.
+      expect(html).not.toContain('keyFrameInterval')
+
+      const scrubbable = generateRenderTemplate(sampleCode, {
+        mode: 'capture-video',
+        capture: { ...capture, encoder: { keyFrameInterval: 0.5 } },
+      })
+      expect(scrubbable).toContain('keyFrameInterval: 0.5,')
+      // Zero is meaningful (every frame a key frame), not absent.
+      const allKey = generateRenderTemplate(sampleCode, {
+        mode: 'capture-video',
+        capture: { ...capture, encoder: { keyFrameInterval: 0 } },
+      })
+      expect(allKey).toContain('keyFrameInterval: 0,')
+    })
+
+    it('refuses a keyFrameInterval the encoder would reject in the page', () => {
+      for (const bad of [-1, Number.NaN, Number.POSITIVE_INFINITY]) {
+        expect(() =>
+          generateRenderTemplate(sampleCode, {
+            mode: 'capture-video',
+            capture: { ...capture, encoder: { keyFrameInterval: bad } },
+          }),
+        ).toThrow(/keyFrameInterval/)
+      }
+    })
+
     it('PUTs to uploadUrl when provided, embeds base64 otherwise', () => {
       const withUpload = generateRenderTemplate(sampleCode, {
         mode: 'capture-video',

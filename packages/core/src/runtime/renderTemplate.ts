@@ -63,6 +63,22 @@ export interface RenderTemplateOptions {
        * preference. Omitted by default.
        */
       contentHint?: string
+      /**
+       * How often, in seconds, a frame is encoded as a key frame (default:
+       * mediabunny's 2 s). A key frame decodes on its own; every frame after
+       * one decodes the chain back to it, so the interval is what a SEEK
+       * costs. Measured on a 3 s 720p vp9 capture, seeking around the clip:
+       * 74 ms per seek with a single key frame, 38 ms at the 2 s default,
+       * 15 ms at 0.5 s — while the file stayed within 1% of its size, since
+       * busy content produces heavy delta frames either way. So a capture
+       * that will be SCRUBBED (a hover preview, a thumbnail strip) wants a
+       * short interval, and a capture that will be watched start to finish
+       * has no reason to pay for one.
+       *
+       * Every capture starts on a key frame whatever this says, so the
+       * segment invariant that range-based renders rely on is untouched.
+       */
+      keyFrameInterval?: number
     }
     /**
      * PUT the finished capture bytes to this URL instead of embedding them
@@ -792,6 +808,17 @@ function generateCaptureVideoBody(
     capture.encoder?.bitrate !== undefined
       ? String(capture.encoder.bitrate)
       : 'QUALITY_HIGH'
+  const keyFrameInterval = capture.encoder?.keyFrameInterval
+  if (
+    keyFrameInterval !== undefined &&
+    (!Number.isFinite(keyFrameInterval) || keyFrameInterval < 0)
+  ) {
+    // The encoder would throw this inside the page, where the failure reads
+    // as a dead render rather than a bad argument.
+    throw new Error(
+      `capture.encoder.keyFrameInterval must be a non-negative number; got ${String(keyFrameInterval)}`,
+    )
+  }
   const formatSetup = `const { Output, CanvasSource, BufferTarget, ${isMp4 ? 'Mp4OutputFormat' : 'WebMOutputFormat'}, QUALITY_HIGH } = await import('mediabunny');
             const output = new Output({
               format: new ${isMp4 ? 'Mp4OutputFormat' : 'WebMOutputFormat'}(),
@@ -803,6 +830,11 @@ function generateCaptureVideoBody(
                 capture.encoder?.contentHint
                   ? `
               contentHint: ${JSON.stringify(capture.encoder.contentHint)},`
+                  : ''
+              }${
+                keyFrameInterval !== undefined
+                  ? `
+              keyFrameInterval: ${keyFrameInterval},`
                   : ''
               }
             });`
