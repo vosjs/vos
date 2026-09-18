@@ -23,7 +23,14 @@ function raster(w: number, h: number, fill: [number, number, number]): Rgba {
   return { w, h, data }
 }
 
-function rect(img: Rgba, x: number, y: number, w: number, h: number, c: [number, number, number]) {
+function rect(
+  img: Rgba,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  c: [number, number, number],
+) {
   for (let yy = y; yy < y + h; yy++)
     for (let xx = x; xx < x + w; xx++) {
       if (xx < 0 || yy < 0 || xx >= img.w || yy >= img.h) continue
@@ -52,7 +59,10 @@ function chunk(type: string, body: Uint8Array): Uint8Array {
   const out = new Uint8Array(12 + body.length)
   const dv = new DataView(out.buffer)
   dv.setUint32(0, body.length)
-  out.set([...type].map((ch) => ch.charCodeAt(0)), 4)
+  out.set(
+    [...type].map((ch) => ch.charCodeAt(0)),
+    4,
+  )
   out.set(body, 8)
   dv.setUint32(8 + body.length, crc32(out.subarray(4, 8 + body.length)))
   return out
@@ -96,7 +106,8 @@ function cardOnPlate(): Rgba {
   const img = raster(400, 200, [240, 242, 244])
   rect(img, 40, 60, 320, 130, [220, 220, 220]) // shadow-ish band spills below
   rect(img, 40, 40, 320, 140, [255, 255, 255]) // the card
-  for (let i = 0; i < 12; i++) rect(img, 60 + i * 24, 70 + (i % 3) * 30, 14, 10, [30, 30, 30])
+  for (let i = 0; i < 12; i++)
+    rect(img, 60 + i * 24, 70 + (i % 3) * 30, 14, 10, [30, 30, 30])
   return img
 }
 
@@ -112,7 +123,9 @@ describe('decodePng', () => {
 
   it('refuses what is not a readable PNG rather than guessing', () => {
     expect(decodePng(new Uint8Array([1, 2, 3]))).toBeNull()
-    expect(decodePng(new Uint8Array(Buffer.from('RIFF....WEBP', 'ascii')))).toBeNull()
+    expect(
+      decodePng(new Uint8Array(Buffer.from('RIFF....WEBP', 'ascii'))),
+    ).toBeNull()
   })
 })
 
@@ -130,7 +143,8 @@ describe('measureStill', () => {
 
   it('a full-bleed frame bleeds on all four sides with no shadow to read', () => {
     const img = raster(300, 150, [10, 10, 60])
-    for (let i = 0; i < 40; i++) rect(img, (i * 37) % 290, (i * 53) % 140, 6, 6, [240, 240, 255])
+    for (let i = 0; i < 40; i++)
+      rect(img, (i * 37) % 290, (i * 53) % 140, 6, 6, [240, 240, 255])
     rect(img, 0, 0, 4, 4, [240, 240, 255])
     rect(img, 296, 146, 4, 4, [240, 240, 255])
     const m = measureStill(img)
@@ -144,8 +158,11 @@ describe('ink, hashes and edges', () => {
     const blank = raster(200, 100, [250, 250, 250])
     expect(inkCoverage(blank, { x: 0, y: 0, w: 200, h: 100 })).toBe(0)
     const busy = raster(200, 100, [250, 250, 250])
-    for (let i = 0; i < 30; i++) rect(busy, (i * 13) % 190, (i * 29) % 90, 10, 8, [20, 20, 20])
-    expect(inkCoverage(busy, { x: 0, y: 0, w: 200, h: 100 })).toBeGreaterThan(0.08)
+    for (let i = 0; i < 30; i++)
+      rect(busy, (i * 13) % 190, (i * 29) % 90, 10, 8, [20, 20, 20])
+    expect(inkCoverage(busy, { x: 0, y: 0, w: 200, h: 100 })).toBeGreaterThan(
+      0.08,
+    )
   })
 
   it('two crops of one picture hash alike; a different picture does not', () => {
@@ -153,7 +170,8 @@ describe('ink, hashes and edges', () => {
     const b = cardOnPlate()
     rect(b, 300, 150, 60, 30, [90, 120, 200]) // a small change in one corner
     const c = raster(400, 200, [240, 242, 244])
-    for (let i = 0; i < 40; i++) rect(c, (i * 31) % 380, (i * 47) % 180, 18, 12, [40, 40, 40])
+    for (let i = 0; i < 40; i++)
+      rect(c, (i * 31) % 380, (i * 47) % 180, 18, 12, [40, 40, 40])
     const ha = differenceHash(a)
     expect(hammingDistance(ha, differenceHash(b))).toBeLessThanOrEqual(6)
     expect(hammingDistance(ha, differenceHash(c))).toBeGreaterThan(10)

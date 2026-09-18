@@ -59,9 +59,12 @@ export function rolesFor(asset: {
   const spec = DESTINATIONS.find((d) => d.id === asset.destination)
   if (spec?.kind === 'video') {
     const portrait = spec.px.w < spec.px.h
-    return portrait ? ['feature-clip', 'site-walkthrough'] : ['feature-clip', 'site-walkthrough', 'feature-clip-dark']
+    return portrait
+      ? ['feature-clip', 'site-walkthrough']
+      : ['feature-clip', 'site-walkthrough', 'feature-clip-dark']
   }
-  if (spec?.genre === 'card') return ['window-in-scene', 'card-on-gradient', 'framed-screenshot']
+  if (spec?.genre === 'card')
+    return ['window-in-scene', 'card-on-gradient', 'framed-screenshot']
   if (spec?.genre === 'screenshot') return ['framed-screenshot', 'app-session']
   return []
 }
@@ -108,7 +111,12 @@ export function resample(img: Rgba, w: number, h: number): Rgba {
  * dark band left, a light band right) so the order can be read back
  * without type.
  */
-export function composeSheet(left: Rgba, right: Rgba, height = 540, gutter = 32): Rgba {
+export function composeSheet(
+  left: Rgba,
+  right: Rgba,
+  height = 540,
+  gutter = 32,
+): Rgba {
   const lw = Math.max(1, Math.round((left.w * height) / left.h))
   const rw = Math.max(1, Math.round((right.w * height) / right.h))
   const L = resample(left, lw, height)
@@ -130,7 +138,8 @@ export function composeSheet(left: Rgba, right: Rgba, height = 540, gutter = 32)
         const si = (y * src.w + x) * 4
         const a = src.data[si + 3] / 255
         const o = ((y0 + y) * w + x0 + x) * 4
-        for (let c = 0; c < 3; c++) out[o + c] = Math.round(src.data[si + c] * a + out[o + c] * (1 - a))
+        for (let c = 0; c < 3; c++)
+          out[o + c] = Math.round(src.data[si + c] * a + out[o + c] * (1 - a))
       }
     }
   }
@@ -146,7 +155,13 @@ export function composeSheet(left: Rgba, right: Rgba, height = 540, gutter = 32)
       }
   }
   fill(margin, margin + lw, margin + height + 6, margin + height + 6 + band, 40)
-  fill(margin + lw + gutter, margin + lw + gutter + rw, margin + height + 6, margin + height + 6 + band, 200)
+  fill(
+    margin + lw + gutter,
+    margin + lw + gutter + rw,
+    margin + height + 6,
+    margin + height + 6 + band,
+    200,
+  )
   return { w, h, data: out }
 }
 
@@ -180,7 +195,9 @@ export async function judgeKit(
   const kit = JSON.parse(await readFile(kitPath, 'utf8')) as KitRecord & {
     assets: (KitRecord['assets'][number] & { template?: string })[]
   }
-  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as ReferenceManifest
+  const manifest = JSON.parse(
+    await readFile(manifestPath, 'utf8'),
+  ) as ReferenceManifest
   const manifestDir = dirname(resolve(manifestPath))
   const kitDir = dirname(resolve(kitPath))
   const out = resolve(outDir ?? join(kitDir, 'judge'))
@@ -191,27 +208,45 @@ export async function judgeKit(
   const loadRef = async (file: string) => {
     if (refCache.has(file)) return refCache.get(file) ?? null
     const p = join(manifestDir, file)
-    const img = existsSync(p) ? decodePng(new Uint8Array(await readFile(p))) : null
+    const img = existsSync(p)
+      ? decodePng(new Uint8Array(await readFile(p)))
+      : null
     refCache.set(file, img)
     return img
   }
   for (const a of kit.assets) {
     if (!/\.png$/i.test(a.path)) continue
-    const file = isAbsolute(a.path) && existsSync(a.path) ? a.path : join(kitDir, a.path.split('/').pop() ?? a.path)
-    const img = existsSync(file) ? decodePng(new Uint8Array(await readFile(file))) : null
+    const file =
+      isAbsolute(a.path) && existsSync(a.path)
+        ? a.path
+        : join(kitDir, a.path.split('/').pop() ?? a.path)
+    const img = existsSync(file)
+      ? decodePng(new Uint8Array(await readFile(file)))
+      : null
     if (!img) {
       skipped.push(`${a.destination ?? a.path}: unreadable`)
       continue
     }
-    const roles = rolesFor({ destination: a.destination, source: a.source, template: a.template, path: a.path })
-    const ref = manifest.assets.find((r) => roles.includes(r.role) && r.genre !== 'context')
+    const roles = rolesFor({
+      destination: a.destination,
+      source: a.source,
+      template: a.template,
+      path: a.path,
+    })
+    const ref = manifest.assets.find(
+      (r) => roles.includes(r.role) && r.genre !== 'context',
+    )
     if (!ref) {
-      skipped.push(`${a.destination ?? a.path}: no reference of role ${roles.join('|') || '(none)'}`)
+      skipped.push(
+        `${a.destination ?? a.path}: no reference of role ${roles.join('|') || '(none)'}`,
+      )
       continue
     }
     const refImg = await loadRef(ref.file)
     if (!refImg) {
-      skipped.push(`${a.destination ?? a.path}: reference ${ref.file} unreadable`)
+      skipped.push(
+        `${a.destination ?? a.path}: reference ${ref.file} unreadable`,
+      )
       continue
     }
     // A still set's members share a destination: the file's own stem is the id.
@@ -229,7 +264,9 @@ export async function judgeKit(
       '',
       `## The reference`,
       ref.layout,
-      ...(ref.facts ? ['', '```json', JSON.stringify(ref.facts, null, 2), '```'] : []),
+      ...(ref.facts
+        ? ['', '```json', JSON.stringify(ref.facts, null, 2), '```']
+        : []),
       '',
       `Rule: ${ref.rule}`,
       '',
@@ -241,7 +278,13 @@ export async function judgeKit(
       '',
     ].join('\n')
     await writeFile(join(out, `${id}.md`), rubric)
-    sheets.push({ asset: id, reference: ref.id, sheetA: nameA, sheetB: nameB, rubric: `${id}.md` })
+    sheets.push({
+      asset: id,
+      reference: ref.id,
+      sheetA: nameA,
+      sheetB: nameB,
+      rubric: `${id}.md`,
+    })
   }
   const verdictFile = join(out, 'judge.json')
   if (!existsSync(verdictFile)) {
@@ -251,7 +294,14 @@ export async function judgeKit(
         {
           kit: kitPath,
           manifest: manifestPath,
-          verdicts: sheets.map((s) => ({ asset: s.asset, reference: s.reference, A: null, B: null, win: null, reasons: [] })),
+          verdicts: sheets.map((s) => ({
+            asset: s.asset,
+            reference: s.reference,
+            A: null,
+            B: null,
+            win: null,
+            reasons: [],
+          })),
         },
         null,
         2,
@@ -269,9 +319,16 @@ export async function judgeKit(
 export function winRate(
   verdicts: { win: boolean | null; reasons?: number[] }[],
 ): { wins: number; ties: number; judged: number; rate: number | null } {
-  const judgedList = verdicts.filter((v) => v.win !== null || (v.reasons?.length ?? 0) > 0)
+  const judgedList = verdicts.filter(
+    (v) => v.win !== null || (v.reasons?.length ?? 0) > 0,
+  )
   const wins = judgedList.filter((v) => v.win === true).length
   const ties = judgedList.filter((v) => v.win === null).length
   const judged = judgedList.length
-  return { wins, ties, judged, rate: judged ? (wins + ties / 2) / judged : null }
+  return {
+    wins,
+    ties,
+    judged,
+    rate: judged ? (wins + ties / 2) / judged : null,
+  }
 }

@@ -59,7 +59,15 @@ export function decodePng(bytes: Uint8Array): Rgba | null {
   }
   if (!w || !h || depth !== 8 || interlace !== 0) return null
   const channels =
-    colorType === 6 ? 4 : colorType === 2 ? 3 : colorType === 4 ? 2 : colorType === 0 ? 1 : 0
+    colorType === 6
+      ? 4
+      : colorType === 2
+        ? 3
+        : colorType === 4
+          ? 2
+          : colorType === 0
+            ? 1
+            : 0
   if (!channels) return null
   const total = idat.reduce((n, c) => n + c.length, 0)
   const joined = new Uint8Array(total)

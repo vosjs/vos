@@ -27,9 +27,17 @@ describe('the bundled family honours the contract', () => {
     const problems = templateProblems(cfg)
     expect(problems).toContain('template.slots: no element with id "shot2"')
     expect(problems).toContain('template.text: no element with id "nope"')
-    expect(problems).toContain('template.text: param "ghost" is not declared in config.params')
-    expect(problems.some((p) => p.includes('layouts.landscape: slot "shot2" is not placed'))).toBe(true)
-    expect(templateProblems({})).toEqual(['no template block: a poster template declares config.template'])
+    expect(problems).toContain(
+      'template.text: param "ghost" is not declared in config.params',
+    )
+    expect(
+      problems.some((p) =>
+        p.includes('layouts.landscape: slot "shot2" is not placed'),
+      ),
+    ).toBe(true)
+    expect(templateProblems({})).toEqual([
+      'no template block: a poster template declares config.template',
+    ])
   })
 })
 
@@ -52,7 +60,14 @@ describe('fillTemplate', () => {
       values,
     })
     expect(wide.aspect).toBe('landscape')
-    const shot = (wide.config.elements as { id: string; src: string; size: { width: number }; position: { x: string } }[]).find((e) => e.id === 'shot')!
+    const shot = (
+      wide.config.elements as {
+        id: string
+        src: string
+        size: { width: number }
+        position: { x: string }
+      }[]
+    ).find((e) => e.id === 'shot')!
     expect(shot.src).toBe('/shot.png')
     // design width at 5:2 = 1080 × 2.5 = 2700; slot w 1.02 → 2754
     expect(shot.size.width).toBe(Math.round(1.02 * 2700))
@@ -62,7 +77,9 @@ describe('fillTemplate', () => {
     expect(data.ink).toBe('#111111')
     expect(data.kicker).toBe('VOSSO 1.7')
     const params = wide.config.params as { key: string; default: unknown }[]
-    expect(params.find((p) => p.key === 'headline')!.default).toBe(values.headline)
+    expect(params.find((p) => p.key === 'headline')!.default).toBe(
+      values.headline,
+    )
     expect(wide.missing).toEqual([])
 
     const tall = fillTemplate(cfg, {
@@ -71,7 +88,13 @@ describe('fillTemplate', () => {
       values,
     })
     expect(tall.aspect).toBe('portrait')
-    const title = (tall.config.elements as { id: string; position: { y: string }; font: { size: number } }[]).find((e) => e.id === 'title')!
+    const title = (
+      tall.config.elements as {
+        id: string
+        position: { y: string }
+        font: { size: number }
+      }[]
+    ).find((e) => e.id === 'title')!
     expect(title.position.y).toBe('26%')
     expect(title.font.size).toBe(64)
   })
@@ -83,10 +106,19 @@ describe('fillTemplate', () => {
       slots: { shot: { src: '/shot.png', aspect: 16 / 9, pad: 0.06 } },
       values: {},
     })
-    const shot = (r.config.elements as { id: string; size: { width: number }; position: { x: string } }[]).find((e) => e.id === 'shot')!
+    const shot = (
+      r.config.elements as {
+        id: string
+        size: { width: number }
+        position: { x: string }
+      }[]
+    ).find((e) => e.id === 'shot')!
     const designW = (1080 * 440) / 280
     expect(shot.size.width).toBe(Math.round(0.82 * designW * 1.12))
-    expect(Number(shot.position.x.replace('%', ''))).toBeCloseTo((0.09 - 0.82 * 0.06) * 100, 1)
+    expect(Number(shot.position.x.replace('%', ''))).toBeCloseTo(
+      (0.09 - 0.82 * 0.06) * 100,
+      1,
+    )
   })
 
   it('reports the text boxes it placed, with role and colour, inside the frame', () => {
@@ -114,10 +146,14 @@ describe('fillTemplate', () => {
     })
     expect(r.missing).toEqual(['headline'])
     const t = cfg.template as TemplateSpec
-    expect(textLimitProblems(t, { headline: 'one two three four five six seven eight nine' })).toEqual([
-      'headline: 9 words, the template holds 8',
+    expect(
+      textLimitProblems(t, {
+        headline: 'one two three four five six seven eight nine',
+      }),
+    ).toEqual(['headline: 9 words, the template holds 8'])
+    expect(textLimitProblems(t, { headline: 'a\nb\nc\nd' })).toEqual([
+      'headline: 4 lines, the template holds 3',
     ])
-    expect(textLimitProblems(t, { headline: 'a\nb\nc\nd' })).toEqual(['headline: 4 lines, the template holds 3'])
   })
 
   it('aspects', () => {
@@ -141,10 +177,19 @@ describe('bakeShot', () => {
 
   it('pads, rounds, shadows and round-trips through PNG', () => {
     const shot = raster(200, 120, [250, 250, 250])
-    const baked = bakeShot(shot, { margin: 0.1, radius: 0.05, shadow: 0.4, blur: 0.03, offsetY: 0.02 })
+    const baked = bakeShot(shot, {
+      margin: 0.1,
+      radius: 0.05,
+      shadow: 0.4,
+      blur: 0.03,
+      offsetY: 0.02,
+    })
     expect(baked.w).toBe(240)
     expect(baked.h).toBe(160)
-    const px = (x: number, y: number) => Array.from(baked.data.subarray((y * baked.w + x) * 4, (y * baked.w + x) * 4 + 4))
+    const px = (x: number, y: number) =>
+      Array.from(
+        baked.data.subarray((y * baked.w + x) * 4, (y * baked.w + x) * 4 + 4),
+      )
     // The margin corner is transparent; the shot's corner is rounded away.
     expect(px(0, 0)[3]).toBe(0)
     expect(px(20, 20)[3]).toBeLessThan(255)
@@ -161,7 +206,12 @@ describe('bakeShot', () => {
 
   it('a hairline darkens the shot edge', () => {
     const shot = raster(100, 60, [255, 255, 255])
-    const baked = bakeShot(shot, { margin: 0.1, radius: 0, shadow: 0, hairline: 0.2 })
+    const baked = bakeShot(shot, {
+      margin: 0.1,
+      radius: 0,
+      shadow: 0,
+      hairline: 0.2,
+    })
     const o = ((10 + 30) * baked.w + 10) * 4
     expect(baked.data[o]).toBeLessThan(255)
     const oi = ((10 + 30) * baked.w + 50) * 4

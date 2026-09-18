@@ -41,16 +41,43 @@ describe('the judge sheet', () => {
 
 describe('roles and the win rate', () => {
   it('a template card matches its family; a video its clip references; a take card the scene layouts', () => {
-    expect(rolesFor({ destination: 'og-card', source: 'poster', template: 'split-cover', path: 'og-card.png' })).toEqual(['split-cover'])
-    expect(rolesFor({ destination: 'x-feed-cut', path: 'x-feed-cut.mp4' })).toContain('feature-clip')
-    expect(rolesFor({ destination: 'shorts-linkedin-vertical-cut', path: 'v.mp4' })).not.toContain('feature-clip-dark')
-    expect(rolesFor({ destination: 'cws-marquee', path: 'cws-marquee.png' })).toContain('window-in-scene')
-    expect(rolesFor({ destination: 'cws-screenshot', path: 'x.png' })).toContain('framed-screenshot')
+    expect(
+      rolesFor({
+        destination: 'og-card',
+        source: 'poster',
+        template: 'split-cover',
+        path: 'og-card.png',
+      }),
+    ).toEqual(['split-cover'])
+    expect(
+      rolesFor({ destination: 'x-feed-cut', path: 'x-feed-cut.mp4' }),
+    ).toContain('feature-clip')
+    expect(
+      rolesFor({ destination: 'shorts-linkedin-vertical-cut', path: 'v.mp4' }),
+    ).not.toContain('feature-clip-dark')
+    expect(
+      rolesFor({ destination: 'cws-marquee', path: 'cws-marquee.png' }),
+    ).toContain('window-in-scene')
+    expect(
+      rolesFor({ destination: 'cws-screenshot', path: 'x.png' }),
+    ).toContain('framed-screenshot')
   })
 
   it('the win rate counts judged pairs only', () => {
-    expect(winRate([{ win: true }, { win: false }, { win: null }, { win: true }])).toEqual({ wins: 2, ties: 0, judged: 3, rate: 2 / 3 })
-    expect(winRate([{ win: null, reasons: [2, 9] }, { win: false, reasons: [2] }])).toEqual({ wins: 0, ties: 1, judged: 2, rate: 0.25 })
-    expect(winRate([{ win: null }])).toEqual({ wins: 0, ties: 0, judged: 0, rate: null })
+    expect(
+      winRate([{ win: true }, { win: false }, { win: null }, { win: true }]),
+    ).toEqual({ wins: 2, ties: 0, judged: 3, rate: 2 / 3 })
+    expect(
+      winRate([
+        { win: null, reasons: [2, 9] },
+        { win: false, reasons: [2] },
+      ]),
+    ).toEqual({ wins: 0, ties: 1, judged: 2, rate: 0.25 })
+    expect(winRate([{ win: null }])).toEqual({
+      wins: 0,
+      ties: 0,
+      judged: 0,
+      rate: null,
+    })
   })
 })

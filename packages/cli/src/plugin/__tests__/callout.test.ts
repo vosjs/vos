@@ -168,7 +168,9 @@ describe('composeCallout', () => {
       seconds: 1,
     })
     const px = (css: string) => Number(/\.t\{font-size:(\d+)px/.exec(css)![1])
-    expect(px(apex.clip.css ?? '') / px(rest.clip.css ?? '')).toBeGreaterThan(1.5)
+    expect(px(apex.clip.css ?? '') / px(rest.clip.css ?? '')).toBeGreaterThan(
+      1.5,
+    )
   })
 
   it('an unknown step, or neither a step nor a time, is refused in words; ids never collide', () => {
