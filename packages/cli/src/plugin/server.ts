@@ -2,6 +2,7 @@ import { createServer } from 'node:http'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { extname, join } from 'node:path'
+import { MEDIA_HEAD_BYTES, sniffMediaType } from './container'
 import type { Page } from 'playwright'
 
 const MIME: Record<string, string> = {
@@ -69,9 +70,16 @@ export function startTakeServer(
     }
     const file = join(rootDir, decodeURIComponent(url.pathname))
     if (existsSync(file) && statSync(file).isFile()) {
-      const type = MIME[extname(file)] ?? 'application/octet-stream'
       const size = statSync(file).size
       const buf = readFileSync(file)
+      // The BYTES outrank the extension for anything carrying a container
+      // signature: a take pulled as mp4 under a `.webm` name would otherwise be
+      // served as webm, and the page's video element would refuse to decode it.
+      // Everything without one (html, js, json, svg) keeps the table's answer.
+      const type =
+        sniffMediaType(buf.subarray(0, MEDIA_HEAD_BYTES)) ??
+        MIME[extname(file)] ??
+        'application/octet-stream'
       const range = req.headers.range
       // Range/206 so an HTMLVideoElement can seek a take-dir video background.
       const m = range && /^bytes=(\d*)-(\d*)$/.exec(range)

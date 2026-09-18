@@ -105,7 +105,8 @@ vos plan take --reuse                                   # re-time that cut onto 
 
 ```
 take/
-  recording.webm   encoded footage (30 fps CFR WebM)
+  recording.webm   encoded footage (30 fps CFR WebM; `recording.mp4` when a
+                   pull brought the footage home in that container)
   frames/          raw screencast JPEGs, indexed by frames.json (kept for re-encode)
   cursor.json      the synthesized CursorTrack: exact coordinates, element rects
   meta.json        RecordingMeta (producer: "cli", per-step source extents)
@@ -118,6 +119,13 @@ take/
   kit/             `vos deliver` output: kit.json + the assets
   mic.webm, cam.webm   sidecar tracks, present on takes pulled from vos.so with --media
 ```
+
+A take's own media is named after what it IS, not after a convention: a pull
+reads the first bytes of each file it downloads and writes `recording.mp4` when
+the footage is mp4, whatever the hosted asset was called or its Content-Type
+claimed. Every verb resolves the name, and a push declares the container it
+finds in the bytes, so a file never reaches vos.so under the wrong type.
+`vos validate <take>` warns when an existing take holds one that does.
 
 A re-record replaces the footage, the cursor track, the frames and everything derived from them, moves `doc.json` to `doc.prev.json`, and keeps `actions.json` and `vos.json`.
 

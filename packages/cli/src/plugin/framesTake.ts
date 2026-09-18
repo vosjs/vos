@@ -21,7 +21,7 @@ import {
   resolveExportSize,
   spanOutputExtent,
 } from '@vosjs/studio-core'
-import { RECORDING_NAME, loadTake } from './take'
+import { loadTake } from './take'
 import { startTakeServer, waitForPageDone } from './server'
 import { renderPageHtml } from './renderAnimation'
 import {
@@ -313,7 +313,7 @@ export async function framesTake(
       .evaluate(stillsInPage, {
         animationCode,
         token: VIDEO_TOKEN,
-        videoUrl: `/${RECORDING_NAME}`,
+        videoUrl: `/${take.paths.recordingName}`,
         W: width,
         H: height,
         ss,

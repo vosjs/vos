@@ -23,14 +23,10 @@ import { readFile } from 'node:fs/promises'
 import { createInterface } from 'node:readline/promises'
 import { basename, join } from 'node:path'
 import { lowerToComposition, migrateHostedDoc } from '@vosjs/studio-core'
-import { RECORDING_NAME, loadTake, writeJson } from './take'
+import { RECORDING_NAME, loadTake, takeMediaFile, writeJson } from './take'
 import { lintDoc } from './validateDoc'
-import {
-  docMediaRefs,
-  mediaContentType,
-  pullMedia,
-  takeRelativeFile,
-} from './media'
+import { docMediaRefs, pullMedia, takeRelativeFile } from './media'
+import { MEDIA_HEAD_BYTES, nameForType, resolveMediaType } from './container'
 import { listFolders, resolveFolder } from './folder'
 import { uploadAsset } from './uploadAsset'
 import {
@@ -138,7 +134,9 @@ export async function pushTake(
     throw new Error(`doc.json fails lint:\n  ${lint.problems.join('\n  ')}`)
   }
   if (!existsSync(take.paths.recording)) {
-    throw new Error('no recording.webm in this take')
+    throw new Error(
+      'no recording in this take — record it, or `vos pull --media` to bring it home',
+    )
   }
 
   const ctx = apiContext(flags)
@@ -183,12 +181,26 @@ export async function pushTake(
   //    this goes in parts; `uploadAsset` picks the transport by size.
   const bytes = await readFile(take.paths.recording)
   const hash = createHash('sha256').update(bytes).digest('hex')
+  // What the file IS, never what it is called. A take remuxed to mp4 keeps the
+  // name `recording.webm`, and an asset declared `video/webm` holding mp4 bytes
+  // fails every render of that version inside the video element — a format
+  // error a day and a machine away from the mislabelling that caused it.
+  const { type: contentType } = resolveMediaType({
+    head: bytes.subarray(0, MEDIA_HEAD_BYTES),
+    filename: take.paths.recordingName,
+  })
+  const filename = nameForType(take.paths.recordingName, contentType)
+  if (filename !== take.paths.recordingName) {
+    r.log(
+      `  ${take.paths.recordingName} holds ${contentType} — uploading it as ${filename}`,
+    )
+  }
   r.log(`uploading recording (${Math.round(bytes.length / 1024)} kB)…`)
   let upload: UploadedAsset
   try {
     upload = await uploadAsset(ctx, new Uint8Array(bytes), {
-      filename: RECORDING_NAME,
-      contentType: 'video/webm',
+      filename,
+      contentType,
       contentHash: hash,
       // The take's length so the server holds it to the plan's cap.
       ...(take.meta.durationMs > 0
@@ -237,11 +249,20 @@ export async function pushTake(
     }
     const media = await readFile(file)
     const mediaHash = createHash('sha256').update(media).digest('hex')
-    const type = mediaContentType(file)
+    // Same rule as the recording: the bytes name the type, and the uploaded
+    // filename is corrected to match so the asset is never self-contradictory.
+    const { type } = resolveMediaType({
+      head: media.subarray(0, MEDIA_HEAD_BYTES),
+      filename: file,
+    })
+    const name = nameForType(basename(file), type)
+    if (name !== basename(file)) {
+      r.log(`  ${ref.where}: ${basename(file)} holds ${type} — sent as ${name}`)
+    }
     let put: UploadedAsset
     try {
       put = await uploadAsset(ctx, new Uint8Array(media), {
-        filename: basename(file),
+        filename: name,
         contentType: type,
         contentHash: mediaHash,
       })
@@ -495,8 +516,9 @@ export async function pullTake(
   }
   const hostedDoc = migrateHostedDoc(docRes.json)
   const doc = hostedDoc as unknown as ProjectDoc
-  if (existsSync(join(dir, RECORDING_NAME))) {
-    doc.source.videoKey = RECORDING_NAME
+  const localRecording = takeMediaFile(dir, 'recording', RECORDING_NAME)
+  if (existsSync(localRecording)) {
+    doc.source.videoKey = basename(localRecording)
   }
   await writeJson(join(dir, 'doc.json'), doc, true)
   // --media: the footage (and sidecars) come home beside the doc, so digest,
