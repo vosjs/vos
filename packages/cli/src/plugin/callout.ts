@@ -14,6 +14,7 @@
  * layer's start, in CIE76 ΔE — a card within a few ΔE of what it covers
  * reads as one more panel.
  */
+import { catalogFamily } from './fontName'
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -84,7 +85,10 @@ export function registerFrom(
   const accent = flags.accent ?? roles?.callout ?? roles?.accent
   if (!ground || !accent) return null
   if (!hexToRgb(ground) || !hexToRgb(accent)) return null
-  const face = flags.face ?? roles?.fontBody
+  // The catalog's name for the face, or the CSS asks for a family no
+  // render page registers (fontName.ts).
+  const named = flags.face ?? roles?.fontBody
+  const face = named ? catalogFamily(named) : named
   return {
     ground,
     accent,
