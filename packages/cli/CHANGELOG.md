@@ -1,5 +1,38 @@
 # @vosjs/cli
 
+## 0.38.0
+
+### Minor Changes
+
+- 0032bae: `vos callout --body-px <n>` is the body size on the delivered frame. The size used to be multiplied by the footage scale and then floored, so on a rich capture (a 2560-wide take on a padded frame sits near 0.6) both 14 and 21 printed the same 11 / 20 / 15 and the flag read as ignored: the richer the capture, the smaller the note. An explicit size is no longer rescaled; without the flag the grammar's default stands, a note sized to the app as seen. The verb now prints the three sizes it chose and the footage scale it measured, in words and in `--json` as `sizes`, so a floor is visible instead of silent. The usage line says what `--color` paints: the pin's mark and leader, never the kicker, which is `--accent`.
+- 0032bae: A brand kit can name the hue its callouts speak in. `vos callout` coloured the kicker and the card from the kit's `accent`, and some brands reserve theirs: a recorder's red marks time and nothing else, so a note kicker in it broke the brand's own rule, twice over when the product's playhead was in the same frame. `BRAND.md` may now carry a `callout` role, which wins over `accent` (`--accent` still wins over both). The composer cannot know what a brand reserves; a role is how the kit says it.
+- 0032bae: A flag a verb never read is no longer swallowed. The parsers accept any `--name`, so `vos frames <take> --at 3,5,8` used to write five evenly spread stills and exit 0: the flag is `--times`, and nothing ever looked at `at`. Every verb now records which flags it actually read, and a run that succeeded while ignoring one exits 2 and says so: the command RAN, which flag it ignored, the documented flag it most likely meant, and the flags the verb reads. Reading is recorded rather than declared per verb, so a real flag can never be refused by a list that drifted.
+- 0032bae: `vos push <take> --vos <id>` does what it says. A take push read its target from `vos.json` and nowhere else, so `--vos` on a directory without one was ignored and a second vos was created, silently, every time a take was re-recorded from scratch. It now ADOPTS that vos: the head is read, named as the base, and the take becomes the next version. `vos pull` was never the answer for this take, because it writes the hosted doc over the local one. `--vos` that disagrees with `vos.json`, and the flags only a program push reads (`--slug`, `--desc`, `--tags`, `--base`, `--remix-of`), are refused before anything uploads.
+- 0032bae: `vos record` and `vos create` take `--browser-arg=<switch>`, repeatable:
+  extra Chromium switches for the recording browser. A switch starts with
+  `--`, so it is written with `=`, and every one given is kept, in order.
+
+  Some product surfaces cannot be reached from a clean context. A recorder
+  page needs a fake capture device to get past a permission prompt, and an
+  extension page needs the extension loaded. The switches pass through to
+  `chromium.launch` verbatim.
+
+- 0032bae: `vos record` and `vos create` take `--storage-state <file>`: a Playwright
+  storage state, so the recorder drives a SIGNED-IN product.
+
+  Recording a demo of anything behind a login needed the sign-in to be part of
+  the script, which is impossible when the flow is an emailed code, an SSO hop
+  or a passkey. The flag hands the recorder a session that already exists, the
+  way a person would arrive at their own app. Export one from a real browser,
+  or with `context.storageState({ path })`.
+
+- 0032bae: `vos record` and `vos create` release the screencast frames once the recording is encoded. The JPEGs are the bulk of a take (one hero take was 437 MB of a 452 MB directory) and nothing needs them afterwards: `vos digest` reads frames from them when present and from the video otherwise, which is the path every pulled take already runs on. They are dropped only after the recording exists and has bytes, so a failed encode never costs the only copy of the footage. `--keep-frames` keeps them.
+
+### Patch Changes
+
+- 0032bae: `vos brand` and `vos callout` write a face under the name the hosted catalog carries. A site ships `Inter Variable` or `Lexend Variable`, which is what a page's computed style reports, while the catalog hosts the same family as `Inter` or `Lexend` and a render page registers it under that name. CSS written with the site's name matched nothing and fell back to a system stack, silently on the fleet. The suffix is dropped where the name is written, only when the catalog hosts the base family; a family it does not host is left alone.
+- 0032bae: `vos validate` says when a layer outlives the footage. A recording's output runs to the end of its last visual clip, on purpose, so words can play after the footage. The same rule meant a layer left behind by a trim silently lengthened the render, and the clip ended on bare backdrop with a note floating on nothing. The lint caught an out-of-range zoom and had no check for this at all. It is a warning and never a problem, because a problem would refuse every legacy end card; a freeze counts as footage, so an end card over its freeze stays silent.
+
 ## 0.37.0
 
 ### Minor Changes
