@@ -10,7 +10,7 @@
  *     doc.json         ProjectDoc — the agent-editable surface
  */
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { TAKE_MEDIA_EXTENSIONS } from './container'
 import type { CursorTrack, ProjectDoc, RecordingMeta } from '@vosjs/studio-core'
@@ -82,6 +82,31 @@ export async function ensureTakeDir(dir: string): Promise<TakePaths> {
   const p = takePaths(dir)
   await mkdir(p.framesDir, { recursive: true })
   return p
+}
+
+/**
+ * Drop the screencast JPEGs once the recording they were encoded into is on
+ * disk. They are the bulk of a take (one hero take: 437 MB of a 452 MB
+ * directory) and nothing needs them afterwards: the digest reads frames
+ * from them WHEN PRESENT and from the video otherwise, which is the path
+ * every pulled take already runs on. Refuses unless the recording exists and
+ * has bytes, so a failed encode never costs the only copy of the footage.
+ * Returns the bytes freed, 0 when it left everything alone.
+ */
+export async function dropScreencastFrames(p: TakePaths): Promise<number> {
+  if (!existsSync(p.recording) || statSync(p.recording).size === 0) return 0
+  if (!existsSync(p.framesDir)) return 0
+  let freed = 0
+  for (const name of readdirSync(p.framesDir)) {
+    try {
+      freed += statSync(join(p.framesDir, name)).size
+    } catch {
+      // a file gone between the listing and the stat frees nothing
+    }
+  }
+  await rm(p.framesDir, { recursive: true, force: true })
+  await rm(p.framesIndex, { force: true })
+  return freed
 }
 
 /**

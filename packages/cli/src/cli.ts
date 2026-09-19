@@ -5,6 +5,7 @@ import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import { parseArgs, numFlag, UsageError } from './args'
+import { helpFlagsFor, unusedFlagsMessage } from './flagUse'
 import {
   createReporter,
   EXIT_ERROR,
@@ -432,7 +433,24 @@ async function main(): Promise<number> {
 }
 
 main()
-  .then((code) => process.exit(code))
+  .then(async (code) => {
+    // A run that succeeded while ignoring a flag it was given did not do
+    // what was asked (flagUse.ts): say so, and do not exit 0.
+    if (code === EXIT_OK) {
+      const verb = process.argv[2] ?? ''
+      const { HELP } = await import('./plugin/run')
+      const documented = [
+        ...helpFlagsFor(HELP_ENGINE, verb),
+        ...helpFlagsFor(HELP, verb),
+      ]
+      const message = unusedFlagsMessage(verb, [...new Set(documented)])
+      if (message) {
+        process.stderr.write(`usage error: ${message}\n`)
+        process.exit(EXIT_USAGE)
+      }
+    }
+    process.exit(code)
+  })
   .catch((e) => {
     if (e instanceof UsageError) {
       process.stderr.write(`usage error: ${e.message}\n`)

@@ -50,15 +50,22 @@ import {
 import { formatFinding } from './kitPicture'
 import { validateKit } from './validateKit'
 import { digestTake, parseTranscript } from './digestTake'
-import { apiJson, platformOrigin, resolveCredential } from './platform'
+import {
+  apiJson,
+  platformOrigin,
+  readSyncState,
+  resolveCredential,
+} from './platform'
 import { startTakeServer } from './server'
 import {
   PREV_DOC_NAME,
+  dropScreencastFrames,
   ensureTakeDir,
   loadTake,
   prepareReRecord,
   writeJson,
 } from './take'
+import type { TakePaths } from './take'
 import { BrowserUnavailableError, launchBrowser } from '../browser'
 import { recordTake } from './recorder'
 import {
@@ -70,7 +77,7 @@ import { encodeRecording } from './encode'
 import { planTake } from './plan'
 import { openingBackdrop } from './backdrops'
 import { renderTake } from './renderTake'
-import { pullTake, pushTake } from './sync'
+import { pullTake, pushTake, takePushRefusal } from './sync'
 import {
   cmdDuplicate,
   cmdFetch,
@@ -109,15 +116,16 @@ const BOOLEAN_FLAGS = new Set([
   'check',
   'motion',
   'leader',
+  'keep-frames',
 ])
-/** Repeatable value flags (accumulate): --set path=value on render/frames, --override id on push. */
-const MULTI_FLAGS = new Set(['set', 'override'])
+/** Repeatable value flags (accumulate): --set path=value on render/frames, --override id on push, --browser-arg=<switch> on record/create. */
+export const MULTI_FLAGS = new Set(['set', 'override', 'browser-arg'])
 
-const HELP = `vos — record a browser flow, plan effects, render a product video; sync with vos.so
+export const HELP = `vos — record a browser flow, plan effects, render a product video; sync with vos.so
 
 Take pipeline
-  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--max-duration <s>] [--background <slug|url|none>] [render flags] [--json]
-  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--max-duration <s>] [--background <slug|url|none>] [--json]
+  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--keep-frames] [--max-duration <s>] [--storage-state <file>] [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
+  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--keep-frames] [--max-duration <s>] [--storage-state <file>] [--browser-arg=<switch>]... [--background <slug|url|none>] [--json]
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--at-still] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
@@ -125,7 +133,7 @@ Take pipeline
   vos digest <take> [--out dir] [--full 960] [--crop 640] [--no-frames] [--transcript <file.json>] [--style <doc.json|vosId>] [--json]
   vos brand <url> [--out BRAND.md] [--json]
   vos open <take> [--studio <url>] [--print]
-  vos callout <take> <note|tag|code> --step <id> [--title "…"] [--body "…"] [--kicker "…"] [--code "…"|--code-file f] [--seconds 3] [--side auto|right|left|below|above] [--mark ring|underline|none] [--leader] [--color #hex] [--brand BRAND.md] [--ground #hex] [--accent #hex] [--font "…"] [--body-px 14] [--id x] [--print] [--json]
+  vos callout <take> <note|tag|code> --step <id> [--title "…"] [--body "…"] [--kicker "…"] [--code "…"|--code-file f] [--seconds 3] [--side auto|right|left|below|above] [--mark ring|underline|none] [--leader] [--color #hex (the mark and leader; the kicker is --accent)] [--brand BRAND.md] [--ground #hex] [--accent #hex] [--font "…"] [--body-px <n> (the body size on the delivered frame)] [--id x] [--print] [--json]
   vos validate <actions.json|take|kit.json> [--picture] [--json]
   vos judge <kit.json> --against <MANIFEST.json> [--out dir] [--json]
   vos actions from-agent-browser <steps.jsonl> [--out actions.json] [--url <url>] [--viewport WxH] [--json]
@@ -145,7 +153,10 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
             a take DIRECTORY (doc.json) pushes recording + doc; a config.json
             pushes the program. No --vos: create a PRIVATE vos; with --vos:
             add a version against the tracked base — a stale push 409s WITH
-            the platform's typed changelog. --claimable (programs only, NO
+            the platform's typed changelog. A TAKE pushes to the vos in its
+            vos.json; --vos on a take with none ADOPTS that vos (the take
+            becomes its next version, built on its head), and --vos that
+            disagrees with vos.json is refused before anything uploads. --claimable (programs only, NO
             credential): creates a 72h claim link instead — hand it to the
             user and nowhere else; unclaimed work is deleted after 72h.
             --override consents to touching
@@ -418,6 +429,38 @@ function strictReason(rec: {
  * command; a set out of reach is said in words and the take opens on a
  * flat ground rather than failing.
  */
+/**
+ * `--browser-arg=<switch>`, repeatable: extra Chromium switches for the
+ * recording browser. Some product surfaces cannot be reached without one
+ * (a fake capture device to pass a permission prompt, a loaded extension).
+ *
+ * Read from `multi`, never from `flags`: a flag bag holds ONE value per name,
+ * so a second switch used to overwrite the first, and the pair that grants a
+ * fake microphone (`--use-fake-ui-for-media-stream` beside
+ * `--use-fake-device-for-media-stream`) reached Chromium as its last half.
+ * A switch starts with `--`, so it is written with `=`.
+ */
+export function takeBrowserArgs(multi: ParsedArgs['multi']): string[] {
+  // Index access is typed present but is runtime-optional.
+  const given = multi['browser-arg'] as string[] | undefined
+  return (given ?? []).filter(Boolean)
+}
+
+/**
+ * `--storage-state <file>`: a Playwright storage state, so the recorder
+ * drives a SIGNED-IN product. Recording a demo of anything behind a login
+ * needs it, and a sign-in form cannot always be scripted (an emailed code,
+ * an SSO hop, a passkey). Export one from a real browser session.
+ */
+function takeStorageState(flags: ParsedArgs['flags']): string | undefined {
+  const raw = strFlag(flags, 'storage-state')
+  if (!raw) return undefined
+  const path = resolve(raw)
+  if (!existsSync(path))
+    throw new UsageError(`--storage-state: no such file: ${path}`)
+  return path
+}
+
 async function takeBackdrop(
   flags: ParsedArgs['flags'],
   r: { log: (line: string) => void },
@@ -433,8 +476,27 @@ async function takeBackdrop(
   return backdrop
 }
 
+/** After a verified encode: the screencast JPEGs go, unless `--keep-frames`. */
+async function releaseFrames(
+  paths: TakePaths,
+  flags: ParsedArgs['flags'],
+  log: (line: string) => void,
+): Promise<void> {
+  if (flags['keep-frames'] === true) return
+  const freed = await dropScreencastFrames(paths)
+  // Said only when it is worth a line: a few kB of frames is not news.
+  if (freed >= 1e6)
+    log(
+      `released ${Math.round(freed / 1e6)} MB of screencast frames (the recording holds them now; --keep-frames keeps them)`,
+    )
+}
+
 async function cmdRecord(argv: string[]): Promise<number> {
-  const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
+  const { positionals, flags, multi } = parseArgs(
+    argv,
+    BOOLEAN_FLAGS,
+    MULTI_FLAGS,
+  )
   const actionsPath = strFlag(flags, 'actions') ?? positionals[0]
   if (!actionsPath)
     throw new UsageError(
@@ -448,6 +510,8 @@ async function cmdRecord(argv: string[]): Promise<number> {
   const outDir = resolve(strFlag(flags, 'out') ?? 'take')
   const backdrop = await takeBackdrop(flags, r)
   const maxDurationSeconds = await maxDuration(flags, r)
+  const storageState = takeStorageState(flags)
+  const browserArgs = takeBrowserArgs(multi)
 
   if (existsSync(join(outDir, 'meta.json'))) {
     // A re-record replaces the FOOTAGE, never the cut. The previous
@@ -466,18 +530,20 @@ async function cmdRecord(argv: string[]): Promise<number> {
   await mkdir(outDir, { recursive: true })
   const paths = await ensureTakeDir(outDir)
 
-  const browser = await launchBrowser()
+  const browser = await launchBrowser(browserArgs)
   try {
     r.log('recording…')
     r.event({ event: 'phase', phase: 'record' })
     const rec = await recordTake(browser, url, actions, paths, r.log, {
       maxDurationSeconds: maxDurationSeconds,
+      storageState: storageState,
     })
     r.event({ event: 'phase', phase: 'encode' })
     r.log('encoding…')
     const enc = await encodeRecording(browser, outDir, (p) =>
       r.event({ event: 'progress', phase: 'encode', fraction: p }),
     )
+    await releaseFrames(paths, flags, r.log)
     r.event({ event: 'phase', phase: 'plan' })
     const plan = await planTake(outDir, { backdrop })
     const clicks = rec.events.filter((e) => e.type === 'down').length
@@ -550,6 +616,8 @@ async function cmdCreate(argv: string[]): Promise<number> {
   }
   const backdrop = await takeBackdrop(flags, r)
   const maxDurationSeconds = await maxDuration(flags, r)
+  const storageState = takeStorageState(flags)
+  const browserArgs = takeBrowserArgs(multi)
 
   if (existsSync(join(outDir, 'meta.json'))) {
     // A re-record replaces the FOOTAGE, never the cut. The previous
@@ -568,18 +636,20 @@ async function cmdCreate(argv: string[]): Promise<number> {
   await mkdir(outDir, { recursive: true })
   const paths = await ensureTakeDir(outDir)
 
-  const browser = await launchBrowser()
+  const browser = await launchBrowser(browserArgs)
   try {
     r.log('recording…')
     r.event({ event: 'phase', phase: 'record' })
     const rec = await recordTake(browser, url, actions, paths, r.log, {
       maxDurationSeconds: maxDurationSeconds,
+      storageState: storageState,
     })
     r.event({ event: 'phase', phase: 'encode' })
     r.log('encoding…')
     await encodeRecording(browser, outDir, (p) =>
       r.event({ event: 'progress', phase: 'encode', fraction: p }),
     )
+    await releaseFrames(paths, flags, r.log)
     r.event({ event: 'phase', phase: 'plan' })
     await planTake(outDir, { backdrop })
 
@@ -1462,7 +1532,7 @@ async function cmdCallout(argv: string[]): Promise<number> {
   const shape = positionals[1]
   if (!dir || !shape || !isCalloutShape(shape))
     throw new UsageError(
-      'vos callout <take> <note|tag|code> --step <id> [--title "…"] [--body "…"] [--kicker "…"] [--code "…"|--code-file f] [--seconds 3] [--side …] [--mark ring|underline|none] [--leader] [--color #hex] [--brand BRAND.md] [--ground #hex --accent #hex] [--font "…"] [--body-px 14] [--id x] [--print] [--json]',
+      'vos callout <take> <note|tag|code> --step <id> [--title "…"] [--body "…"] [--kicker "…"] [--code "…"|--code-file f] [--seconds 3] [--side …] [--mark ring|underline|none] [--leader] [--color #hex (the mark and leader; the kicker is --accent)] [--brand BRAND.md] [--ground #hex --accent #hex] [--font "…"] [--body-px <n> (the body size on the delivered frame)] [--id x] [--print] [--json]',
     )
   const r = createReporter(flags.json === true)
   const take = await loadTake(dir)
@@ -1521,14 +1591,15 @@ async function cmdCallout(argv: string[]): Promise<number> {
       mark: mark as never,
       leader: flags.leader === true,
       color: strFlag(flags, 'color'),
+      bodyPxGiven: bodyPx !== undefined,
     })
   } catch (e) {
     throw new UsageError(e instanceof Error ? e.message : String(e))
   }
-  const { clip, window } = composed
+  const { clip, window, sizes } = composed
   if (flags.print === true) {
     r.done(
-      { clip, window, register, brand: brand?.file ?? null },
+      { clip, window, sizes, register, brand: brand?.file ?? null },
       JSON.stringify(clip, null, 2),
     )
     return EXIT_OK
@@ -1549,11 +1620,12 @@ async function cmdCallout(argv: string[]): Promise<number> {
     {
       clip,
       window,
+      sizes,
       register,
       brand: brand?.file ?? null,
       warnings: lint.warnings,
     },
-    `${shape} "${clip.id}" at ${window.start.toFixed(2)}s for ${window.duration.toFixed(2)}s${clip.pin ? `, pinned to ${clip.pin.step !== undefined ? `step ${String(clip.pin.step)}` : `the press at ${String(clip.pin.press)}s`}` : ''}, ground ${register.ground} → card in the product's hue, written to ${take.paths.doc}${lint.warnings.length ? `\n  warnings:\n  ${lint.warnings.join('\n  ')}` : ''}`,
+    `${shape} "${clip.id}" at ${window.start.toFixed(2)}s for ${window.duration.toFixed(2)}s${clip.pin ? `, pinned to ${clip.pin.step !== undefined ? `step ${String(clip.pin.step)}` : `the press at ${String(clip.pin.press)}s`}` : ''}, ground ${register.ground} → card in the product's hue, type ${sizes.kickerPx} / ${sizes.titlePx} / ${sizes.bodyPx} px (kicker / title / body; ${bodyPx !== undefined ? `--body-px ${bodyPx} as delivered` : `the app's body as seen, footage scale ${sizes.scale}; --body-px <n> sets the delivered size`}), written to ${take.paths.doc}${lint.warnings.length ? `\n  warnings:\n  ${lint.warnings.join('\n  ')}` : ''}`,
   )
   return EXIT_OK
 }
@@ -1724,8 +1796,16 @@ async function cmdPush(argv: string[]): Promise<number> {
   const dir = positionals[0]
   if (!dir)
     throw new UsageError(
-      'vos push <take> [--title|--label|--note|--folder|--override|--yes|--key|--api]',
+      'vos push <take> [--vos|--title|--label|--note|--folder|--override|--yes|--key|--api]',
     )
+  const refusal = takePushRefusal({
+    vos: strFlag(flags, 'vos'),
+    trackedVosId: readSyncState(resolve(dir))?.vosId ?? null,
+    programOnly: ['slug', 'desc', 'tags', 'base', 'remix-of'].filter((name) =>
+      hasFlag(flags, name),
+    ),
+  })
+  if (refusal) throw new UsageError(refusal)
   const r = createReporter(flags.json === true)
   // Index access is typed present but is runtime-optional — pushTake guards.
   const overrides = multi.override
@@ -1736,6 +1816,7 @@ async function cmdPush(argv: string[]): Promise<number> {
       api: strFlag(flags, 'api'),
       origin: strFlag(flags, 'origin'),
       yes: flags.yes === true,
+      vos: strFlag(flags, 'vos'),
       title: strFlag(flags, 'title'),
       label: strFlag(flags, 'label'),
       note: strFlag(flags, 'note'),

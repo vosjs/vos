@@ -1,4 +1,6 @@
 /** Minimal argv parser — mirrors @vosjs/cli's conventions. */
+import { noteGivenFlag, trackFlags } from '../flagUse'
+
 export interface ParsedArgs {
   positionals: string[]
   flags: Record<string, string | true>
@@ -46,7 +48,9 @@ export function parseArgs(
     }
     positionals.push(arg)
   }
-  return { positionals, flags, multi }
+  for (const name of Object.keys(flags)) noteGivenFlag(name)
+  for (const name of Object.keys(multi)) noteGivenFlag(name)
+  return { positionals, flags: trackFlags(flags), multi: trackFlags(multi) }
 }
 
 export function numFlag(

@@ -106,6 +106,18 @@ describe('registerFrom', () => {
       { accent: '#7c3aed', body: 16 },
     )
     expect(over).toMatchObject({ accent: '#7c3aed', face: 'Inter', body: 16 })
+    // a kit that reserves its accent names the hue its notes speak in
+    const reserved = registerFrom(
+      { bgA: '#ffffff', accent: '#ff5148', callout: '#c48fa6' },
+      {},
+    )
+    expect(reserved?.accent).toBe('#c48fa6')
+    expect(
+      registerFrom(
+        { bgA: '#ffffff', accent: '#ff5148', callout: '#c48fa6' },
+        { accent: '#000000' },
+      )?.accent,
+    ).toBe('#000000')
     expect(registerFrom(null, {})).toBeNull()
     expect(registerFrom({ bgA: 'white', accent: '#000' }, {})).toBeNull()
   })
@@ -171,6 +183,38 @@ describe('composeCallout', () => {
     expect(px(apex.clip.css ?? '') / px(rest.clip.css ?? '')).toBeGreaterThan(
       1.5,
     )
+  })
+
+  // The reference cut sets its notes at 15 / 28 / 21. That is --body-px 21 at
+  // scale 1, and it was unreachable: the size was multiplied by the footage
+  // scale and then floored, so on a rich capture 14 and 21 printed the same.
+  it('an explicit --body-px is the delivered size, whatever the camera shows', () => {
+    const px = (css: string, cls: string) =>
+      Number(new RegExp(`\\.${cls}\\{[^}]*?font-size:(\\d+)px`).exec(css)![1])
+    const ask = {
+      shape: 'note' as const,
+      words: { kicker: 'K', title: 'T', body: 'B' },
+      seconds: 1,
+    }
+    const big = { ground: '#ffffff', accent: '#3b82f6', body: 21 }
+    const rest = composeCallout(doc, big, {
+      ...ask,
+      at: 0.2,
+      bodyPxGiven: true,
+    })
+    const apex = composeCallout(doc, big, {
+      ...ask,
+      at: 2.6,
+      bodyPxGiven: true,
+    })
+    expect(rest.sizes).toMatchObject({ kickerPx: 15, titlePx: 28, bodyPx: 21 })
+    expect(apex.sizes).toMatchObject({ kickerPx: 15, titlePx: 28, bodyPx: 21 })
+    expect(px(rest.clip.css ?? '', 't')).toBe(28)
+    // the scale the camera shows is still reported, for the verb to print
+    expect(apex.sizes.scale / rest.sizes.scale).toBeCloseTo(1.8, 1)
+    // without the flag the grammar's default stands: sized to the app as seen
+    const seen = composeCallout(doc, big, { ...ask, at: 2.6 })
+    expect(seen.sizes.titlePx).toBeGreaterThan(28)
   })
 
   it('an unknown step, or neither a step nor a time, is refused in words; ids never collide', () => {

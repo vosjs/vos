@@ -3,6 +3,8 @@
  * boolean flags. Deliberately tiny: the CLI has a small, stable surface and
  * agents benefit from predictable, dependency-free parsing.
  */
+import { noteGivenFlag, trackFlags } from './flagUse'
+
 export interface ParsedArgs {
   positionals: string[]
   flags: Record<string, string | true>
@@ -43,7 +45,8 @@ export function parseArgs(
     }
     positionals.push(arg)
   }
-  return { positionals, flags }
+  for (const name of Object.keys(flags)) noteGivenFlag(name)
+  return { positionals, flags: trackFlags(flags) }
 }
 
 export function numFlag(

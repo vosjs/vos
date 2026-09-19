@@ -21,6 +21,7 @@
  * Everything is a pure function over fetched text and one witnessed object,
  * so the composition is testable without a browser.
  */
+import { catalogFamily } from './fontName'
 import { writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { parseFrontmatter } from '@vosjs/shared/frontmatter'
@@ -381,9 +382,12 @@ export function composeBrand(input: {
   p.bgC = `bgA tinted 14% toward the accent (a highlight ground)`
   p.ink = w.h1 ? `the h1's colour` : `the body's colour`
 
-  const fontDisplay =
+  // Both faces are written under the catalog's name for them: a page's
+  // computed style reports the site's own CSS name (fontName.ts).
+  const fontDisplay = catalogFamily(
     design?.fonts[0] ??
-    (w.h1 ? firstFamily(w.h1.fontFamily) : firstFamily(w.body.fontFamily))
+      (w.h1 ? firstFamily(w.h1.fontFamily) : firstFamily(w.body.fontFamily)),
+  )
   p.fontDisplay = design?.fonts[0]
     ? `named in design.md`
     : w.h1
@@ -392,7 +396,7 @@ export function composeBrand(input: {
   // design.md's second face is usually the code face ("Geist Mono only for
   // code"); a mono family is never the body, so the page's own wins then.
   const designBody = design?.fonts.slice(1).find((f) => !/\bmono\b/i.test(f))
-  const fontBody = designBody ?? firstFamily(w.body.fontFamily)
+  const fontBody = catalogFamily(designBody ?? firstFamily(w.body.fontFamily))
   p.fontBody = designBody ? `named in design.md` : `the body's computed face`
 
   // The mark to PLACE: a design.md asset named mark, logo or wordmark that

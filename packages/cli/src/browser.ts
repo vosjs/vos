@@ -16,21 +16,27 @@ export class BrowserUnavailableError extends Error {
 /**
  * Launch headless Chromium: explicit VOS_BROWSER_PATH → system Chrome
  * (no download needed) → Playwright's bundled Chromium.
+ *
+ * `args` are extra Chromium switches (`--browser-arg` on the verbs that
+ * record). Some product surfaces cannot be reached without one: a recorder
+ * needs a fake capture device to get past a permission prompt, an extension
+ * page needs the extension loaded. Passed through verbatim.
  */
-export async function launchBrowser(): Promise<Browser> {
+export async function launchBrowser(args: string[] = []): Promise<Browser> {
+  const opts = args.length ? { args } : {}
   const explicit = process.env.VOS_BROWSER_PATH
   if (explicit) {
-    return chromium.launch({ executablePath: explicit }).catch((e) => {
+    return chromium.launch({ ...opts, executablePath: explicit }).catch((e) => {
       throw new BrowserUnavailableError(
         `VOS_BROWSER_PATH failed: ${(e as Error).message}`,
       )
     })
   }
   try {
-    return await chromium.launch({ channel: 'chrome' })
+    return await chromium.launch({ ...opts, channel: 'chrome' })
   } catch {
     try {
-      return await chromium.launch()
+      return await chromium.launch(opts)
     } catch (e) {
       throw new BrowserUnavailableError(
         (e as Error).message.split('\n')[0] ?? 'unknown',
