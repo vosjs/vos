@@ -1019,6 +1019,23 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
   }
   const TRANSITIONS = ['none', 'fade', 'rise']
   const PRESETS = ['title', 'caption', 'label']
+  // Where the FOOTAGE ends in output seconds, freezes included (a freeze is a
+  // rated piece). A recording's output runs to the end of its last visual
+  // clip, on purpose, so words can play after the footage; the same rule means
+  // a layer left behind by a trim silently LENGTHENS the render, and the clip
+  // ends on bare backdrop with a note floating on nothing. Never a problem
+  // (that would refuse every legacy end card); always said.
+  let footageEnd: number | null = null
+  if (recording && Array.isArray(doc.segments)) {
+    try {
+      footageEnd = ratedSegments(doc as unknown as ProjectDoc).reduce(
+        (a, s) => a + (s.out - s.in) / (s.rate ?? 1),
+        0,
+      )
+    } catch {
+      footageEnd = null
+    }
+  }
   for (let i = 0; i < (overlays?.length ?? 0); i++) {
     const o = overlays![i]
     const name = `overlays[${i}]`
@@ -1040,6 +1057,21 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       problems.push(`${name}.start must be ≥ 0 (OUTPUT seconds)`)
     if (!isNum(o.duration) || o.duration <= 0) {
       problems.push(`${name}.duration must be > 0 (seconds)`)
+    }
+    if (
+      footageEnd !== null &&
+      footageEnd > 0 &&
+      isNum(o.start) &&
+      isNum(o.duration)
+    ) {
+      const over = o.start + o.duration - footageEnd
+      if (over > 0.05) {
+        warnings.push(
+          o.start >= footageEnd
+            ? `${name} starts at ${o.start.toFixed(2)}s, after the footage ends (${footageEnd.toFixed(2)}s): it plays on bare backdrop and lengthens the output by ${over.toFixed(2)}s. A trim moves the footage, never an OUTPUT-anchored layer: re-place it (vos callout with the same --id), or put a freeze under it`
+            : `${name} ends ${over.toFixed(2)}s after the footage (${footageEnd.toFixed(2)}s): the output extends over bare backdrop. Shorten it, or put a freeze under it`,
+        )
+      }
     }
     checkPin(o, name, docIn, recording, problems, warnings)
     if (o.kind === 'text') {
