@@ -63,6 +63,12 @@ export const CALLOUT_DELTA_E_WARNING = 16
  * The register from BRAND.md's roles (`bgA`, `accent`, `fontBody`) and the
  * flags that override them. Null when neither names a ground and an
  * accent.
+ *
+ * A kit may name a `callout` role, and it wins over `accent`: some brands
+ * RESERVE their accent. A recorder's red marks time and nothing else, so a
+ * note kicker in it breaks the brand's own rule, twice over when the
+ * product's playhead is in the same frame. The composer cannot know what a
+ * brand reserves; a role is how the kit says it.
  */
 export function registerFrom(
   roles: Record<string, string> | null,
@@ -75,7 +81,7 @@ export function registerFrom(
   },
 ): CalloutRegister | null {
   const ground = flags.ground ?? roles?.bgA
-  const accent = flags.accent ?? roles?.accent
+  const accent = flags.accent ?? roles?.callout ?? roles?.accent
   if (!ground || !accent) return null
   if (!hexToRgb(ground) || !hexToRgb(accent)) return null
   const face = flags.face ?? roles?.fontBody

@@ -106,6 +106,18 @@ describe('registerFrom', () => {
       { accent: '#7c3aed', body: 16 },
     )
     expect(over).toMatchObject({ accent: '#7c3aed', face: 'Inter', body: 16 })
+    // a kit that reserves its accent names the hue its notes speak in
+    const reserved = registerFrom(
+      { bgA: '#ffffff', accent: '#ff5148', callout: '#c48fa6' },
+      {},
+    )
+    expect(reserved?.accent).toBe('#c48fa6')
+    expect(
+      registerFrom(
+        { bgA: '#ffffff', accent: '#ff5148', callout: '#c48fa6' },
+        { accent: '#000000' },
+      )?.accent,
+    ).toBe('#000000')
     expect(registerFrom(null, {})).toBeNull()
     expect(registerFrom({ bgA: 'white', accent: '#000' }, {})).toBeNull()
   })
