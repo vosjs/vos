@@ -104,8 +104,7 @@ export function nearestFlag(name: string, candidates: string[]): string | null {
     if (c === name) continue
     // A candidate that contains the name (or the reverse) is as close as a
     // one-letter slip: `--zooms` for `--at-zooms`, `--body` for `--body-px`.
-    const d =
-      c.includes(name) || name.includes(c) ? 1 : editDistance(name, c)
+    const d = c.includes(name) || name.includes(c) ? 1 : editDistance(name, c)
     if (d < bestScore) {
       bestScore = d
       best = c

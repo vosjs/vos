@@ -197,8 +197,16 @@ describe('composeCallout', () => {
       seconds: 1,
     }
     const big = { ground: '#ffffff', accent: '#3b82f6', body: 21 }
-    const rest = composeCallout(doc, big, { ...ask, at: 0.2, bodyPxGiven: true })
-    const apex = composeCallout(doc, big, { ...ask, at: 2.6, bodyPxGiven: true })
+    const rest = composeCallout(doc, big, {
+      ...ask,
+      at: 0.2,
+      bodyPxGiven: true,
+    })
+    const apex = composeCallout(doc, big, {
+      ...ask,
+      at: 2.6,
+      bodyPxGiven: true,
+    })
     expect(rest.sizes).toMatchObject({ kickerPx: 15, titlePx: 28, bodyPx: 21 })
     expect(apex.sizes).toMatchObject({ kickerPx: 15, titlePx: 28, bodyPx: 21 })
     expect(px(rest.clip.css ?? '', 't')).toBe(28)

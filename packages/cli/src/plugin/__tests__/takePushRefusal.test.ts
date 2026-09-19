@@ -3,12 +3,8 @@ import { takePushRefusal } from '../sync'
 
 describe('what a take push refuses before it uploads anything', () => {
   it('lets an ordinary push through', () => {
-    expect(
-      takePushRefusal({ trackedVosId: null, programOnly: [] }),
-    ).toBeNull()
-    expect(
-      takePushRefusal({ trackedVosId: 'a', programOnly: [] }),
-    ).toBeNull()
+    expect(takePushRefusal({ trackedVosId: null, programOnly: [] })).toBeNull()
+    expect(takePushRefusal({ trackedVosId: 'a', programOnly: [] })).toBeNull()
   })
 
   // The defect: --vos on a re-recorded take was ignored and a second vos
@@ -26,7 +22,11 @@ describe('what a take push refuses before it uploads anything', () => {
   })
 
   it('refuses --vos that disagrees with vos.json', () => {
-    const why = takePushRefusal({ vos: 'b', trackedVosId: 'a', programOnly: [] })
+    const why = takePushRefusal({
+      vos: 'b',
+      trackedVosId: 'a',
+      programOnly: [],
+    })
     expect(why).toContain('tracks vos a')
     expect(why).toContain('not b')
   })

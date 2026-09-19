@@ -18,7 +18,11 @@ describe('the catalog name for a face', () => {
   // The trap: a kit witnessed from a live site carries the site's CSS name,
   // and a callout written with it fell back to a system stack on the fleet.
   it('reaches the composed callout, from the kit and from --font', () => {
-    const kit = { bgA: '#ffffff', accent: '#3b82f6', fontBody: 'Inter Variable' }
+    const kit = {
+      bgA: '#ffffff',
+      accent: '#3b82f6',
+      fontBody: 'Inter Variable',
+    }
     expect(registerFrom(kit, {})?.face).toBe('Inter')
     expect(registerFrom(kit, { face: 'Lexend Variable' })?.face).toBe('Lexend')
   })

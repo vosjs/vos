@@ -396,9 +396,7 @@ export function composeBrand(input: {
   // design.md's second face is usually the code face ("Geist Mono only for
   // code"); a mono family is never the body, so the page's own wins then.
   const designBody = design?.fonts.slice(1).find((f) => !/\bmono\b/i.test(f))
-  const fontBody = catalogFamily(
-    designBody ?? firstFamily(w.body.fontFamily),
-  )
+  const fontBody = catalogFamily(designBody ?? firstFamily(w.body.fontFamily))
   p.fontBody = designBody ? `named in design.md` : `the body's computed face`
 
   // The mark to PLACE: a design.md asset named mark, logo or wordmark that

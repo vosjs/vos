@@ -1947,7 +1947,7 @@ function framingWarnings(
       if (pinned) {
         if (pinned.clamped > 4) {
           warnings.push(
-            `overlays[${i}] is pinned ${pinned.side} of its referent but the frame has no room there — it sits ${Math.round(pinned.clamped)} design px off; a smaller box, another side, or a lower zoom level keeps it beside what it names`,
+            `overlays[${i}] is pinned ${pinned.side} of its referent but the frame has no room there — it sits ${Math.round(pinned.clamped)} design px off; a smaller box, another side, or a lower zoom level keeps it beside what it names. A pin resolves THROUGH the camera, so author the zoom first: a callout composed before it is measured against a frame the viewer never sees`,
           )
         }
         return
