@@ -1,5 +1,24 @@
 # @vosjs/cli
 
+## 0.40.0
+
+### Minor Changes
+
+- f53544a: `vos check` catches two programs that used to pass clean and then disappoint at render.
+
+  `repeat: -1` on a tween is now a dialect error. GSAP answers an infinite repeat by giving the timeline its infinity sentinel, so the program's duration reads 10000000000 seconds instead of its real length and anything placed after that tween is unreachable. The compiled timeline already loops on its own, so the infinite repeat was never buying the loop it looked like it was buying. A finite `repeat` is untouched.
+
+  A postprocessing chain that never applies `{ type: 'output' }` is now a warning, and so is one where that pass is not last. The output pass is what applies tone mapping and converts to the renderer's output color space; every pass before it works in linear space on a render target. A chain that simply stops after its last effect hands the screen an image the renderer never got to finish, so the same scene looks different with the chain than without it. The schema cannot see this — `postprocessing` is a list, and every ordering of a list is a valid list. Both composer chains are checked, and the message names which one it means.
+
+- f53544a: A program push lands where `vos.json` says. A directory that tracks a vos now ITERATES it, so the loop the contract describes — fetch, edit, `vos check`, push, pull — finally needs no flags, and `--remix-of` is the one door that makes something separate. Before this, a bare `vos push config.json` read the tracked id as LINEAGE rather than as a target: the second push in a directory created a fresh vos remixed from the first, the third remixed the second, and a shelf filled up with "… remix remix" siblings while the vos anyone was actually editing never changed. `--vos <id>` still names a target outright, for a directory that tracks nothing or tracks something else. Create-only flags (`--title`, `--slug`) against a tracked directory are refused in words naming both doors, rather than being dropped on the floor — the ambiguity is real, and guessing at it is what caused the original defect. The decision is pure and tested (`programPushTarget`).
+
+### Patch Changes
+
+- Updated dependencies [f53544a]
+- Updated dependencies [f53544a]
+  - @vosjs/core@0.25.0
+  - @vosjs/studio-core@0.27.0
+
 ## 0.39.0
 
 ### Minor Changes
