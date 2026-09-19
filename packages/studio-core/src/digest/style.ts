@@ -39,6 +39,18 @@ export const STYLE_FIELDS = [
 
 export type StyleField = (typeof STYLE_FIELDS)[number]
 
+/**
+ * The `export` keys a style CARRIES. `resolution` is deliberately absent:
+ * it names how big the output is, which is a fact of the FOOTAGE, not a
+ * taste the seed gets to hold. Copying it whole meant a 1280x720 seed
+ * stamped 720p onto a 2560x1440 take, so a series looked consistent by
+ * throwing away half of every later take's pixels.
+ */
+export const STYLE_EXPORT_KEYS = [
+  'fps',
+  'format',
+] as const satisfies readonly (keyof ProjectDoc['export'])[]
+
 /** The style fields present on a doc, deep-cloned. */
 export function pickStyle(
   doc: ProjectDoc,
@@ -74,8 +86,22 @@ export function copyStyle(
   const next = structuredClone(to) as unknown as Record<string, unknown>
   const style = pickStyle(from) as Record<string, unknown>
   for (const k of STYLE_FIELDS) {
+    if (k === 'export') continue // merged per key below
     if (k in style) next[k] = style[k]
     else delete next[k]
+  }
+  // `export` is the one style field that is PART taste and PART fact, so it
+  // merges per key instead of replacing: the seed's frame rate and format
+  // land, the target keeps the resolution its own footage earned. A seed
+  // without an export block leaves the target's alone — the field is
+  // required, and dropping it would hand back a doc that cannot render.
+  const fromExport = style.export as ProjectDoc['export'] | undefined
+  if (fromExport) {
+    const merged = { ...((next.export ?? {}) as ProjectDoc['export']) }
+    for (const k of STYLE_EXPORT_KEYS) {
+      if (fromExport[k] !== undefined) merged[k] = fromExport[k] as never
+    }
+    next.export = merged
   }
   const styled = next as unknown as ProjectDoc
   return opts.layout

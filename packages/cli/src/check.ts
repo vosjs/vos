@@ -10,7 +10,12 @@ import {
   migrateConfig,
   vosConfigJsonSchema,
 } from '@vosjs/core'
-import { lintVosConfig, lintVosDialect, lintVosFonts } from '@vosjs/core/lint'
+import {
+  lintVosConfig,
+  lintVosDialect,
+  lintVosFonts,
+  lintVosPostprocessing,
+} from '@vosjs/core/lint'
 
 export interface CheckIssue {
   level: 'error' | 'warn'
@@ -22,6 +27,7 @@ export interface CheckIssue {
     | 'dialect'
     | 'shape'
     | 'fonts'
+    | 'postprocessing'
   message: string
 }
 
@@ -182,6 +188,13 @@ export function runCheck(parsed: unknown): CheckResult {
     issues.push({
       level: 'warn',
       source: 'fonts',
+      message: `[${i.rule}] ${i.message}`,
+    })
+  }
+  for (const i of lintVosPostprocessing(migrated as never)) {
+    issues.push({
+      level: 'warn',
+      source: 'postprocessing',
       message: `[${i.rule}] ${i.message}`,
     })
   }

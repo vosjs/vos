@@ -18,3 +18,9 @@ export {
   type FontRule,
   type FontSeverity,
 } from './fonts'
+export {
+  lintVosPostprocessing,
+  type PostprocessingIssue,
+  type PostprocessingRule,
+  type PostprocessingSeverity,
+} from './postprocessing'

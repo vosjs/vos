@@ -253,4 +253,29 @@ describe('copyStyle', () => {
     ).toBe(true)
     expect(next.frame).not.toBe(from.frame) // cloned
   })
+
+  it('carries the export TASTE but leaves the target its own resolution', () => {
+    const from = doc()
+    from.export = { resolution: '720p', fps: 60, format: 'mp4' }
+    const to = doc()
+    to.export = { resolution: '2k', fps: 30, format: 'mp4' }
+    const next = copyStyle(from, to)
+    // A resolution is a fact of the footage: a 720p seed must not shrink a
+    // 1440p take to match it.
+    expect(next.export.resolution).toBe('2k')
+    expect(next.export.fps).toBe(60)
+    expect(next.export.format).toBe('mp4')
+  })
+
+  it('a seed with no export block leaves the target able to render', () => {
+    const from = doc()
+    delete (from as Partial<ProjectDoc>).export
+    const to = doc()
+    to.export = { resolution: '4k', fps: 30, format: 'mp4' }
+    expect(copyStyle(from, to).export).toEqual({
+      resolution: '4k',
+      fps: 30,
+      format: 'mp4',
+    })
+  })
 })

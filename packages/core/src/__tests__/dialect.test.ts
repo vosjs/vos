@@ -37,6 +37,21 @@ describe('lintVosDialect', () => {
     expect(scroll.map((i) => i.rule)).toContain('plugin')
   })
 
+  it('flags an infinite repeat, which costs the timeline its length', () => {
+    const issues = lintVosDialect(
+      ct('(ctx) => { tl.to(p, { y: 1, duration: 1, repeat: -1 }) }'),
+    )
+    expect(issues.map((i) => i.rule)).toContain('repeat-infinite')
+    expect(hasDialectErrors(issues)).toBe(true)
+  })
+
+  it('leaves a finite repeat alone', () => {
+    const issues = lintVosDialect(
+      ct('(ctx) => { tl.to(p, { y: 1, duration: 1, repeat: 3, yoyo: true }) }'),
+    )
+    expect(issues.map((i) => i.rule)).not.toContain('repeat-infinite')
+  })
+
   it('flags modifiers', () => {
     const issues = lintVosDialect(
       ct('(ctx) => { tl.to(p, { y: 1, modifiers: { y: (v) => v } }) }'),

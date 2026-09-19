@@ -23,6 +23,7 @@ export type DialectRule =
   | 'dom-target'
   | 'playback-control'
   | 'repeat-refresh'
+  | 'repeat-infinite'
   | 'immediate-render'
   | 'snap'
   | 'unknown-ease'
@@ -126,6 +127,13 @@ const RULES: RuleDef[] = [
     pattern: /\brepeatRefresh\s*:/g,
     message:
       'repeatRefresh re-evaluates values per iteration (iteration-dependent under scrub) — outside the dialect.',
+  },
+  {
+    rule: 'repeat-infinite',
+    severity: 'error',
+    pattern: /\brepeat\s*:\s*-\s*1\b/g,
+    message:
+      'repeat: -1 makes the timeline 10000000000s long (GSAP\u2019s infinity sentinel), so the program loses its real length and anything placed after it is unreachable. The compiled timeline already loops on its own — give the tween a finite repeat, or none.',
   },
   {
     rule: 'snap',
