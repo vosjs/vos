@@ -35,6 +35,7 @@ import {
   writeCredential,
   writeSyncState,
 } from './platform'
+import { programPushTarget } from './sync'
 import { listFolders, resolveFolder } from './folder'
 import { pullMedia } from './media'
 import { lintDoc } from './validateDoc'
@@ -393,7 +394,7 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
   const config = pre.config
   const state = readSyncState(dir)
   const vosFlag = strFlag(flags, 'vos')
-  const vosId = vosFlag ? parseVosId(vosFlag) : null
+  const explicitVosId = vosFlag ? parseVosId(vosFlag) : null
   // A program document beside the config: the shared layers, the tween
   // overlay, the anchor's own length. Lint-gated like a take's doc.
   const programDoc = await readProgramDoc(dir, config)
@@ -410,7 +411,7 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
   // agent cannot iterate an unclaimed vos; after the human claims it, the
   // loop rides THEIR key). One-shot by design.
   if (flags.claimable === true) {
-    if (vosId) {
+    if (explicitVosId) {
       throw new UsageError(
         '--claimable creates a NEW claimable vos and cannot iterate (--vos). After the human claims it, iterate with their key: vos push --vos <id>',
       )
@@ -452,6 +453,17 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
   const desc = strFlag(flags, 'desc')
   const tagsFlag = strFlag(flags, 'tags')
   const folderRef = strFlag(flags, 'folder')
+  const remixOfFlag = strFlag(flags, 'remix-of')
+
+  const pushTarget = programPushTarget({
+    vos: explicitVosId,
+    remixOf: remixOfFlag,
+    trackedVosId: state?.vosId ?? null,
+    createOnly: (['title', 'slug'] as const).filter((f) => strFlag(flags, f)),
+  })
+  if (pushTarget.kind === 'refuse') throw new UsageError(pushTarget.why)
+  const vosId = pushTarget.kind === 'version' ? pushTarget.vosId : null
+
   if (vosId && (desc || tagsFlag || folderRef)) {
     throw new UsageError(
       '--desc/--tags/--folder apply when CREATING a vos. On an existing one: vos folder move <id> --to <folder> for filing; edit title/description/tags on vos.so',
@@ -539,9 +551,11 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
     return EXIT_OK
   }
 
-  // Create a new PRIVATE vos. Lineage comes from vos.json (written by
-  // `vos fetch` beside the config) or --remix-of; the platform validates it.
-  const remixOfId = strFlag(flags, 'remix-of') ?? state?.vosId
+  // Create a new PRIVATE vos. Reached only when this directory tracks
+  // nothing, or when --remix-of says so outright — a tracked directory
+  // iterates above. Lineage is that flag; the platform validates it.
+  const remixOfId =
+    pushTarget.kind === 'create' ? pushTarget.remixOfId : undefined
   const fallbackTitle = state?.title
     ? `${state.title} remix`
     : basename(source).replace(/\.json$/i, '') || 'vos remix'

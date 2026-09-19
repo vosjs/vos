@@ -140,6 +140,60 @@ export function takePushRefusal(ask: {
   return null
 }
 
+/** Where a program push lands, or why it must not start. */
+export type ProgramPushTarget =
+  | { kind: 'version'; vosId: string; tracked: boolean }
+  | { kind: 'create'; remixOfId?: string }
+  | { kind: 'refuse'; why: string }
+
+/**
+ * Where `vos push <config.json>` lands.
+ *
+ * A directory that TRACKS a vos ITERATES it. That is the contract's loop —
+ * fetch, edit, check, push, pull, with no flags — and `vos.json` is what
+ * makes the flags unnecessary. Making something NEW from the same config is
+ * the explicit `--remix-of` door, which is also the one the README names for
+ * remixing someone else's work.
+ *
+ * Reading the tracked id as LINEAGE instead is what made a bare re-push
+ * create a fresh vos remixed from the last one: pushing twice in a directory
+ * left a chain of "... remix remix" siblings on the shelf and edited none of
+ * them.
+ */
+export function programPushTarget(ask: {
+  /** `--vos`, when given (already parsed to an id). */
+  vos?: string | null
+  /** `--remix-of`, when given. */
+  remixOf?: string | null
+  /** The vos this directory tracks (vos.json), or null. */
+  trackedVosId: string | null
+  /** Create-only flags given, by name (`title`, `slug`, ...). */
+  createOnly?: string[]
+}): ProgramPushTarget {
+  if (ask.vos) return { kind: 'version', vosId: ask.vos, tracked: false }
+  // An explicit remix always creates, even in a tracked directory: saying
+  // --remix-of IS the ask for a new vos.
+  if (ask.remixOf) return { kind: 'create', remixOfId: ask.remixOf }
+  const tracked = ask.trackedVosId
+  if (!tracked) return { kind: 'create' }
+  // Create-only flags against a tracked directory are ambiguous: they read
+  // as "make a new one" while the directory says "iterate this one". Name
+  // both doors rather than silently dropping the flag or the edit.
+  const extra = ask.createOnly ?? []
+  if (extra.length) {
+    const list = extra.map((f) => `--${f}`).join(', ')
+    return {
+      kind: 'refuse',
+      why:
+        `this directory tracks vos ${tracked} (vos.json), so a bare push adds a VERSION to it, ` +
+        `and ${list} ${extra.length > 1 ? 'apply' : 'applies'} only when creating. ` +
+        `To make a separate vos from this config: vos push <config.json> --remix-of ${tracked} ${list}. ` +
+        `To change the tracked vos's title or slug, edit it on vos.so`,
+    }
+  }
+  return { kind: 'version', vosId: tracked, tracked: true }
+}
+
 export async function pushTake(
   dir: string,
   flags: {
