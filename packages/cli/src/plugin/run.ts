@@ -113,7 +113,7 @@ const BOOLEAN_FLAGS = new Set([
 /** Repeatable value flags (accumulate): --set path=value on render/frames, --override id on push. */
 const MULTI_FLAGS = new Set(['set', 'override'])
 
-const HELP = `vos — record a browser flow, plan effects, render a product video; sync with vos.so
+export const HELP = `vos — record a browser flow, plan effects, render a product video; sync with vos.so
 
 Take pipeline
   vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--max-duration <s>] [--background <slug|url|none>] [render flags] [--json]
