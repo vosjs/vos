@@ -63,6 +63,7 @@ import {
   ensureTakeDir,
   loadTake,
   prepareReRecord,
+  takePaths,
   writeJson,
 } from './take'
 import type { TakePaths } from './take'
@@ -117,6 +118,7 @@ const BOOLEAN_FLAGS = new Set([
   'motion',
   'leader',
   'keep-frames',
+  'dry-run',
 ])
 /** Repeatable value flags (accumulate): --set path=value on render/frames, --override id on push, --browser-arg=<switch> on record/create. */
 export const MULTI_FLAGS = new Set(['set', 'override', 'browser-arg'])
@@ -125,7 +127,7 @@ export const HELP = `vos — record a browser flow, plan effects, render a produ
 
 Take pipeline
   vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--keep-frames] [--max-duration <s>] [--storage-state <file>] [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
-  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--keep-frames] [--max-duration <s>] [--storage-state <file>] [--browser-arg=<switch>]... [--background <slug|url|none>] [--json]
+  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--keep-frames] [--max-duration <s>] [--storage-state <file>] [--browser-arg=<switch>]... [--background <slug|url|none>] [--json]
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--at-still] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
@@ -512,6 +514,56 @@ async function cmdRecord(argv: string[]): Promise<number> {
   const maxDurationSeconds = await maxDuration(flags, r)
   const storageState = takeStorageState(flags)
   const browserArgs = takeBrowserArgs(multi)
+
+  // A REHEARSAL: run the script against the real page and say which
+  // selectors resolve, before a real-time take and its encode are spent
+  // finding out. Branches HERE, before the take directory is touched: a
+  // re-record moves doc.json aside, and a rehearsal must leave the take
+  // exactly as it found it.
+  if (flags['dry-run'] === true) {
+    // The same command line with --dry-run added must rehearse cleanly, so
+    // the take's own flags are read here: a rehearsal is ALWAYS strict (any
+    // miss exits 2) and has no frames to keep, and neither is "ignored".
+    void flags.strict
+    void flags['keep-frames']
+    const browser = await launchBrowser(browserArgs)
+    try {
+      r.log('rehearsing (nothing is captured or written)…')
+      r.event({ event: 'phase', phase: 'rehearse' })
+      const started = Date.now()
+      const rec = await recordTake(
+        browser,
+        url,
+        actions,
+        takePaths(outDir),
+        r.log,
+        { storageState, dryRun: true },
+      )
+      const steps = rec.meta.steps ?? []
+      const lines = steps.map((s) => {
+        const rect = s.rect
+          ? `  rect ${s.rect.x},${s.rect.y} ${s.rect.w}×${s.rect.h}`
+          : ''
+        const what = s.selector ? ` ${s.selector}` : ''
+        return `  ${s.skipped ? '✗' : '✓'} #${s.step}${s.id ? ` (${s.id})` : ''} ${s.do}${what}${s.skipped ? '  NOT FOUND' : rect}${s.navigated ? '  → navigated' : ''}`
+      })
+      const failed = rec.skipped.length > 0 || rec.navTimeout
+      r.done(
+        {
+          dryRun: true,
+          ok: !failed,
+          seconds: +((Date.now() - started) / 1000).toFixed(1),
+          steps,
+          skipped: rec.skipped,
+          navTimeout: rec.navTimeout,
+        },
+        `${failed ? 'REHEARSAL FAILED' : 'Rehearsal passed'}: ${steps.length - rec.skipped.length}/${steps.length} steps resolved in ${((Date.now() - started) / 1000).toFixed(1)}s${rec.navTimeout ? ' (the first load never reached networkidle)' : ''}\n${lines.join('\n')}\n  ${failed ? 'Fix the script, rehearse again, then record.' : `Rects are capture px (the step rects a pin or a callout reads). Next: vos record --actions ${actionsPath} --out ${outDir} --strict`}`,
+      )
+      return failed ? EXIT_USAGE : EXIT_OK
+    } finally {
+      await browser.close()
+    }
+  }
 
   if (existsSync(join(outDir, 'meta.json'))) {
     // A re-record replaces the FOOTAGE, never the cut. The previous
