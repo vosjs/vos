@@ -59,11 +59,13 @@ import {
 import { startTakeServer } from './server'
 import {
   PREV_DOC_NAME,
+  dropScreencastFrames,
   ensureTakeDir,
   loadTake,
   prepareReRecord,
   writeJson,
 } from './take'
+import type { TakePaths } from './take'
 import { BrowserUnavailableError, launchBrowser } from '../browser'
 import { recordTake } from './recorder'
 import {
@@ -114,6 +116,7 @@ const BOOLEAN_FLAGS = new Set([
   'check',
   'motion',
   'leader',
+  'keep-frames',
 ])
 /** Repeatable value flags (accumulate): --set path=value on render/frames, --override id on push, --browser-arg=<switch> on record/create. */
 export const MULTI_FLAGS = new Set(['set', 'override', 'browser-arg'])
@@ -121,8 +124,8 @@ export const MULTI_FLAGS = new Set(['set', 'override', 'browser-arg'])
 export const HELP = `vos — record a browser flow, plan effects, render a product video; sync with vos.so
 
 Take pipeline
-  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--max-duration <s>] [--storage-state <file>] [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
-  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--max-duration <s>] [--storage-state <file>] [--browser-arg=<switch>]... [--background <slug|url|none>] [--json]
+  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--keep-frames] [--max-duration <s>] [--storage-state <file>] [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
+  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--keep-frames] [--max-duration <s>] [--storage-state <file>] [--browser-arg=<switch>]... [--background <slug|url|none>] [--json]
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--at-still] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
@@ -473,6 +476,21 @@ async function takeBackdrop(
   return backdrop
 }
 
+/** After a verified encode: the screencast JPEGs go, unless `--keep-frames`. */
+async function releaseFrames(
+  paths: TakePaths,
+  flags: ParsedArgs['flags'],
+  log: (line: string) => void,
+): Promise<void> {
+  if (flags['keep-frames'] === true) return
+  const freed = await dropScreencastFrames(paths)
+  // Said only when it is worth a line: a few kB of frames is not news.
+  if (freed >= 1e6)
+    log(
+      `released ${Math.round(freed / 1e6)} MB of screencast frames (the recording holds them now; --keep-frames keeps them)`,
+    )
+}
+
 async function cmdRecord(argv: string[]): Promise<number> {
   const { positionals, flags, multi } = parseArgs(
     argv,
@@ -525,6 +543,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
     const enc = await encodeRecording(browser, outDir, (p) =>
       r.event({ event: 'progress', phase: 'encode', fraction: p }),
     )
+    await releaseFrames(paths, flags, r.log)
     r.event({ event: 'phase', phase: 'plan' })
     const plan = await planTake(outDir, { backdrop })
     const clicks = rec.events.filter((e) => e.type === 'down').length
@@ -630,6 +649,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
     await encodeRecording(browser, outDir, (p) =>
       r.event({ event: 'progress', phase: 'encode', fraction: p }),
     )
+    await releaseFrames(paths, flags, r.log)
     r.event({ event: 'phase', phase: 'plan' })
     await planTake(outDir, { backdrop })
 
