@@ -87,9 +87,21 @@ export interface RecordOpts {
    * `context.storageState({ path })`.
    */
   storageState?: string
+  /**
+   * REHEARSE the flow: every step runs against the real page, in order,
+   * because a later selector usually exists only after an earlier click. But
+   * nothing is captured (no screencast, no frames), nothing is written, the
+   * pointer lands instead of travelling and every pause is cut to a beat, so
+   * a script that misses a selector says so in seconds instead of after a
+   * full real-time take and its encode. Selector lookups keep their whole
+   * timeout, so a miss here is a miss in the take.
+   */
+  dryRun?: boolean
 }
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
+/** The longest any pause lasts in a rehearsal. */
+const DRY_PAUSE_MS = 120
 
 /** Minimal JPEG SOF parse for real encoded dimensions. */
 function jpegDims(buf: Buffer): { w: number; h: number } | null {
@@ -120,7 +132,12 @@ export async function recordTake(
   log: (msg: string) => void,
   opts: RecordOpts = {},
 ): Promise<RecordResult> {
-  const maxSeconds = opts.maxDurationSeconds ?? Infinity
+  const dry = opts.dryRun === true
+  const sleep = dry
+    ? (ms: number) => realSleep(Math.min(ms, DRY_PAUSE_MS))
+    : realSleep
+  // A rehearsal is not held to the recording cap: its clock is not the take's.
+  const maxSeconds = dry ? Infinity : (opts.maxDurationSeconds ?? Infinity)
   const vw = actions.viewport?.width ?? 1280
   const vh = actions.viewport?.height ?? 720
   const context = await browser.newContext({
@@ -147,26 +164,28 @@ export async function recordTake(
   const frames: FrameRec[] = []
   let frameIdx = 0
   let t0 = 0
-  cdp.on('Page.screencastFrame', (ev) => {
-    const tsMs = ev.metadata.timestamp
-      ? ev.metadata.timestamp * 1000
-      : Date.now()
-    const file = `frame-${String(frameIdx++).padStart(5, '0')}.jpg`
-    writeFileSync(join(paths.framesDir, file), Buffer.from(ev.data, 'base64'))
-    frames.push({ file, tMs: Math.max(0, Math.round(tsMs - t0)) })
-    cdp
-      .send('Page.screencastFrameAck', { sessionId: ev.sessionId })
-      .catch(() => {})
-  })
+  if (!dry)
+    cdp.on('Page.screencastFrame', (ev) => {
+      const tsMs = ev.metadata.timestamp
+        ? ev.metadata.timestamp * 1000
+        : Date.now()
+      const file = `frame-${String(frameIdx++).padStart(5, '0')}.jpg`
+      writeFileSync(join(paths.framesDir, file), Buffer.from(ev.data, 'base64'))
+      frames.push({ file, tMs: Math.max(0, Math.round(tsMs - t0)) })
+      cdp
+        .send('Page.screencastFrameAck', { sessionId: ev.sessionId })
+        .catch(() => {})
+    })
 
   t0 = Date.now()
-  await cdp.send('Page.startScreencast', {
-    format: 'jpeg',
-    quality: 90,
-    maxWidth: vw,
-    maxHeight: vh,
-    everyNthFrame: 1,
-  })
+  if (!dry)
+    await cdp.send('Page.startScreencast', {
+      format: 'jpeg',
+      quality: 90,
+      maxWidth: vw,
+      maxHeight: vh,
+      everyNthFrame: 1,
+    })
 
   const events: CursorEvent[] = []
   const cur = { x: 48, y: 48 }
@@ -186,7 +205,7 @@ export async function recordTake(
     const dist = Math.hypot(tx - cur.x, ty - cur.y)
     const from = { ...cur }
     await clockMotion(
-      pointerTravelMs(dist),
+      dry ? 0 : pointerTravelMs(dist),
       async (u) => {
         cur.x = from.x + (tx - from.x) * u
         cur.y = from.y + (ty - from.y) * u
@@ -513,12 +532,16 @@ export async function recordTake(
     )
   }
 
-  await writeJson(paths.cursor, events)
-  await writeJson(paths.meta, meta, true)
-  await writeJson(paths.framesIndex, frames)
-  await writeJson(paths.actions, { ...actions, url }, true)
   const pace = paceReport(paces)
-  log(`   ${paceLine(pace)}`)
+  // A rehearsal writes nothing: the take beside it keeps its footage, its
+  // cut and its script exactly as they were.
+  if (!dry) {
+    await writeJson(paths.cursor, events)
+    await writeJson(paths.meta, meta, true)
+    await writeJson(paths.framesIndex, frames)
+    await writeJson(paths.actions, { ...actions, url }, true)
+    log(`   ${paceLine(pace)}`)
+  }
   return {
     events,
     frames,
