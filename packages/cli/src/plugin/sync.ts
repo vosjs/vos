@@ -110,6 +110,36 @@ function printChanges(
   }
 }
 
+/**
+ * Why a take push must not start, or null. Asked BEFORE any upload: a push
+ * is not something to report on afterwards.
+ *
+ * `--vos <id>` on a directory with no `vos.json` is ADOPTION, not a refusal
+ * (see `pushTake`): the only other way to tie a directory to a vos is
+ * `vos pull`, which writes the hosted doc over the local one, and the take
+ * that needs `--vos` is exactly the one re-recorded from scratch.
+ */
+export function takePushRefusal(ask: {
+  /** `--vos`, when given. */
+  vos?: string
+  /** The vos this directory tracks (vos.json), or null. */
+  trackedVosId: string | null
+  /** Flags given that only a PROGRAM push reads. */
+  programOnly: string[]
+}): string | null {
+  if (ask.programOnly.length) {
+    const list = ask.programOnly.map((f) => `--${f}`).join(', ')
+    return `${list} ${ask.programOnly.length > 1 ? 'belong' : 'belongs'} to a PROGRAM push (a config.json); a take push reads --vos, --title, --label, --note, --folder, --override and --yes`
+  }
+  if (
+    ask.vos !== undefined &&
+    ask.trackedVosId !== null &&
+    ask.trackedVosId !== ask.vos
+  )
+    return `this take tracks vos ${ask.trackedVosId} (its vos.json), not ${ask.vos}. Drop --vos to push there, or remove vos.json to adopt ${ask.vos} instead`
+  return null
+}
+
 export async function pushTake(
   dir: string,
   flags: {
@@ -117,6 +147,8 @@ export async function pushTake(
     api?: string
     origin?: string
     yes?: boolean
+    /** `--vos`: on an untracked take, the vos to ADOPT. */
+    vos?: string
     title?: string
     label?: string
     note?: string
@@ -140,7 +172,32 @@ export async function pushTake(
   }
 
   const ctx = apiContext(flags)
-  const state = readSyncState(dir)
+  const tracked = readSyncState(dir)
+  // The first push of this DIRECTORY uploads its recording either way, so
+  // consent is asked of the directory, not of the vos it lands on.
+  const firstPush = tracked === null
+
+  // ADOPTION: `--vos <id>` on a directory with no vos.json. It used to be
+  // ignored, and a second vos appeared on the shelf every time a take was
+  // re-recorded from scratch. Now the take becomes the NEXT VERSION of that
+  // vos: its head is read here and named as the base, which is the person
+  // saying "I know what is there". The platform's own guards still hold: a
+  // key push touching studio-modified nodes 409s unless --override names them.
+  let state = tracked
+  if (!state && flags.vos) {
+    const meta = await api(ctx, `/vos/${flags.vos}`)
+    const head = (meta.json.vos as { currentVersionId?: string } | undefined)
+      ?.currentVersionId
+    if (meta.status !== 200 || !head) {
+      throw new Error(
+        `--vos ${flags.vos}: cannot adopt it (${meta.status}${meta.json.error ? `: ${String(meta.json.error)}` : ''}) — it must be a vos this credential can read, with a version to build on`,
+      )
+    }
+    r.log(
+      `adopting vos ${flags.vos}: this take becomes the next version after its head (${head})`,
+    )
+    state = { vosId: flags.vos, versionId: head }
+  }
 
   // --folder files the CREATED vos into a project (keys add
   // organization). Refused in words on an already-pushed take, and resolved
@@ -160,7 +217,7 @@ export async function pushTake(
   }
 
   // Never upload unprompted: explicit consent on the first push.
-  if (!state && !flags.yes) {
+  if (firstPush && !flags.yes) {
     if (!process.stdin.isTTY) {
       throw new Error(
         'first push of this take uploads its recording — pass --yes to consent headlessly',

@@ -50,7 +50,12 @@ import {
 import { formatFinding } from './kitPicture'
 import { validateKit } from './validateKit'
 import { digestTake, parseTranscript } from './digestTake'
-import { apiJson, platformOrigin, resolveCredential } from './platform'
+import {
+  apiJson,
+  platformOrigin,
+  readSyncState,
+  resolveCredential,
+} from './platform'
 import { startTakeServer } from './server'
 import {
   PREV_DOC_NAME,
@@ -70,7 +75,7 @@ import { encodeRecording } from './encode'
 import { planTake } from './plan'
 import { openingBackdrop } from './backdrops'
 import { renderTake } from './renderTake'
-import { pullTake, pushTake } from './sync'
+import { pullTake, pushTake, takePushRefusal } from './sync'
 import {
   cmdDuplicate,
   cmdFetch,
@@ -145,7 +150,10 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
             a take DIRECTORY (doc.json) pushes recording + doc; a config.json
             pushes the program. No --vos: create a PRIVATE vos; with --vos:
             add a version against the tracked base — a stale push 409s WITH
-            the platform's typed changelog. --claimable (programs only, NO
+            the platform's typed changelog. A TAKE pushes to the vos in its
+            vos.json; --vos on a take with none ADOPTS that vos (the take
+            becomes its next version, built on its head), and --vos that
+            disagrees with vos.json is refused before anything uploads. --claimable (programs only, NO
             credential): creates a 72h claim link instead — hand it to the
             user and nowhere else; unclaimed work is deleted after 72h.
             --override consents to touching
@@ -1724,8 +1732,16 @@ async function cmdPush(argv: string[]): Promise<number> {
   const dir = positionals[0]
   if (!dir)
     throw new UsageError(
-      'vos push <take> [--title|--label|--note|--folder|--override|--yes|--key|--api]',
+      'vos push <take> [--vos|--title|--label|--note|--folder|--override|--yes|--key|--api]',
     )
+  const refusal = takePushRefusal({
+    vos: strFlag(flags, 'vos'),
+    trackedVosId: readSyncState(resolve(dir))?.vosId ?? null,
+    programOnly: ['slug', 'desc', 'tags', 'base', 'remix-of'].filter((name) =>
+      hasFlag(flags, name),
+    ),
+  })
+  if (refusal) throw new UsageError(refusal)
   const r = createReporter(flags.json === true)
   // Index access is typed present but is runtime-optional — pushTake guards.
   const overrides = multi.override
@@ -1736,6 +1752,7 @@ async function cmdPush(argv: string[]): Promise<number> {
       api: strFlag(flags, 'api'),
       origin: strFlag(flags, 'origin'),
       yes: flags.yes === true,
+      vos: strFlag(flags, 'vos'),
       title: strFlag(flags, 'title'),
       label: strFlag(flags, 'label'),
       note: strFlag(flags, 'note'),
