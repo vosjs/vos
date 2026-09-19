@@ -22,6 +22,7 @@ import {
   CALLOUT_DEFAULT_BODY_PX,
   CALLOUT_SHAPES,
   calloutClip,
+  calloutLook,
   calloutGroundOf,
   cameraModel,
   deltaE,
@@ -150,6 +151,23 @@ export interface CalloutAsk {
   mark?: PinMark
   leader?: boolean
   color?: string
+  /**
+   * `--body-px` was GIVEN: the register's body is then the size on the
+   * delivered frame and is not rescaled. Without it the grammar's default
+   * stands, a note that matches the app's body AS SEEN, which multiplies by
+   * the footage scale. A rich capture on a padded frame sits near 0.6, and
+   * at that scale both 14 and 21 land under the grammar's floors, so an
+   * explicit size used to print the same 11 / 20 / 15 as no size at all.
+   */
+  bodyPxGiven?: boolean
+}
+
+/** What the composer chose, so the verb can say it instead of hiding a floor. */
+export interface CalloutSizes {
+  scale: number
+  kickerPx: number
+  titlePx: number
+  bodyPx: number
 }
 
 /** The clip `vos callout` writes: grammar, register, window and pin composed. */
@@ -157,7 +175,7 @@ export function composeCallout(
   doc: ProjectDoc,
   register: CalloutRegister,
   ask: CalloutAsk,
-): { clip: HtmlOverlayClip; window: CalloutWindow } {
+): { clip: HtmlOverlayClip; window: CalloutWindow; sizes: CalloutSizes } {
   let window: CalloutWindow | null = null
   if (ask.step !== undefined) {
     window = windowForStep(doc, ask.step, ask.seconds)
@@ -192,16 +210,28 @@ export function composeCallout(
   let n = 2
   while (taken.has(id) && !ask.id)
     id = `${ask.shape}-${ask.step ?? Math.round(window.start * 10)}-${n++}`
+  const seen = appScaleAt(doc, window.start + 0.35)
+  const scale = ask.bodyPxGiven ? 1 : seen
+  const look = calloutLook(register, scale)
   const clip = calloutClip(ask.shape, register, ask.words, {
     id,
     start: window.start,
     duration: window.duration,
-    scale: appScaleAt(doc, window.start + 0.35),
+    scale,
     pin,
     // The fallback place, in the margin: the lower third.
     at: { x: 0.5, y: 0.82 },
   })
-  return { clip, window }
+  return {
+    clip,
+    window,
+    sizes: {
+      scale: +seen.toFixed(3),
+      kickerPx: look.kickerPx,
+      titlePx: look.titlePx,
+      bodyPx: look.bodyPx,
+    },
+  }
 }
 
 export function isCalloutShape(s: string): s is CalloutShape {

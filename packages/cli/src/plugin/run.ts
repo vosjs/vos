@@ -130,7 +130,7 @@ Take pipeline
   vos digest <take> [--out dir] [--full 960] [--crop 640] [--no-frames] [--transcript <file.json>] [--style <doc.json|vosId>] [--json]
   vos brand <url> [--out BRAND.md] [--json]
   vos open <take> [--studio <url>] [--print]
-  vos callout <take> <note|tag|code> --step <id> [--title "…"] [--body "…"] [--kicker "…"] [--code "…"|--code-file f] [--seconds 3] [--side auto|right|left|below|above] [--mark ring|underline|none] [--leader] [--color #hex] [--brand BRAND.md] [--ground #hex] [--accent #hex] [--font "…"] [--body-px 14] [--id x] [--print] [--json]
+  vos callout <take> <note|tag|code> --step <id> [--title "…"] [--body "…"] [--kicker "…"] [--code "…"|--code-file f] [--seconds 3] [--side auto|right|left|below|above] [--mark ring|underline|none] [--leader] [--color #hex (the mark and leader; the kicker is --accent)] [--brand BRAND.md] [--ground #hex] [--accent #hex] [--font "…"] [--body-px <n> (the body size on the delivered frame)] [--id x] [--print] [--json]
   vos validate <actions.json|take|kit.json> [--picture] [--json]
   vos judge <kit.json> --against <MANIFEST.json> [--out dir] [--json]
   vos actions from-agent-browser <steps.jsonl> [--out actions.json] [--url <url>] [--viewport WxH] [--json]
@@ -1470,7 +1470,7 @@ async function cmdCallout(argv: string[]): Promise<number> {
   const shape = positionals[1]
   if (!dir || !shape || !isCalloutShape(shape))
     throw new UsageError(
-      'vos callout <take> <note|tag|code> --step <id> [--title "…"] [--body "…"] [--kicker "…"] [--code "…"|--code-file f] [--seconds 3] [--side …] [--mark ring|underline|none] [--leader] [--color #hex] [--brand BRAND.md] [--ground #hex --accent #hex] [--font "…"] [--body-px 14] [--id x] [--print] [--json]',
+      'vos callout <take> <note|tag|code> --step <id> [--title "…"] [--body "…"] [--kicker "…"] [--code "…"|--code-file f] [--seconds 3] [--side …] [--mark ring|underline|none] [--leader] [--color #hex (the mark and leader; the kicker is --accent)] [--brand BRAND.md] [--ground #hex --accent #hex] [--font "…"] [--body-px <n> (the body size on the delivered frame)] [--id x] [--print] [--json]',
     )
   const r = createReporter(flags.json === true)
   const take = await loadTake(dir)
@@ -1529,14 +1529,15 @@ async function cmdCallout(argv: string[]): Promise<number> {
       mark: mark as never,
       leader: flags.leader === true,
       color: strFlag(flags, 'color'),
+      bodyPxGiven: bodyPx !== undefined,
     })
   } catch (e) {
     throw new UsageError(e instanceof Error ? e.message : String(e))
   }
-  const { clip, window } = composed
+  const { clip, window, sizes } = composed
   if (flags.print === true) {
     r.done(
-      { clip, window, register, brand: brand?.file ?? null },
+      { clip, window, sizes, register, brand: brand?.file ?? null },
       JSON.stringify(clip, null, 2),
     )
     return EXIT_OK
@@ -1557,11 +1558,12 @@ async function cmdCallout(argv: string[]): Promise<number> {
     {
       clip,
       window,
+      sizes,
       register,
       brand: brand?.file ?? null,
       warnings: lint.warnings,
     },
-    `${shape} "${clip.id}" at ${window.start.toFixed(2)}s for ${window.duration.toFixed(2)}s${clip.pin ? `, pinned to ${clip.pin.step !== undefined ? `step ${String(clip.pin.step)}` : `the press at ${String(clip.pin.press)}s`}` : ''}, ground ${register.ground} → card in the product's hue, written to ${take.paths.doc}${lint.warnings.length ? `\n  warnings:\n  ${lint.warnings.join('\n  ')}` : ''}`,
+    `${shape} "${clip.id}" at ${window.start.toFixed(2)}s for ${window.duration.toFixed(2)}s${clip.pin ? `, pinned to ${clip.pin.step !== undefined ? `step ${String(clip.pin.step)}` : `the press at ${String(clip.pin.press)}s`}` : ''}, ground ${register.ground} → card in the product's hue, type ${sizes.kickerPx} / ${sizes.titlePx} / ${sizes.bodyPx} px (kicker / title / body; ${bodyPx !== undefined ? `--body-px ${bodyPx} as delivered` : `the app's body as seen, footage scale ${sizes.scale}; --body-px <n> sets the delivered size`}), written to ${take.paths.doc}${lint.warnings.length ? `\n  warnings:\n  ${lint.warnings.join('\n  ')}` : ''}`,
   )
   return EXIT_OK
 }

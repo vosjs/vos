@@ -173,6 +173,30 @@ describe('composeCallout', () => {
     )
   })
 
+  // The reference cut sets its notes at 15 / 28 / 21. That is --body-px 21 at
+  // scale 1, and it was unreachable: the size was multiplied by the footage
+  // scale and then floored, so on a rich capture 14 and 21 printed the same.
+  it('an explicit --body-px is the delivered size, whatever the camera shows', () => {
+    const px = (css: string, cls: string) =>
+      Number(new RegExp(`\\.${cls}\\{[^}]*?font-size:(\\d+)px`).exec(css)![1])
+    const ask = {
+      shape: 'note' as const,
+      words: { kicker: 'K', title: 'T', body: 'B' },
+      seconds: 1,
+    }
+    const big = { ground: '#ffffff', accent: '#3b82f6', body: 21 }
+    const rest = composeCallout(doc, big, { ...ask, at: 0.2, bodyPxGiven: true })
+    const apex = composeCallout(doc, big, { ...ask, at: 2.6, bodyPxGiven: true })
+    expect(rest.sizes).toMatchObject({ kickerPx: 15, titlePx: 28, bodyPx: 21 })
+    expect(apex.sizes).toMatchObject({ kickerPx: 15, titlePx: 28, bodyPx: 21 })
+    expect(px(rest.clip.css ?? '', 't')).toBe(28)
+    // the scale the camera shows is still reported, for the verb to print
+    expect(apex.sizes.scale / rest.sizes.scale).toBeCloseTo(1.8, 1)
+    // without the flag the grammar's default stands: sized to the app as seen
+    const seen = composeCallout(doc, big, { ...ask, at: 2.6 })
+    expect(seen.sizes.titlePx).toBeGreaterThan(28)
+  })
+
   it('an unknown step, or neither a step nor a time, is refused in words; ids never collide', () => {
     expect(() =>
       composeCallout(doc, register, {
