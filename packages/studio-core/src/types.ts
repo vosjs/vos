@@ -203,6 +203,26 @@ export interface RecordingMeta {
     asked: string
     landed: string
   }
+  /**
+   * Sensitive-looking text the recorder saw IN the frame: an email address,
+   * something shaped like a key, a card number. The KIND and the place, never
+   * the string. Each is listed once, at the first step it was visible
+   * (`step` -1 = as the page opened); `seen` counts the scans that saw it.
+   * `rect` is viewport CSS px. Absent on a recorder that does not look.
+   */
+  exposures?: {
+    step: number
+    kind: 'email' | 'key' | 'card' | 'card-tail'
+    selector: string
+    rect: { x: number; y: number; w: number; h: number }
+    seen: number
+  }[]
+  /**
+   * What the script asked the recorder to hide before the camera rolled, and
+   * how many elements each selector reached. `hits: 0` is a mask that hid
+   * nothing, so whatever it was for may be showing.
+   */
+  masks?: { selector: string; as: 'blur' | 'text'; hits: number }[]
 }
 
 /**

@@ -29,6 +29,28 @@
         }
       }
     },
+    "mask": {
+      "type": "array",
+      "description": "Hidden BEFORE the first frame is captured and kept hidden across navigations and re-renders: what a signed-in account shows that must not ship. The real value is never in a frame, never in the recording, never pushed. `vos record` reports what it still sees afterwards (meta.exposures), and a mask whose selector reached nothing fails --strict.",
+      "items": {
+        "type": "object",
+        "required": ["selector"],
+        "additionalProperties": false,
+        "properties": {
+          "selector": { "type": "string" },
+          "as": {
+            "type": "string",
+            "enum": ["blur", "text"],
+            "default": "blur",
+            "description": "blur the element, or swap its words for `text`. A form control is always blurred: writing into an input would change what the app submits. `text` is for IDENTIFIERS (an email, a name, an account id), never for product copy or numbers."
+          },
+          "text": {
+            "type": "string",
+            "description": "shown instead, with as: \"text\""
+          }
+        }
+      }
+    },
     "steps": {
       "type": "array",
       "minItems": 1,

@@ -31,6 +31,7 @@ import type {
   StepSpan,
 } from '@vosjs/studio-core'
 import { WALL_PROBE } from './wall'
+import { EXPOSURE_PROBE, ExposureLog, maskInitScript } from './exposure'
 import type { ActionsFile } from './actions'
 import type { TakePaths } from './take'
 import type { Arrival, WallVerdict } from './wall'
@@ -68,6 +69,10 @@ export interface RecordResult {
   navTimeout: boolean
   /** A wall the caller let through; null when the recorder landed where it was asked. */
   wall: WallVerdict | null
+  /** Sensitive-looking text seen in the frame (kind + place, never the string). */
+  exposures: NonNullable<RecordingMeta['exposures']>
+  /** The script's masks with how many elements each reached; hits 0 hid nothing. */
+  masks: NonNullable<RecordingMeta['masks']>
   /**
    * Smoothness telemetry: stretches ≥400ms with no visual change. Frozen
    * footage is the #1 enemy of a smooth product video — either the flow should
@@ -158,7 +163,18 @@ export async function recordTake(
     deviceScaleFactor: 1,
     ...(opts.storageState ? { storageState: opts.storageState } : {}),
   })
+  // Masks go in as an init script, so they are in force at document start on
+  // every navigation: the real value never reaches a painted frame.
+  const masks = actions.mask ?? []
+  if (masks.length) await context.addInitScript(maskInitScript(masks))
+  const exposureLog = new ExposureLog(masks)
   const page = await context.newPage()
+  // What the frame shows, read after each step. A few ms in the page; a scan
+  // that fails (mid-navigation) is skipped, never fatal.
+  const scanExposures = async (step: number) => {
+    const scan = await page.evaluate(EXPOSURE_PROBE).catch(() => null)
+    exposureLog.add(step, scan as Parameters<ExposureLog['add']>[1])
+  }
   page.on('console', (m) => {
     if (m.type() === 'error') log(`   [page error] ${m.text()}`)
   })
@@ -197,6 +213,8 @@ export async function recordTake(
       throw e
     }
   }
+
+  await scanExposures(-1)
 
   const cdp = await context.newCDPSession(page)
   const frames: FrameRec[] = []
@@ -508,6 +526,8 @@ export async function recordTake(
       gestureMs,
       wallMs: now() - stepStart,
     })
+    // After the pace is taken: the scan's few ms are not the step's.
+    await scanExposures(stepIdx)
   }
   if (!capped) await sleep(TRAILING_HOLD_MS) // trailing hold
   if (capped || capReached(now(), maxSeconds)) {
@@ -549,6 +569,10 @@ export async function recordTake(
     ...(wall
       ? { wall: { kind: wall.kind, asked: wall.asked, landed: wall.landed } }
       : {}),
+    ...(exposureLog.exposures().length
+      ? { exposures: exposureLog.exposures() }
+      : {}),
+    ...(masks.length ? { masks: exposureLog.masks(masks) } : {}),
   }
 
   // Smoothness telemetry: screencast emits only on visual change, so frame
@@ -591,6 +615,8 @@ export async function recordTake(
     skipped,
     navTimeout,
     wall,
+    exposures: exposureLog.exposures(),
+    masks: exposureLog.masks(masks),
     freezes,
     freezePct,
     capped,

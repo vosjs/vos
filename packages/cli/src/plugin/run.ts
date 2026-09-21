@@ -71,6 +71,7 @@ import type { TakePaths } from './take'
 import { BrowserUnavailableError, launchBrowser } from '../browser'
 import { recordTake } from './recorder'
 import { WallError, wallVerdict } from './wall'
+import { EXPOSURE_ADVICE, exposureLine } from './exposure'
 import type { Arrival, WallVerdict } from './wall'
 import type { Reporter } from './output'
 import {
@@ -423,11 +424,34 @@ function strictReason(rec: {
   skipped: unknown[]
   navTimeout: boolean
   capped: boolean
+  masks?: { selector: string; hits: number }[]
 }): string {
   const parts = [`${rec.skipped.length} skipped step(s)`]
   if (rec.navTimeout) parts.push('networkidle timeout')
   if (rec.capped) parts.push('stopped at --max-duration')
+  const missed = maskMisses(rec)
+  if (missed.length)
+    parts.push(
+      `${missed.length} mask(s) that hid nothing (${missed.join(', ')}): whatever they were for may be showing`,
+    )
   return parts.join(' + ')
+}
+
+/** A mask whose selector never reached an element hid nothing. */
+function maskMisses(rec: {
+  masks?: { selector: string; hits: number }[]
+}): string[] {
+  return (rec.masks ?? []).filter((m) => m.hits === 0).map((m) => m.selector)
+}
+
+/** What the frame shows, in words, for the end of a record or a rehearsal. */
+function exposureNote(rec: {
+  exposures: Parameters<typeof exposureLine>[0][]
+}): string {
+  if (!rec.exposures.length) return ''
+  return `\n  EXPOSED in the frame (${rec.exposures.length}):\n${rec.exposures
+    .map((e) => `    - ${exposureLine(e)}`)
+    .join('\n')}\n  ${EXPOSURE_ADVICE}`
 }
 
 /**
@@ -593,7 +617,8 @@ async function cmdRecord(argv: string[]): Promise<number> {
         const what = s.selector ? ` ${s.selector}` : ''
         return `  ${s.skipped ? '✗' : '✓'} #${s.step}${s.id ? ` (${s.id})` : ''} ${s.do}${what}${s.skipped ? '  NOT FOUND' : rect}${s.navigated ? '  → navigated' : ''}`
       })
-      const failed = rec.skipped.length > 0 || rec.navTimeout
+      const failed =
+        rec.skipped.length > 0 || rec.navTimeout || maskMisses(rec).length > 0
       // The next command is THIS command minus --dry-run. A hint that
       // dropped --storage-state sent a signed-in rehearsal on to record
       // the sign-in page.
@@ -613,8 +638,10 @@ async function cmdRecord(argv: string[]): Promise<number> {
           steps,
           skipped: rec.skipped,
           navTimeout: rec.navTimeout,
+          exposures: rec.exposures,
+          masks: rec.masks,
         },
-        `${failed ? 'REHEARSAL FAILED' : 'Rehearsal passed'}: ${steps.length - rec.skipped.length}/${steps.length} steps resolved in ${((Date.now() - started) / 1000).toFixed(1)}s${rec.navTimeout ? ' (the first load never reached networkidle)' : ''}\n${lines.join('\n')}\n  ${failed ? 'Fix the script, rehearse again, then record.' : `Rects are capture px (the step rects a pin or a callout reads). Next: vos record --actions ${actionsPath} --out ${nextOut}${carried ? ` ${carried}` : ''} --strict`}`,
+        `${failed ? 'REHEARSAL FAILED' : 'Rehearsal passed'}: ${steps.length - rec.skipped.length}/${steps.length} steps resolved in ${((Date.now() - started) / 1000).toFixed(1)}s${rec.navTimeout ? ' (the first load never reached networkidle)' : ''}\n${lines.join('\n')}\n  ${maskMisses(rec).length ? `MASK hid nothing: ${maskMisses(rec).join(', ')} (the selector reached no element). ` : ''}${failed ? 'Fix the script, rehearse again, then record.' : `Rects are capture px (the step rects a pin or a callout reads). Next: vos record --actions ${actionsPath} --out ${nextOut}${carried ? ` ${carried}` : ''} --strict`}${exposureNote(rec)}`,
       )
       return failed ? EXIT_USAGE : EXIT_OK
     } finally {
@@ -666,7 +693,11 @@ async function cmdRecord(argv: string[]): Promise<number> {
     const clicks = rec.events.filter((e) => e.type === 'down').length
     const strict = flags.strict === true
     const strictFail =
-      strict && (rec.skipped.length > 0 || rec.navTimeout || rec.capped)
+      strict &&
+      (rec.skipped.length > 0 ||
+        rec.navTimeout ||
+        rec.capped ||
+        maskMisses(rec).length > 0)
     const skippedNote = rec.skipped.length
       ? `\n  SKIPPED ${rec.skipped.length} step(s): ${rec.skipped.map((s) => `#${s.step} ${s.do} ${s.selector}`).join(', ')}`
       : ''
@@ -686,11 +717,13 @@ async function cmdRecord(argv: string[]): Promise<number> {
         capped: rec.capped,
         pace: rec.pace,
         ...(rec.wall ? { wall: rec.wall } : {}),
+        exposures: rec.exposures,
+        ...(rec.masks.length ? { masks: rec.masks } : {}),
         ...(strictFail ? { strictFailed: true } : {}),
       },
       strictFail
-        ? `STRICT: take recorded but incomplete — ${strictReason(rec)}; fix the flow and re-record.${skippedNote}`
-        : `Take ready: ${outDir}\n  ${(rec.meta.durationMs / 1000).toFixed(1)}s · ${rec.frames.length} frames · ${rec.events.length} cursor events · ${clicks} clicks · ${plan.doc.zoom.length} zoom spans planned · ${rec.freezePct}% frozen${rec.freezePct >= 25 ? ' ⚠ keep motion in frame or trim' : ''}${skippedNote}\n  Next: edit ${join(outDir, 'doc.json')} (optional), then: vos render ${outDir}`,
+        ? `STRICT: take recorded but incomplete — ${strictReason(rec)}; fix the flow and re-record.${skippedNote}${exposureNote(rec)}`
+        : `Take ready: ${outDir}\n  ${(rec.meta.durationMs / 1000).toFixed(1)}s · ${rec.frames.length} frames · ${rec.events.length} cursor events · ${clicks} clicks · ${plan.doc.zoom.length} zoom spans planned · ${rec.freezePct}% frozen${rec.freezePct >= 25 ? ' ⚠ keep motion in frame or trim' : ''}${skippedNote}\n  Next: edit ${join(outDir, 'doc.json')} (optional), then: vos render ${outDir}${exposureNote(rec)}`,
     )
     return strictFail ? EXIT_USAGE : EXIT_OK
   } finally {
@@ -781,7 +814,10 @@ async function cmdCreate(argv: string[]): Promise<number> {
 
     if (
       flags.strict === true &&
-      (rec.skipped.length > 0 || rec.navTimeout || rec.capped)
+      (rec.skipped.length > 0 ||
+        rec.navTimeout ||
+        rec.capped ||
+        maskMisses(rec).length > 0)
     ) {
       r.done(
         {
@@ -830,9 +866,11 @@ async function cmdCreate(argv: string[]): Promise<number> {
         navTimeout: rec.navTimeout,
         freezes: rec.freezes,
         freezePct: rec.freezePct,
+        exposures: rec.exposures,
+        ...(rec.masks.length ? { masks: rec.masks } : {}),
         ...(flags.draft === true ? { draft: true } : {}),
       },
-      `Created ${result.out} (${(result.bytes / 1024).toFixed(0)} KB, ${result.width}x${result.height}@${result.fps}, ${result.duration.toFixed(1)}s, ${result.zoomSpans} zoom spans, ${result.clicks} click effects${result.audio ? ', audio' : ''}${flags.draft === true ? ', DRAFT' : ''})\n  take: ${outDir} — inspect with: vos frames ${outDir} --at-zooms; edit doc.json and re-render with: vos render ${outDir}`,
+      `Created ${result.out} (${(result.bytes / 1024).toFixed(0)} KB, ${result.width}x${result.height}@${result.fps}, ${result.duration.toFixed(1)}s, ${result.zoomSpans} zoom spans, ${result.clicks} click effects${result.audio ? ', audio' : ''}${flags.draft === true ? ', DRAFT' : ''})\n  take: ${outDir} — inspect with: vos frames ${outDir} --at-zooms; edit doc.json and re-render with: vos render ${outDir}${exposureNote(rec)}`,
     )
     return EXIT_OK
   } finally {
@@ -1543,6 +1581,7 @@ async function cmdDigest(argv: string[]): Promise<number> {
         outputDuration: d.take.outputDuration,
         hasCursor: d.take.hasCursor,
         ...(d.take.wall ? { wall: d.take.wall } : {}),
+        ...(d.take.exposures.length ? { exposures: d.take.exposures } : {}),
         tokensEstimate: d.images.tokensEstimate,
         bytes: result.bytes,
       },
@@ -1556,6 +1595,9 @@ async function cmdDigest(argv: string[]): Promise<number> {
         (d.take.hasCursor
           ? ''
           : '\n  no cursor track: moments are head/tail/scenes only — pace by activity, zoom only where the ask names a place') +
+        (d.take.exposures.length
+          ? `\n  EXPOSED in the footage: ${d.take.exposures.map((e) => `${e.kind} in ${e.selector}`).join('; ')} — look at those frames before this take goes anywhere`
+          : '') +
         (d.take.wall
           ? `\n  WALL: asked for ${d.take.wall.asked}, recorded ${d.take.wall.landed} — this footage may be the wrong page; re-record with a session before cutting it`
           : '') +
@@ -1854,6 +1896,21 @@ async function cmdValidate(argv: string[]): Promise<number> {
     )
     if (mismatch) warnings.push(mismatch)
   }
+  // What the recorder saw in the frame, and masks that hid nothing. The take
+  // is valid either way (the doc is fine); these are what to look at before
+  // the footage goes anywhere.
+  for (const e of take.meta.exposures ?? [])
+    warnings.push(`the recording shows ${exposureLine(e)}`)
+  if (take.meta.exposures?.length) warnings.push(EXPOSURE_ADVICE)
+  for (const m of take.meta.masks ?? [])
+    if (m.hits === 0)
+      warnings.push(
+        `mask "${m.selector}" reached no element, so it hid nothing: whatever it was for may be showing`,
+      )
+  if (take.meta.wall)
+    warnings.push(
+      `recorded past a wall: asked for ${take.meta.wall.asked}, landed on ${take.meta.wall.landed}. This footage may be the wrong page`,
+    )
   if (!take.doc) problems.push('missing doc.json (run plan)')
   if (take.doc) {
     const lint = lintDoc(take.doc)

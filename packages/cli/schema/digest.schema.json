@@ -46,6 +46,28 @@
           "description": "false = browser-recorder take: moments are head/tail/scenes only"
         },
         "windowFocusedFrac": { "type": ["number", "null"] },
+        "exposures": {
+          "type": "array",
+          "description": "sensitive-looking text the recorder saw IN the frame: the KIND and the place, never the string. Listed once each, at the first step it was visible (step -1 = as the page opened). `rect` is viewport CSS px. Look at those frames before the take goes anywhere; the fix is a demo account or a `mask` in actions.json and a re-record",
+          "items": {
+            "type": "object",
+            "properties": {
+              "step": { "type": "integer" },
+              "kind": {
+                "type": "string",
+                "enum": ["email", "key", "card", "card-tail"]
+              },
+              "selector": { "type": "string" },
+              "rect": { "type": "object" },
+              "seen": { "type": "integer" }
+            }
+          }
+        },
+        "masks": {
+          "type": "array",
+          "description": "what the script hid before the camera rolled, with how many elements each selector reached; hits 0 hid nothing",
+          "items": { "type": "object" }
+        },
         "wall": {
           "type": ["object", "null"],
           "description": "the recorder did not land where it was asked (a sign-in, an identity provider, a 401/403, a redirect elsewhere) and the take was recorded anyway: the footage may be the wrong page. `asked`/`landed` are origin + path. null = it landed where it was asked, or the recorder does not check",

@@ -1,3 +1,5 @@
+import type { MaskRule } from './exposure'
+
 /**
  * The action script — the declarative recipe an agent (or human) writes to
  * drive a take. Small on purpose: selectors + a handful of verbs. The recorder
@@ -9,6 +11,14 @@ export interface ActionsFile {
   url?: string
   /** Recording viewport in CSS px (default 1280x720). */
   viewport?: { width: number; height: number }
+  /**
+   * Hidden BEFORE the first frame is captured and kept hidden across
+   * navigations: what a signed-in account shows that must not ship. `blur`
+   * (default) blurs the element; `text` swaps its words for `text`, which is
+   * for IDENTIFIERS (an email, a name, an account id), never for product
+   * copy or numbers: the video must stay true to the product.
+   */
+  mask?: MaskRule[]
   steps: ActionStep[]
 }
 
@@ -86,6 +96,24 @@ export function validateActions(value: unknown): string[] {
       if (typeof vp.width !== 'number' || typeof vp.height !== 'number') {
         errors.push('viewport must be { width, height }')
       }
+    }
+  }
+  if (obj.mask !== undefined) {
+    if (!Array.isArray(obj.mask)) {
+      errors.push('mask must be an array of { selector, as?, text? }')
+    } else {
+      obj.mask.forEach((raw, i) => {
+        const at = `mask[${i}]`
+        const m = (raw ?? {}) as Record<string, unknown>
+        if (typeof m.selector !== 'string' || !m.selector.trim())
+          errors.push(`${at}: needs a selector`)
+        if (m.as !== undefined && m.as !== 'blur' && m.as !== 'text')
+          errors.push(`${at}: as must be "blur" or "text"`)
+        if (m.as === 'text' && (typeof m.text !== 'string' || !m.text))
+          errors.push(`${at}: as "text" needs the text to show instead`)
+        if (m.as !== 'text' && m.text !== undefined)
+          errors.push(`${at}: text is only read with as "text"`)
+      })
     }
   }
   if (!Array.isArray(obj.steps) || obj.steps.length === 0) {
