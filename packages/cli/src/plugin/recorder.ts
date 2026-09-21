@@ -30,8 +30,10 @@ import type {
   Rect,
   StepSpan,
 } from '@vosjs/studio-core'
+import { WALL_PROBE } from './wall'
 import type { ActionsFile } from './actions'
 import type { TakePaths } from './take'
+import type { Arrival, WallVerdict } from './wall'
 
 export interface FrameRec {
   file: string
@@ -64,6 +66,8 @@ export interface RecordResult {
   skipped: SkippedStep[]
   /** the initial goto never reached networkidle (recording proceeded anyway). */
   navTimeout: boolean
+  /** A wall the caller let through; null when the recorder landed where it was asked. */
+  wall: WallVerdict | null
   /**
    * Smoothness telemetry: stretches ≥400ms with no visual change. Frozen
    * footage is the #1 enemy of a smooth product video — either the flow should
@@ -97,6 +101,15 @@ export interface RecordOpts {
    * timeout, so a miss here is a miss in the take.
    */
   dryRun?: boolean
+  /**
+   * Called once the first navigation has settled, BEFORE a frame is captured.
+   * The caller judges the wall here and only then prepares the take
+   * directory, so a take refused at a sign-in never clears the footage a
+   * re-record would have replaced. A throw closes the context and propagates.
+   */
+  onArrival?: (
+    arrival: Arrival,
+  ) => Promise<WallVerdict | null | void> | WallVerdict | null | void
 }
 
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
@@ -152,13 +165,38 @@ export async function recordTake(
 
   log(`goto ${url}`)
   let navTimeout = false
-  await page
+  const response = await page
     .goto(url, { waitUntil: 'networkidle', timeout: 45000 })
     .catch(() => {
       navTimeout = true
       log('   (networkidle timeout — continuing)')
+      return null
     })
   await sleep(800) // hydration settle
+
+  // A wall the caller let through (--allow-wall, or a soft one without
+  // --strict) rides the take's meta, so a digest made later still says so.
+  let wall: WallVerdict | null = null
+  if (opts.onArrival) {
+    const seen = (await page.evaluate(WALL_PROBE).catch(() => null)) as Pick<
+      Arrival,
+      'passwordFields' | 'newPasswordField' | 'oneTimeCodeField'
+    > | null
+    try {
+      wall =
+        (await opts.onArrival({
+          askedUrl: url,
+          landedUrl: page.url(),
+          ...(response ? { status: response.status() } : {}),
+          passwordFields: seen?.passwordFields ?? 0,
+          newPasswordField: seen?.newPasswordField ?? false,
+          oneTimeCodeField: seen?.oneTimeCodeField ?? false,
+        })) ?? null
+    } catch (e) {
+      await context.close().catch(() => {})
+      throw e
+    }
+  }
 
   const cdp = await context.newCDPSession(page)
   const frames: FrameRec[] = []
@@ -508,6 +546,9 @@ export async function recordTake(
           : 'linux',
     producer: 'cli',
     steps: stepSpans,
+    ...(wall
+      ? { wall: { kind: wall.kind, asked: wall.asked, landed: wall.landed } }
+      : {}),
   }
 
   // Smoothness telemetry: screencast emits only on visual change, so frame
@@ -549,6 +590,7 @@ export async function recordTake(
     pace,
     skipped,
     navTimeout,
+    wall,
     freezes,
     freezePct,
     capped,

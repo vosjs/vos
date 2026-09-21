@@ -3,6 +3,8 @@ export const EXIT_OK = 0
 export const EXIT_ERROR = 1
 export const EXIT_USAGE = 2
 export const EXIT_NO_BROWSER = 3
+/** The recorder met a sign-in instead of the page it was asked for. */
+export const EXIT_WALL = 4
 
 export interface Reporter {
   json: boolean
