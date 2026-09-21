@@ -594,6 +594,17 @@ async function cmdRecord(argv: string[]): Promise<number> {
         return `  ${s.skipped ? '✗' : '✓'} #${s.step}${s.id ? ` (${s.id})` : ''} ${s.do}${what}${s.skipped ? '  NOT FOUND' : rect}${s.navigated ? '  → navigated' : ''}`
       })
       const failed = rec.skipped.length > 0 || rec.navTimeout
+      // The next command is THIS command minus --dry-run. A hint that
+      // dropped --storage-state sent a signed-in rehearsal on to record
+      // the sign-in page.
+      const carried = [
+        ...(strFlag(flags, 'storage-state')
+          ? [`--storage-state ${strFlag(flags, 'storage-state')}`]
+          : []),
+        ...browserArgs.map((a) => `--browser-arg=${a}`),
+        ...(flags['allow-wall'] === true ? ['--allow-wall'] : []),
+      ].join(' ')
+      const nextOut = strFlag(flags, 'out') ?? 'take'
       r.done(
         {
           dryRun: true,
@@ -603,7 +614,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
           skipped: rec.skipped,
           navTimeout: rec.navTimeout,
         },
-        `${failed ? 'REHEARSAL FAILED' : 'Rehearsal passed'}: ${steps.length - rec.skipped.length}/${steps.length} steps resolved in ${((Date.now() - started) / 1000).toFixed(1)}s${rec.navTimeout ? ' (the first load never reached networkidle)' : ''}\n${lines.join('\n')}\n  ${failed ? 'Fix the script, rehearse again, then record.' : `Rects are capture px (the step rects a pin or a callout reads). Next: vos record --actions ${actionsPath} --out ${outDir} --strict`}`,
+        `${failed ? 'REHEARSAL FAILED' : 'Rehearsal passed'}: ${steps.length - rec.skipped.length}/${steps.length} steps resolved in ${((Date.now() - started) / 1000).toFixed(1)}s${rec.navTimeout ? ' (the first load never reached networkidle)' : ''}\n${lines.join('\n')}\n  ${failed ? 'Fix the script, rehearse again, then record.' : `Rects are capture px (the step rects a pin or a callout reads). Next: vos record --actions ${actionsPath} --out ${nextOut}${carried ? ` ${carried}` : ''} --strict`}`,
       )
       return failed ? EXIT_USAGE : EXIT_OK
     } finally {
@@ -2001,6 +2012,23 @@ async function cmdPull(argv: string[]): Promise<number> {
   return EXIT_OK
 }
 
+/**
+ * One verb's lines out of HELP: its usage line(s) and whatever is indented
+ * under them. HELP stays the one text, so a verb's help cannot drift from it.
+ */
+export function verbHelp(verb: string): string {
+  const lines = HELP.split('\n')
+  const out: string[] = []
+  let taking = false
+  for (const line of lines) {
+    if (/^ {2}vos /.test(line)) taking = line.startsWith(`  vos ${verb} `)
+    else if (taking && !/^ {3,}\S/.test(line)) taking = false
+    if (taking) out.push(line)
+  }
+  if (out.length === 0) return `vos ${verb}: no such verb here. Run: vos help\n`
+  return `${out.join('\n')}\n\nThe whole reference, with every flag explained: https://vos.so/llms-full.txt\nExit codes: 0 ok, 1 error, 2 usage or --strict failure, 3 no browser, 4 the recorder met a sign-in instead of the page.\n`
+}
+
 /** Entry point — the delegation contract for @vosjs/cli: the host forwards
     every non-engine verb here (`vos <verb>`; `vos voila <verb>` stays a
     hidden alias until public launch). The exported `manifest` (index.ts)
@@ -2011,6 +2039,13 @@ export async function run(argv: string[]): Promise<number> {
     if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') {
       process.stdout.write(HELP)
       return cmd ? EXIT_OK : EXIT_USAGE
+    }
+    // `vos <verb> --help` is a question, never a usage error: an agent that
+    // asks a verb for its flags used to get one line and exit 2, and went
+    // grepping the package for the answer.
+    if (rest.includes('--help') || rest.includes('-h')) {
+      process.stdout.write(verbHelp(cmd))
+      return EXIT_OK
     }
     switch (cmd) {
       case 'create':
