@@ -165,3 +165,27 @@ describe('wallVerdict', () => {
     ).toBeNull()
   })
 })
+
+describe('verb help', () => {
+  it('answers a verb asked for its flags, from the one HELP text', async () => {
+    const { verbHelp } = await import('../run')
+    const record = verbHelp('record')
+    expect(record).toContain('vos record --actions')
+    expect(record).toContain('--storage-state')
+    expect(record).toContain('--allow-wall')
+    expect(record).not.toContain('vos plan <take>')
+    expect(record).toContain('4 the recorder met a sign-in')
+    // a verb with continuation lines keeps them
+    expect(verbHelp('login')).toContain('sign in via the browser')
+    expect(verbHelp('nope')).toContain('no such verb')
+  })
+
+  it('tells the reader a wall is a session problem and names every way past', () => {
+    const v = wallVerdict(
+      arrive('https://a.dev/dashboard', 'https://a.dev/login'),
+    )
+    expect(v?.message).toContain('not a script bug')
+    expect(v?.message).toContain('--save-storage')
+    expect(v?.message).toContain('--storage-state')
+  })
+})

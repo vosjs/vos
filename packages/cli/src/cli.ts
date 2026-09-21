@@ -43,7 +43,9 @@ const HELP_CONVENTIONS = `
 Conventions
   Results go to stdout; logs go to stderr. --json switches stdout to NDJSON
   events ending with {"event":"done",…}. Exit codes: 0 ok, 1 error, 2 usage,
-  3 no browser available.
+  3 no browser available, 4 the recorder met a sign-in instead of the page
+  it was asked for (nothing was recorded; it needs a session, not a new
+  script). vos <verb> --help prints that verb's flags.
 `
 
 function outName(source: string, ext: string): string {
@@ -410,6 +412,19 @@ async function main(): Promise<number> {
   }
   if (cmd === '--version') return cmdVersions(['--json'])
   if (!ENGINE_VERBS.has(cmd) && cmd !== 'voila') return delegate([cmd, ...rest])
+  // An engine verb asked for its flags: the engine's usage lines, plus the
+  // take pipeline's where the verb is shared (render takes a config OR a take).
+  if (rest.includes('--help') || rest.includes('-h')) {
+    const engine = HELP_ENGINE.split('\n').filter((l) =>
+      l.startsWith(`  vos ${cmd} `),
+    )
+    const { verbHelp } = await import('./plugin/run')
+    const take = verbHelp(cmd)
+    process.stdout.write(
+      `${engine.join('\n')}\n${take.includes('no such verb') ? '' : take}`,
+    )
+    return EXIT_OK
+  }
   switch (cmd) {
     case 'render':
       return cmdRender(rest)

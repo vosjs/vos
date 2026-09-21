@@ -122,7 +122,7 @@ export function redirectedAway(asked: URL, landed: URL): boolean {
 }
 
 const LADDER =
-  'Walk the session ladder (mint a session from the test auth the project already has, or pass --storage-state): https://vos.so/llms-full.txt, "Sessions". A take OF this page is --allow-wall.'
+  'This is a missing or expired session, not a script bug. Ways past, cheapest first: mint a session from the test auth the project already has; script the sign-in off camera and save the storage state; or have a person sign in once (npx playwright open --channel chrome --save-storage=<file> <url>). Then pass --storage-state <file>. The ladder: https://vos.so/llms-full.txt, "Sessions". A take OF this page is --allow-wall.'
 
 export function wallVerdict(a: Arrival): WallVerdict | null {
   const asked = parse(a.askedUrl)

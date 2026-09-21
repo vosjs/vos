@@ -3,7 +3,8 @@
  * - logs/progress → stderr (human readable)
  * - results → stdout; with --json, NDJSON events (`{"event":"phase"...}` then
  *   `{"event":"done"...}`) so scripts and agents never parse prose
- * - exit codes: 0 ok · 1 failure · 2 usage · 3 browser unavailable
+ * - exit codes: 0 ok · 1 failure · 2 usage · 3 browser unavailable ·
+ *   4 the recorder met a sign-in (the take pipeline's wall check)
  */
 export const EXIT_OK = 0
 export const EXIT_ERROR = 1
