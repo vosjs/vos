@@ -191,6 +191,18 @@ export interface RecordingMeta {
    * has no script and carries none.
    */
   steps?: StepSpan[]
+  /**
+   * The recorder did not land where it was asked: a sign-in, an identity
+   * provider, a 401/403, or a redirect to somewhere else. Present only when
+   * the take was recorded ANYWAY, so whoever reads it later (a digest, an
+   * agent cutting the footage) knows the picture may be the wrong page.
+   * `asked`/`landed` are origin + path, never a query or hash.
+   */
+  wall?: {
+    kind: 'status' | 'idp' | 'signin' | 'redirect'
+    asked: string
+    landed: string
+  }
 }
 
 /**

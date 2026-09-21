@@ -8,7 +8,7 @@
  */
 import { docOutputDuration } from '../audioBeds'
 import { pickStyle } from './style'
-import type { ProjectDoc } from '../types'
+import type { ProjectDoc, RecordingMeta } from '../types'
 import type { DigestPlan, Moment, TranscriptSegment } from './moments'
 import type { PxRect } from './geometry'
 
@@ -40,6 +40,12 @@ export interface DigestTakeFacts {
   hasSystemAudio: boolean
   hasCursor: boolean
   windowFocusedFrac: number | null
+  /**
+   * The recorder did not land where it was asked (a sign-in, a redirect) and
+   * the take was recorded anyway: the footage may be the wrong page. null
+   * when it landed where it was asked, or the recorder does not check.
+   */
+  wall: RecordingMeta['wall'] | null
 }
 
 export interface Digest {
@@ -123,6 +129,7 @@ export function buildDigest(input: BuildDigestInput): Digest {
       hasSystemAudio: meta.hasAudio === true,
       hasCursor: doc.source.cursor.length > 0,
       windowFocusedFrac: meta.windowFocusedFrac ?? null,
+      wall: meta.wall ?? null,
     },
     units: {
       source: 'seconds of footage',

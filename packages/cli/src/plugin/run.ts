@@ -12,6 +12,7 @@ import {
   EXIT_NO_BROWSER,
   EXIT_OK,
   EXIT_USAGE,
+  EXIT_WALL,
   createReporter,
 } from './output'
 import { validateActions } from './actions'
@@ -69,6 +70,9 @@ import {
 import type { TakePaths } from './take'
 import { BrowserUnavailableError, launchBrowser } from '../browser'
 import { recordTake } from './recorder'
+import { WallError, wallVerdict } from './wall'
+import type { Arrival, WallVerdict } from './wall'
+import type { Reporter } from './output'
 import {
   defaultMaxDurationSeconds,
   formatDurationCap,
@@ -119,6 +123,7 @@ const BOOLEAN_FLAGS = new Set([
   'leader',
   'keep-frames',
   'dry-run',
+  'allow-wall',
 ])
 /** Repeatable value flags (accumulate): --set path=value on render/frames, --override id on push, --browser-arg=<switch> on record/create. */
 export const MULTI_FLAGS = new Set(['set', 'override', 'browser-arg'])
@@ -126,8 +131,8 @@ export const MULTI_FLAGS = new Set(['set', 'override', 'browser-arg'])
 export const HELP = `vos — record a browser flow, plan effects, render a product video; sync with vos.so
 
 Take pipeline
-  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--keep-frames] [--max-duration <s>] [--storage-state <file>] [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
-  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--keep-frames] [--max-duration <s>] [--storage-state <file>] [--browser-arg=<switch>]... [--background <slug|url|none>] [--json]
+  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>] [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
+  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>] [--browser-arg=<switch>]... [--background <slug|url|none>] [--json]
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--at-still] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
@@ -493,6 +498,42 @@ async function releaseFrames(
     )
 }
 
+/**
+ * The wall gate, handed to the recorder as `onArrival`. It judges where the
+ * first navigation landed and only THEN lets `prepare` touch the take
+ * directory: a re-record clears the old footage, and a session that expired
+ * since the last take must never cost the recording it failed to replace.
+ *
+ * A hard wall (a sign-in, an identity provider, a 401/403) is always refused.
+ * A soft one (sent elsewhere, no sign-in in sight) is refused under
+ * `--strict` and in a rehearsal, and said as a warning otherwise.
+ * `--allow-wall` records either, and the take's meta says so.
+ */
+function wallGate(
+  flags: ParsedArgs['flags'],
+  r: Reporter,
+  opts: { strict: boolean; prepare?: () => Promise<void> },
+): (arrival: Arrival) => Promise<WallVerdict | null> {
+  const allow = flags['allow-wall'] === true
+  return async (arrival) => {
+    const verdict = wallVerdict(arrival)
+    if (verdict && !allow && (verdict.level === 'hard' || opts.strict)) {
+      r.event({ event: 'wall', ...verdict, refused: true })
+      throw new WallError(verdict)
+    }
+    if (verdict) {
+      r.event({ event: 'wall', ...verdict, refused: false })
+      r.log(
+        allow
+          ? `   note: recording past the wall (--allow-wall): landed on ${verdict.landed}`
+          : `   WARNING: ${verdict.message}`,
+      )
+    }
+    await opts.prepare?.()
+    return verdict
+  }
+}
+
 async function cmdRecord(argv: string[]): Promise<number> {
   const { positionals, flags, multi } = parseArgs(
     argv,
@@ -537,7 +578,12 @@ async function cmdRecord(argv: string[]): Promise<number> {
         actions,
         takePaths(outDir),
         r.log,
-        { storageState, dryRun: true },
+        {
+          storageState,
+          dryRun: true,
+          // A rehearsal is always strict, and it touches no directory.
+          onArrival: wallGate(flags, r, { strict: true }),
+        },
       )
       const steps = rec.meta.steps ?? []
       const lines = steps.map((s) => {
@@ -565,22 +611,26 @@ async function cmdRecord(argv: string[]): Promise<number> {
     }
   }
 
-  if (existsSync(join(outDir, 'meta.json'))) {
-    // A re-record replaces the FOOTAGE, never the cut. The previous
-    // doc.json survives as doc.prev.json (the reuse base), actions.json and
-    // vos.json stay put, and derived artifacts of the old footage clear.
-    const { prevDoc, kept } = await prepareReRecord(outDir)
-    r.log(
-      `note: re-recording ${outDir} — kept ${kept.length ? kept.join(', ') : 'nothing'}` +
-        (prevDoc
-          ? '; apply the previous cut to the new footage with: vos plan ' +
-            outDir +
-            ' --reuse'
-          : ''),
-    )
+  // Run by the wall gate, once the recorder has landed where it was asked.
+  // A re-record replaces the FOOTAGE, never the cut. The previous doc.json
+  // survives as doc.prev.json (the reuse base), actions.json and vos.json
+  // stay put, and derived artifacts of the old footage clear.
+  const paths = takePaths(outDir)
+  const prepare = async () => {
+    if (existsSync(join(outDir, 'meta.json'))) {
+      const { prevDoc, kept } = await prepareReRecord(outDir)
+      r.log(
+        `note: re-recording ${outDir} — kept ${kept.length ? kept.join(', ') : 'nothing'}` +
+          (prevDoc
+            ? '; apply the previous cut to the new footage with: vos plan ' +
+              outDir +
+              ' --reuse'
+            : ''),
+      )
+    }
+    await mkdir(outDir, { recursive: true })
+    await ensureTakeDir(outDir)
   }
-  await mkdir(outDir, { recursive: true })
-  const paths = await ensureTakeDir(outDir)
 
   const browser = await launchBrowser(browserArgs)
   try {
@@ -589,6 +639,10 @@ async function cmdRecord(argv: string[]): Promise<number> {
     const rec = await recordTake(browser, url, actions, paths, r.log, {
       maxDurationSeconds: maxDurationSeconds,
       storageState: storageState,
+      onArrival: wallGate(flags, r, {
+        strict: flags.strict === true,
+        prepare,
+      }),
     })
     r.event({ event: 'phase', phase: 'encode' })
     r.log('encoding…')
@@ -620,6 +674,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
         freezePct: rec.freezePct,
         capped: rec.capped,
         pace: rec.pace,
+        ...(rec.wall ? { wall: rec.wall } : {}),
         ...(strictFail ? { strictFailed: true } : {}),
       },
       strictFail
@@ -671,22 +726,26 @@ async function cmdCreate(argv: string[]): Promise<number> {
   const storageState = takeStorageState(flags)
   const browserArgs = takeBrowserArgs(multi)
 
-  if (existsSync(join(outDir, 'meta.json'))) {
-    // A re-record replaces the FOOTAGE, never the cut. The previous
-    // doc.json survives as doc.prev.json (the reuse base), actions.json and
-    // vos.json stay put, and derived artifacts of the old footage clear.
-    const { prevDoc, kept } = await prepareReRecord(outDir)
-    r.log(
-      `note: re-recording ${outDir} — kept ${kept.length ? kept.join(', ') : 'nothing'}` +
-        (prevDoc
-          ? '; apply the previous cut to the new footage with: vos plan ' +
-            outDir +
-            ' --reuse'
-          : ''),
-    )
+  // Run by the wall gate, once the recorder has landed where it was asked.
+  // A re-record replaces the FOOTAGE, never the cut. The previous doc.json
+  // survives as doc.prev.json (the reuse base), actions.json and vos.json
+  // stay put, and derived artifacts of the old footage clear.
+  const paths = takePaths(outDir)
+  const prepare = async () => {
+    if (existsSync(join(outDir, 'meta.json'))) {
+      const { prevDoc, kept } = await prepareReRecord(outDir)
+      r.log(
+        `note: re-recording ${outDir} — kept ${kept.length ? kept.join(', ') : 'nothing'}` +
+          (prevDoc
+            ? '; apply the previous cut to the new footage with: vos plan ' +
+              outDir +
+              ' --reuse'
+            : ''),
+      )
+    }
+    await mkdir(outDir, { recursive: true })
+    await ensureTakeDir(outDir)
   }
-  await mkdir(outDir, { recursive: true })
-  const paths = await ensureTakeDir(outDir)
 
   const browser = await launchBrowser(browserArgs)
   try {
@@ -695,6 +754,10 @@ async function cmdCreate(argv: string[]): Promise<number> {
     const rec = await recordTake(browser, url, actions, paths, r.log, {
       maxDurationSeconds: maxDurationSeconds,
       storageState: storageState,
+      onArrival: wallGate(flags, r, {
+        strict: flags.strict === true,
+        prepare,
+      }),
     })
     r.event({ event: 'phase', phase: 'encode' })
     r.log('encoding…')
@@ -1468,6 +1531,7 @@ async function cmdDigest(argv: string[]): Promise<number> {
         sourceDuration: d.take.sourceDuration,
         outputDuration: d.take.outputDuration,
         hasCursor: d.take.hasCursor,
+        ...(d.take.wall ? { wall: d.take.wall } : {}),
         tokensEstimate: d.images.tokensEstimate,
         bytes: result.bytes,
       },
@@ -1481,6 +1545,9 @@ async function cmdDigest(argv: string[]): Promise<number> {
         (d.take.hasCursor
           ? ''
           : '\n  no cursor track: moments are head/tail/scenes only — pace by activity, zoom only where the ask names a place') +
+        (d.take.wall
+          ? `\n  WALL: asked for ${d.take.wall.asked}, recorded ${d.take.wall.landed} — this footage may be the wrong page; re-record with a session before cutting it`
+          : '') +
         `\n  Read digest.json, then the sheet, then a crop only where you must decide.`,
     )
     return EXIT_OK
@@ -2011,6 +2078,10 @@ export async function run(argv: string[]): Promise<number> {
     if (e instanceof UsageError) {
       process.stderr.write(`usage error: ${e.message}\n`)
       return EXIT_USAGE
+    }
+    if (e instanceof WallError) {
+      process.stderr.write(`wall: ${e.message}\n`)
+      return EXIT_WALL
     }
     if (e instanceof BrowserUnavailableError) {
       process.stderr.write(`${e.message}\n`)

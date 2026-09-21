@@ -45,7 +45,19 @@
           "type": "boolean",
           "description": "false = browser-recorder take: moments are head/tail/scenes only"
         },
-        "windowFocusedFrac": { "type": ["number", "null"] }
+        "windowFocusedFrac": { "type": ["number", "null"] },
+        "wall": {
+          "type": ["object", "null"],
+          "description": "the recorder did not land where it was asked (a sign-in, an identity provider, a 401/403, a redirect elsewhere) and the take was recorded anyway: the footage may be the wrong page. `asked`/`landed` are origin + path. null = it landed where it was asked, or the recorder does not check",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": ["status", "idp", "signin", "redirect"]
+            },
+            "asked": { "type": "string" },
+            "landed": { "type": "string" }
+          }
+        }
       }
     },
     "units": {
