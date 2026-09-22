@@ -46,6 +46,10 @@ export interface DigestTakeFacts {
    * when it landed where it was asked, or the recorder does not check.
    */
   wall: RecordingMeta['wall'] | null
+  /** Sensitive-looking text the recorder saw in the frame (kind + place, never the string). */
+  exposures: NonNullable<RecordingMeta['exposures']>
+  /** Masks the script asked for, with how many elements each reached. */
+  masks: NonNullable<RecordingMeta['masks']>
 }
 
 export interface Digest {
@@ -130,6 +134,8 @@ export function buildDigest(input: BuildDigestInput): Digest {
       hasCursor: doc.source.cursor.length > 0,
       windowFocusedFrac: meta.windowFocusedFrac ?? null,
       wall: meta.wall ?? null,
+      exposures: meta.exposures ?? [],
+      masks: meta.masks ?? [],
     },
     units: {
       source: 'seconds of footage',
