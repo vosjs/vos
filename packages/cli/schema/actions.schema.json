@@ -29,6 +29,51 @@
         }
       }
     },
+    "setup": {
+      "type": "array",
+      "description": "Run BEFORE the camera rolls, after the first navigation: a sign-in form, a cookie banner, an onboarding tour. Plain actions with no cursor, no frames, no pace and nothing in meta.steps; then the recorder opens `url` again and the take begins where the setup left it. A selector that never appears fails the take before anything is recorded (exit 2). A `type` step's text may be { \"env\": \"NAME\" }, read at run time and never logged or stored; a literal typed into a password field is refused, because actions.json is committed and pushed.",
+      "items": {
+        "type": "object",
+        "required": ["do"],
+        "additionalProperties": false,
+        "properties": {
+          "do": {
+            "type": "string",
+            "enum": ["wait", "click", "type", "press", "goto"]
+          },
+          "id": { "type": "string" },
+          "selector": { "type": "string" },
+          "text": {
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "required": ["env"],
+                "additionalProperties": false,
+                "properties": {
+                  "env": {
+                    "type": "string",
+                    "description": "the environment variable holding the value"
+                  }
+                }
+              }
+            ]
+          },
+          "key": {
+            "type": "string",
+            "description": "press: a Playwright key name (Enter, Tab, Escape)"
+          },
+          "url": {
+            "type": "string",
+            "description": "goto: a page to open, for a sign-in that lives elsewhere"
+          },
+          "ms": {
+            "type": "number",
+            "description": "wait: the pause; other verbs: the settle after (default 150)"
+          }
+        }
+      }
+    },
     "mask": {
       "type": "array",
       "description": "Hidden BEFORE the first frame is captured and kept hidden across navigations and re-renders: what a signed-in account shows that must not ship. The real value is never in a frame, never in the recording, never pushed. `vos record` reports what it still sees afterwards (meta.exposures), and a mask whose selector reached nothing fails --strict.",
