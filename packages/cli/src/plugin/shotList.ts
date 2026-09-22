@@ -70,7 +70,7 @@ function sayStepTarget(step: { selector: string; id?: string }): string {
 }
 
 function beatOf(step: ActionStep): string | null {
-  const cap = (step as { caption?: string }).caption
+  const cap = step.caption
   const named = cap ? `${cap}: ` : ''
   switch (step.do) {
     case 'wait':
