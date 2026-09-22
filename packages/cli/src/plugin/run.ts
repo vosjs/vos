@@ -70,9 +70,19 @@ import {
 import type { TakePaths } from './take'
 import { BrowserUnavailableError, launchBrowser } from '../browser'
 import { recordTake } from './recorder'
-import { WallError, wallVerdict } from './wall'
+import { WALL_PROBE, WallError, wallVerdict } from './wall'
 import { EXPOSURE_ADVICE, exposureLine } from './exposure'
 import { SetupEnvError, SetupError, parseHeaders } from './setup'
+import {
+  listSessions,
+  openSession,
+  removeSession,
+  sessionDir,
+  sessionNameVerdict,
+  summarizeSession,
+  summaryLine,
+  withSession,
+} from './session'
 import type { Arrival, WallVerdict } from './wall'
 import type { Reporter } from './output'
 import {
@@ -133,8 +143,8 @@ export const MULTI_FLAGS = new Set(['set', 'override', 'browser-arg', 'header'])
 export const HELP = `vos — record a browser flow, plan effects, render a product video; sync with vos.so
 
 Take pipeline
-  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>] [--header name=value]... [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
-  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>] [--header name=value]... [--browser-arg=<switch>]... [--background <slug|url|none>] [--json]
+  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>|--session <name>] [--header name=value]... [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
+  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>|--session <name>] [--header name=value]... [--browser-arg=<switch>]... [--background <slug|url|none>] [--json]
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--at-still] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
@@ -146,6 +156,9 @@ Take pipeline
   vos validate <actions.json|take|kit.json> [--picture] [--json]
   vos judge <kit.json> --against <MANIFEST.json> [--out dir] [--json]
   vos actions from-agent-browser <steps.jsonl> [--out actions.json] [--url <url>] [--viewport WxH] [--json]
+  vos session open <url> --name <app>   a plain Chrome window on a vos-owned profile; sign in, close it
+  vos session check <name> [--url <url>]   headless: does the session still open the page? exit 0/4
+  vos session list | rm <name>          what exists and how old; delete one
   vos actions script <actions.json> [--json]
             the flow as numbered beats in words, for a person recording it by hand
 
@@ -508,6 +521,46 @@ function takeStorageState(flags: ParsedArgs['flags']): string | undefined {
   return path
 }
 
+/**
+ * `--session <name>`: record on a profile the person signed in to
+ * (`vos session open`). Mutually exclusive with `--storage-state`: a
+ * persistent context cannot take a storage state, and a take has one door.
+ */
+function takeSessionName(
+  flags: ParsedArgs['flags'],
+  storageState: string | undefined,
+): string | undefined {
+  const name = strFlag(flags, 'session')
+  if (!name) return undefined
+  const bad = sessionNameVerdict(name)
+  if (bad) throw new UsageError(bad)
+  if (storageState)
+    throw new UsageError(
+      '--session and --storage-state are two doors to one take: a persistent profile cannot take a storage state. Pass one',
+    )
+  if (!existsSync(sessionDir(name)))
+    throw new UsageError(
+      `no session "${name}". Make one: vos session open <url> --name ${name} (a Chrome window opens; sign in and close it)`,
+    )
+  return name
+}
+
+/** Run `fn` in the named session's persistent context, or with none. */
+async function inSession<T>(
+  name: string | undefined,
+  actions: { viewport?: { width: number; height: number } },
+  fn: (ctx: import('playwright').BrowserContext | undefined) => Promise<T>,
+): Promise<T> {
+  if (!name) return fn(undefined)
+  return withSession(name, (ctx) => fn(ctx), {
+    headless: true,
+    viewport: {
+      width: actions.viewport?.width ?? 1280,
+      height: actions.viewport?.height ?? 720,
+    },
+  })
+}
+
 async function takeBackdrop(
   flags: ParsedArgs['flags'],
   r: { log: (line: string) => void },
@@ -594,6 +647,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
   const backdrop = await takeBackdrop(flags, r)
   const maxDurationSeconds = await maxDuration(flags, r)
   const storageState = takeStorageState(flags)
+  const sessionName = takeSessionName(flags, storageState)
   const browserArgs = takeBrowserArgs(multi)
   const headers = takeHeaders(multi)
 
@@ -613,19 +667,15 @@ async function cmdRecord(argv: string[]): Promise<number> {
       r.log('rehearsing (nothing is captured or written)…')
       r.event({ event: 'phase', phase: 'rehearse' })
       const started = Date.now()
-      const rec = await recordTake(
-        browser,
-        url,
-        actions,
-        takePaths(outDir),
-        r.log,
-        {
+      const rec = await inSession(sessionName, actions, (context) =>
+        recordTake(browser, url, actions, takePaths(outDir), r.log, {
           storageState,
           headers,
+          context,
           dryRun: true,
           // A rehearsal is always strict, and it touches no directory.
           onArrival: wallGate(flags, r, { strict: true }),
-        },
+        }),
       )
       const steps = rec.meta.steps ?? []
       const lines = steps.map((s) => {
@@ -646,6 +696,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
           : []),
         ...browserArgs.map((a) => `--browser-arg=${a}`),
         ...Object.entries(headers).map(([k, v]) => `--header ${k}=${v}`),
+        ...(sessionName ? [`--session ${sessionName}`] : []),
         ...(flags['allow-wall'] === true ? ['--allow-wall'] : []),
       ].join(' ')
       const nextOut = strFlag(flags, 'out') ?? 'take'
@@ -693,15 +744,18 @@ async function cmdRecord(argv: string[]): Promise<number> {
   try {
     r.log('recording…')
     r.event({ event: 'phase', phase: 'record' })
-    const rec = await recordTake(browser, url, actions, paths, r.log, {
-      maxDurationSeconds: maxDurationSeconds,
-      storageState: storageState,
-      headers,
-      onArrival: wallGate(flags, r, {
-        strict: flags.strict === true,
-        prepare,
+    const rec = await inSession(sessionName, actions, (context) =>
+      recordTake(browser, url, actions, paths, r.log, {
+        maxDurationSeconds: maxDurationSeconds,
+        storageState: storageState,
+        headers,
+        context,
+        onArrival: wallGate(flags, r, {
+          strict: flags.strict === true,
+          prepare,
+        }),
       }),
-    })
+    )
     r.event({ event: 'phase', phase: 'encode' })
     r.log('encoding…')
     const enc = await encodeRecording(browser, outDir, (p) =>
@@ -788,6 +842,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
   const backdrop = await takeBackdrop(flags, r)
   const maxDurationSeconds = await maxDuration(flags, r)
   const storageState = takeStorageState(flags)
+  const sessionName = takeSessionName(flags, storageState)
   const browserArgs = takeBrowserArgs(multi)
   const headers = takeHeaders(multi)
 
@@ -816,15 +871,18 @@ async function cmdCreate(argv: string[]): Promise<number> {
   try {
     r.log('recording…')
     r.event({ event: 'phase', phase: 'record' })
-    const rec = await recordTake(browser, url, actions, paths, r.log, {
-      maxDurationSeconds: maxDurationSeconds,
-      storageState: storageState,
-      headers,
-      onArrival: wallGate(flags, r, {
-        strict: flags.strict === true,
-        prepare,
+    const rec = await inSession(sessionName, actions, (context) =>
+      recordTake(browser, url, actions, paths, r.log, {
+        maxDurationSeconds: maxDurationSeconds,
+        storageState: storageState,
+        headers,
+        context,
+        onArrival: wallGate(flags, r, {
+          strict: flags.strict === true,
+          prepare,
+        }),
       }),
-    })
+    )
     r.event({ event: 'phase', phase: 'encode' })
     r.log('encoding…')
     await encodeRecording(browser, outDir, (p) =>
@@ -2183,6 +2241,8 @@ export async function run(argv: string[]): Promise<number> {
         return await cmdRecipe(rest)
       case 'brand':
         return await cmdBrand(rest)
+      case 'session':
+        return await cmdSession(rest)
       case 'actions':
         return await cmdActions(rest)
       default:
@@ -2209,5 +2269,138 @@ export async function run(argv: string[]): Promise<number> {
       `error: ${e instanceof Error ? e.message : String(e)}\n`,
     )
     return EXIT_ERROR
+  }
+}
+
+/**
+ * `vos session`: takeover mode, local. open / check / list / rm. Counts,
+ * origins and expiry only; no verb prints a cookie value, --json included.
+ */
+async function cmdSession(argv: string[]): Promise<number> {
+  const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
+  const [sub, arg] = positionals
+  const r = createReporter(flags.json === true)
+  const usage =
+    'vos session open <url> --name <app> | check <name> [--url <url>] | list | rm <name>'
+  switch (sub) {
+    case 'open': {
+      if (!arg) throw new UsageError(usage)
+      const name = strFlag(flags, 'name')
+      const bad = sessionNameVerdict(name)
+      if (bad) throw new UsageError(bad)
+      let url: URL
+      try {
+        url = new URL(arg)
+      } catch {
+        throw new UsageError(`vos session open wants a URL, got "${arg}"`)
+      }
+      if (!/^https?:$/.test(url.protocol))
+        throw new UsageError('vos session open wants an http(s) URL')
+      await openSession(name!, url.href, { log: r.log })
+      const summary = await summarizeSession(name!)
+      r.done(
+        {
+          name: summary.name,
+          origins: summary.origins,
+          newestExpires: summary.newestExpires,
+          sessionOnly: summary.sessionOnly,
+        },
+        `${summaryLine(summary)}\n  Record on it: vos record --actions actions.json --out take --session ${name} --strict`,
+      )
+      return summary.origins.length ? EXIT_OK : EXIT_ERROR
+    }
+    case 'check': {
+      if (!arg) throw new UsageError(usage)
+      const bad = sessionNameVerdict(arg)
+      if (bad) throw new UsageError(bad)
+      if (!existsSync(sessionDir(arg)))
+        throw new UsageError(`no session "${arg}" (vos session list)`)
+      const summary = await summarizeSession(arg)
+      const url = strFlag(flags, 'url')
+      if (!url) {
+        r.done(
+          {
+            name: arg,
+            origins: summary.origins,
+            newestExpires: summary.newestExpires,
+            sessionOnly: summary.sessionOnly,
+          },
+          summaryLine(summary),
+        )
+        return summary.origins.length ? EXIT_OK : EXIT_WALL
+      }
+      // Does the session still open the page it was made for? The wall
+      // check's own verdict, on this profile.
+      const verdict = await withSession(arg, async (ctx) => {
+        const page = await ctx.newPage()
+        const response = await page
+          .goto(url, { waitUntil: 'networkidle', timeout: 30000 })
+          .catch(() => null)
+        const seen = (await page.evaluate(WALL_PROBE).catch(() => null)) as {
+          passwordFields: number
+          newPasswordField: boolean
+          oneTimeCodeField: boolean
+        } | null
+        return wallVerdict({
+          askedUrl: url,
+          landedUrl: page.url(),
+          ...(response ? { status: response.status() } : {}),
+          passwordFields: seen?.passwordFields ?? 0,
+          newPasswordField: seen?.newPasswordField ?? false,
+          oneTimeCodeField: seen?.oneTimeCodeField ?? false,
+        })
+      })
+      if (verdict) {
+        r.done(
+          {
+            name: arg,
+            ok: false,
+            wall: verdict,
+            origins: summary.origins,
+            newestExpires: summary.newestExpires,
+          },
+          `session "${arg}" no longer opens ${url}: ${verdict.message.split('. ')[0]}. It expired, or the sign-in never landed. Sign in again: vos session open ${url} --name ${arg}`,
+        )
+        return EXIT_WALL
+      }
+      r.done(
+        {
+          name: arg,
+          ok: true,
+          origins: summary.origins,
+          newestExpires: summary.newestExpires,
+        },
+        `session "${arg}" opens ${url} signed in. ${summaryLine(summary)}`,
+      )
+      return EXIT_OK
+    }
+    case 'list': {
+      const rows = listSessions()
+      r.done(
+        { sessions: rows },
+        rows.length
+          ? rows
+              .map(
+                (x) =>
+                  `  ${x.name}  ${x.ageDays} day${x.ageDays === 1 ? '' : 's'} old`,
+              )
+              .join('\n')
+          : 'no sessions. Make one: vos session open <url> --name <app>',
+      )
+      return EXIT_OK
+    }
+    case 'rm': {
+      if (!arg) throw new UsageError(usage)
+      const bad = sessionNameVerdict(arg)
+      if (bad) throw new UsageError(bad)
+      const gone = removeSession(arg)
+      r.done(
+        { name: arg, removed: gone },
+        gone ? `removed session "${arg}"` : `no session "${arg}"`,
+      )
+      return gone ? EXIT_OK : EXIT_ERROR
+    }
+    default:
+      throw new UsageError(usage)
   }
 }

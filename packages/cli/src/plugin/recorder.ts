@@ -23,7 +23,7 @@ import {
   settleMs,
 } from './pace'
 import type { PaceReport, StepPace } from './pace'
-import type { Browser } from 'playwright'
+import type { Browser, BrowserContext } from 'playwright'
 import type {
   CursorEvent,
   RecordingMeta,
@@ -118,6 +118,12 @@ export interface RecordOpts {
   ) => Promise<WallVerdict | null | void> | WallVerdict | null | void
   /** Extra request headers on every request (`--header name=value`). */
   headers?: Record<string, string>
+  /**
+   * A ready-made context to record IN, instead of one made from `browser`:
+   * `--session <name>`, a persistent profile the person signed in to. The
+   * recorder still sizes the viewport and closes it at the end.
+   */
+  context?: BrowserContext
 }
 
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
@@ -161,14 +167,18 @@ export async function recordTake(
   const maxSeconds = dry ? Infinity : (opts.maxDurationSeconds ?? Infinity)
   const vw = actions.viewport?.width ?? 1280
   const vh = actions.viewport?.height ?? 720
-  const context = await browser.newContext({
-    viewport: { width: vw, height: vh },
-    deviceScaleFactor: 1,
-    ...(opts.storageState ? { storageState: opts.storageState } : {}),
-    ...(opts.headers && Object.keys(opts.headers).length
-      ? { extraHTTPHeaders: opts.headers }
-      : {}),
-  })
+  const context =
+    opts.context ??
+    (await browser.newContext({
+      viewport: { width: vw, height: vh },
+      deviceScaleFactor: 1,
+      ...(opts.storageState ? { storageState: opts.storageState } : {}),
+      ...(opts.headers && Object.keys(opts.headers).length
+        ? { extraHTTPHeaders: opts.headers }
+        : {}),
+    }))
+  if (opts.context && opts.headers && Object.keys(opts.headers).length)
+    await context.setExtraHTTPHeaders(opts.headers)
   // Masks go in as an init script, so they are in force at document start on
   // every navigation: the real value never reaches a painted frame.
   const masks = actions.mask ?? []

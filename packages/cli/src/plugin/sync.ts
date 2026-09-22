@@ -18,7 +18,7 @@
  * All HTTP + credentials + state ride the ONE platform client (platform.ts).
  */
 import { createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { createInterface } from 'node:readline/promises'
 import { basename, join } from 'node:path'
@@ -29,6 +29,7 @@ import { docMediaRefs, pullMedia, takeRelativeFile } from './media'
 import { MEDIA_HEAD_BYTES, nameForType, resolveMediaType } from './container'
 import { listFolders, resolveFolder } from './folder'
 import { uploadAsset } from './uploadAsset'
+import { looksLikeStorageState } from './session'
 import {
   apiJson,
   clientId,
@@ -194,6 +195,29 @@ export function programPushTarget(ask: {
   return { kind: 'version', vosId: tracked, tracked: true }
 }
 
+/** The first top-level JSON in `dir` shaped like a Playwright storage state, or null. */
+export function storageStateInDir(dir: string): string | null {
+  for (const f of readdirSync(dir)) {
+    if (
+      !f.endsWith('.json') ||
+      f === 'doc.json' ||
+      f === 'meta.json' ||
+      f === 'actions.json' ||
+      f === 'cursor.json' ||
+      f === 'vos.json' ||
+      f === 'doc.prev.json'
+    )
+      continue
+    try {
+      const v = JSON.parse(readFileSync(join(dir, f), 'utf8')) as unknown
+      if (looksLikeStorageState(v)) return join(dir, f)
+    } catch {
+      /* not JSON, not a state */
+    }
+  }
+  return null
+}
+
 export async function pushTake(
   dir: string,
   flags: {
@@ -211,6 +235,13 @@ export async function pushTake(
   },
   r: Reporter,
 ): Promise<{ vosId: string; versionId: string; versionNumber: number }> {
+  // A storage-state-shaped JSON in the take would upload live credentials
+  // with it. Refused by path, before anything is read for the push.
+  const stateFile = storageStateInDir(dir)
+  if (stateFile)
+    throw new Error(
+      `${stateFile} looks like a Playwright storage state (cookies + origins): a live session in the take directory would be uploaded with it. Move it out of the take (a session belongs under ~/.config/vos/sessions or a temp dir) and push again`,
+    )
   const take = await loadTake(dir)
   if (!take.doc) {
     throw new Error('no doc.json in this take — run `vos plan` first')
