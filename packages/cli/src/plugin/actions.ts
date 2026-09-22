@@ -78,6 +78,12 @@ export type ActionStep = (
    * edits without breaking the cut anchored to it. Unique when present.
    */
   id?: string
+  /**
+   * A beat's caption, two to eight words: `vos deliver` lands it as a
+   * lower-third at this step's moment on the cuts that take words, and
+   * `vos actions script` leads the beat with it.
+   */
+  caption?: string
 }
 
 const VERBS = new Set([
