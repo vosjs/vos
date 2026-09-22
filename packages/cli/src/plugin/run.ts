@@ -146,6 +146,8 @@ Take pipeline
   vos validate <actions.json|take|kit.json> [--picture] [--json]
   vos judge <kit.json> --against <MANIFEST.json> [--out dir] [--json]
   vos actions from-agent-browser <steps.jsonl> [--out actions.json] [--url <url>] [--viewport WxH] [--json]
+  vos actions script <actions.json> [--json]
+            the flow as numbered beats in words, for a person recording it by hand
 
 Platform (vos.so) — fetch, edit, push, pull, repeat
   vos login [--key <vos_sk_…>] [--label <name>] [--no-browser]

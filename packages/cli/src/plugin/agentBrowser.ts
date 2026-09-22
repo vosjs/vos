@@ -594,9 +594,10 @@ export function convertAgentBrowser(
 export async function cmdActions(argv: string[]): Promise<number> {
   const { positionals, flags } = parseArgs(argv, new Set(['json']))
   const [sub, input] = positionals
+  if (sub === 'script' && input) return cmdActionsScript(input, flags)
   if (sub !== 'from-agent-browser' || !input) {
     throw new UsageError(
-      'vos actions from-agent-browser <steps.jsonl> [--out actions.json] [--url <url>] [--viewport WxH] [--json]',
+      'vos actions from-agent-browser <steps.jsonl> [--out actions.json] [--url <url>] [--viewport WxH] [--json]\n       vos actions script <actions.json> [--json]',
     )
   }
   const r = createReporter(flags.json === true)
@@ -646,4 +647,24 @@ function summary(result: ConvertResult): {
     skipped: result.skipped,
     notes: result.notes,
   }
+}
+
+/**
+ * `vos actions script <actions.json>`: the flow as numbered beats in plain
+ * words, for the person who will record it by hand (the last rung of the
+ * session ladder). The agent hands this over instead of an apology.
+ */
+async function cmdActionsScript(
+  input: string,
+  flags: ReturnType<typeof parseArgs>['flags'],
+): Promise<number> {
+  const r = createReporter(flags.json === true)
+  const { readFile } = await import('node:fs/promises')
+  const { shotList, formatShotList } = await import('./shotList')
+  const raw = JSON.parse(await readFile(resolve(input), 'utf8')) as unknown
+  const errors = validateActions(raw)
+  if (errors.length) throw new UsageError(`${input}:\n  ${errors.join('\n  ')}`)
+  const list = shotList(raw as Parameters<typeof shotList>[0])
+  r.done({ ...list, text: formatShotList(list) }, formatShotList(list))
+  return EXIT_OK
 }
