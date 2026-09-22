@@ -32,6 +32,7 @@ import type {
 } from '@vosjs/studio-core'
 import { WALL_PROBE } from './wall'
 import { EXPOSURE_PROBE, ExposureLog, maskInitScript } from './exposure'
+import { SetupError, runSetup } from './setup'
 import type { ActionsFile } from './actions'
 import type { TakePaths } from './take'
 import type { Arrival, WallVerdict } from './wall'
@@ -115,6 +116,8 @@ export interface RecordOpts {
   onArrival?: (
     arrival: Arrival,
   ) => Promise<WallVerdict | null | void> | WallVerdict | null | void
+  /** Extra request headers on every request (`--header name=value`). */
+  headers?: Record<string, string>
 }
 
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
@@ -162,6 +165,9 @@ export async function recordTake(
     viewport: { width: vw, height: vh },
     deviceScaleFactor: 1,
     ...(opts.storageState ? { storageState: opts.storageState } : {}),
+    ...(opts.headers && Object.keys(opts.headers).length
+      ? { extraHTTPHeaders: opts.headers }
+      : {}),
   })
   // Masks go in as an init script, so they are in force at document start on
   // every navigation: the real value never reaches a painted frame.
@@ -181,7 +187,7 @@ export async function recordTake(
 
   log(`goto ${url}`)
   let navTimeout = false
-  const response = await page
+  let response = await page
     .goto(url, { waitUntil: 'networkidle', timeout: 45000 })
     .catch(() => {
       navTimeout = true
@@ -189,6 +195,26 @@ export async function recordTake(
       return null
     })
   await sleep(800) // hydration settle
+
+  // The setup: off camera, before the wall is judged, because a setup that
+  // signs in is exactly what makes the wall not there. A selector that never
+  // appears fails the take here, in words, before anything is captured.
+  const setup = actions.setup ?? []
+  if (setup.length) {
+    log(`setup: ${setup.length} step(s), off camera`)
+    const result = await runSetup(page, setup, { sleep: realSleep })
+    for (const line of result.lines) log(`   ${line}`)
+    if (result.failed) {
+      await context.close().catch(() => {})
+      throw new SetupError(result.failed)
+    }
+    // Back to the page the take is OF, signed in and past the banners.
+    log(`goto ${url} (after setup)`)
+    response = await page
+      .goto(url, { waitUntil: 'networkidle', timeout: 45000 })
+      .catch(() => null)
+    await sleep(800)
+  }
 
   // A wall the caller let through (--allow-wall, or a soft one without
   // --strict) rides the take's meta, so a digest made later still says so.

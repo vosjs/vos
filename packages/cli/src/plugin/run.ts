@@ -72,6 +72,7 @@ import { BrowserUnavailableError, launchBrowser } from '../browser'
 import { recordTake } from './recorder'
 import { WallError, wallVerdict } from './wall'
 import { EXPOSURE_ADVICE, exposureLine } from './exposure'
+import { SetupEnvError, SetupError, parseHeaders } from './setup'
 import type { Arrival, WallVerdict } from './wall'
 import type { Reporter } from './output'
 import {
@@ -127,13 +128,13 @@ const BOOLEAN_FLAGS = new Set([
   'allow-wall',
 ])
 /** Repeatable value flags (accumulate): --set path=value on render/frames, --override id on push, --browser-arg=<switch> on record/create. */
-export const MULTI_FLAGS = new Set(['set', 'override', 'browser-arg'])
+export const MULTI_FLAGS = new Set(['set', 'override', 'browser-arg', 'header'])
 
 export const HELP = `vos — record a browser flow, plan effects, render a product video; sync with vos.so
 
 Take pipeline
-  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>] [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
-  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>] [--browser-arg=<switch>]... [--background <slug|url|none>] [--json]
+  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>] [--header name=value]... [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
+  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>] [--header name=value]... [--browser-arg=<switch>]... [--background <slug|url|none>] [--json]
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--at-still] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
@@ -471,6 +472,19 @@ function exposureNote(rec: {
  * `--use-fake-device-for-media-stream`) reached Chromium as its last half.
  * A switch starts with `--`, so it is written with `=`.
  */
+/**
+ * `--header name=value`, repeatable: a request header on every request the
+ * recording browser makes. The way past a preview deployment that is
+ * protected by a bypass header alone (rung 0 of the session ladder).
+ */
+function takeHeaders(multi: ParsedArgs['multi']): Record<string, string> {
+  try {
+    return parseHeaders(multi.header as string[] | undefined)
+  } catch (e) {
+    throw new UsageError(e instanceof Error ? e.message : String(e))
+  }
+}
+
 export function takeBrowserArgs(multi: ParsedArgs['multi']): string[] {
   // Index access is typed present but is runtime-optional.
   const given = multi['browser-arg'] as string[] | undefined
@@ -579,6 +593,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
   const maxDurationSeconds = await maxDuration(flags, r)
   const storageState = takeStorageState(flags)
   const browserArgs = takeBrowserArgs(multi)
+  const headers = takeHeaders(multi)
 
   // A REHEARSAL: run the script against the real page and say which
   // selectors resolve, before a real-time take and its encode are spent
@@ -604,6 +619,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
         r.log,
         {
           storageState,
+          headers,
           dryRun: true,
           // A rehearsal is always strict, and it touches no directory.
           onArrival: wallGate(flags, r, { strict: true }),
@@ -627,6 +643,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
           ? [`--storage-state ${strFlag(flags, 'storage-state')}`]
           : []),
         ...browserArgs.map((a) => `--browser-arg=${a}`),
+        ...Object.entries(headers).map(([k, v]) => `--header ${k}=${v}`),
         ...(flags['allow-wall'] === true ? ['--allow-wall'] : []),
       ].join(' ')
       const nextOut = strFlag(flags, 'out') ?? 'take'
@@ -677,6 +694,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
     const rec = await recordTake(browser, url, actions, paths, r.log, {
       maxDurationSeconds: maxDurationSeconds,
       storageState: storageState,
+      headers,
       onArrival: wallGate(flags, r, {
         strict: flags.strict === true,
         prepare,
@@ -769,6 +787,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
   const maxDurationSeconds = await maxDuration(flags, r)
   const storageState = takeStorageState(flags)
   const browserArgs = takeBrowserArgs(multi)
+  const headers = takeHeaders(multi)
 
   // Run by the wall gate, once the recorder has landed where it was asked.
   // A re-record replaces the FOOTAGE, never the cut. The previous doc.json
@@ -798,6 +817,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
     const rec = await recordTake(browser, url, actions, paths, r.log, {
       maxDurationSeconds: maxDurationSeconds,
       storageState: storageState,
+      headers,
       onArrival: wallGate(flags, r, {
         strict: flags.strict === true,
         prepare,
@@ -2169,6 +2189,10 @@ export async function run(argv: string[]): Promise<number> {
   } catch (e) {
     if (e instanceof UsageError) {
       process.stderr.write(`usage error: ${e.message}\n`)
+      return EXIT_USAGE
+    }
+    if (e instanceof SetupError || e instanceof SetupEnvError) {
+      process.stderr.write(`${e.message}\n`)
       return EXIT_USAGE
     }
     if (e instanceof WallError) {

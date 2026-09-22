@@ -1,4 +1,6 @@
 import type { MaskRule } from './exposure'
+import type { SetupStep } from './setup'
+import { validateSetup } from './setup'
 
 /**
  * The action script — the declarative recipe an agent (or human) writes to
@@ -19,6 +21,15 @@ export interface ActionsFile {
    * copy or numbers: the video must stay true to the product.
    */
   mask?: MaskRule[]
+  /**
+   * Run BEFORE the camera rolls, after the first navigation: a sign-in form,
+   * a cookie banner, an onboarding tour. Plain actions with no cursor, no
+   * frames, no pace and nothing in `meta.steps`; then the recorder opens
+   * `url` again and the take begins where the setup left it. A `type`
+   * step's text may be `{ env: 'NAME' }`, read at run time and never logged
+   * or stored.
+   */
+  setup?: SetupStep[]
   steps: ActionStep[]
 }
 
@@ -98,6 +109,7 @@ export function validateActions(value: unknown): string[] {
       }
     }
   }
+  if (obj.setup !== undefined) errors.push(...validateSetup(obj.setup))
   if (obj.mask !== undefined) {
     if (!Array.isArray(obj.mask)) {
       errors.push('mask must be an array of { selector, as?, text? }')
