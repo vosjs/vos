@@ -76,10 +76,13 @@ export {
   scrollRuns,
 } from './planner/autoSpeed'
 export {
+  CLUSTER_FILL,
   DRAG_FIT_LEVEL,
   DRAG_MIN_S,
   DRAG_MIN_TRAVEL_FRAC,
   dragsFromTrack,
+  unionFitLevel,
+  unionRect,
 } from './planner/autoZoom'
 export type { Drag } from './planner/autoZoom'
 export type { SpeedParams } from './planner/autoSpeed'

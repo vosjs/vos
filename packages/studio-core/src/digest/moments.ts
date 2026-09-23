@@ -182,6 +182,7 @@ export function momentsFromDoc(
       typingGap: style.typingGap,
       typingZoom: style.typingZoom,
       targetFill: style.targetFill,
+      minLevel: style.minLevel,
     })
     const pressed = (c: Click[], surface: boolean) => {
       const f = clusterFocus(c, width, height)

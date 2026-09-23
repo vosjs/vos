@@ -54,6 +54,7 @@ import {
   spanOutputExtent,
   zoomCoversRect,
   cameraModel,
+  unionFitLevel,
 } from '@vosjs/studio-core'
 import { TYPEFACE_CATALOG, findFontFamily, findTypeface } from '@vosjs/shared'
 import type {
@@ -1906,8 +1907,22 @@ function framingWarnings(
           cameraModel(docIn.frame),
         )
       ) {
+        // The presses under a span must share its window. When they cannot
+        // at any level worth zooming to, no cx/cy helps: the span is two
+        // beats, and the advice is the split (the planner now makes it).
+        const together = unionFitLevel(
+          { x: x0 * w, y: y0 * h, w: rect.w * w, h: rect.h * h },
+          w,
+          h,
+        )
+        const fix =
+          together < 1.2
+            ? `the ${under.length} presses under it do not share one window at any zoom, so split it, one span per press (vos plan replans auto spans)`
+            : together < z.level
+              ? `lower the level to ${together.toFixed(2)}× or below, or split the span`
+              : `move cx/cy toward it`
         warnings.push(
-          `${spanName('zoom', z)}: points beside what was clicked at ${under[0].t.toFixed(1)}s — the target (center ${((x0 + x1) / 2).toFixed(2)}, ${((y0 + y1) / 2).toFixed(2)}) sits outside the visible window; move cx/cy toward it or lower the level`,
+          `${spanName('zoom', z)}: points beside what was clicked at ${under[0].t.toFixed(1)}s — the target (center ${((x0 + x1) / 2).toFixed(2)}, ${((y0 + y1) / 2).toFixed(2)}) sits outside the visible window; ${fix}`,
         )
       }
     }

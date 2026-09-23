@@ -29,6 +29,14 @@ const DWELL_MAX = 2.6
 /** Min gap between accepted dwell centers (longest dwell wins). */
 const DWELL_SPACING = 1.8
 /**
+ * A click cluster's targets, taken together, must sit within this fraction
+ * of the zoom window (each axis), so the camera lands with room around the
+ * union rather than an edge on a target. It is what makes a cluster: presses
+ * that cannot share one window at a level worth zooming to are two beats,
+ * however close in time.
+ */
+export const CLUSTER_FILL = 0.85
+/**
  * A press whose element FITS the frame at less than this level is not a
  * target: it is a drag (aiming, scrubbing, moving a thing across the canvas)
  * or a frame-sized surface (a canvas, a panel, a modal clicked to focus or
@@ -196,9 +204,16 @@ export function groupTrack(
     typingZoom: boolean
     /** the style's fill target — what decides a press is on a SURFACE. */
     targetFill: number
+    /**
+     * the style's level floor: a press joins a cluster only while the
+     * cluster's targets still share one window at this level or above.
+     * Absent = the default style's.
+     */
+    minLevel?: number
   },
 ): { sessions: TypingSession[]; clusters: Click[][]; surfaces: Click[][] } {
   const { width, height, clusterGap, typingGap, typingZoom, targetFill } = opts
+  const minLevel = opts.minLevel ?? resolveZoomStyle().minLevel
   const clicks: Click[] = dedupePresses(
     track.filter((e) => e.type === 'down'),
   ).map((e) => ({ t: e.t / 1000, rect: e.rect, x: e.x, y: e.y }))
@@ -235,18 +250,34 @@ export function groupTrack(
     if (isSurfacePress(c, width, height, targetFill)) surfaces.push(c)
     else targets.push(c)
   }
-  // Merge clicks that are close in time into one sustained zoom.
-  const chain = (list: Click[]): Click[][] => {
+  // Merge clicks that are close in time into one sustained zoom, while the
+  // cluster's targets still share one window: a press that would push the
+  // union past what the camera can show at the level floor starts a new
+  // cluster, and the chain gap pans between them. Time alone once merged a
+  // corner press with one at the top of the frame into a span aimed at
+  // their midpoint, which framed neither. Surface presses reserve their
+  // window and plan no zoom, so for them time is the whole test.
+  const chain = (list: Click[], spatial: boolean): Click[][] => {
     const clusters: Click[][] = []
     for (const c of list) {
       const last = clusters.at(-1) // Click[] | undefined
       const prev = last?.at(-1)
-      if (last && prev && c.t - prev.t <= clusterGap) last.push(c)
+      const joins =
+        last &&
+        prev &&
+        c.t - prev.t <= clusterGap &&
+        (!spatial ||
+          unionFitLevel(unionRect([...last, c]), width, height) >= minLevel)
+      if (joins) last!.push(c)
       else clusters.push([c])
     }
     return clusters
   }
-  return { sessions, clusters: chain(targets), surfaces: chain(surfaces) }
+  return {
+    sessions,
+    clusters: chain(targets, true),
+    surfaces: chain(surfaces, false),
+  }
 }
 
 /** Drop a `down` that echoes the previous one (PRESS_ECHO_MS/PX). */
@@ -265,6 +296,38 @@ export function dedupePresses(downs: CursorTrack): CursorTrack {
     kept.push(e)
   }
   return kept
+}
+
+/** The rect that holds every press: its element when known, else the point. */
+export function unionRect(clicks: Click[]): Rect {
+  let x0 = Infinity
+  let y0 = Infinity
+  let x1 = -Infinity
+  let y1 = -Infinity
+  for (const c of clicks) {
+    const r = c.rect ?? { x: c.x, y: c.y, w: 0, h: 0 }
+    x0 = Math.min(x0, r.x)
+    y0 = Math.min(y0, r.y)
+    x1 = Math.max(x1, r.x + r.w)
+    y1 = Math.max(y1, r.y + r.h)
+  }
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+}
+
+/**
+ * The highest level at which `rect` sits within CLUSTER_FILL of the zoom
+ * window on both axes, in the video's own frame (the window shows 1/level
+ * of it; a padded frame shows a little more, so this errs toward splitting,
+ * whose cost is one pan). Infinity for a point.
+ */
+export function unionFitLevel(
+  rect: Rect,
+  width: number,
+  height: number,
+): number {
+  const fx = rect.w > 0 ? (width * CLUSTER_FILL) / rect.w : Infinity
+  const fy = rect.h > 0 ? (height * CLUSTER_FILL) / rect.h : Infinity
+  return Math.min(fx, fy)
 }
 
 /**
@@ -325,6 +388,7 @@ export function planAutoZoom(
     typingGap,
     typingZoom,
     targetFill,
+    minLevel,
   })
   const { sessions } = grouped
 
@@ -670,10 +734,13 @@ function focusFor(
   // (element-aware). No rect → the max level (point zoom). Every member
   // cleared DRAG_FIT_LEVEL on its own (groupTrack), so the level is a
   // target's, never a surface's.
-  const level =
+  // …and no closer than the whole cluster allows: two targets that share a
+  // window at 1.4× but not at 1.8× get 1.4×, so both stay in frame.
+  const own =
     fitLevel({ x: 0, y: 0, w: maxW, h: maxH }, width, height, targetFill) ??
     maxLevel
-  return { cx, cy, level: clamp(level, minLevel, maxLevel) }
+  const together = unionFitLevel(unionRect(cluster), width, height)
+  return { cx, cy, level: clamp(Math.min(own, together), minLevel, maxLevel) }
 }
 
 /**
