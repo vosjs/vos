@@ -93,7 +93,7 @@ vos plan take --reuse                                   # re-time that cut onto 
 **`vos session`: takeover mode, local.** A production app behind an emailed code, SSO, a passkey or a CAPTCHA has no form to script and no test auth to mint from, so a person signs in once and the recorder reuses that session:
 
 ```bash
-vos session open https://app.acme.com --name acme   # a plain Chrome window opens; sign in, close it
+vos session open https://app.acme.com --name acme   # a plain Chrome window opens; sign in, quit it (⌘Q on a Mac, closing the window is not quitting)
 vos session check acme --url https://app.acme.com/dashboard   # does it still open the page? exit 0, or 4
 vos record --actions actions.json --out take --session acme --strict
 vos session list · vos session rm acme
