@@ -104,8 +104,15 @@ export async function openSession(
     '--window-size=1100,800',
     url,
   ]
+  // On a Mac, closing the last window leaves Chrome running, and this waits
+  // on the PROCESS: a person who closed the window and reported "done" left
+  // the command hanging and nothing saved (measured on the first real run).
+  const leave =
+    process.platform === 'darwin'
+      ? 'then quit Chrome with ⌘Q (closing the window alone leaves it running, and this waiting)'
+      : 'then close the window'
   opts.log(
-    `a Chrome window opened on session "${name}": sign in to ${new URL(url).host}, then close the window`,
+    `a Chrome window opened on session "${name}": sign in to ${new URL(url).host}, ${leave}`,
   )
   return new Promise((resolve, reject) => {
     const child = spawn(exe, args, { stdio: 'ignore' })
