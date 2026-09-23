@@ -364,6 +364,34 @@ describe('planAutoZoom', () => {
     ).toHaveLength(1)
   })
 
+  it('two beats that cannot share a window but sit a second apart never overlap', () => {
+    // The corner avatar and the heading pressed 1.3 s apart: two spans by
+    // the cluster rule, and the first ends where the second enters.
+    const w = 1280
+    const h = 720
+    const track: CursorTrack = [
+      {
+        t: 7900,
+        x: 36,
+        y: 688,
+        type: 'down',
+        rect: { x: 20, y: 672, w: 32, h: 32 },
+      },
+      {
+        t: 9200,
+        x: 256,
+        y: 52,
+        type: 'down',
+        rect: { x: 224, y: 41.6, w: 63.3, h: 20.8 },
+      },
+      { t: 12000, x: 256, y: 52, type: 'move' },
+    ]
+    const spans = planAutoZoom(track, { width: w, height: h, style: 'glide' })
+    expect(spans).toHaveLength(2)
+    expect(spans[0].out).toBeLessThanOrEqual(spans[1].in)
+    expect(spans[0].out).toBe(spans[1].in)
+  })
+
   it('two targets that share a window only at a lower level get that level', () => {
     // Two buttons 40% of the frame apart: one beat, but 1.8× would show one
     // of them at the edge, so the level comes down to what holds both.

@@ -458,6 +458,17 @@ export function planAutoZoom(
     })
   }
 
+  // Two beats less than a lead plus a hold apart (a corner press and a
+  // press at the top of the frame within a second) are two spans since the
+  // cluster rule split them, and they must not overlap: the earlier span
+  // ends where the later one enters, and adjacent spans chain into a pan.
+  clickSpans.sort((a, b) => a.in - b.in)
+  for (let i = 0; i + 1 < clickSpans.length; i++) {
+    if (clickSpans[i].out > clickSpans[i + 1].in)
+      clickSpans[i].out = clickSpans[i + 1].in
+  }
+  for (const z of clickSpans) if (z.out - z.in < 0.3) z.dead = true
+
   // Typing spans clamp to their own floor: the field is the moment being
   // narrated, so a wide input still reads a notch punchier than a wide click.
   const typingFloor = Math.min(Math.max(minLevel, typingMinLevel), maxLevel)
