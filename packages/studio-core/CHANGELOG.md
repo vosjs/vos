@@ -1,5 +1,11 @@
 # @vosjs/studio-core
 
+## 0.30.2
+
+### Patch Changes
+
+- 82ad707: No planned zoom span runs past the footage: the planner takes the footage's `duration` and clamps every span to it (the cursor track ends at the last event, before the footage does). A take whose last press sat closer to the end than the style's hold planned a span past the end, which `vos push` refused.
+
 ## 0.30.1
 
 ### Patch Changes
