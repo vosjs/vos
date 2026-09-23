@@ -67,6 +67,7 @@ import {
   takePaths,
   writeJson,
 } from './take'
+import { deadLine, deadWarns } from './pace'
 import type { TakePaths } from './take'
 import { BrowserUnavailableError, launchBrowser } from '../browser'
 import { recordTake } from './recorder'
@@ -788,6 +789,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
         navTimeout: rec.navTimeout,
         freezes: rec.freezes,
         freezePct: rec.freezePct,
+        dead: rec.dead,
         capped: rec.capped,
         pace: rec.pace,
         ...(rec.wall ? { wall: rec.wall } : {}),
@@ -797,7 +799,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
       },
       strictFail
         ? `STRICT: take recorded but incomplete — ${strictReason(rec)}; fix the flow and re-record.${skippedNote}${exposureNote(rec)}`
-        : `Take ready: ${outDir}\n  ${(rec.meta.durationMs / 1000).toFixed(1)}s · ${rec.frames.length} frames · ${rec.events.length} cursor events · ${clicks} clicks · ${plan.doc.zoom.length} zoom spans planned · ${rec.freezePct}% frozen${rec.freezePct >= 25 ? ' ⚠ keep motion in frame or trim' : ''}${skippedNote}\n  Next: edit ${join(outDir, 'doc.json')} (optional), then: vos render ${outDir}${exposureNote(rec)}`,
+        : `Take ready: ${outDir}\n  ${(rec.meta.durationMs / 1000).toFixed(1)}s · ${rec.frames.length} frames · ${rec.events.length} cursor events · ${clicks} clicks · ${plan.doc.zoom.length} zoom spans planned · ${rec.freezePct}% frozen · ${rec.dead.pct}% dead${deadWarns(rec.dead) ? ' ⚠ ' + deadLine(rec.dead) : ''}${skippedNote}\n  Next: edit ${join(outDir, 'doc.json')} (optional), then: vos render ${outDir}${exposureNote(rec)}`,
     )
     return strictFail ? EXIT_USAGE : EXIT_OK
   } finally {
@@ -946,6 +948,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
         navTimeout: rec.navTimeout,
         freezes: rec.freezes,
         freezePct: rec.freezePct,
+        dead: rec.dead,
         exposures: rec.exposures,
         ...(rec.masks.length ? { masks: rec.masks } : {}),
         ...(flags.draft === true ? { draft: true } : {}),

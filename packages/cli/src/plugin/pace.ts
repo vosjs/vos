@@ -184,3 +184,121 @@ export function paceLine(r: PaceReport): string {
     : ''
   return `pace: the script asked ${s(r.askedMs)}, the gestures added ${s(r.gestureMs)}, the take ran ${s(r.wallMs)} (${r.overheadPct} % overhead${slow})`
 }
+
+/**
+ * DEAD TIME, the smoothness fact that replaces the freeze share as the
+ * warning. A still frame is not a defect: a page the viewer is reading is
+ * content, and a workspace tour is mostly still. What is dead is a still
+ * frame under a PARKED cursor past the beat it takes to read what changed:
+ * after that the picture, the pointer and the camera all hold and nothing
+ * is being said. So the derivation reads, per step, when the page settled
+ * after the step's act, how long the settled frame was held, and whether
+ * the cursor moved in that hold; a hold past the reading beat is dead.
+ *
+ * The beat is longer after a page changed (a navigation shows a whole new
+ * page to take in) than after a control changed (one thing to see).
+ */
+export const READ_BEAT_MS = { page: 1000, control: 600 } as const
+/** A dead stretch this long is a warning on its own, whatever the share. */
+export const DEAD_STRETCH_WARN_MS = 1500
+/** The share of the take past which dead time is a warning. */
+export const DEAD_SHARE_WARN_PCT = 20
+
+export interface DeadStep {
+  step: number
+  id?: string
+  do: string
+  /** ms from the step's act (its press, else its start) to the last frame change in the step. */
+  settledMs: number
+  /** ms the settled frame was held before the step ended. */
+  heldMs: number
+  /** the hold past the reading beat, while the cursor was parked; 0 when the hold was read or the pointer moved. */
+  deadMs: number
+}
+
+export interface DeadReport {
+  ms: number
+  pct: number
+  /** the steps that carried any dead time, in order. */
+  steps: DeadStep[]
+  /** the longest single dead hold. */
+  longestMs: number
+}
+
+export function deadTime(
+  steps: readonly {
+    step: number
+    id?: string
+    do: string
+    tStart: number
+    tEnd: number
+    navigated?: boolean
+  }[],
+  frames: readonly { tMs: number }[],
+  events: readonly { t: number; type: string }[],
+  durationMs: number,
+): DeadReport {
+  const out: DeadStep[] = []
+  let ms = 0
+  let longestMs = 0
+  for (const s of steps) {
+    const t0 = s.tStart * 1000
+    const t1 = s.tEnd * 1000
+    if (!(t1 > t0)) continue
+    // The act: the step's first press, else its start (a wait, a move).
+    const press = events.find(
+      (e) => e.type === 'down' && e.t >= t0 && e.t <= t1,
+    )
+    const act = press ? press.t : t0
+    // The last visual change inside the step, after the act.
+    let last = act
+    for (const f of frames) {
+      if (f.tMs > act && f.tMs <= t1) last = f.tMs
+    }
+    const settledMs = Math.round(last - act)
+    const heldMs = Math.round(t1 - last)
+    // Parked: no pointer motion while the settled frame was held.
+    const moved = events.some(
+      (e) =>
+        (e.type === 'move' || e.type === 'scroll') && e.t > last && e.t <= t1,
+    )
+    // The opening step shows a page the viewer has not seen: a page beat.
+    const beat =
+      s.navigated || s.step === 0 ? READ_BEAT_MS.page : READ_BEAT_MS.control
+    const deadMs = moved ? 0 : Math.max(0, heldMs - beat)
+    if (deadMs > 0) {
+      out.push({
+        step: s.step,
+        ...(s.id ? { id: s.id } : {}),
+        do: s.do,
+        settledMs,
+        heldMs,
+        deadMs,
+      })
+      ms += deadMs
+      longestMs = Math.max(longestMs, deadMs)
+    }
+  }
+  return {
+    ms,
+    pct: durationMs > 0 ? Math.round((ms / durationMs) * 100) : 0,
+    steps: out,
+    longestMs,
+  }
+}
+
+/** Whether a dead report earns a warning: the share, or one long hold. */
+export function deadWarns(r: DeadReport): boolean {
+  return r.pct >= DEAD_SHARE_WARN_PCT || r.longestMs >= DEAD_STRETCH_WARN_MS
+}
+
+/** The dead time in words, naming the steps and what to cut. */
+export function deadLine(r: DeadReport): string {
+  const s = (ms: number) => `${(ms / 1000).toFixed(1)} s`
+  if (!r.steps.length) return 'dead time: none'
+  const parts = r.steps.map(
+    (d) =>
+      `#${d.step}${d.id ? ` (${d.id})` : ''} ${d.do} held ${s(d.heldMs)} after it settled, ${s(d.deadMs)} past the beat`,
+  )
+  return `dead time: ${s(r.ms)} (${r.pct} %), a still frame under a parked cursor past the reading beat: ${parts.join('; ')}. Cut those steps' ms; a hold is what it takes to read what changed.`
+}
