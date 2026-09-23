@@ -1,5 +1,13 @@
 # @vosjs/cli
 
+## 0.46.1
+
+### Patch Changes
+
+- c08d761: Two click spans the cluster rule split, less than a lead plus a hold apart, no longer overlap: the earlier span ends where the later one enters, and they chain into a pan. A push of such a take was refused for overlapping spans.
+- Updated dependencies [c08d761]
+  - @vosjs/studio-core@0.30.1
+
 ## 0.46.0
 
 ### Minor Changes
