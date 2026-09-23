@@ -303,6 +303,100 @@ describe('planAutoZoom', () => {
     expect(g.surfaces[0][0].t).toBe(2.195)
   })
 
+  it('presses that cannot share one window are separate beats, however close in time', () => {
+    // The real take: an avatar in the bottom-left corner, a heading at the
+    // top, a tile in the middle, 2 s apart. Time alone merged them into one
+    // span aimed at their midpoint, which framed none of them.
+    const w = 1280
+    const h = 720
+    const track: CursorTrack = [
+      {
+        t: 2096,
+        x: 36,
+        y: 688,
+        type: 'down',
+        rect: { x: 20, y: 672, w: 32, h: 32 },
+      },
+      {
+        t: 4181,
+        x: 256,
+        y: 52,
+        type: 'down',
+        rect: { x: 224, y: 41.6, w: 63.3, h: 20.8 },
+      },
+      {
+        t: 5450,
+        x: 341,
+        y: 360,
+        type: 'down',
+        rect: { x: 224, y: 294.1, w: 234, h: 131.6 },
+      },
+      { t: 8000, x: 341, y: 360, type: 'move' },
+    ]
+    const g = groupTrack(track, {
+      width: w,
+      height: h,
+      clusterGap: 3,
+      typingGap: 2.5,
+      typingZoom: true,
+      targetFill: 0.42,
+      minLevel: 1.3,
+    })
+    // The corner press stands alone; the heading and the tile are 53% of
+    // the frame apart, which one window holds at 1.59×, so they are one beat.
+    expect(g.clusters.map((c) => c.length)).toEqual([1, 2])
+    const spans = planAutoZoom(track, { width: w, height: h, style: 'glide' })
+    expect(spans.map((z) => z.id)).toEqual(['z0', 'z1'])
+    // the corner span is aimed at its own press, never a midpoint
+    expect(spans[0].cx).toBeCloseTo(36 / w, 2)
+    expect(spans[0].cy).toBeCloseTo(688 / h, 2)
+    // the pair's level comes down to what holds both
+    expect(spans[1].level).toBeLessThanOrEqual(1.6)
+    expect(spans[1].level).toBeGreaterThanOrEqual(1.3)
+    // the same three presses on one row still chain into one span
+    const row: CursorTrack = track.map((e, i) =>
+      e.type === 'down'
+        ? { ...e, y: 360, rect: { x: 300 + i * 120, y: 344, w: 80, h: 32 } }
+        : e,
+    )
+    expect(
+      planAutoZoom(row, { width: w, height: h, style: 'glide' }),
+    ).toHaveLength(1)
+  })
+
+  it('two targets that share a window only at a lower level get that level', () => {
+    // Two buttons 40% of the frame apart: one beat, but 1.8× would show one
+    // of them at the edge, so the level comes down to what holds both.
+    const w = 1280
+    const h = 720
+    const track: CursorTrack = [
+      {
+        t: 1000,
+        x: 300,
+        y: 360,
+        type: 'down',
+        rect: { x: 280, y: 344, w: 40, h: 32 },
+      },
+      {
+        t: 2000,
+        x: 900,
+        y: 360,
+        type: 'down',
+        rect: { x: 880, y: 344, w: 40, h: 32 },
+      },
+      { t: 6000, x: 900, y: 360, type: 'move' },
+    ]
+    const [span, ...rest] = planAutoZoom(track, {
+      width: w,
+      height: h,
+      style: 'glide',
+    })
+    expect(rest).toHaveLength(0)
+    // union 640 px wide of 1280: fits within 0.85 of the window at ≤ 1.7×
+    expect(span.level).toBeCloseTo(1.7, 2)
+    expect(span.cx).toBeCloseTo(600 / w, 2)
+  })
+
   it('a press seen twice (a pointer and its mouse echo) is one press', () => {
     // The extension recorded every click as a pair 0-1 ms apart, ≤1 px
     // apart. A real double-click, 200 ms apart, stays two presses.
