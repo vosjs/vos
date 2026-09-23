@@ -15,6 +15,9 @@ import {
   SCROLL_SETTLE_MS,
   TRAILING_HOLD_MS,
   askedMs,
+  deadLine,
+  deadTime,
+  deadWarns,
   clockMotion,
   clockTyping,
   paceLine,
@@ -22,7 +25,7 @@ import {
   pointerTravelMs,
   settleMs,
 } from './pace'
-import type { PaceReport, StepPace } from './pace'
+import type { DeadReport, PaceReport, StepPace } from './pace'
 import type { Browser, BrowserContext } from 'playwright'
 import type {
   CursorEvent,
@@ -82,6 +85,12 @@ export interface RecordResult {
    */
   freezes: FreezeSpan[]
   freezePct: number
+  /**
+   * The smoothness WARNING: still footage under a parked cursor past the
+   * beat it takes to read what changed, per step (`deadTime`). A still page
+   * being read is content; this is the part of a hold nobody is reading.
+   */
+  dead: DeadReport
   /** The take reached --max-duration and stopped there; later steps did not run. */
   capped: boolean
 }
@@ -627,11 +636,10 @@ export async function recordTake(
   const frozenMs = freezes.reduce((sum, f) => sum + f.ms, 0)
   const freezePct =
     durationMs > 0 ? Math.round((frozenMs / durationMs) * 100) : 0
-  if (freezePct >= 25) {
-    log(
-      `   WARNING: ${freezePct}% of the take is visually frozen (${freezes.length} freezes, longest ${Math.max(...freezes.map((f) => f.ms))}ms) — keep motion in frame or trim these spans in doc.json`,
-    )
-  }
+  // The freeze share is a FACT (a workspace tour is mostly still and fine);
+  // the warning is dead time: a hold nobody is reading, named per step.
+  const dead = deadTime(stepSpans, frames, events, durationMs)
+  if (deadWarns(dead)) log(`   WARNING: ${deadLine(dead)}`)
 
   const pace = paceReport(paces)
   // A rehearsal writes nothing: the take beside it keeps its footage, its
@@ -655,6 +663,7 @@ export async function recordTake(
     masks: exposureLog.masks(masks),
     freezes,
     freezePct,
+    dead,
     capped,
   }
 }

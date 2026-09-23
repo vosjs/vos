@@ -5,6 +5,9 @@ import {
   SETTLE_MS,
   askedMs,
   clockMotion,
+  deadLine,
+  deadTime,
+  deadWarns,
   clockTyping,
   paceLine,
   paceReport,
@@ -130,5 +133,116 @@ describe('askedMs and paceReport', () => {
     expect(r.slow.map((s) => s.step)).toEqual([2])
     expect(paceLine(r)).toContain('the script asked 2.9 s')
     expect(paceLine(r)).toContain('#2 drag 6.3 s for 1.3 s asked')
+  })
+})
+
+describe('deadTime', () => {
+  // Steps in seconds, frames and events in ms, as the recorder keeps them.
+  const frames = (...t: number[]) => t.map((tMs) => ({ tMs }))
+  it('a hold past the reading beat under a parked cursor is dead; the read beat is not', () => {
+    // A press at 1.5 s that navigates: the page changes until 1.8 s, then
+    // the settled frame is held until 3.5 s. A page beat is 1.0 s, so
+    // 0.7 s of that hold is dead.
+    const steps = [
+      {
+        step: 1,
+        id: 'projects',
+        do: 'click',
+        tStart: 1.2,
+        tEnd: 3.5,
+        navigated: true,
+      },
+    ]
+    const r = deadTime(
+      steps,
+      frames(0, 1550, 1700, 1800),
+      [
+        { t: 1300, type: 'move' },
+        { t: 1500, type: 'down' },
+        { t: 1580, type: 'up' },
+      ],
+      12000,
+    )
+    expect(r.steps).toEqual([
+      {
+        step: 1,
+        id: 'projects',
+        do: 'click',
+        settledMs: 300,
+        heldMs: 1700,
+        deadMs: 700,
+      },
+    ])
+    expect(r.ms).toBe(700)
+    expect(r.pct).toBe(6)
+    // the same press held only a beat: nothing dead
+    expect(
+      deadTime(
+        [{ ...steps[0], tEnd: 2.8 }],
+        frames(0, 1550, 1800),
+        [{ t: 1500, type: 'down' }],
+        12000,
+      ).ms,
+    ).toBe(0)
+  })
+
+  it('a control changes less than a page, so its beat is shorter', () => {
+    const step = { step: 2, do: 'click', tStart: 4, tEnd: 5.2 }
+    const r = deadTime([step], frames(4100), [{ t: 4050, type: 'down' }], 10000)
+    // held 1.1 s after a 50 ms settle; a control beat is 0.6 s
+    expect(r.steps[0].deadMs).toBe(500)
+    expect(
+      deadTime(
+        [{ ...step, navigated: true }],
+        frames(4100),
+        [{ t: 4050, type: 'down' }],
+        10000,
+      ).ms,
+    ).toBe(100)
+  })
+
+  it('a pointer that moves, or a frame that keeps changing, is never dead', () => {
+    const moving = deadTime(
+      [{ step: 3, do: 'hover', tStart: 6, tEnd: 8 }],
+      frames(6100),
+      [{ t: 7500, type: 'move' }],
+      10000,
+    )
+    expect(moving.ms).toBe(0)
+    const playing = deadTime(
+      [{ step: 3, do: 'wait', tStart: 6, tEnd: 8 }],
+      frames(6100, 6600, 7100, 7600, 7950),
+      [],
+      10000,
+    )
+    expect(playing.ms).toBe(0)
+  })
+
+  it('the opening wait shows a new page, so it gets the page beat', () => {
+    const r = deadTime(
+      [{ step: 0, id: 'home', do: 'wait', tStart: 0, tEnd: 1.2 }],
+      frames(0, 10),
+      [],
+      12000,
+    )
+    expect(r.steps[0].deadMs).toBe(190)
+  })
+
+  it('warns on the share or on one long hold, and says it in words', () => {
+    const long = deadTime(
+      [{ step: 1, do: 'click', tStart: 1, tEnd: 4, navigated: true }],
+      frames(1100),
+      [{ t: 1050, type: 'down' }],
+      30000,
+    )
+    expect(long.longestMs).toBe(1900)
+    expect(long.pct).toBe(6)
+    expect(deadWarns(long)).toBe(true)
+    expect(deadLine(long)).toBe(
+      "dead time: 1.9 s (6 %), a still frame under a parked cursor past the reading beat: #1 click held 2.9 s after it settled, 1.9 s past the beat. Cut those steps' ms; a hold is what it takes to read what changed.",
+    )
+    expect(deadLine({ ms: 0, pct: 0, steps: [], longestMs: 0 })).toBe(
+      'dead time: none',
+    )
   })
 })
