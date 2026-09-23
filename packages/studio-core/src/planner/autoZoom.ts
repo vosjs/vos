@@ -168,6 +168,12 @@ export interface PlanOptions {
   dragLevel?: number
   /** emit spans with focusMode 'auto' (cursor-follow camera). */
   followByDefault?: boolean
+  /**
+   * the footage's length in seconds: no span runs past it. The cursor
+   * track ends at the last event, before the footage does, so the track
+   * alone cannot say where the footage ends.
+   */
+  duration?: number
   /** typing sessions plan spans. */
   typingZoom?: boolean
   /** max silence between `key` pings before the typing session ends. */
@@ -379,7 +385,15 @@ export function planAutoZoom(
     typingGap = style.typingGap,
     typingHold = style.typingHold,
     typingMinLevel = style.typingMinLevel,
+    duration,
   } = options
+  // No span past the footage; a span the clamp leaves too short is dropped.
+  const within = <T extends { in: number; out: number }>(spans: T[]): T[] =>
+    duration === undefined
+      ? spans
+      : spans
+          .map((z) => ({ ...z, out: Math.min(z.out, round(duration)) }))
+          .filter((z) => z.out - z.in >= 0.3)
 
   const grouped = groupTrack(track, {
     width,
@@ -547,7 +561,9 @@ export function planAutoZoom(
     // the FIELD is the anchor, and a follow would be a no-op at best.
     source: 'auto',
   }))
-  const spans = [...zSpans, ...kSpans, ...dragSpans].sort((a, b) => a.in - b.in)
+  const spans = within([...zSpans, ...kSpans, ...dragSpans]).sort(
+    (a, b) => a.in - b.in,
+  )
 
   // Dwell augmentation: sustained cursor rests no click/typing/drag span
   // covers.
@@ -555,7 +571,7 @@ export function planAutoZoom(
     ...spans,
     ...dragReserved,
   ])
-  return [...spans, ...dwells].sort((a, b) => a.in - b.in)
+  return within([...spans, ...dwells]).sort((a, b) => a.in - b.in)
 }
 
 export interface TypingSession {
