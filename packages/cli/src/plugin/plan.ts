@@ -187,6 +187,7 @@ function planOtherMedia(
       ...planAutoZoom(m.cursor, {
         width: m.meta.width,
         height: m.meta.height,
+        duration: m.meta.durationMs / 1000,
         style: doc.zoomStyle,
         params: doc.zoomParams,
       })
@@ -255,6 +256,7 @@ export async function planTake(
     const autoZoom = planAutoZoom(doc.source.cursor, {
       width: doc.source.meta.width,
       height: doc.source.meta.height,
+      duration: doc.source.meta.durationMs / 1000,
       style: doc.zoomStyle,
       params: doc.zoomParams,
     })
@@ -315,6 +317,7 @@ export async function planTake(
     const auto = planAutoZoom(doc.source.cursor, {
       width: doc.source.meta.width,
       height: doc.source.meta.height,
+      duration: doc.source.meta.durationMs / 1000,
       style: doc.zoomStyle,
       params: doc.zoomParams,
     })
@@ -360,6 +363,7 @@ export async function planTake(
     doc.zoom = planAutoZoom(doc.source.cursor, {
       width: doc.source.meta.width,
       height: doc.source.meta.height,
+      duration: doc.source.meta.durationMs / 1000,
       style: doc.zoomStyle,
       params: doc.zoomParams,
     })

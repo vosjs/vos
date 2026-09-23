@@ -392,6 +392,35 @@ describe('planAutoZoom', () => {
     expect(spans[0].out).toBe(spans[1].in)
   })
 
+  it('no span runs past the footage', () => {
+    // The last press 0.7 s before the footage ends: its hold would run
+    // past the end, and the cursor track cannot say where the end is.
+    const track: CursorTrack = [
+      {
+        t: 8900,
+        x: 256,
+        y: 52,
+        type: 'down',
+        rect: { x: 224, y: 41.6, w: 63.3, h: 20.8 },
+      },
+      { t: 9000, x: 256, y: 52, type: 'up' },
+    ]
+    const free = planAutoZoom(track, {
+      width: 1280,
+      height: 720,
+      style: 'glide',
+    })
+    expect(free[0].out).toBeGreaterThan(9.676)
+    const held = planAutoZoom(track, {
+      width: 1280,
+      height: 720,
+      style: 'glide',
+      duration: 9.676,
+    })
+    expect(held).toHaveLength(1)
+    expect(held[0].out).toBe(9.676)
+  })
+
   it('two targets that share a window only at a lower level get that level', () => {
     // Two buttons 40% of the frame apart: one beat, but 1.8× would show one
     // of them at the edge, so the level comes down to what holds both.
