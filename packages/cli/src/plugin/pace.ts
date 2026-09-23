@@ -50,6 +50,51 @@ export function pointerTravelMs(dist: number): number {
   )
 }
 
+/**
+ * A click's `ms` is READING time, held from the page's last visual change,
+ * and the recorder pays the settle itself: the same `ms` was read on one
+ * run and dead on the next because the hold started at the press and the
+ * page's settle varied run to run (0.3 s to 0.7 s on the same step).
+ *
+ * The settle is watched on the screencast, which emits only on change:
+ * after the press, a change that arrives within RESPONSE_MS says the page
+ * is answering, and it has settled once QUIET_MS pass with no new frame.
+ * No change within RESPONSE_MS means the page did not change (a click that
+ * only moves state) and the settle is over. SETTLE_CAP_MS bounds a page
+ * that never stops changing (a playing preview), which is a page nothing
+ * is dead on, so the hold simply starts.
+ */
+export const RESPONSE_MS = 400
+export const QUIET_MS = 250
+export const SETTLE_CAP_MS = 1200
+
+/**
+ * Is the page settled? Pure: the recorder feeds it what it knows at each
+ * tick since the press.
+ */
+export function settleVerdict(
+  t: {
+    /** ms since the press. */
+    sincePress: number
+    /** ms since the last screencast frame, or null when none arrived since the press. */
+    sinceChange: number | null
+  },
+  c = { response: RESPONSE_MS, quiet: QUIET_MS, cap: SETTLE_CAP_MS },
+): 'wait' | 'settled' {
+  if (t.sincePress >= c.cap) return 'settled'
+  if (t.sinceChange === null)
+    return t.sincePress >= c.response ? 'settled' : 'wait'
+  return t.sinceChange >= c.quiet ? 'settled' : 'wait'
+}
+
+/**
+ * What is left of a hold once the settle is detected: the hold is measured
+ * from the last change, so the quiet already spent counts toward it.
+ */
+export function holdLeftMs(holdMs: number, sinceChange: number | null): number {
+  return Math.max(0, holdMs - (sinceChange ?? 0))
+}
+
 /** The settle after a step: its own `ms` when it names one, else the verb's. */
 export function settleMs(step: { do: string; ms?: number }): number {
   if (typeof step.ms === 'number' && step.ms >= 0) return step.ms
@@ -114,7 +159,7 @@ export async function clockTyping(
 export interface StepPace {
   step: number
   do: string
-  /** The script's own ask: a wait's ms, a hover's dwell, a drag's ms, typing's chars × delay; 0 for a click or a scroll. */
+  /** The script's own ask: a wait's ms, a hover's dwell, a drag's ms, typing's chars × delay, a click's read after the settle; 0 for a scroll. */
   askedMs: number
   /** The gesture the recorder adds by design: pointer travel, the press, the settle. */
   gestureMs: number
@@ -142,6 +187,9 @@ export function askedMs(step: {
   switch (step.do) {
     case 'wait':
       return step.ms ?? 0
+    // A click's ms is the read after the page settled: the author's.
+    case 'click':
+      return step.ms ?? SETTLE_MS.click
     case 'hover':
       return step.ms ?? 700
     case 'drag':

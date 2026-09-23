@@ -8,6 +8,8 @@ import {
   deadLine,
   deadTime,
   deadWarns,
+  holdLeftMs,
+  settleVerdict,
   clockTyping,
   paceLine,
   paceReport,
@@ -120,7 +122,7 @@ describe('askedMs and paceReport', () => {
     expect(askedMs({ do: 'wait', ms: 900 })).toBe(900)
     expect(askedMs({ do: 'hover' })).toBe(700)
     expect(askedMs({ do: 'type', text: 'abcd', delayMs: 90 })).toBe(360)
-    expect(askedMs({ do: 'click' })).toBe(0)
+    expect(askedMs({ do: 'click' })).toBe(150) // the read after the settle, the author's
     const r = paceReport([
       { step: 0, do: 'wait', askedMs: 900, gestureMs: 0, wallMs: 902 },
       { step: 1, do: 'hover', askedMs: 700, gestureMs: 350, wallMs: 1060 },
@@ -244,5 +246,34 @@ describe('deadTime', () => {
     expect(deadLine({ ms: 0, pct: 0, steps: [], longestMs: 0 })).toBe(
       'dead time: none',
     )
+  })
+})
+
+describe('settleVerdict and holdLeftMs', () => {
+  it('waits for a response, then for quiet, and never past the cap', () => {
+    // just pressed, nothing yet: wait for the page to answer
+    expect(settleVerdict({ sincePress: 100, sinceChange: null })).toBe('wait')
+    // no change within the response window: the page did not change
+    expect(settleVerdict({ sincePress: 400, sinceChange: null })).toBe(
+      'settled',
+    )
+    // changing: not yet quiet
+    expect(settleVerdict({ sincePress: 600, sinceChange: 100 })).toBe('wait')
+    // quiet for 250 ms: settled
+    expect(settleVerdict({ sincePress: 700, sinceChange: 250 })).toBe('settled')
+    // a page that keeps changing settles at the cap
+    expect(settleVerdict({ sincePress: 1199, sinceChange: 20 })).toBe('wait')
+    expect(settleVerdict({ sincePress: 1200, sinceChange: 20 })).toBe('settled')
+  })
+
+  it('the hold runs from the last change, so the quiet already spent counts', () => {
+    expect(holdLeftMs(1000, 250)).toBe(750)
+    expect(holdLeftMs(200, 250)).toBe(0)
+    expect(holdLeftMs(1000, null)).toBe(1000)
+  })
+
+  it("a click's ms is the author's read, in the pace report", () => {
+    expect(askedMs({ do: 'click', ms: 1000 })).toBe(1000)
+    expect(askedMs({ do: 'click' })).toBe(150)
   })
 })
