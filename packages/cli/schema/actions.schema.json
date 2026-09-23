@@ -69,7 +69,7 @@
           },
           "ms": {
             "type": "number",
-            "description": "wait: the pause; other verbs: the settle after (default 150)"
+            "description": "wait: the pause; click: the read after the page settled, held from its last visual change (default 150); type and scroll: the settle after (defaults 150/200)"
           }
         }
       }
@@ -165,7 +165,7 @@
               "ms": {
                 "type": "number",
                 "minimum": 0,
-                "description": "the settle after the press, ms (default 150): how long the recorder holds before the next step. The script's own wait steps carry the pauses that mean something; this is only the hand lifting."
+                "description": "the read after the press, ms (default 150), held from the page's last visual change: the recorder watches the screencast and pays the settle itself (a change within 400 ms says the page is answering, 250 ms of quiet says it settled, 1.2 s bounds a page that never stops), so the same ms reads the same on every run. Size it as a reading beat, about 1000 after a navigation and 600 after a control, never padded for a slow page."
               },
               "selector": {
                 "type": "string"
