@@ -18,6 +18,8 @@ import {
   deadLine,
   deadTime,
   deadWarns,
+  holdLeftMs,
+  settleVerdict,
   clockMotion,
   clockTyping,
   paceLine,
@@ -363,6 +365,25 @@ export async function recordTake(
     })
   }
 
+  /**
+   * Wait for the page to settle after a press, reading the screencast:
+   * returns ms since the last change (null when nothing changed). A dry
+   * run has no frames and settles at once.
+   */
+  const waitSettled = async (): Promise<number | null> => {
+    if (dry) return null
+    const pressAt = now()
+    const before = frames.length
+    for (;;) {
+      const t = now()
+      const last = frames.length > before ? frames[frames.length - 1] : null
+      const sinceChange = last ? t - last.tMs : null
+      if (settleVerdict({ sincePress: t - pressAt, sinceChange }) === 'settled')
+        return sinceChange
+      await sleep(40)
+    }
+  }
+
   const skipped: SkippedStep[] = []
   // The step timeline: when each step ran, in source seconds — what
   // lets a cut anchored to steps re-time onto a NEW recording of the same
@@ -422,7 +443,10 @@ export async function recordTake(
         if (rect) {
           await gesture(() => clickAt(rect))
           log(`click ${step.selector}`)
-          await gesture(() => sleep(settleMs(step)))
+          // The settle is the recorder's (watched on the screencast); the
+          // hold is the author's, from the page's last change.
+          const sinceChange = await gesture(() => waitSettled())
+          await sleep(holdLeftMs(settleMs(step), sinceChange))
         } else
           skipped.push({ step: stepIdx, do: step.do, selector: step.selector })
         break
