@@ -112,15 +112,15 @@ window.__vosAudioProducer__ = async ({ data, plan, duration, sampleRate }) => {
   const audioPlan = plan === undefined ? window.__vosAudioPlan__ : plan;
   const CORE_AUDIO_URL = ${JSON.stringify(coreAudioUrl)};
 
+  // Decode AT THE MIX RATE: decodeAudioData resamples to its context's rate,
+  // and a live AudioContext runs at the output device's, so a headset in its
+  // hands-free profile (24 kHz) would hand the encoder a rate it refuses.
+  // An offline context holds no device and needs no gesture.
   const decodeAudio = async (url) => {
     try {
       const buf = await (await fetch(url)).arrayBuffer();
-      const ac = new AudioContext();
-      try {
-        return await ac.decodeAudioData(buf);
-      } finally {
-        void ac.close();
-      }
+      const ac = new OfflineAudioContext(1, 1, rate);
+      return await ac.decodeAudioData(buf);
     } catch (e) {
       console.warn('[audio-producer] source not decodable:', e);
       return null;
