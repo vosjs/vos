@@ -149,4 +149,12 @@ describe('audioProducerCode', () => {
     expect(code).toContain('decodeAudio')
     expect(code).toContain('spliceAudio')
   })
+
+  it("decodes every source at the mix rate, never the output device's", () => {
+    // A live AudioContext runs at the device's rate and decodeAudioData
+    // resamples to it; a 24 kHz headset would reach the encoder as HE-AAC v2.
+    const code = audioProducerCode()
+    expect(code).toContain('new OfflineAudioContext(1, 1, rate)')
+    expect(code).not.toContain('new AudioContext(')
+  })
 })
