@@ -42,11 +42,13 @@
   },
   "files": [
     "dist",
-    "schema"
+    "schema",
+    "skills"
   ],
   "sideEffects": false,
   "scripts": {
     "build": "tsup",
+    "sync-skills": "node scripts/sync-skills.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",

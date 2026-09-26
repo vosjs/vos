@@ -8,11 +8,12 @@
 Part of [vos](https://github.com/vosjs/vos), the open programmatic video engine behind [vos.so](https://vos.so). Designed to be driven by coding agents (Claude Code, Codex, Cursor) as well as by hand: logs on stderr, results on stdout, `--json` everywhere, and every editing decision in a JSON file.
 
 ```bash
-npm i -g @vosjs/cli          # or: npm i -D @vosjs/cli && npx vos …
-vos render animation.json out.webm
+npm i -D @vosjs/cli          # into the repo; npx vos … from there (or npm i -g for a shell)
+npx vos setup                # the skills into your agent, a browser, one rules block, then doctor
+npx vos render animation.json out.webm
 ```
 
-Deterministic: the preview is the render, and every edit is a data patch to `doc.json`, never a re-record. Rendering is local and free at every resolution up to 4K, no watermark. The workflow skills for agents install with `npx skills add vosjs/skills` (`product-video` records and cuts one video, `vos-cut` cuts an existing recording, `launch-kit` ships the media with a release).
+Deterministic: the preview is the render, and every edit is a data patch to `doc.json`, never a re-record. Rendering is local and free at every resolution up to 4K, no watermark. The workflow skills for agents install with `npx skills add vosjs/skills` (`product-video` records and cuts one video, `vos-cut` cuts an existing recording, `launch-kit` ships the media with a release); `vos setup` runs that for you, and falls back to the copy of the catalog this package ships when skills.sh cannot be reached. A coding agent gets the whole procedure from one line: `Read https://vos.so/agent.md and do what it says.`
 
 Until 0.9 the take pipeline and the vos.so verbs shipped separately as `@vosso/vos-plugin`, and before that as `@vosso/cli` and `@vosso/voila-cli`; those names are deprecated on npm and forward here.
 
@@ -34,6 +35,15 @@ Until 0.9 the take pipeline and the vos.so verbs shipped separately as `@vosso/v
 ## Requirements
 
 Node 18 or newer and a Chromium-family browser. A system Chrome is used when present; otherwise `npx playwright install chromium` once, or set `VOS_BROWSER_PATH`. mp4 output needs Chrome (Chromium ships no AVC encoder). Render pages load `three` and mediabunny from a CDN, so rendering needs network access.
+
+```bash
+vos setup [--agent claude,cursor,codex,copilot|all] [--global] [--no-skills] [--no-rules] [--no-browser] [--url <dev server>]
+vos doctor [--url <dev server>]     # what is ready, in words; exit 3 when no browser
+vos whoami                          # the key's name and the account it belongs to, never the key
+vos logout                          # remove ~/.config/vos/credentials
+```
+
+`vos setup` detects the agents present by their directories (`.claude/`, `.cursor/`, `.codex/` or `.agents/`, `.github/copilot`; the home forms under `--global`), installs the skills into them through skills.sh (`npx skills add vosjs/skills -y`) or, when that cannot be reached, from the copy of the catalog this package ships (`skills/`), finds a browser in the recorder's own order or installs Chromium, writes one block between `<!-- vos:begin -->` and `<!-- vos:end -->` markers into `AGENTS.md` (or `CLAUDE.md` when only that exists), so a second run replaces its own text and never yours, and ends with `doctor`. These four verbs print NDJSON whenever stdout is not a TTY, and every `done` event carries `next_step`.
 
 ## Engine verbs
 
@@ -86,7 +96,7 @@ vos plan take --reuse                                   # re-time that cut onto 
 | `digest` | `--out <take>/digest` `--full 960` `--crop 640` (image long edges, the token budget) `--no-frames` `--transcript <file>` (Whisper-shaped segments merged as `said`) `--style <ref>` (report a reference document's style fields)                                                                                                                                                                                                                                          |
 | `frames` | `--times 0,25%,50%,75%,100%` (the default selector, output seconds or percent) `--frame <t>` `--at-zooms` `--at-moments` `--size WxH` `--out <take>/stills` `--background` `--set …`; writes `stills.json`                                                                                                                                                                                                                                                                |
 | `render` | `--width` `--height` `--fps` `--format webm\|mp4` `--parallel N` (1..16 sessions) `--range a..b` (output seconds; keeps its audio) `--draft` `--frame <kind>` `--background` `--set …`; `out` defaults to `<take>/out.<format>`                                                                                                                                                                                                                                           |
-| `open`   | `--studio http://localhost:6060` `--print` (print the URL, do not launch a browser)                                                                                                                                                                                                                                                                                                                                                                                       |
+| `open`   | `--studio <url>` (the studio; `https://vos.so` by default, `VOS_ORIGIN` moves it) `--print` (print the URL, do not launch a browser)                                                                                                                                                                                                                                                                                                                                      |
 
 **The wall check.** Once the first navigation settles, and before a frame is captured, `record`, `create` and `--dry-run` ask whether the recorder landed where it was sent. A take that met a sign-in instead is refused with exit 4 and a sentence (`asked for /dashboard, landed on /login: no session for app.acme.com`): the asked URL answered 401 or 403, the recorder was sent to an identity provider or a sign-in path, or the page is a sign-in form (one password field, or a one-time-code field) rendered in place. A redirect somewhere else with no sign-in in sight, which is what a site that shows strangers a public page looks like, is refused under `--strict` and in a rehearsal, and said as a warning otherwise. The check runs before a re-record clears anything, so a session that expired since the last take never costs the footage it failed to replace. The way past a wall is a session: `--storage-state <file>`, minted from the test auth the project already has wherever that exists. `--allow-wall` records the page anyway (a video OF a sign-in page is a legitimate take), and the take's `meta.wall` and its digest then say so.
 
@@ -305,7 +315,7 @@ vos push /tmp/take --label "$TAG launch" --yes --json       # VOS_API_KEY as a r
 - **`--max-duration <s>`** on `record` and `create` defaults to the hosted recording cap, read live from `GET /api/limits` (2 s, fail-open to 30 min when the origin is unreachable): the capture stops there and the done event says so. Cut the flow rather than raising the cap; the platform refuses a longer take.
 - **`create`** is the one-shot verb: record, auto-plan and render in one command and one browser session. The take directory still lands on disk, so the full loop (frames, edit `doc.json`, re-render) stays open afterwards.
 - **`vos validate <thing>`** takes an `actions.json`, a take directory, a program directory (`config.json`, plus its program document when present), or a `kit.json`; exit 1 on any problem.
-- **Environment.** `VOS_ORIGIN`, `VOS_API_KEY`, `VOS_BROWSER_PATH`, `VOS_CLIENT` (the client string a push self-reports). `vos voila <verb>` is still accepted as an alias of `vos <verb>` and says so.
+- **Environment.** `VOS_ORIGIN` (the platform, and the studio `vos open` opens), `VOS_API_KEY`, `VOS_BROWSER_PATH`, `VOS_CLIENT` (the client string a push self-reports). `vos voila <verb>` is still accepted as an alias of `vos <verb>` and says so.
 
 ## Programmatic use
 
