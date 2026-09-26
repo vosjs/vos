@@ -104,5 +104,20 @@ export const manifest: PluginManifest = {
       name: 'login',
       summary: 'sign in via the browser (or --key); stores a content key',
     },
+    {
+      name: 'setup',
+      summary:
+        'ready this machine: the vos skills into your agent, a browser, one rules block, then doctor',
+    },
+    {
+      name: 'doctor',
+      summary:
+        'what is ready, in words: node, browser, ffmpeg, skills, a credential (never printed), the dev server',
+    },
+    {
+      name: 'whoami',
+      summary: 'the key’s name and the account it belongs to, never the key',
+    },
+    { name: 'logout', summary: 'remove ~/.config/vos/credentials' },
   ],
 }

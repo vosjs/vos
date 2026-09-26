@@ -46,8 +46,28 @@ export function startTakeServer(
 ): Promise<TakeServer> {
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://x')
-    // The studio (a different origin) fetches take files for `vos voila open`.
+    // The studio (a different origin, https://vos.so) fetches take files for
+    // `vos open`. Two doors a public page must pass to reach localhost:
+    // CORS, answered on every response, and Chrome's private-network
+    // check. Chrome 104 to 141 asked it as a preflight carrying
+    // Access-Control-Request-Private-Network and wanted the Allow-
+    // Private-Network answer; Chrome 142 and later (Local Network Access)
+    // asks the PERSON instead, a prompt by the address bar, which no header
+    // can answer (measured 2026-09-25 on Chrome 153: the fetch fails with
+    // "Permission was denied for this request to access the loopback
+    // address space" until it is allowed once per site). Both answered
+    // here; the studio's reader says what to allow.
     res.setHeader('access-control-allow-origin', '*')
+    res.setHeader('access-control-allow-private-network', 'true')
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'access-control-allow-methods': 'GET, POST, OPTIONS',
+        'access-control-allow-headers': '*',
+        'access-control-max-age': '600',
+      })
+      res.end()
+      return
+    }
     if (req.method === 'POST' && url.pathname === '/save') {
       const name = (url.searchParams.get('name') ?? 'out.bin').replace(
         /[^\w.-]/g,

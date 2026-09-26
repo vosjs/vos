@@ -5,3 +5,5 @@ coverage
 pnpm-lock.yaml
 *.d.ts
 CHANGELOG.md
+# The bundled skills catalog is a byte-for-byte copy of vosjs/skills (bundledSkills.test.ts holds it there).
+packages/cli/skills

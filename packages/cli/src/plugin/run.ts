@@ -111,6 +111,7 @@ import { cmdAsset } from './asset'
 import { cmdRecipe } from './recipe'
 import { cmdBrand } from './brand'
 import { cmdActions } from './agentBrowser'
+import { cmdDoctor, cmdLogout, cmdSetup, cmdWhoami } from './machineCmd'
 import type { Backdrop, ProjectDoc } from '@vosjs/studio-core'
 import type { ActionsFile } from './actions'
 import type { ParsedArgs } from './args'
@@ -162,6 +163,22 @@ Take pipeline
   vos session list | rm <name>          what exists and how old; delete one
   vos actions script <actions.json> [--json]
             the flow as numbered beats in words, for a person recording it by hand
+
+This machine (no account)
+  vos setup [--agent claude,cursor,codex,copilot|all] [--global] [--no-skills] [--no-rules] [--no-browser] [--url <dev server>] [--json]
+            ready this computer for the loop: the vos skills into your
+            agent's directories (npx skills add vosjs/skills, else the copy
+            bundled in this package), a browser found or installed, one
+            idempotent block in AGENTS.md (or CLAUDE.md), then doctor.
+            NDJSON whenever stdout is not a TTY; done carries next_step
+  vos doctor [--url <dev server>] [--json]
+            what is ready, in words: node, browser, ffmpeg, the skills per
+            agent, a credential (present or absent, never printed), and the
+            dev server when --url names one. Exit 3 when no browser
+  vos whoami [--json]
+            the key's name and the account it belongs to, never the key
+  vos logout [--json]
+            remove ~/.config/vos/credentials (VOS_API_KEY still resolves)
 
 Platform (vos.so) — fetch, edit, push, pull, repeat
   vos login [--key <vos_sk_…>] [--label <name>] [--no-browser]
@@ -366,7 +383,8 @@ before them (-u gives links their href); what the recorder cannot follow
 dropped. Then: vos record --actions actions.json --strict.
 open serves the take and loads it into the studio (?take=<server>) —
 doc.json edits arrive intact; a human can drag every zoom span. Keeps
-serving until Ctrl-C; --studio overrides the default http://localhost:6060.
+serving until Ctrl-C. The studio is https://vos.so by default (VOS_ORIGIN
+moves it; --studio http://localhost:6060 for a dev server).
 
 push/pull — the hosted iteration loop (credentials: --key, VOS_API_KEY, or
 ~/.config/vos/credentials via vos login; origin via VOS_ORIGIN, default
@@ -1702,7 +1720,11 @@ async function cmdOpen(argv: string[]): Promise<number> {
     throw new UsageError(`${dir} has no recording — re-run record`)
   }
 
-  const studio = (strFlag(flags, 'studio') ?? 'http://localhost:6060').replace(
+  // The studio at vos.so by default (AN1): the one line an agent is handed
+  // ends with the person's own product open there, on a clean machine with
+  // no repo of ours around. VOS_ORIGIN (the platform origin) moves it for
+  // this repo's dev server; --studio overrides both.
+  const studio = (strFlag(flags, 'studio') ?? platformOrigin()).replace(
     /\/+$/,
     '',
   )
@@ -2216,6 +2238,14 @@ export async function run(argv: string[]): Promise<number> {
         return await cmdDuplicate(rest)
       case 'login':
         return await cmdLogin(rest)
+      case 'setup':
+        return await cmdSetup(rest)
+      case 'doctor':
+        return await cmdDoctor(rest)
+      case 'whoami':
+        return await cmdWhoami(rest)
+      case 'logout':
+        return cmdLogout(rest)
       case 'push': {
         // Polymorphic by the deterministic sniff: a take DIRECTORY (doc.json)
         // pushes recording + doc; anything else is a program config push.
