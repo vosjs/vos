@@ -110,6 +110,7 @@ import { cmdFolder } from './folder'
 import { cmdAsset } from './asset'
 import { cmdRecipe } from './recipe'
 import { cmdBrand } from './brand'
+import { hostedEnv, recordHosted } from './hostedRecord'
 import { cmdActions } from './agentBrowser'
 import { cmdDoctor, cmdLogout, cmdSetup, cmdWhoami } from './machineCmd'
 import type { Backdrop, ProjectDoc } from '@vosjs/studio-core'
@@ -138,6 +139,7 @@ const BOOLEAN_FLAGS = new Set([
   'keep-frames',
   'dry-run',
   'allow-wall',
+  'hosted',
 ])
 /** Repeatable value flags (accumulate): --set path=value on render/frames, --override id on push, --browser-arg=<switch> on record/create. */
 export const MULTI_FLAGS = new Set(['set', 'override', 'browser-arg', 'header'])
@@ -147,6 +149,8 @@ export const HELP = `vos — record a browser flow, plan effects, render a produ
 Take pipeline
   vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>|--session <name>] [--header name=value]... [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
   vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>|--session <name>] [--header name=value]... [--browser-arg=<switch>]... [--background <slug|url|none>] [--json]
+  vos record --hosted --actions actions.json [--url <url>] [--out take] [--title "…"] [--folder <id>] [--header name=value]... [--json]
+            the take recorded on vos.so's fleet (no browser here): lands as a private vos with its doc and digest, then fetched into --out with its media
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--at-still] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
@@ -665,12 +669,107 @@ async function cmdRecord(argv: string[]): Promise<number> {
   if (!url)
     throw new UsageError('no URL — set "url" in the actions file or pass --url')
   const outDir = resolve(strFlag(flags, 'out') ?? 'take')
-  const backdrop = await takeBackdrop(flags, r)
-  const maxDurationSeconds = await maxDuration(flags, r)
   const storageState = takeStorageState(flags)
   const sessionName = takeSessionName(flags, storageState)
   const browserArgs = takeBrowserArgs(multi)
   const headers = takeHeaders(multi)
+
+  // ON THE FLEET: the script goes up, vos.so records, plans and lands the
+  // take, and it comes home with `vos fetch --media`. No browser is opened
+  // here; a session never travels; a rehearsal stays a local act.
+  if (flags.hosted === true) {
+    if (flags['dry-run'] === true)
+      throw new UsageError(
+        '--dry-run rehearses on this machine; drop --hosted to rehearse, or --dry-run to record on vos.so',
+      )
+    if (storageState || sessionName)
+      throw new UsageError(
+        'a session never reaches vos.so: --hosted takes no --session or --storage-state. Put the sign-in in the setup steps with { "env": "NAME" }, or record here with vos record.',
+      )
+    const origin = platformOrigin({
+      origin: strFlag(flags, 'origin'),
+      api: strFlag(flags, 'api'),
+    })
+    const key = resolveCredential(strFlag(flags, 'key'))
+    if (!key)
+      throw new UsageError(
+        'recording on vos.so needs a credential: vos login, or VOS_API_KEY (mint a key at https://vos.so/app/api)',
+      )
+    const { env, missing } = hostedEnv(actions, process.env)
+    if (missing.length)
+      throw new UsageError(
+        `the setup reads ${missing.map((n) => `{ "env": "${n}" }`).join(', ')} and this shell has no ${missing.length === 1 ? 'value for it' : 'values for them'}; export ${missing.join(', ')} and run again (the value rides the job, and is never stored)`,
+      )
+    r.log('recording on vos.so…')
+    r.event({ event: 'phase', phase: 'record' })
+    const started = Date.now()
+    const outcome = await recordHosted({
+      origin,
+      key,
+      url,
+      actions: { ...actions, url },
+      headers,
+      title: strFlag(flags, 'title'),
+      folderId: strFlag(flags, 'folder'),
+      env,
+      log: r.log,
+    })
+    if (!outcome.ok) {
+      // The vos was made before the take, so a refusal leaves an empty one
+      // on the shelf; the CLI takes it back down (its job row goes with it,
+      // which is why this runs only once the refusal has been read).
+      if (outcome.vosId) {
+        const gone = await apiJson(origin, `/api/vos/${outcome.vosId}`, {
+          method: 'DELETE',
+          key,
+        })
+        if (gone.status === 200)
+          r.log('the empty vos it would have landed on was removed')
+      }
+      r.done(
+        {
+          hosted: true,
+          ok: false,
+          wall: outcome.wall,
+          error: outcome.error,
+          vosId: outcome.vosId,
+          jobId: outcome.jobId,
+        },
+        `${outcome.wall ? 'REFUSED' : 'FAILED'} on vos.so: ${outcome.error}`,
+      )
+      return outcome.wall ? EXIT_WALL : EXIT_ERROR
+    }
+    r.event({ event: 'phase', phase: 'fetch' })
+    r.log(`landed as ${outcome.studio}; fetching the take into ${outDir}…`)
+    const fetched = await cmdFetch([
+      outcome.vosId,
+      '--out',
+      outDir,
+      '--media',
+      ...(strFlag(flags, 'origin')
+        ? ['--origin', strFlag(flags, 'origin')!]
+        : []),
+      ...(strFlag(flags, 'key') ? ['--key', strFlag(flags, 'key')!] : []),
+      ...(flags.json === true ? ['--json'] : []),
+    ])
+    if (fetched !== EXIT_OK) return fetched
+    const t = outcome.job.telemetry ?? {}
+    r.done(
+      {
+        hosted: true,
+        ok: true,
+        vosId: outcome.vosId,
+        jobId: outcome.jobId,
+        out: outDir,
+        seconds: +((Date.now() - started) / 1000).toFixed(1),
+        telemetry: t,
+      },
+      `Recorded on vos.so in ${((Date.now() - started) / 1000).toFixed(1)}s: ${outcome.studio}\n  ${outDir}/ holds doc.json, the recording and vos.json${typeof t.durationMs === 'number' ? ` (${(t.durationMs / 1000).toFixed(1)}s of footage)` : ''}${Array.isArray(t.dead) && t.dead.length ? `\n  DEAD TIME: ${t.dead.length} stretch(es) under a parked cursor; give those steps their ms` : ''}${Array.isArray(t.exposures) && t.exposures.length ? `\n  EXPOSURES: ${t.exposures.length} sensitive-looking text(s) in frame; mask them in actions.json` : ''}\n  Next: vos digest ${outDir} — look before you cut; edit doc.json; vos push ${outDir}`,
+    )
+    return EXIT_OK
+  }
+  const backdrop = await takeBackdrop(flags, r)
+  const maxDurationSeconds = await maxDuration(flags, r)
 
   // A REHEARSAL: run the script against the real page and say which
   // selectors resolve, before a real-time take and its encode are spent

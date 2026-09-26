@@ -1,0 +1,352 @@
+/**
+ * The recorder's pace — the pure parts.
+ *
+ * A take of a scripted flow should run as long as the script asks, plus the
+ * gestures a person makes between the asks (the pointer's travel, the press,
+ * the settle after it) and no more. Measured before this module (§4.5 of
+ * the utility-clip retrospective), hovers ran 2× their ask, drags 4.8× and
+ * a 25 s script recorded 42 s, for two reasons the numbers here answer:
+ *
+ *  - The motion loops counted STEPS (one per 16 ms of the asked duration)
+ *    and awaited a `mouse.move` round trip per step, so a page that
+ *    re-renders per move (a slider) stretched every gesture by the round
+ *    trip. A gesture is now driven by the CLOCK: its position is a function
+ *    of the elapsed time, and it ends when the asked duration has elapsed,
+ *    however many samples the page allowed.
+ *  - The settles after a gesture were fixed sleeps (500 ms after a click,
+ *    250 after every selector lookup). A settle is DATA: `ms` on the step
+ *    overrides a small default, and the script's own `wait` steps carry
+ *    the intended pauses.
+ */
+
+/** Pointer travel: ms per CSS px, floor and ceiling — a person's hand. */
+export const POINTER_MS_PER_PX = 0.7
+export const POINTER_MIN_MS = 250
+export const POINTER_MAX_MS = 800
+/** The sample cadence a motion loop aims for. */
+export const MOTION_TICK_MS = 16
+
+/** The settle after a gesture when the step names none, by verb. */
+export const SETTLE_MS = {
+  click: 150,
+  type: 150,
+  scroll: 200,
+  drag: 80,
+} as const
+
+/** The press: the pause before the button goes down, and the hold. */
+export const PRESS_LEAD_MS = 80
+export const PRESS_HOLD_MS = 70
+/** The pause between a selector lookup that scrolled the page and the move. */
+export const SCROLL_SETTLE_MS = 120
+/** The hold after the last step, so the take does not cut on a press. */
+export const TRAILING_HOLD_MS = 400
+
+/** How long the pointer takes to travel `dist` CSS px. */
+export function pointerTravelMs(dist: number): number {
+  return Math.min(
+    POINTER_MAX_MS,
+    Math.max(POINTER_MIN_MS, Math.round(dist * POINTER_MS_PER_PX)),
+  )
+}
+
+/**
+ * A click's `ms` is READING time, held from the page's last visual change,
+ * and the recorder pays the settle itself: the same `ms` was read on one
+ * run and dead on the next because the hold started at the press and the
+ * page's settle varied run to run (0.3 s to 0.7 s on the same step).
+ *
+ * The settle is watched on the screencast, which emits only on change:
+ * after the press, a change that arrives within RESPONSE_MS says the page
+ * is answering, and it has settled once QUIET_MS pass with no new frame.
+ * No change within RESPONSE_MS means the page did not change (a click that
+ * only moves state) and the settle is over. SETTLE_CAP_MS bounds a page
+ * that never stops changing (a playing preview), which is a page nothing
+ * is dead on, so the hold simply starts.
+ */
+export const RESPONSE_MS = 400
+export const QUIET_MS = 250
+export const SETTLE_CAP_MS = 1200
+
+/**
+ * Is the page settled? Pure: the recorder feeds it what it knows at each
+ * tick since the press.
+ */
+export function settleVerdict(
+  t: {
+    /** ms since the press. */
+    sincePress: number
+    /** ms since the last screencast frame, or null when none arrived since the press. */
+    sinceChange: number | null
+  },
+  c = { response: RESPONSE_MS, quiet: QUIET_MS, cap: SETTLE_CAP_MS },
+): 'wait' | 'settled' {
+  if (t.sincePress >= c.cap) return 'settled'
+  if (t.sinceChange === null)
+    return t.sincePress >= c.response ? 'settled' : 'wait'
+  return t.sinceChange >= c.quiet ? 'settled' : 'wait'
+}
+
+/**
+ * What is left of a hold once the settle is detected: the hold is measured
+ * from the last change, so the quiet already spent counts toward it.
+ */
+export function holdLeftMs(holdMs: number, sinceChange: number | null): number {
+  return Math.max(0, holdMs - (sinceChange ?? 0))
+}
+
+/** The settle after a step: its own `ms` when it names one, else the verb's. */
+export function settleMs(step: { do: string; ms?: number }): number {
+  if (typeof step.ms === 'number' && step.ms >= 0) return step.ms
+  const d = step.do as keyof typeof SETTLE_MS
+  return SETTLE_MS[d] ?? 0
+}
+
+export const easeInOutCubic = (u: number): number =>
+  u < 0.5 ? 4 * u * u * u : 1 - Math.pow(-2 * u + 2, 3) / 2
+
+/**
+ * Drive a motion by the clock: `at(u)` is called with the eased progress
+ * for each sample, and the loop ends when `dur` ms have elapsed, with the
+ * last call at u = 1 exactly. Between samples it sleeps to the next tick
+ * only when the sample came back early; a slow sample (a page busy
+ * re-rendering) is followed at once, so the gesture keeps its length and
+ * loses samples, never the other way round.
+ */
+export async function clockMotion(
+  dur: number,
+  at: (u: number) => Promise<void>,
+  clock: { now: () => number; sleep: (ms: number) => Promise<void> },
+): Promise<number> {
+  const start = clock.now()
+  let samples = 0
+  for (;;) {
+    const elapsed = clock.now() - start
+    if (elapsed >= dur) break
+    await at(easeInOutCubic(Math.min(1, elapsed / dur)))
+    samples++
+    const next =
+      start + Math.ceil((clock.now() - start) / MOTION_TICK_MS) * MOTION_TICK_MS
+    const wait = Math.min(next, start + dur) - clock.now()
+    if (wait > 0) await clock.sleep(wait)
+  }
+  await at(1)
+  return samples + 1
+}
+
+/**
+ * Typing paced by the clock: the i-th character is due at `start + i·delay`;
+ * after each keystroke the loop sleeps to the next due time only if the
+ * keystroke came back early. A slow field (an editor re-rendering per key)
+ * types as fast as it can and says so in the pace report.
+ */
+export async function clockTyping(
+  chars: readonly string[],
+  delay: number,
+  type: (ch: string, index: number) => Promise<void>,
+  clock: { now: () => number; sleep: (ms: number) => Promise<void> },
+): Promise<void> {
+  const start = clock.now()
+  for (let i = 0; i < chars.length; i++) {
+    await type(chars[i], i)
+    const due = start + (i + 1) * delay
+    const wait = due - clock.now()
+    if (wait > 0 && i < chars.length - 1) await clock.sleep(wait)
+  }
+}
+
+/** One step's pace: what the script asked for it and what it took. */
+export interface StepPace {
+  step: number
+  do: string
+  /** The script's own ask: a wait's ms, a hover's dwell, a drag's ms, typing's chars × delay, a click's read after the settle; 0 for a scroll. */
+  askedMs: number
+  /** The gesture the recorder adds by design: pointer travel, the press, the settle. */
+  gestureMs: number
+  wallMs: number
+}
+
+export interface PaceReport {
+  askedMs: number
+  gestureMs: number
+  wallMs: number
+  /** Wall time neither asked nor a gesture: what the page and the round trips cost. */
+  overheadMs: number
+  overheadPct: number
+  /** The steps whose wall ran past their ask plus gesture by more than a third. */
+  slow: { step: number; do: string; askedMs: number; wallMs: number }[]
+}
+
+/** What a script asks of a step, in ms: the part of its wall time that is the author's. */
+export function askedMs(step: {
+  do: string
+  ms?: number
+  text?: string
+  delayMs?: number
+}): number {
+  switch (step.do) {
+    case 'wait':
+      return step.ms ?? 0
+    // A click's ms is the read after the page settled: the author's.
+    case 'click':
+      return step.ms ?? SETTLE_MS.click
+    case 'hover':
+      return step.ms ?? 700
+    case 'drag':
+      return step.ms ?? 700
+    case 'type':
+      return (step.text?.length ?? 0) * (step.delayMs ?? 40)
+    default:
+      return 0
+  }
+}
+
+export function paceReport(steps: readonly StepPace[]): PaceReport {
+  const askedMs = steps.reduce((a, s) => a + s.askedMs, 0)
+  const gestureMs = steps.reduce((a, s) => a + s.gestureMs, 0)
+  const wallMs = steps.reduce((a, s) => a + s.wallMs, 0)
+  const overheadMs = Math.max(0, wallMs - askedMs - gestureMs)
+  const slow = steps
+    .filter((s) => s.wallMs > (s.askedMs + s.gestureMs) * 1.34 + 60)
+    .map((s) => ({
+      step: s.step,
+      do: s.do,
+      askedMs: s.askedMs,
+      wallMs: s.wallMs,
+    }))
+  return {
+    askedMs,
+    gestureMs,
+    wallMs,
+    overheadMs,
+    overheadPct: wallMs > 0 ? Math.round((overheadMs / wallMs) * 100) : 0,
+    slow,
+  }
+}
+
+/** The pace in one line for the log. */
+export function paceLine(r: PaceReport): string {
+  const s = (ms: number) => `${(ms / 1000).toFixed(1)} s`
+  const slow = r.slow.length
+    ? `; slow: ${r.slow.map((x) => `#${x.step} ${x.do} ${s(x.wallMs)} for ${s(x.askedMs)} asked`).join(', ')}`
+    : ''
+  return `pace: the script asked ${s(r.askedMs)}, the gestures added ${s(r.gestureMs)}, the take ran ${s(r.wallMs)} (${r.overheadPct} % overhead${slow})`
+}
+
+/**
+ * DEAD TIME, the smoothness fact that replaces the freeze share as the
+ * warning. A still frame is not a defect: a page the viewer is reading is
+ * content, and a workspace tour is mostly still. What is dead is a still
+ * frame under a PARKED cursor past the beat it takes to read what changed:
+ * after that the picture, the pointer and the camera all hold and nothing
+ * is being said. So the derivation reads, per step, when the page settled
+ * after the step's act, how long the settled frame was held, and whether
+ * the cursor moved in that hold; a hold past the reading beat is dead.
+ *
+ * The beat is longer after a page changed (a navigation shows a whole new
+ * page to take in) than after a control changed (one thing to see).
+ */
+export const READ_BEAT_MS = { page: 1000, control: 600 } as const
+/** A dead stretch this long is a warning on its own, whatever the share. */
+export const DEAD_STRETCH_WARN_MS = 1500
+/** The share of the take past which dead time is a warning. */
+export const DEAD_SHARE_WARN_PCT = 20
+
+export interface DeadStep {
+  step: number
+  id?: string
+  do: string
+  /** ms from the step's act (its press, else its start) to the last frame change in the step. */
+  settledMs: number
+  /** ms the settled frame was held before the step ended. */
+  heldMs: number
+  /** the hold past the reading beat, while the cursor was parked; 0 when the hold was read or the pointer moved. */
+  deadMs: number
+}
+
+export interface DeadReport {
+  ms: number
+  pct: number
+  /** the steps that carried any dead time, in order. */
+  steps: DeadStep[]
+  /** the longest single dead hold. */
+  longestMs: number
+}
+
+export function deadTime(
+  steps: readonly {
+    step: number
+    id?: string
+    do: string
+    tStart: number
+    tEnd: number
+    navigated?: boolean
+  }[],
+  frames: readonly { tMs: number }[],
+  events: readonly { t: number; type: string }[],
+  durationMs: number,
+): DeadReport {
+  const out: DeadStep[] = []
+  let ms = 0
+  let longestMs = 0
+  for (const s of steps) {
+    const t0 = s.tStart * 1000
+    const t1 = s.tEnd * 1000
+    if (!(t1 > t0)) continue
+    // The act: the step's first press, else its start (a wait, a move).
+    const press = events.find(
+      (e) => e.type === 'down' && e.t >= t0 && e.t <= t1,
+    )
+    const act = press ? press.t : t0
+    // The last visual change inside the step, after the act.
+    let last = act
+    for (const f of frames) {
+      if (f.tMs > act && f.tMs <= t1) last = f.tMs
+    }
+    const settledMs = Math.round(last - act)
+    const heldMs = Math.round(t1 - last)
+    // Parked: no pointer motion while the settled frame was held.
+    const moved = events.some(
+      (e) =>
+        (e.type === 'move' || e.type === 'scroll') && e.t > last && e.t <= t1,
+    )
+    // The opening step shows a page the viewer has not seen: a page beat.
+    const beat =
+      s.navigated || s.step === 0 ? READ_BEAT_MS.page : READ_BEAT_MS.control
+    const deadMs = moved ? 0 : Math.max(0, heldMs - beat)
+    if (deadMs > 0) {
+      out.push({
+        step: s.step,
+        ...(s.id ? { id: s.id } : {}),
+        do: s.do,
+        settledMs,
+        heldMs,
+        deadMs,
+      })
+      ms += deadMs
+      longestMs = Math.max(longestMs, deadMs)
+    }
+  }
+  return {
+    ms,
+    pct: durationMs > 0 ? Math.round((ms / durationMs) * 100) : 0,
+    steps: out,
+    longestMs,
+  }
+}
+
+/** Whether a dead report earns a warning: the share, or one long hold. */
+export function deadWarns(r: DeadReport): boolean {
+  return r.pct >= DEAD_SHARE_WARN_PCT || r.longestMs >= DEAD_STRETCH_WARN_MS
+}
+
+/** The dead time in words, naming the steps and what to cut. */
+export function deadLine(r: DeadReport): string {
+  const s = (ms: number) => `${(ms / 1000).toFixed(1)} s`
+  if (!r.steps.length) return 'dead time: none'
+  const parts = r.steps.map(
+    (d) =>
+      `#${d.step}${d.id ? ` (${d.id})` : ''} ${d.do} held ${s(d.heldMs)} after it settled, ${s(d.deadMs)} past the beat`,
+  )
+  return `dead time: ${s(r.ms)} (${r.pct} %), a still frame under a parked cursor past the reading beat: ${parts.join('; ')}. Cut those steps' ms; a hold is what it takes to read what changed.`
+}

@@ -20,6 +20,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./record": {
+      "types": "./dist/record/index.d.ts",
+      "import": "./dist/record/index.js"
     }
   },
   "files": [
@@ -34,6 +38,7 @@
     "clean": "rm -rf dist node_modules"
   },
   "dependencies": {
+    "@vosjs/studio-core": "workspace:^",
     "mediabunny": "^1.55.7"
   },
   "devDependencies": {
