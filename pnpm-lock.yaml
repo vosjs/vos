@@ -149,6 +149,9 @@ importers:
 
   packages/render-core:
     dependencies:
+      '@vosjs/studio-core':
+        specifier: workspace:^
+        version: link:../studio-core
       mediabunny:
         specifier: ^1.55.7
         version: 1.55.7
