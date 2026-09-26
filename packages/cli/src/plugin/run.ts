@@ -112,6 +112,7 @@ import { cmdRecipe } from './recipe'
 import { cmdBrand } from './brand'
 import { hostedEnv, recordHosted } from './hostedRecord'
 import { cmdActions } from './agentBrowser'
+import { cmdIngest } from './ingest'
 import { cmdDoctor, cmdLogout, cmdSetup, cmdWhoami } from './machineCmd'
 import type { Backdrop, ProjectDoc } from '@vosjs/studio-core'
 import type { ActionsFile } from './actions'
@@ -162,6 +163,8 @@ Take pipeline
   vos validate <actions.json|take|kit.json> [--picture] [--json]
   vos judge <kit.json> --against <MANIFEST.json> [--out dir] [--json]
   vos actions from-agent-browser <steps.jsonl> [--out actions.json] [--url <url>] [--viewport WxH] [--json]
+  vos ingest <video.webm|mp4> [--cursor <trace.zip|steps.jsonl|cursor.csv>] [--out take] [--offset <ms>] [--viewport WxH] [--background <slug|url|none>] [--json]
+            a take from a recording someone else made (a cloud agent's PR video, a Playwright run's video, a Loom export): the file becomes recording.<container>, meta.json from its own dimensions and duration, and a trace beside it becomes cursor.json so the planner has clicks to zoom on; without one, nothing is planned and the done event says so
   vos session open <url> --name <app>   a plain Chrome window on a vos-owned profile; sign in, close it
   vos session check <name> [--url <url>]   headless: does the session still open the page? exit 0/4
   vos session list | rm <name>          what exists and how old; delete one
@@ -586,7 +589,7 @@ async function inSession<T>(
   })
 }
 
-async function takeBackdrop(
+export async function takeBackdrop(
   flags: ParsedArgs['flags'],
   r: { log: (line: string) => void },
 ): Promise<Backdrop | null> {
@@ -2379,6 +2382,8 @@ export async function run(argv: string[]): Promise<number> {
         return await cmdSession(rest)
       case 'actions':
         return await cmdActions(rest)
+      case 'ingest':
+        return await cmdIngest(rest)
       default:
         throw new UsageError(`unknown command "${cmd}" — run: vos help`)
     }
