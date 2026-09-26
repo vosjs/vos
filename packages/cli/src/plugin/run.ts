@@ -181,10 +181,12 @@ This machine (no account)
             remove ~/.config/vos/credentials (VOS_API_KEY still resolves)
 
 Platform (vos.so) — fetch, edit, push, pull, repeat
-  vos login [--key <vos_sk_…>] [--label <name>] [--no-browser]
+  vos login [--key <vos_sk_…>] [--handoff <url>] [--label <name>] [--no-browser]
             sign in via the browser (approve at vos.so/cli/auth; works
             headless — print the URL, a human approves, the key stores
-            itself). --key skips the browser (mint at vos.so/app/api)
+            itself). --key skips the browser (mint at vos.so/app/api).
+            --handoff https://vos.so/h/… exchanges the setup link a
+            signed-in person's line carries for a key, once, no click
   vos fetch <vosId|watch-url> [--out dir] [--media] [--json]
             writes config.json + vos.json (no auth needed for public programs);
             a take vos also gets its doc.json, and --media its footage

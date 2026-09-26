@@ -20,7 +20,7 @@ import { lowerProgramDoc, migrateHostedDoc } from '@vosjs/studio-core'
 import { UsageError, parseArgs, strFlag } from './args'
 import { directoryKind } from '../loadConfig'
 import { EXIT_OK, createReporter } from './output'
-import { LoginUnsupportedError, browserLogin } from './login'
+import { LoginUnsupportedError, browserLogin, handoffLogin } from './login'
 import {
   apiError,
   apiJson,
@@ -754,6 +754,24 @@ export async function cmdLogin(argv: string[]): Promise<number> {
     origin: strFlag(flags, 'origin'),
     api: strFlag(flags, 'api'),
   })
+
+  // AN2: a setup link from a signed-in person's line exchanges itself for
+  // a key, once, with no click. Its origin is the link's own.
+  const handoffUrl = strFlag(flags, 'handoff')
+  if (handoffUrl) {
+    const done = await handoffLogin(handoffUrl, r)
+    r.done(
+      {
+        path: done.path,
+        origin: done.origin,
+        user: done.user,
+        keyName: done.keyName,
+        next_step: 'the link is spent; vos push when you want the work hosted',
+      },
+      `Signed in${done.user ? ` as ${done.user}` : ''} — key "${done.keyName}" stored at ${done.path} (used by every vos platform verb). The link is spent.`,
+    )
+    return EXIT_OK
+  }
 
   // The paste ladder keeps its lanes: an explicit --key (or a VOS_API_KEY
   // already in the env) validates and stores without any browser.
