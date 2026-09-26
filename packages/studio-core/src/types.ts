@@ -78,9 +78,28 @@ export interface RecordingMeta {
   dpr: number
   /** page/browser zoom at capture. */
   zoom: number
-  /** wall-clock origin (Date.now at first frame). */
+  /**
+   * Wall-clock origin (Date.now) of the take's timeline: the instant the
+   * recorder's `start()` was CALLED, which is where the file's first frame
+   * sits. Never the recorder's `start` EVENT — Chrome fires that from the
+   * muxer's first write, seconds late under load, and a t0 stamped there runs
+   * every cursor event ahead of the footage by that lag.
+   */
   t0: number
+  /**
+   * The take's length in ACTIVE ms — the file's timeline, which a pause does
+   * not advance (MediaRecorder removes paused time from the file). Cursor
+   * event times live on the same timeline.
+   */
   durationMs: number
+  /** Total ms the take was paused (removed from the file and from every `t`). Absent = none. */
+  pausedMs?: number
+  /**
+   * Diagnostic: how long after the `start()` call the recorder's `start`
+   * event fired. A large value is the load the recorder was under; it is
+   * never used for alignment.
+   */
+  startEventDelayMs?: number
   /** captured pixel dimensions. */
   width: number
   height: number
@@ -99,10 +118,11 @@ export interface RecordingMeta {
    */
   hasMic?: boolean
   /**
-   * Recorder start skew: wall-clock ms between the main recorder's start and
-   * the mic/cam sidecar recorders' starts (positive = sidecar started later).
-   * Lets the consume path trim/pad a sidecar head instead of assuming t0
-   * equality. Absent on takes without the matching sidecar.
+   * Recorder start skew: wall-clock ms between the main recorder's `start()`
+   * call and the mic/cam sidecar recorders' `start()` calls (positive =
+   * sidecar started later), each the zero of its own file. Lets the consume
+   * path trim/pad a sidecar head instead of assuming t0 equality. Absent on
+   * takes without the matching sidecar.
    */
   micT0DeltaMs?: number
   camT0DeltaMs?: number
