@@ -6,7 +6,12 @@
  */
 import { createServer } from 'node:http'
 import { afterEach, describe, expect, it } from 'vitest'
-import { LoginUnsupportedError, browserLogin } from '../login'
+import {
+  LoginUnsupportedError,
+  browserLogin,
+  handoffLogin,
+  parseHandoffUrl,
+} from '../login'
 import type { Server } from 'node:http'
 import type { Reporter } from '../output'
 
@@ -213,6 +218,118 @@ describe('browserLogin', () => {
     const { r } = capture()
     await expect(browserLogin(origin, r, opts())).rejects.toThrow(
       /no approval|vos login/,
+    )
+  })
+})
+
+/**
+ * `vos login --handoff <url>` (AN2): the setup link exchanged once for a
+ * key. Against a real in-process server: the token goes to the exchange
+ * route and the key to the store and never to any output; a spent link,
+ * an expired one and an older origin each fail in words.
+ */
+function serveExchange(
+  answer: (body: Record<string, unknown>) => {
+    status: number
+    body: Record<string, unknown>
+  },
+): Promise<string> {
+  server = createServer((req, res) => {
+    let raw = ''
+    req.on('data', (c: Buffer) => (raw += String(c)))
+    req.on('end', () => {
+      const send = (status: number, body: Record<string, unknown>) => {
+        res.writeHead(status, { 'content-type': 'application/json' })
+        res.end(JSON.stringify(body))
+      }
+      if (req.url === '/api/cli/login/exchange' && req.method === 'POST') {
+        const r = answer(JSON.parse(raw || '{}') as Record<string, unknown>)
+        send(r.status, r.body)
+        return
+      }
+      send(404, { error: 'not found' })
+    })
+  })
+  return new Promise((resolve) => {
+    server?.listen(0, '127.0.0.1', () => {
+      const addr = server?.address()
+      resolve(
+        `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`,
+      )
+    })
+  })
+}
+
+describe('handoffLogin', () => {
+  const TOKEN = 'vos_ho_' + 'a'.repeat(40)
+
+  it('parses the link: its origin is the platform, its last segment the token', () => {
+    expect(parseHandoffUrl(`https://vos.so/h/${TOKEN}`)).toEqual({
+      origin: 'https://vos.so',
+      token: TOKEN,
+    })
+    expect(parseHandoffUrl('https://vos.so/agent.md')).toBeNull()
+    expect(parseHandoffUrl(`https://vos.so/h/${TOKEN}/x`)).toBeNull()
+  })
+
+  it('sends the token, stores the key, and never lets the key reach output', async () => {
+    let seen: Record<string, unknown> = {}
+    const origin = await serveExchange((body) => {
+      seen = body
+      return {
+        status: 200,
+        body: {
+          status: 'ok',
+          key: 'vos_sk_' + '9'.repeat(40),
+          keyName: 'cli:laptop',
+          user: { name: 'Robin' },
+        },
+      }
+    })
+    const { r, logs, events } = capture()
+    let stored = ''
+    const out = await handoffLogin(`${origin}/h/${TOKEN}`, r, {
+      store: (k) => {
+        stored = k
+        return '/tmp/creds'
+      },
+    })
+    expect(seen.token).toBe(TOKEN)
+    expect(typeof seen.hostname).toBe('string')
+    expect(stored).toBe('vos_sk_' + '9'.repeat(40))
+    expect(out).toEqual({
+      path: '/tmp/creds',
+      user: 'Robin',
+      keyName: 'cli:laptop',
+      origin,
+    })
+    const everything = JSON.stringify({ logs, events, out })
+    expect(everything).not.toContain('vos_sk_')
+  })
+
+  it('a spent or expired link fails in words with vos login as the next step', async () => {
+    const origin = await serveExchange(() => ({
+      status: 410,
+      body: {
+        status: 'spent',
+        error:
+          'This link was already used to sign a CLI in, once. Copy a fresh line from vos.so, or run `vos login`.',
+      },
+    }))
+    const { r } = capture()
+    await expect(handoffLogin(`${origin}/h/${TOKEN}`, r)).rejects.toThrow(
+      /already used.*vos login/,
+    )
+  })
+
+  it('an origin from before the route says so', async () => {
+    const origin = await serveExchange(() => ({
+      status: 404,
+      body: { error: 'not found' },
+    }))
+    const { r } = capture()
+    await expect(handoffLogin(`${origin}/h/${TOKEN}`, r)).rejects.toThrow(
+      /does not support setup links/,
     )
   })
 })

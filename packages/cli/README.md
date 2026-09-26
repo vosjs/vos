@@ -270,6 +270,7 @@ Everything that runs on your machine is open source; [vos.so](https://vos.so) is
 
 ```bash
 vos login [--key <k>] [--label <name>] [--no-browser]   # browser sign-in: a code and a vos.so/cli/auth URL, a human approves, the key stores itself
+vos login --handoff https://vos.so/h/<token>           # the setup link a signed-in person's line carries: exchanged once for a key, no click
 vos fetch <vosId|url> [--out <slug>] [--media]         # a program writes config.json + vos.json; a take writes doc.json (+ the recording with --media)
 vos check bright-loop/config.json                      # full local validation
 vos push bright-loop/config.json                       # untracked: create a PRIVATE vos. Tracked (vos.json): add a version to it

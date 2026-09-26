@@ -143,3 +143,67 @@ export async function browserLogin(
     'no approval within 15 minutes — run `vos login` again, or mint a key at https://vos.so/app/api and pass --key',
   )
 }
+
+/** The handoff URL's shape: the platform origin, `/h/`, a vos_ho_ token. */
+const HANDOFF_URL = /^(https?:\/\/[^/]+)\/h\/(vos_ho_[A-Za-z0-9_-]+)$/
+
+/**
+ * Parse `vos login --handoff <url>`'s argument: the origin is the link's
+ * own (the platform that minted it), the token its last segment. Pure.
+ */
+export function parseHandoffUrl(
+  url: string,
+): { origin: string; token: string } | null {
+  const m = HANDOFF_URL.exec(url.trim())
+  return m ? { origin: m[1], token: m[2] } : null
+}
+
+/**
+ * `vos login --handoff <url>` (AN2): a signed-in person's line carries a
+ * SETUP GRANT, and this exchanges it, once, for a content key named for
+ * this machine, with no click from the person. The token is the link's
+ * last segment; it goes to the exchange route and nowhere else, and the
+ * key it answers goes straight to disk. A spent, expired or unknown link
+ * fails in words with the next step, which is the ordinary `vos login`.
+ */
+export async function handoffLogin(
+  url: string,
+  r: Reporter,
+  opts: { store?: (key: string) => string } = {},
+): Promise<{ path: string; user: string; keyName: string; origin: string }> {
+  const parsed = parseHandoffUrl(url)
+  if (!parsed)
+    throw new Error(
+      '--handoff wants the link a person copied from vos.so, https://vos.so/h/vos_ho_…',
+    )
+  r.log(`exchanging the setup link at ${parsed.origin}…`)
+  const res = await apiJson(parsed.origin, '/api/cli/login/exchange', {
+    method: 'POST',
+    body: { token: parsed.token, hostname: hostname().slice(0, 64) },
+  })
+  if (res.status === 200 && res.body.status === 'ok') {
+    const path = (opts.store ?? writeCredential)(res.body.key as string)
+    const user =
+      typeof res.body.user === 'object' && res.body.user !== null
+        ? ((res.body.user as { name?: string }).name ?? '')
+        : ''
+    return {
+      path,
+      user,
+      keyName: String(res.body.keyName ?? ''),
+      origin: parsed.origin,
+    }
+  }
+  if (res.status === 404 && !res.body.status) {
+    // An origin from before the route.
+    throw new Error(
+      `${parsed.origin} does not support setup links yet — run \`vos login\` instead`,
+    )
+  }
+  const said =
+    typeof res.body.error === 'string'
+      ? res.body.error
+      : apiError('exchange', res)
+  const hint = typeof res.body.hint === 'string' ? ` ${res.body.hint}` : ''
+  throw new Error(`${said}${hint}`)
+}
