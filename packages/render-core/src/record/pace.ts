@@ -139,7 +139,8 @@ export async function clockMotion(
   const start = clock.now()
   let samples = 0
   for (;;) {
-    const elapsed = clock.now() - start
+    const tick = clock.now()
+    const elapsed = tick - start
     if (elapsed >= dur) break
     await at(easeInOutCubic(Math.min(1, elapsed / dur)))
     samples++
@@ -147,6 +148,12 @@ export async function clockMotion(
       start + Math.ceil((clock.now() - start) / MOTION_TICK_MS) * MOTION_TICK_MS
     const wait = Math.min(next, start + dur) - clock.now()
     if (wait > 0) await clock.sleep(wait)
+    // A sample that cost no clock time still yields a tick. On a Worker the
+    // clock moves only across I/O, so a sample that awaited nothing (a
+    // scroll tick that owed no pixels yet) left `now` where it was, the wait
+    // came out at zero, and the loop spun on a frozen clock for good: the
+    // fleet's first three clock-driven scrolls did exactly that.
+    else if (clock.now() === tick) await clock.sleep(MOTION_TICK_MS)
   }
   await at(1)
   return samples + 1
@@ -170,6 +177,10 @@ export async function clockTyping(
     const due = start + (i + 1) * delay
     const wait = due - clock.now()
     if (wait > 0 && i < chars.length - 1) await clock.sleep(wait)
+    // The same yield as clockMotion's: a keystroke that cost no clock time
+    // must not let the loop outrun a clock that only moves across I/O.
+    else if (i < chars.length - 1 && clock.now() === start + i * delay)
+      await clock.sleep(1)
   }
 }
 
