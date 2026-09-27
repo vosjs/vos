@@ -37,6 +37,7 @@ import {
   paceLine,
   paceReport,
   pointerTravelMs,
+  scrollTravelMs,
   settleMs,
 } from './pace'
 import type { DeadReport, PaceReport, StepPace } from './pace'
@@ -358,6 +359,16 @@ export async function recordTake(
     )
   }
 
+  // One animation frame in the page: the compositor has produced a frame
+  // since the last input, so the screencast's next capture is whole. Fails
+  // open (a navigating page has no frame to give).
+  const paintFrame = () =>
+    page
+      .evaluate(
+        () => new Promise<void>((r) => requestAnimationFrame(() => r())),
+      )
+      .catch(() => undefined)
+
   const boxOf = async (selector: string): Promise<Rect | null> => {
     const loc = page.locator(selector).first()
     try {
@@ -533,13 +544,33 @@ export async function recordTake(
         break
       }
       case 'scroll': {
+        // The scroll travels by the clock, like the pointer: each tick sends
+        // the wheel delta the eased position owes, then waits for the page
+        // to paint a frame before the next, so every captured frame is a
+        // settled composite and the motion is paced by the clock rather than
+        // by whatever the browser's own smooth scroll manages to draw.
         const total = Math.abs(step.dy)
         const dir = Math.sign(step.dy)
-        for (let done = 0; done < total; done += 120) {
-          await page.mouse.wheel(0, dir * Math.min(120, total - done))
-          emit({ x: Math.round(cur.x), y: Math.round(cur.y), type: 'scroll' })
-          await sleep(40)
-        }
+        let sent = 0
+        await gesture(() =>
+          clockMotion(
+            dry ? 0 : scrollTravelMs(total),
+            async (u) => {
+              const target = Math.round(total * u)
+              const delta = target - sent
+              if (delta <= 0) return
+              await page.mouse.wheel(0, dir * delta)
+              sent = target
+              emit({
+                x: Math.round(cur.x),
+                y: Math.round(cur.y),
+                type: 'scroll',
+              })
+              await paintFrame()
+            },
+            clock,
+          ),
+        )
         await gesture(() => sleep(settleMs(step)))
         break
       }

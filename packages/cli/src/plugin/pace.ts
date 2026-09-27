@@ -30,6 +30,9 @@ export {
   paceLine,
   paceReport,
   pointerTravelMs,
+  SCROLL_MAX_MS,
+  SCROLL_MIN_MS,
+  scrollTravelMs,
   settleMs,
   settleVerdict,
 } from '@vosjs/render-core/record'

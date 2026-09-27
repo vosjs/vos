@@ -14,6 +14,9 @@ import {
   paceLine,
   paceReport,
   pointerTravelMs,
+  SCROLL_MAX_MS,
+  SCROLL_MIN_MS,
+  scrollTravelMs,
   settleMs,
 } from '../pace'
 
@@ -275,5 +278,15 @@ describe('settleVerdict and holdLeftMs', () => {
   it("a click's ms is the author's read, in the pace report", () => {
     expect(askedMs({ do: 'click', ms: 1000 })).toBe(1000)
     expect(askedMs({ do: 'click' })).toBe(150)
+  })
+})
+
+describe('scrollTravelMs', () => {
+  it('paces a scroll by the clock, between a flick and a crawl', () => {
+    expect(scrollTravelMs(0)).toBe(SCROLL_MIN_MS)
+    expect(scrollTravelMs(100)).toBe(SCROLL_MIN_MS)
+    expect(scrollTravelMs(500)).toBe(450)
+    expect(scrollTravelMs(-500)).toBe(450)
+    expect(scrollTravelMs(5000)).toBe(SCROLL_MAX_MS)
   })
 })

@@ -39,10 +39,30 @@ export const PRESS_LEAD_MS = 80
 export const PRESS_HOLD_MS = 70
 /** The pause between a selector lookup that scrolled the page and the move. */
 export const SCROLL_SETTLE_MS = 120
+
+/**
+ * A scroll travels by the clock too, at a wheel's pace: 0.9 ms per px,
+ * floored so a short flick still reads as motion and capped so a long page
+ * does not crawl. Before this the recorder sent 120 px wheel chunks with a
+ * 40 ms sleep and left the in-between frames to the browser's own smooth
+ * scroll, which a software-composited fleet browser never drew: five jumps,
+ * held by the encoder, and a torn composite where the sticky nav and the
+ * content were captured at different offsets.
+ */
+export const SCROLL_MS_PER_PX = 0.9
+export const SCROLL_MIN_MS = 240
+export const SCROLL_MAX_MS = 1000
 /** The hold after the last step, so the take does not cut on a press. */
 export const TRAILING_HOLD_MS = 400
 
 /** How long the pointer takes to travel `dist` CSS px. */
+export function scrollTravelMs(px: number): number {
+  return Math.min(
+    SCROLL_MAX_MS,
+    Math.max(SCROLL_MIN_MS, Math.round(Math.abs(px) * SCROLL_MS_PER_PX)),
+  )
+}
+
 export function pointerTravelMs(dist: number): number {
   return Math.min(
     POINTER_MAX_MS,
