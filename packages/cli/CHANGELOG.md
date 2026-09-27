@@ -1,5 +1,13 @@
 # @vosjs/cli
 
+## 0.50.4
+
+### Patch Changes
+
+- a335999: `vos record`'s clock-driven motion yields a tick when a sample cost no clock time, so a take on a runtime whose clock moves only across I/O (a Worker) no longer spins in its scroll.
+- Updated dependencies [a335999]
+  - @vosjs/render-core@0.3.5
+
 ## 0.50.3
 
 ### Patch Changes
