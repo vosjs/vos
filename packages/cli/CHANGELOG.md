@@ -1,5 +1,13 @@
 # @vosjs/cli
 
+## 0.50.2
+
+### Patch Changes
+
+- 6d32377: `vos record`'s scroll waits for the screencast's next frame between deltas (capped), not for `requestAnimationFrame`, so a take recorded in a background tab no longer stalls inside its scroll.
+- Updated dependencies [6d32377]
+  - @vosjs/render-core@0.3.3
+
 ## 0.50.1
 
 ### Patch Changes
