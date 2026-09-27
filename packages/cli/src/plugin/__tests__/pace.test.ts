@@ -91,6 +91,46 @@ describe('clockMotion', () => {
   })
 })
 
+describe('clockMotion on a clock that moves only across I/O', () => {
+  it('still ends: a sample that awaits nothing yields a tick instead of spinning', async () => {
+    // A Worker's Date.now advances only when the isolate awaits I/O. A
+    // scroll tick that owes no pixels yet awaits nothing, so without the
+    // yield the loop reads the same instant forever.
+    const frozen = fakeClock()
+    let samples = 0
+    const seen: number[] = []
+    const done = clockMotion(
+      64,
+      async (u) => {
+        samples++
+        seen.push(u)
+      },
+      frozen,
+    )
+    const guard = new Promise<string>((r) => setTimeout(() => r('spun'), 2000))
+    const outcome = await Promise.race([done.then(() => 'ended'), guard])
+    expect(outcome).toBe('ended')
+    expect(samples).toBeGreaterThanOrEqual(4)
+    expect(seen[seen.length - 1]).toBe(1)
+  })
+
+  it('types every character on such a clock too', async () => {
+    const frozen = fakeClock()
+    const typed: string[] = []
+    const done = clockTyping(
+      ['a', 'b', 'c'],
+      30,
+      async (ch) => {
+        typed.push(ch)
+      },
+      frozen,
+    )
+    const guard = new Promise<string>((r) => setTimeout(() => r('spun'), 2000))
+    expect(await Promise.race([done.then(() => 'ended'), guard])).toBe('ended')
+    expect(typed).toEqual(['a', 'b', 'c'])
+  })
+})
+
 describe('clockTyping', () => {
   it('lands each character on its due time when the field is fast, and as fast as it can when it is slow', async () => {
     const fast = fakeClock()
