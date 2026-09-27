@@ -32,7 +32,6 @@ import {
   deadWarns,
   holdLeftMs,
   settleVerdict,
-  PAINT_WAIT_MAX_MS,
   clockMotion,
   clockTyping,
   paceLine,
@@ -161,6 +160,28 @@ export interface RecordOpts {
 
 /** The longest any pause lasts in a rehearsal. */
 const DRY_PAUSE_MS = 120
+
+/**
+ * The expression a scroll tick evaluates: move the first scrollable
+ * ancestor of the element under the cursor by `dy`, else the window, the
+ * container a wheel at that point would have moved. A string, so no host
+ * helper (`__name`) has to exist in the page.
+ */
+export function scrollByScript(x: number, y: number, dy: number): string {
+  return `(() => {
+  let el = document.elementFromPoint(${Math.round(x)}, ${Math.round(y)});
+  while (el && el !== document.body && el !== document.documentElement) {
+    const cs = getComputedStyle(el);
+    if (/(auto|scroll)/.test(cs.overflowY) && el.scrollHeight > el.clientHeight + 1) {
+      el.scrollBy(0, ${dy});
+      return 'el';
+    }
+    el = el.parentElement;
+  }
+  window.scrollBy(0, ${dy});
+  return 'window';
+})()`
+}
 
 /** Minimal JPEG SOF parse for real encoded dimensions. */
 export function jpegDims(buf: Uint8Array): { w: number; h: number } | null {
@@ -306,19 +327,8 @@ export async function recordTake(
   // Frames are handed to the sink in order; the chain keeps a slow sink
   // (R2) from reordering them and is awaited before the meta is built.
   let sinkChain: Promise<void> = Promise.resolve()
-  // Whoever is waiting for the page to paint (a scroll tick) is told by the
-  // screencast's next frame, which is the one signal that a frame reached
-  // the compositor. requestAnimationFrame is NOT that signal: Chrome fires
-  // none in a tab that is not its window's active one, and the fleet's page
-  // is exactly that (the connected browser already holds a page), while CDP
-  // keeps the screencast flowing regardless. The first fleet take on the
-  // rAF version hung inside its scroll for eight minutes.
-  let paintWaiters: Array<() => void> = []
   if (!dry)
     cdp.on('Page.screencastFrame', (ev) => {
-      const told = paintWaiters
-      paintWaiters = []
-      for (const tell of told) tell()
       const tsMs = ev.metadata.timestamp
         ? ev.metadata.timestamp * 1000
         : Date.now()
@@ -370,16 +380,6 @@ export async function recordTake(
       clock,
     )
   }
-
-  // One painted frame since the last input, so the next capture is whole;
-  // capped, so a page with nothing new to paint never stalls the clock.
-  const paintFrame = (): Promise<void> =>
-    dry
-      ? Promise.resolve()
-      : Promise.race([
-          new Promise<void>((r) => paintWaiters.push(r)),
-          sleep(PAINT_WAIT_MAX_MS),
-        ])
 
   const boxOf = async (selector: string): Promise<Rect | null> => {
     const loc = page.locator(selector).first()
@@ -556,29 +556,35 @@ export async function recordTake(
         break
       }
       case 'scroll': {
-        // The scroll travels by the clock, like the pointer: each tick sends
-        // the wheel delta the eased position owes, then waits for the page
-        // to paint a frame before the next, so every captured frame is a
-        // settled composite and the motion is paced by the clock rather than
-        // by whatever the browser's own smooth scroll manages to draw.
+        // The scroll travels by the clock, like the pointer, and each tick
+        // moves the scroll container under the cursor INSIDE the page
+        // (`Runtime.evaluate` returns at once). Not wheel events: CDP's
+        // wheel dispatch waits for the renderer to handle the event, and a
+        // tab that paints no frame for a small delta, which a fleet browser's
+        // background tab is, never answers, so a clock-driven wheel stalled
+        // there for good. And not requestAnimationFrame or an in-page timer,
+        // which such a tab never fires or throttles to once a second. The
+        // screencast captures whatever the compositor paints between ticks,
+        // and a layout moved by scrollTo is never a torn composite.
         const total = Math.abs(step.dy)
         const dir = Math.sign(step.dy)
-        let sent = 0
+        const sent = { px: 0 }
         await gesture(() =>
           clockMotion(
             dry ? 0 : scrollTravelMs(total),
             async (u) => {
               const target = Math.round(total * u)
-              const delta = target - sent
+              const delta = target - sent.px
               if (delta <= 0) return
-              await page.mouse.wheel(0, dir * delta)
-              sent = target
+              sent.px = target
+              await page
+                .evaluate(scrollByScript(cur.x, cur.y, dir * delta))
+                .catch(() => undefined)
               emit({
                 x: Math.round(cur.x),
                 y: Math.round(cur.y),
                 type: 'scroll',
               })
-              await paintFrame()
             },
             clock,
           ),
