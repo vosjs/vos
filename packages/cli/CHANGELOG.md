@@ -1,5 +1,13 @@
 # @vosjs/cli
 
+## 0.50.1
+
+### Patch Changes
+
+- 8fc1560: `vos record` scrolls by the clock: a scroll step's wheel deltas are paced over the travel with a paint between them, so a fleet or a slow machine records intermediate positions instead of jumps, and the pace report counts the travel as a gesture rather than overhead.
+- Updated dependencies [8fc1560]
+  - @vosjs/render-core@0.3.2
+
 ## 0.50.0
 
 ### Minor Changes
