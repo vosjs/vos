@@ -90,6 +90,13 @@ describe('the recorder over a real Playwright driver', () => {
     expect(types).toContain('up')
     expect(types).toContain('key')
     expect(types).toContain('scroll')
+    // The scroll travelled by the clock: several deltas over the travel,
+    // not one chunk, so the footage has intermediate positions to show.
+    const scrolls = result.events.filter((e) => e.type === 'scroll')
+    expect(scrolls.length).toBeGreaterThanOrEqual(3)
+    expect(scrolls[scrolls.length - 1].t - scrolls[0].t).toBeGreaterThanOrEqual(
+      150,
+    )
     const down = result.events.find((e) => e.type === 'down')
     expect(down?.rect?.w).toBeGreaterThan(0)
     // The step timeline and the pace name every step.
