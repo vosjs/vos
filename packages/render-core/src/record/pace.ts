@@ -52,6 +52,12 @@ export const SCROLL_SETTLE_MS = 120
 export const SCROLL_MS_PER_PX = 0.9
 export const SCROLL_MIN_MS = 240
 export const SCROLL_MAX_MS = 1000
+/**
+ * The longest a scroll tick waits for the screencast to hand back a frame
+ * before sending its next delta: a page with nothing new to paint must not
+ * stall the clock, and a slow compositor gets this long per tick.
+ */
+export const PAINT_WAIT_MAX_MS = 80
 /** The hold after the last step, so the take does not cut on a press. */
 export const TRAILING_HOLD_MS = 400
 

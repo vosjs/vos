@@ -32,6 +32,7 @@ import {
   deadWarns,
   holdLeftMs,
   settleVerdict,
+  PAINT_WAIT_MAX_MS,
   clockMotion,
   clockTyping,
   paceLine,
@@ -305,8 +306,19 @@ export async function recordTake(
   // Frames are handed to the sink in order; the chain keeps a slow sink
   // (R2) from reordering them and is awaited before the meta is built.
   let sinkChain: Promise<void> = Promise.resolve()
+  // Whoever is waiting for the page to paint (a scroll tick) is told by the
+  // screencast's next frame, which is the one signal that a frame reached
+  // the compositor. requestAnimationFrame is NOT that signal: Chrome fires
+  // none in a tab that is not its window's active one, and the fleet's page
+  // is exactly that (the connected browser already holds a page), while CDP
+  // keeps the screencast flowing regardless. The first fleet take on the
+  // rAF version hung inside its scroll for eight minutes.
+  let paintWaiters: Array<() => void> = []
   if (!dry)
     cdp.on('Page.screencastFrame', (ev) => {
+      const told = paintWaiters
+      paintWaiters = []
+      for (const tell of told) tell()
       const tsMs = ev.metadata.timestamp
         ? ev.metadata.timestamp * 1000
         : Date.now()
@@ -359,15 +371,15 @@ export async function recordTake(
     )
   }
 
-  // One animation frame in the page: the compositor has produced a frame
-  // since the last input, so the screencast's next capture is whole. Fails
-  // open (a navigating page has no frame to give).
-  const paintFrame = () =>
-    page
-      .evaluate(
-        () => new Promise<void>((r) => requestAnimationFrame(() => r())),
-      )
-      .catch(() => undefined)
+  // One painted frame since the last input, so the next capture is whole;
+  // capped, so a page with nothing new to paint never stalls the clock.
+  const paintFrame = (): Promise<void> =>
+    dry
+      ? Promise.resolve()
+      : Promise.race([
+          new Promise<void>((r) => paintWaiters.push(r)),
+          sleep(PAINT_WAIT_MAX_MS),
+        ])
 
   const boxOf = async (selector: string): Promise<Rect | null> => {
     const loc = page.locator(selector).first()
