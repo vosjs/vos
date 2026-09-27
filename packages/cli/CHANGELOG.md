@@ -1,5 +1,13 @@
 # @vosjs/cli
 
+## 0.50.3
+
+### Patch Changes
+
+- d77f269: `vos record` scrolls the container under the cursor inside the page, by the clock, instead of sending wheel events: a take on a fleet's background tab no longer stalls in its scroll, and a slow machine records every frame of the travel.
+- Updated dependencies [d77f269]
+  - @vosjs/render-core@0.3.4
+
 ## 0.50.2
 
 ### Patch Changes
