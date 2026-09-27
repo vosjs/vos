@@ -36,7 +36,10 @@
         },
         "frameHeight": { "type": ["number", "null"] },
         "surface": { "type": "string", "enum": ["tab", "window", "monitor"] },
-        "producer": { "type": "string", "enum": ["extension", "cli"] },
+        "producer": {
+          "type": "string",
+          "enum": ["extension", "cli", "ingest"]
+        },
         "pageUrl": { "type": ["string", "null"] },
         "pageTitle": { "type": ["string", "null"] },
         "hasMic": { "type": "boolean" },

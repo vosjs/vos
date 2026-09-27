@@ -64,6 +64,11 @@ export const manifest: PluginManifest = {
         'from-agent-browser: turn an agent-browser walk (steps.jsonl) into actions.json; what cannot follow is named',
     },
     {
+      name: 'ingest',
+      summary:
+        'a take from a recording someone else made, with its cursor track from a trace beside it (Playwright trace.zip, stamped records, CSV); without one nothing is planned',
+    },
+    {
       name: 'brand',
       summary:
         "write a product's BRAND.md, witnessed: /design.md, /llms.txt, then the page (palette, faces, marks, the avoid list)",

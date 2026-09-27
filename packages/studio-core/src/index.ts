@@ -46,6 +46,17 @@ export type { CaptureNormalization } from './capture'
 export { projectFromArtifact } from './ingest'
 export type { IngestOptions } from './ingest'
 export {
+  CLICK_HOLD_MS,
+  cursorFromCsv,
+  cursorFromPlaywrightTrace,
+  cursorFromRecords,
+  cursorFromTrace,
+  traceKindOf,
+} from './ingest/traces'
+export type { TraceFileKind, TraceOptions, TraceResult } from './ingest/traces'
+export { playwrightTraceEntry, zipEntries, zipEntryBytes } from './ingest/zip'
+export type { ZipEntry } from './ingest/zip'
+export {
   DOC_SCHEMA_VERSION,
   migrateHostedDoc,
   migrateZoomStyle,

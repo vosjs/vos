@@ -200,9 +200,12 @@ export interface RecordingMeta {
   /**
    * Which recorder produced the artifact. CLI takes synthesize the cursor
    * track from automation (exact coords, fresh rects, coverage 1 by
-   * construction) and encode WebM; absent means the extension.
+   * construction) and encode WebM; `ingest` is someone else's recording
+   * brought in as a take (`vos ingest`, or a file dropped on the studio),
+   * whose cursor track, if any, came from a trace beside it; absent means
+   * the extension.
    */
-  producer?: 'extension' | 'cli'
+  producer?: 'extension' | 'cli' | 'ingest'
   /**
    * The step timeline: when each actions.json step ran, in SOURCE
    * seconds. This is what makes a cut re-anchorable across re-records — a
