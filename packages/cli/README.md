@@ -336,7 +336,7 @@ vos push /tmp/take --label "$TAG launch" --yes --json       # VOS_API_KEY as a r
 - **`--max-duration <s>`** on `record` and `create` defaults to the hosted recording cap, read live from `GET /api/limits` (2 s, fail-open to 30 min when the origin is unreachable): the capture stops there and the done event says so. Cut the flow rather than raising the cap; the platform refuses a longer take.
 - **`create`** is the one-shot verb: record, auto-plan and render in one command and one browser session. The take directory still lands on disk, so the full loop (frames, edit `doc.json`, re-render) stays open afterwards.
 - **`vos validate <thing>`** takes an `actions.json`, a take directory, a program directory (`config.json`, plus its program document when present), or a `kit.json`; exit 1 on any problem.
-- **Environment.** `VOS_ORIGIN` (the platform, and the studio `vos open` opens), `VOS_API_KEY`, `VOS_BROWSER_PATH`, `VOS_CLIENT` (the client string a push self-reports). `vos voila <verb>` is still accepted as an alias of `vos <verb>` and says so.
+- **Environment.** `VOS_ORIGIN` (the platform, and the studio `vos open` opens), `VOS_API_KEY`, `VOS_BROWSER_PATH`, `VOS_CLIENT` (the client string a push self-reports; unset, a push names the coding agent that spawned the CLI, read from its environment the way `@vercel/detect-agent` reads it, e.g. `claude-code vos-cli`, else `vos-cli`). `vos voila <verb>` is still accepted as an alias of `vos <verb>` and says so.
 
 ## Programmatic use
 

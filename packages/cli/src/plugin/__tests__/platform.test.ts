@@ -53,29 +53,33 @@ describe('platformOrigin', () => {
 })
 
 describe('clientId', () => {
-  const saved = process.env.VOS_CLIENT
-  afterEach(() => {
-    if (saved === undefined) delete process.env.VOS_CLIENT
-    else process.env.VOS_CLIENT = saved
-  })
+  // A clean environment and no /opt/.devin: the suite itself may run inside
+  // an agent's shell, which would otherwise name that agent.
+  const none = () => false
 
-  it('defaults to vos-cli', () => {
-    delete process.env.VOS_CLIENT
-    expect(clientId()).toBe('vos-cli')
+  it('defaults to vos-cli when no agent is present', () => {
+    expect(clientId({}, none)).toBe('vos-cli')
   })
 
   it('honors VOS_CLIENT (the agent names its tool)', () => {
-    process.env.VOS_CLIENT = 'claude-code/2.1'
-    expect(clientId()).toBe('claude-code/2.1')
+    expect(
+      clientId({ VOS_CLIENT: 'claude-code/2.1', CLAUDECODE: '1' }, none),
+    ).toBe('claude-code/2.1')
   })
 
-  it('rejects oversize and multi-line overrides', () => {
-    process.env.VOS_CLIENT = 'x'.repeat(61)
-    expect(clientId()).toBe('vos-cli')
-    process.env.VOS_CLIENT = 'bad\nclient'
-    expect(clientId()).toBe('vos-cli')
-    process.env.VOS_CLIENT = '   '
-    expect(clientId()).toBe('vos-cli')
+  it('rejects oversize and multi-line overrides, falling to detection', () => {
+    expect(clientId({ VOS_CLIENT: 'x'.repeat(61) }, none)).toBe('vos-cli')
+    expect(clientId({ VOS_CLIENT: 'bad\nclient' }, none)).toBe('vos-cli')
+    expect(clientId({ VOS_CLIENT: '   ', CLAUDECODE: '1' }, none)).toBe(
+      'claude-code vos-cli',
+    )
+  })
+
+  it('names the host agent it was spawned by', () => {
+    expect(clientId({ CLAUDECODE: '1' }, none)).toBe('claude-code vos-cli')
+    expect(clientId({ AI_AGENT: 'claude-code_2-1-284_agent' }, none)).toBe(
+      'claude-code vos-cli',
+    )
   })
 })
 
