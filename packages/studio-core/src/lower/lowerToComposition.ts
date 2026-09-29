@@ -2560,24 +2560,25 @@ const ON_FRAME = `(ctx, content, dt) => {
     var cpH = 2 * ${Math.abs(CARD_Z)} * Math.tan(${CARD_FOV} * Math.PI / 180 / 2)
     var cpv = null
     if (cpk && cpk.keyframes && cpk.keyframes.length) cpv = TL.sample(cpk, t, TL.lerpArray)
-    if ((cpv || trIn) && card.mesh.scale && card.mesh.position) {
-      // The pose track, then a boundary's enter on top: a slide is an
-      // offset in plane widths and heights, a fade an opacity, a scale both.
-      var cpS = (cpv ? cpv[0] : 1) * trSc
-      var cpO = (cpv ? cpv[2] : 1) * trOp
-      card.mesh.scale.x = cpS; card.mesh.scale.y = cpS
+    // The pose track, then a boundary's enter on top: a slide is an offset
+    // in plane widths and heights, a fade an opacity, a scale both. Outside
+    // both, every term is its rest value.
+    //
+    // EVERY field is written EVERY frame, so the pose is a pure function of
+    // t. A pose restored only when some field looked off-rest kept whatever
+    // the last frame left in the fields it did not look at: a fade moves
+    // opacity alone, so a scrub that jumped out of one mid-window left the
+    // card translucent until something else moved it.
+    var cpS = (cpv ? cpv[0] : 1) * trSc
+    var cpO = (cpv ? cpv[2] : 1) * trOp
+    if (card.mesh.scale) { card.mesh.scale.x = cpS; card.mesh.scale.y = cpS }
+    if (card.mesh.position) {
       card.mesh.position.x = trOx * cpH * (W / H)
       card.mesh.position.y = ((cpv ? cpv[1] : 0) + trOy) * cpH
-      if (card.mesh.material) card.mesh.material.opacity = cpO
-      // Gone past its clip: the mesh leaves the scene, not just its paint.
-      card.mesh.visible = cpO > 0.001
-    } else if (card.mesh.scale && card.mesh.position && ((card.mesh.scale.x !== undefined && card.mesh.scale.x !== 1) || (card.mesh.position.y !== undefined && card.mesh.position.y !== 0) || (card.mesh.position.x !== undefined && card.mesh.position.x !== 0) || card.mesh.visible === false)) {
-      card.mesh.scale.x = 1; card.mesh.scale.y = 1
-      card.mesh.position.x = 0
-      card.mesh.position.y = 0
-      if (card.mesh.material) card.mesh.material.opacity = 1
-      card.mesh.visible = true
     }
+    if (card.mesh.material) card.mesh.material.opacity = cpO
+    // Gone past its clip: the mesh leaves the scene, not just its paint.
+    card.mesh.visible = cpO > 0.001
     var tilted = rx * rx + ry * ry > 1e-6
     if (card.texture && card.texture.generateMipmaps !== tilted) {
       var THREE2 = ctx.THREE
