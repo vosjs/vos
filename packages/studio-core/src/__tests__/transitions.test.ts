@@ -318,7 +318,7 @@ describe('ON_FRAME across a boundary', () => {
     visible: true,
   })
 
-  function runFrame(d: ProjectDoc, time: number) {
+  function runFrame(d: ProjectDoc, time: number, card: Mesh = mesh()) {
     const { config, data } = lowerToComposition(d)
     const onFrame = new Function(`return (${config.onFrame as string})`)() as (
       ctx: unknown,
@@ -357,7 +357,6 @@ describe('ON_FRAME across a boundary', () => {
         set: () => true,
       },
     )
-    const card = mesh()
     onFrame(
       {
         time,
@@ -438,5 +437,110 @@ describe('ON_FRAME across a boundary', () => {
     expect(run.ghosts[0].drawn).toBe(1)
     expect(run.card.position.x).toBe(0)
     expect(run.card.material.opacity).toBe(1)
+  })
+
+  /**
+   * The card's pose is a pure function of t: whatever frame ran before, the
+   * frame at t leaves the mesh exactly as a fresh render of t would. A scrub
+   * jumps, so a pose that only held while frames arrived in order showed a
+   * card stuck mid-fade after a fast drag across a boundary.
+   */
+  describe('the card’s pose is a function of t, never of the frame before', () => {
+    const pose = (m: Mesh) => ({
+      scale: m.scale.x,
+      x: m.position.x,
+      y: m.position.y,
+      opacity: m.material.opacity,
+      visible: m.visible,
+    })
+    const across = (kind: string) =>
+      push({
+        segments: [
+          { in: 0, out: 4, anim: { exit: kind } },
+          { in: 1, out: 5, media: 'b', anim: { enter: kind } },
+        ],
+      } as Partial<ProjectDoc>)
+
+    it('a scrub out of a fade mid-window leaves the card whole, in either direction', () => {
+      const d = across('fade')
+      const card = mesh()
+      runFrame(d, 4.1, card)
+      expect(card.material.opacity).toBeGreaterThan(0)
+      expect(card.material.opacity).toBeLessThan(1)
+      runFrame(d, 5.5, card)
+      expect(pose(card)).toEqual({
+        scale: 1,
+        x: 0,
+        y: 0,
+        opacity: 1,
+        visible: true,
+      })
+      runFrame(d, 4.1, card)
+      runFrame(d, 2, card)
+      expect(pose(card)).toEqual({
+        scale: 1,
+        x: 0,
+        y: 0,
+        opacity: 1,
+        visible: true,
+      })
+    })
+
+    const grid = [0, 1.5, 3.9, 4, 4.05, 4.2, 4.4, 4.59, 4.6, 5, 7.9]
+    const docs: [string, () => ProjectDoc][] = [
+      ['fade', () => across('fade')],
+      ['slide', () => across('slide')],
+      ['scale', () => across('scale')],
+      [
+        'a card that enters and leaves on its own track',
+        () =>
+          doc({
+            media: [other],
+            segments: [
+              { in: 0, out: 4, anim: { exit: 'fade' } },
+              { in: 1, out: 5, media: 'b', anim: { enter: 'fade' } },
+            ],
+            frame: {
+              ...DEFAULT_FRAME_STYLE,
+              anim: { enter: 'rise', exit: 'recede' },
+            },
+          }),
+      ],
+    ]
+    for (const [name, make] of docs) {
+      it(`${name}: any frame after any other equals a fresh render`, () => {
+        const d = make()
+        for (const t1 of grid) {
+          for (const t2 of grid) {
+            const carried = mesh()
+            runFrame(d, t1, carried)
+            runFrame(d, t2, carried)
+            const fresh = mesh()
+            runFrame(d, t2, fresh)
+            expect({ t1, t2, ...pose(carried) }).toEqual({
+              t1,
+              t2,
+              ...pose(fresh),
+            })
+          }
+        }
+      })
+    }
+
+    it('a mesh left off-rest by anything is put back at rest on a plain frame', () => {
+      const card = mesh()
+      card.material.opacity = 0.3
+      card.scale.x = card.scale.y = 0.5
+      card.position.x = 1
+      card.visible = false
+      runFrame(doc(), 2, card)
+      expect(pose(card)).toEqual({
+        scale: 1,
+        x: 0,
+        y: 0,
+        opacity: 1,
+        visible: true,
+      })
+    })
   })
 })
