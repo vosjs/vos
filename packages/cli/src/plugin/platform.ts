@@ -16,6 +16,8 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { UsageError } from './args'
+import { detectHostAgent } from './hostAgent'
+import type { Env } from './hostAgent'
 
 /**
  * Origin resolution: --origin (or legacy --api) → VOS_ORIGIN → legacy
@@ -116,14 +118,20 @@ export function writeCredential(key: string): string {
 /**
  * The self-reported client string stamped onto pushed versions (User-Agent
  * grammar). Display-only on the platform — attribution trust
- * stays with the credential. Agents driving this CLI override it with
- * VOS_CLIENT (e.g. VOS_CLIENT=claude-code/2.1) so history rows name the
- * tool, not just the transport.
+ * stays with the credential. The ladder: an explicit VOS_CLIENT (e.g.
+ * VOS_CLIENT=claude-code/2.1), else the coding agent this CLI was spawned by
+ * (`claude-code vos-cli`, read from the environment by `detectHostAgent`),
+ * else the transport alone, so history rows name the tool that pushed.
  */
-export function clientId(): string {
-  const env = process.env.VOS_CLIENT?.trim()
-  if (env && env.length <= 60 && !/[\r\n]/.test(env)) return env
-  return 'vos-cli'
+export function clientId(
+  env: Env = process.env,
+  exists?: (path: string) => boolean,
+): string {
+  const explicit = env.VOS_CLIENT?.trim()
+  if (explicit && explicit.length <= 60 && !/[\r\n]/.test(explicit))
+    return explicit
+  const host = detectHostAgent(env, exists)
+  return host ? `${host} vos-cli` : 'vos-cli'
 }
 
 export interface ApiResult {
