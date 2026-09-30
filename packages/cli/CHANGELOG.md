@@ -1,5 +1,18 @@
 # @vosjs/cli
 
+## 0.53.6
+
+### Patch Changes
+
+- 419bc50: `vos still` checks the frame it wrote: a fully transparent still (every pixel alpha 0, what a custom blend that clears the destination alpha leaves, which most viewers show as black while the live preview draws over its page) and a single flat colour are said as `warn:` lines and in the `--json` done event, and an uncaught exception the page threw is said on a still or a render that otherwise succeeded, not only on a timeout.
+
+  `vos render`, `vos still` and `vos check` given a program's `config.json` read the program document beside it (`doc.json` without `source`), as they do for the directory: a render of `program/config.json` used to leave out the document's sound and layers without a word.
+
+- a31a556: The bundled skills are 0.12.0: `vos-port`'s reference says where a split element's units sit, how a text stroke draws, that `onFrame` wins over a binding, where an element sits (`position`, which `transform` fields are read) and which staggers the dialect runs.
+- Updated dependencies [85c4df3]
+  - @vosjs/shared@0.6.0
+  - @vosjs/studio-core@0.33.2
+
 ## 0.53.5
 
 ### Patch Changes
