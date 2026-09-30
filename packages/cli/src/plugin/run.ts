@@ -1,3 +1,5 @@
+import { videoFormat } from '../outputs'
+import { landedLines, waitForLanded } from './landed'
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -55,6 +57,7 @@ import {
   apiJson,
   platformOrigin,
   readSyncState,
+  requireCredential,
   resolveCredential,
 } from './platform'
 import { startTakeServer } from './server'
@@ -108,6 +111,7 @@ import {
 } from './program'
 import { cmdFolder } from './folder'
 import { cmdAsset } from './asset'
+import { cmdDelete } from './remove'
 import { cmdRecipe } from './recipe'
 import { cmdBrand } from './brand'
 import { hostedEnv, recordHosted } from './hostedRecord'
@@ -121,6 +125,7 @@ import type { ParsedArgs } from './args'
 const BOOLEAN_FLAGS = new Set([
   'json',
   'help',
+  'wait',
   'picture',
   'fresh',
   'reuse',
@@ -163,8 +168,8 @@ Take pipeline
   vos validate <actions.json|take|kit.json> [--picture] [--json]
   vos judge <kit.json> --against <MANIFEST.json> [--out dir] [--json]
   vos actions from-agent-browser <steps.jsonl> [--out actions.json] [--url <url>] [--viewport WxH] [--json]
-  vos ingest <video.webm|mp4> [--cursor <trace.zip|steps.jsonl|cursor.csv>] [--out take] [--offset <ms>] [--viewport WxH] [--background <slug|url|none>] [--json]
-            a take from a recording someone else made (a cloud agent's PR video, a Playwright run's video, a Loom export): the file becomes recording.<container>, meta.json from its own dimensions and duration, and a trace beside it becomes cursor.json so the planner has clicks to zoom on; without one, nothing is planned and the done event says so
+  vos ingest <video.webm|mp4> [--cursor <trace.zip|steps.jsonl|cursor.csv>] [--as footage|take] [--out take] [--offset <ms>] [--viewport WxH] [--background <slug|url|none>] [--json]
+            a take from a recording someone else made (a cloud agent's PR video, a Playwright run's video, a Loom export): the file becomes recording.<container>, meta.json from its own dimensions and duration, and a trace beside it becomes cursor.json so the planner has clicks to zoom on; without one, nothing is planned and the done event says so. Without a trace the file opens as FINISHED footage (a render from HyperFrames or Remotion, a film): no card, no browser bar, no drawn cursor, its own frame rate; --as take gives a screen demo the card
   vos session open <url> --name <app>   a plain Chrome window on a vos-owned profile; sign in, close it
   vos session check <name> [--url <url>]   headless: does the session still open the page? exit 0/4
   vos session list | rm <name>          what exists and how old; delete one
@@ -200,7 +205,7 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
   vos push  <config.json|take> [--vos id] [--title t] [--slug s] [--remix-of id]
             [--desc d] [--tags a,b] [--folder <folderId|slug>]
             [--note n] [--label l] [--base versionId] [--override <id>]... [--yes] [--json]
-            [--claimable]
+            [--claimable] [--wait]
             a take DIRECTORY (doc.json) pushes recording + doc; a config.json
             pushes the program. No --vos: create a PRIVATE vos; with --vos:
             add a version against the tracked base — a stale push 409s WITH
@@ -212,6 +217,14 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
             user and nowhere else; unclaimed work is deleted after 72h.
             --override consents to touching
             protected (human-edited) nodes, ONLY when the user asked.
+            Without --folder a new vos lands unfiled, at the root of your
+            shelf. A document's local sound (doc.json audio keys) uploads
+            with the push. --wait stays until the version's still has
+            rendered and prints absolute still and preview links.
+  vos delete <vosId|watch-url|dir> [--yes] [--json]
+            take a vos off vos.so, every version of it, for good. Asks on a
+            terminal; headless it needs --yes. A dir that tracked it is
+            unlinked (its vos.json removed)
   vos pull  [dir|take] [--vos <id>] [--since versionId] [--check] [--media] [--json]
             what changed on vos.so since your base; syncs config.json (backup
             kept) or the take's doc.json. ALWAYS pull before editing pushed work.
@@ -233,7 +246,10 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
   vos asset push <file...> [--folder <folderId|slug>]
             upload files onto your shelf (a key takes models .glb/.gltf,
             recipes .md and images .png/.jpg/.webp/.gif — posters and
-            store stills file into the release's project; 40 images/24h)
+            store stills file into the release's project; 40 images/24h —
+            and sound and video, which land in Sound > Uploads and print
+            the url a doc.json audio key takes; an unfiled one that no
+            document uses is removed after 7 days, so pass --folder)
   vos recipe push <file.md> --folder <folderId|slug>
   vos recipe push <file.md> --asset <assetId>
             put a recipe (a plain .md) on the shelf: --folder creates it
@@ -954,10 +970,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
   if (!url)
     throw new UsageError('no URL — set "url" in the actions file or pass --url')
   const outDir = resolve(strFlag(flags, 'out') ?? 'take')
-  const fmtRaw = strFlag(flags, 'format') ?? 'webm'
-  if (fmtRaw !== 'webm' && fmtRaw !== 'mp4')
-    throw new UsageError('--format must be webm or mp4')
-  const format = fmtRaw
+  const format = videoFormat(strFlag(flags, 'format'), positionals[0])
   const out = positionals[0] ?? join(outDir, `out.${format}`)
   const parallel = numFlag(flags, 'parallel', 1)
   if (!Number.isInteger(parallel) || parallel < 1 || parallel > 16) {
@@ -1372,10 +1385,7 @@ async function cmdRender(argv: string[]): Promise<number> {
       'vos render <take> [out] [--width] [--height] [--fps] [--format] [--parallel]',
     )
   const r = createReporter(flags.json === true)
-  const fmtRaw = strFlag(flags, 'format') ?? 'webm'
-  if (fmtRaw !== 'webm' && fmtRaw !== 'mp4')
-    throw new UsageError('--format must be webm or mp4')
-  const format = fmtRaw
+  const format = videoFormat(strFlag(flags, 'format'), positionals[1])
   const out = positionals[1] ?? join(dir, `out.${format}`)
   const parallel = numFlag(flags, 'parallel', 1)
   if (!Number.isInteger(parallel) || parallel < 1 || parallel > 16) {
@@ -2227,9 +2237,34 @@ async function cmdPush(argv: string[]): Promise<number> {
     origin: strFlag(flags, 'origin'),
     api: strFlag(flags, 'api'),
   }).replace(/\/+$/, '')
+  const landed =
+    flags.wait === true
+      ? await waitForLanded({
+          origin: pushedTo,
+          key: requireCredential(strFlag(flags, 'key')),
+          vosId: result.vosId,
+          versionId: result.versionId ?? null,
+          log: (l) => r.log(l),
+        })
+      : null
+  const filed =
+    result.versionNumber === 1
+      ? `\n  shelf:  ${strFlag(flags, 'folder') ? `in ${strFlag(flags, 'folder')}` : `unfiled, at the root of your shelf (file it: vos folder move ${result.vosId} --to <slug>)`}`
+      : ''
   r.done(
-    { ...result },
-    `pushed v${result.versionNumber} → vos ${result.vosId}\n  review: ${pushedTo}/vos/${result.vosId}\n  studio: ${pushedTo}/studio?vos=${result.vosId}`,
+    {
+      ...result,
+      ...(landed
+        ? {
+            still: landed.still,
+            thumbnailUrl: landed.thumbnailUrl,
+            previewUrl: landed.previewUrl,
+          }
+        : {}),
+    },
+    `pushed v${result.versionNumber} → vos ${result.vosId}\n  review: ${pushedTo}/vos/${result.vosId}\n  studio: ${pushedTo}/studio?vos=${result.vosId}` +
+      filed +
+      (landed ? `\n${landedLines(landed)}` : ''),
   )
   return EXIT_OK
 }
@@ -2370,6 +2405,8 @@ export async function run(argv: string[]): Promise<number> {
           ? await cmdPull(rest)
           : await cmdPullProgram(rest)
       }
+      case 'delete':
+        return await cmdDelete(rest)
       case 'folder':
         return await cmdFolder(rest)
       case 'asset':

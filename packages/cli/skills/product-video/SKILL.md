@@ -17,13 +17,18 @@ its quality loop and judge stills multimodally.
 
 ```bash
 npm i -D @vosjs/cli
+npx vos setup
 ```
 
 One command, one package: `@vosjs/cli` is the open source (MIT) `vos`
 binary with the engine verbs, the take pipeline used here (record / plan /
 frames / render on screen recordings) and the vos.so platform verbs. (Until
 0.9 the take pipeline shipped separately as `@vosso/vos-plugin`; a project
-that still lists it can drop it.) Requirements:
+that still lists it can drop it.) `npx vos setup` (0.48 and later) readies
+the machine: the skills into your directories, a browser found or
+installed, one block in `AGENTS.md`, then `vos doctor`, which says in
+words what is ready and what to do next (`--url <dev server>` checks the
+product answers). On an older CLI, or to check by hand:
 
 - **A Chromium**: system Chrome is found automatically; otherwise
   `npx playwright install chromium` or point `VOS_BROWSER_PATH` at one.

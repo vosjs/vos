@@ -132,6 +132,25 @@ export function runCheck(parsed: unknown): CheckResult {
     }
   }
 
+  // Sound as an ELEMENT is not a track: no timeline row, no gain or fades,
+  // nothing a render mixes, and a `data:` source inflates the config past
+  // what a claimable push can carry. The document is where sound goes.
+  const elements = Array.isArray(migrated.elements) ? migrated.elements : []
+  for (const el of elements) {
+    if (!el || typeof el !== 'object') continue
+    const e = el as { type?: unknown; id?: unknown; src?: unknown }
+    if (e.type !== 'audio') continue
+    const inline =
+      typeof e.src === 'string' && e.src.startsWith('data:')
+        ? ` (embedded, ${Math.round(e.src.length / 1024)} KB of config)`
+        : ''
+    issues.push({
+      level: 'warn',
+      source: 'shape',
+      message: `audio element "${String(e.id ?? '?')}"${inline} is not a track: renders do not mix it and the studio cannot edit it. Put the file beside the config and name it in doc.json (audio: [{ key: "score.ogg", start, in, out, duration, gain }]); vos push uploads it`,
+    })
+  }
+
   // Function strings are pasted into the template as text, so the compiler
   // cannot see a syntax error — parse each one here (construction only,
   // nothing executes).

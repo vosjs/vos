@@ -20,6 +20,8 @@ export interface RenderVideoOptions extends RenderCommonOptions {
   /** Output duration in seconds. */
   duration: number
   format: 'webm' | 'mp4'
+  /** The page's audio producer (a program document's sound); absent = silent. */
+  audioProducerCode?: string
 }
 
 export interface RenderStillOptions extends RenderCommonOptions {
@@ -106,6 +108,9 @@ export async function renderVideo(
       duration: opts.duration,
       fps: opts.fps,
       format: opts.format,
+      ...(opts.audioProducerCode
+        ? { audioProducerCode: opts.audioProducerCode }
+        : {}),
     },
     elementsBundleCode,
     tweenEngine: 'vos',
@@ -153,6 +158,41 @@ export async function renderStill(
   if (!done.success || !done.data)
     throw new Error(done.error ?? 'still render failed')
   return decodeDataUrl(done.data)
+}
+
+/**
+ * Re-encode a captured WebP still as PNG or JPEG in a browser page, so a
+ * still named `.png` holds PNG bytes. The canvas is the encoder; nothing
+ * else is installed for it.
+ */
+export async function reencodeStill(
+  browser: Browser,
+  webp: Uint8Array,
+  format: 'png' | 'jpeg',
+): Promise<Uint8Array> {
+  const page = await browser.newPage()
+  try {
+    const src = `data:image/webp;base64,${Buffer.from(webp).toString('base64')}`
+    // A string body: a serialized function would carry the bundler's
+    // helpers into a page that has none.
+    const dataUrl = (await page.evaluate(
+      `(async () => {
+        const img = new Image()
+        img.src = ${JSON.stringify(src)}
+        await img.decode()
+        const c = document.createElement('canvas')
+        c.width = img.naturalWidth
+        c.height = img.naturalHeight
+        const g = c.getContext('2d')
+        ${format === 'jpeg' ? "g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height)" : ''}
+        g.drawImage(img, 0, 0)
+        return c.toDataURL(${JSON.stringify(`image/${format}`)}, 0.92)
+      })()`,
+    )) as string
+    return decodeDataUrl(dataUrl).bytes
+  } finally {
+    await page.close()
+  }
 }
 
 export interface PreviewPages {

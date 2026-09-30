@@ -37,9 +37,10 @@ import {
 } from './platform'
 import { programPushTarget } from './sync'
 import { listFolders, resolveFolder } from './folder'
-import { pullMedia } from './media'
+import { docAudioRefs, pullMedia, uploadDocRefs } from './media'
 import { lintDoc } from './validateDoc'
-import type { ProjectDoc } from '@vosjs/studio-core'
+import { landedLines, waitForLanded } from './landed'
+import type { AudioClip, ProjectDoc } from '@vosjs/studio-core'
 import type { VersionChange } from './platform'
 import type { Reporter } from './output'
 
@@ -51,6 +52,7 @@ const BOOLEAN_FLAGS = new Set([
   'yes',
   'claimable',
   'no-browser',
+  'wait',
 ])
 const MULTI_FLAGS = new Set(['override'])
 
@@ -420,7 +422,28 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
       ? `${state.title} remix`
       : basename(source).replace(/\.json$/i, '') || 'vos program'
     const title = (strFlag(flags, 'title') ?? fallback).slice(0, 100)
-    const body: Record<string, unknown> = { title, config }
+    // The COMPOSED config, like every other push, so the document's layers
+    // ride the claim. A claim carries no files, so a sound that is still a
+    // local file cannot come along: it is left out, and said.
+    let claimDoc = programDoc
+    if (programDoc) {
+      const sound = soundOf(programDoc)
+      const local = docAudioRefs(sound)
+      if (local.length) {
+        const dropped = new Set(local.map((ref) => ref.key))
+        claimDoc = {
+          ...programDoc,
+          audio: (sound.audio ?? []).filter((a) => !dropped.has(a.key)),
+        }
+        r.log(
+          `warning a claimable push carries no files, so ${local.length} local sound${local.length === 1 ? '' : 's'} (${[...dropped].join(', ')}) ${local.length === 1 ? 'was' : 'were'} left out. After the claim, push again with a key to add ${local.length === 1 ? 'it' : 'them'}`,
+        )
+      }
+    }
+    const body: Record<string, unknown> = {
+      title,
+      config: storedProgramConfig(config, claimDoc),
+    }
     const slug = strFlag(flags, 'slug')
     if (slug) body.slug = slug
     const res = await apiJson(origin, '/api/claim', { method: 'POST', body })
@@ -441,6 +464,19 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
   }
 
   const key = requireCredential(strFlag(flags, 'key'))
+  // A take's first push asks; a program's never does (it holds no
+  // recording), so --yes is accepted and has nothing to answer.
+  void flags.yes
+  // The sound the document adds, still local files: upload them first, so
+  // the stored config and the document both key hosted assets.
+  if (programDoc) {
+    await uploadDocRefs(
+      docAudioRefs(soundOf(programDoc)),
+      dir,
+      { origin, key },
+      (l) => r.log(l),
+    )
+  }
   // Accept both the repeatable --override id and the legacy --overrides id,id.
   // multi's index access is typed present but runtime-optional — hence the cast.
   const overrides = [
@@ -536,6 +572,16 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
     }
     const watchUrl = `${origin}/vos/${vosId}`
     const studioUrl = `${origin}/studio?vos=${vosId}`
+    const landed =
+      flags.wait === true
+        ? await waitForLanded({
+            origin,
+            key,
+            vosId,
+            versionId: typeof version.id === 'string' ? version.id : null,
+            log: (l) => r.log(l),
+          })
+        : null
     r.done(
       {
         id: vosId,
@@ -544,9 +590,17 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
         base: base ?? null,
         watchUrl,
         studioUrl,
+        ...(landed
+          ? {
+              still: landed.still,
+              thumbnailUrl: landed.thumbnailUrl,
+              previewUrl: landed.previewUrl,
+            }
+          : {}),
       },
       `Pushed version ${String(version.versionNumber ?? '?')} of ${vosId}\n` +
-        `  watch:  ${watchUrl}\n  studio: ${studioUrl}`,
+        `  watch:  ${watchUrl}\n  studio: ${studioUrl}` +
+        (landed ? `\n${landedLines(landed)}` : ''),
     )
     return EXIT_OK
   }
@@ -597,19 +651,39 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
   })
   const watchUrl = `${origin}/vos/${created.id}`
   const studioUrl = `${origin}/studio?vos=${created.id}`
+  const landed =
+    flags.wait === true
+      ? await waitForLanded({
+          origin,
+          key,
+          vosId: created.id,
+          versionId: created.currentVersionId,
+          log: (l) => r.log(l),
+        })
+      : null
   r.done(
     {
       id: created.id,
       slug: created.slug,
       title,
       visibility: 'private',
+      folder: folderRef ?? null,
       remixOfId: remixOfId ?? null,
       currentVersionId: created.currentVersionId,
       watchUrl,
       studioUrl,
+      ...(landed
+        ? {
+            still: landed.still,
+            thumbnailUrl: landed.thumbnailUrl,
+            previewUrl: landed.previewUrl,
+          }
+        : {}),
     },
     `Created private vos ${created.id} (${title})\n` +
       `  watch:  ${watchUrl}\n  studio: ${studioUrl}\n` +
+      (landed ? `${landedLines(landed)}\n` : '') +
+      `  shelf:  ${folderRef ? `in ${folderRef}` : `unfiled, at the root of your shelf (file it: vos folder move ${created.id} --to <slug>)`}\n` +
       `Iterate with: vos push ${source} --vos ${created.id}`,
   )
   return EXIT_OK
@@ -859,6 +933,11 @@ export function isTakeDir(target: string): boolean {
  * already write `config.json` from the document's own config, so the round
  * trip is unchanged.
  */
+/** A program document's added sound, typed (the document itself is read loosely). */
+function soundOf(doc: Record<string, unknown>): { audio?: AudioClip[] } {
+  return { audio: Array.isArray(doc.audio) ? (doc.audio as AudioClip[]) : [] }
+}
+
 export function storedProgramConfig(
   config: Record<string, unknown>,
   programDoc: Record<string, unknown> | null,

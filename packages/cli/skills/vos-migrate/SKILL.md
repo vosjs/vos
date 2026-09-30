@@ -1,6 +1,6 @@
 ---
 name: vos-migrate
-description: Turn an existing Loom, Screen Studio, Cap, or plain mp4/webm screen demo into an editable vosso take — re-encode the file, synthesize the take's metadata, plan, and push, so the old demo becomes a living document you re-cut instead of a file you re-record. Use when asked to "convert this Loom", "migrate our old demos", "re-edit this mp4", "make our Screen Studio recording editable", or to bring any already-recorded demo into vosso.
+description: Turn an existing Loom, Screen Studio, Cap, or plain mp4/webm screen demo into an editable vosso take — one `vos ingest` line makes the take (with a trace beside it when there is one), then plan and push, so the old demo becomes a living document you re-cut instead of a file you re-record. Use when asked to "convert this Loom", "migrate our old demos", "re-edit this mp4", "make our Screen Studio recording editable", or to bring any already-recorded demo into vosso.
 license: MIT
 ---
 
@@ -21,56 +21,52 @@ Two doors:
 - **The agent door** (this skill): build the take directory yourself and
   run the normal pipeline. Proven end to end below.
 
-## 1. Probe the source
+## 1. Make the take: one verb
 
 ```bash
-ffprobe -v quiet -print_format json -show_streams -show_format demo.mp4
+vos ingest demo.mp4 --as take --out take  # a screen demo: the card, its ground (vos 0.52+)
+vos ingest demo.mp4 --cursor trace.zip --out take   # with a trace recorded beside it
 ```
 
-Keep: width, height, duration, fps, whether an audio stream exists. A
+`vos ingest` probes the file itself (dimensions, length, frame rate,
+audio, container), copies it into the take as `recording.<container>`
+(stream-copied into a seekable container, or as it is), writes `meta.json`
+from the probe with `producer: "ingest"`, and plans. Without a trace and
+without `--as take`, a file opens as FINISHED footage (no card, no drawn
+cursor), which is right for a render from another tool and wrong for a
+screen demo, so a demo says `--as take`. Read the done line: a
 Loom/Screen Studio export is typically 1080p H.264 with the camera bubble
-and any edits BAKED IN — they migrate as pixels, not as layers. Say so in
-the handoff: the migration makes the file editable from here on, it does
-not un-bake old edits.
+and any edits BAKED IN, and they migrate as pixels, not as layers. Say so
+in the handoff: the migration makes the file editable from here on, it
+does not un-bake old edits.
 
-## 2. Build the take directory
+**A trace beside the video is the one thing that gives the planner
+clicks.** `--cursor` reads a Playwright `trace.zip` (a run's own
+`recordVideo` webm is the matching video), stamped JSON records
+(`{"ts":<ms>,"command":["click","@e1"],"point":{"x":..,"y":..}}` per
+line), or a CSV of `t,x,y,type`. A Loom has none, and the done line then
+says `no cursor track, so nothing was planned`: that is the truth of the
+file, not a fault to work around. `--offset <ms>` shifts a trace whose
+zero is not the video's.
 
-```bash
-mkdir take
-ffmpeg -i demo.mp4 -c:v libvpx-vp9 -crf 34 -b:v 0 -row-mt 1 \
-       -c:a libopus take/recording.webm     # drop -c:a if no audio stream
-```
+## 2. What the CLI does not do for you
 
-Then write `take/meta.json` from the probe (every field required; times in
-ms; `producer: "migrated"` marks provenance):
-
-```json
-{
-  "producer": "migrated",
-  "dpr": 1, "zoom": 1,
-  "t0": 0,
-  "durationMs": 36766,
-  "width": 1920, "height": 1080,
-  "fps": 30,
-  "hasAudio": false
-}
-```
-
-`t0` may be any epoch ms; `width`/`height` are the video pixels (there was
-no browser viewport). Set `hasAudio` true only when the webm actually
-carries the track.
+Nothing else needs building by hand. If the done line reports the file was
+copied as is and the studio later seeks poorly, `ffmpeg -i demo.mp4 -c copy
+fixed.mp4` and ingest again; a re-ingest into the same `--out` keeps any
+`doc.json` you wrote as `doc.prev.json`.
 
 ## 3. Plan, and see it honestly
 
 ```bash
-vos plan take --fresh       # builds doc.json; cursorKept false, zoomAuto 0
 vos frames take --times 0,10%,25%,50%,75%,90%,100%   # the contact sheet IS your eyes
-vos digest take             # runs, but expect little: head/tail and only
+vos digest take             # without a trace expect little: head/tail and only
                             # hard scene cuts - no clicks, no typing, no dwells
 ```
 
-No auto-zoom is possible and none should be faked. Read the stills, find
-the 2–4 moments that matter, and write manual spans by eye:
+Without a trace no auto-zoom is possible and none should be faked (`vos
+ingest` already planned: `zooms: 0`). Read the stills, find the 2–4
+moments that matter, and write manual spans by eye:
 
 ```bash
 # doc.json - every span you add carries "source": "manual"

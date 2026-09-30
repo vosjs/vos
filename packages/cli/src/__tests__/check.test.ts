@@ -33,6 +33,24 @@ describe('runCheck', () => {
     ).toBe(true)
   })
 
+  it('warns that sound embedded as an audio element is not a track', () => {
+    const r = runCheck({
+      ...VALID,
+      elements: [
+        {
+          id: 'score',
+          type: 'audio',
+          src: `data:audio/ogg;base64,${'A'.repeat(4096)}`,
+        },
+      ],
+    })
+    expect(r.ok).toBe(true)
+    const warn = r.issues.find((i) => /audio element "score"/.test(i.message))
+    expect(warn?.level).toBe('warn')
+    expect(warn?.message).toMatch(/embedded/)
+    expect(warn?.message).toMatch(/doc\.json/)
+  })
+
   it('warns that a version-less config plays but will not push', () => {
     const { version: _v, ...rest } = VALID
     const r = runCheck(rest)

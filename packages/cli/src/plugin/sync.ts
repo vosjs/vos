@@ -25,7 +25,7 @@ import { basename, join } from 'node:path'
 import { lowerToComposition, migrateHostedDoc } from '@vosjs/studio-core'
 import { RECORDING_NAME, loadTake, takeMediaFile, writeJson } from './take'
 import { lintDoc } from './validateDoc'
-import { docMediaRefs, pullMedia, takeRelativeFile } from './media'
+import { docMediaRefs, pullMedia, uploadDocRefs } from './media'
 import { MEDIA_HEAD_BYTES, nameForType, resolveMediaType } from './container'
 import { listFolders, resolveFolder } from './folder'
 import { uploadAsset } from './uploadAsset'
@@ -379,45 +379,9 @@ export async function pushTake(
     delete docForPush.source.micKey
   }
   // The document's other media, keyed beside the recording (a poster's
-  // mark in brand/, a pasted ground): each file rides the same
-  // content-addressed door, so a re-push reuses it, and the hosted
-  // document keys the asset. A key whose file is missing is said and
-  // left as it is (the hosted render will 404 on it, honestly).
-  for (const ref of docMediaRefs(docForPush)) {
-    const file = join(dir, takeRelativeFile(ref.key))
-    if (!existsSync(file)) {
-      r.log(`  ${ref.where}: ${ref.key} is not in the take — left as is`)
-      continue
-    }
-    const media = await readFile(file)
-    const mediaHash = createHash('sha256').update(media).digest('hex')
-    // Same rule as the recording: the bytes name the type, and the uploaded
-    // filename is corrected to match so the asset is never self-contradictory.
-    const { type } = resolveMediaType({
-      head: media.subarray(0, MEDIA_HEAD_BYTES),
-      filename: file,
-    })
-    const name = nameForType(basename(file), type)
-    if (name !== basename(file)) {
-      r.log(`  ${ref.where}: ${basename(file)} holds ${type} — sent as ${name}`)
-    }
-    let put: UploadedAsset
-    try {
-      put = await uploadAsset(ctx, new Uint8Array(media), {
-        filename: name,
-        contentType: type,
-        contentHash: mediaHash,
-      })
-    } catch (e) {
-      throw new Error(
-        `${ref.where} upload failed: ${e instanceof Error ? e.message : String(e)}`,
-      )
-    }
-    ref.set(put.url)
-    r.log(
-      `  ${ref.where}: ${ref.key} → asset ${put.id}${put.reused ? ' (reused)' : ''}`,
-    )
-  }
+  // mark in brand/, a pasted ground, an added score): each file rides the
+  // same content-addressed door, and the hosted document keys the asset.
+  await uploadDocRefs(docMediaRefs(docForPush), dir, ctx, (l) => r.log(l))
   const lowered = lowerToComposition(docForPush)
   const config = { ...lowered.config, data: lowered.data }
 

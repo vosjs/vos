@@ -149,4 +149,15 @@ describe('cmdIngest', () => {
     const { existsSync } = await import('node:fs')
     expect(existsSync(out)).toBe(false)
   })
+
+  it('--as names footage or take, and nothing else, before touching anything', async () => {
+    const video = join(dir, 'fake-as.webm')
+    await writeFile(video, 'not a video')
+    const out = join(dir, 'take-as')
+    await expect(
+      cmdIngest([video, '--as', 'poster', '--out', out]),
+    ).rejects.toThrow(/footage or take/)
+    const { existsSync } = await import('node:fs')
+    expect(existsSync(out)).toBe(false)
+  })
 })

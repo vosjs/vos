@@ -1,5 +1,5 @@
 import { writeFile } from 'node:fs/promises'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
@@ -21,17 +21,29 @@ import {
   readSourceText,
 } from './loadConfig'
 import { launchBrowser, BrowserUnavailableError } from './browser'
-import { renderVideo, renderStill, previewPages } from './render'
+import { renderVideo, renderStill, reencodeStill, previewPages } from './render'
 import { runCheck } from './check'
+import { programAudio } from './programAudio'
+import {
+  applyDataSets,
+  parseTimes,
+  setFlags,
+  stillFormat,
+  stillOutFor,
+  videoFormat,
+} from './outputs'
+import { platformOrigin, resolveCredential } from './plugin/platform'
 
 const BOOLEAN_FLAGS = new Set(['json', 'help', 'version'])
 
 const HELP_ENGINE = `vos — command line for the vos programmatic video engine (https://vos.so/engine)
 
 Engine verbs (local, no account, no network beyond the render page's CDN deps)
-  vos render <config.json|url|take> [out] [--width 1920] [--height 1080] [--fps 30]
-                               [--duration <s>] [--format webm|mp4] [--json]
-  vos still  <config.json|url> [out.webp] [--time 0] [--width] [--height] [--json]
+  vos render <config.json|url|take> [out.mp4|out.webm] [--width 1920] [--height 1080] [--fps 30]
+                               [--duration <s>] [--format webm|mp4] [--set data.<key>=<value>]... [--json]
+             the output's name picks the container; a program document's sound is mixed in
+  vos still  <config.json|url> [out.webp|out.png|out.jpg] [--time 0 | --times 0,1.5,50%]
+                               [--width] [--height] [--set data.<key>=<value>]... [--json]
   vos info   <config.json|url> [--json]
   vos check  <config.json|url> [--json]
              migrate → schema → syntax → compile → determinism/dialect lints, all local
@@ -47,6 +59,20 @@ Conventions
   it was asked for (nothing was recorded; it needs a session, not a new
   script). vos <verb> --help prints that verb's flags.
 `
+
+/** An `audio` element in the config: something a render never mixes. */
+function hasAudioElements(config: unknown): boolean {
+  const elements = (config as { elements?: unknown }).elements
+  return (
+    Array.isArray(elements) &&
+    elements.some(
+      (e) =>
+        !!e &&
+        typeof e === 'object' &&
+        (e as { type?: unknown }).type === 'audio',
+    )
+  )
+}
 
 function outName(source: string, ext: string): string {
   const base = basename(source).replace(/\.[a-z0-9]+$/i, '') || 'vos'
@@ -68,17 +94,41 @@ async function cmdRender(argv: string[]): Promise<number> {
   const source = positionals[0]
   if (!source) throw new UsageError('vos render <config.json|url|take> [out]')
   const r = createReporter(flags.json === true)
-  const format = (flags.format as string) ?? 'webm'
-  if (format !== 'webm' && format !== 'mp4')
-    throw new UsageError('--format must be webm or mp4')
+  const format = videoFormat(
+    flags.format === undefined ? undefined : String(flags.format),
+    positionals[1],
+  )
 
-  const { config, warnings } = await loadVosConfig(source)
-  for (const w of warnings) r.log(`note: ${w}`)
+  const loaded = await loadVosConfig(source)
+  for (const w of loaded.warnings) r.log(`note: ${w}`)
+  void flags.set
+  const config = applyDataSets(
+    loaded.config as Record<string, unknown>,
+    setFlags(argv),
+  )
   const duration = numFlag(flags, 'duration', configDuration(config) ?? 5)
   const width = numFlag(flags, 'width', 1920)
   const height = numFlag(flags, 'height', 1080)
   const fps = numFlag(flags, 'fps', 30)
   const out = positionals[1] ?? outName(source, format)
+
+  // A program document's sound rides its studio entry; mix it like a take's.
+  const audio = await programAudio(config as Record<string, unknown>, {
+    baseDir:
+      existsSync(source) && statSync(source).isDirectory()
+        ? source
+        : dirname(source),
+    duration,
+    origin: platformOrigin({}),
+    key: resolveCredential(),
+    log: (line) => r.log(line),
+  })
+  if (audio) r.log(`mixing ${audio.clips} sound${audio.clips === 1 ? '' : 's'}`)
+  if (hasAudioElements(config)) {
+    r.log(
+      'note: an audio ELEMENT is not mixed by a render; put the sound on the program document instead (doc.json audio: [{ key, start, in, out, duration, gain }])',
+    )
+  }
 
   const browser = await launchBrowser()
   try {
@@ -89,49 +139,7 @@ async function cmdRender(argv: string[]): Promise<number> {
       fps,
       duration,
       format,
-      onPhase: (phase) => {
-        r.log(`${phase}…`)
-        r.event({ event: 'phase', phase })
-      },
-    })
-    await writeFile(out, result.bytes)
-    r.done(
-      { out, bytes: result.bytes.length, width, height, fps, duration, format },
-      `Wrote ${out} (${(result.bytes.length / 1024).toFixed(0)} KB, ${width}x${height}@${fps}, ${duration}s)`,
-    )
-    return EXIT_OK
-  } finally {
-    await browser.close()
-  }
-}
-
-async function cmdStill(argv: string[]): Promise<number> {
-  const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
-  const source = positionals[0]
-  if (!source) throw new UsageError('vos still <config.json|url> [out.webp]')
-  const r = createReporter(flags.json === true)
-
-  const { config, warnings } = await loadVosConfig(source)
-  for (const w of warnings) r.log(`note: ${w}`)
-  const time = numFlag(flags, 'time', 0)
-  const width = numFlag(flags, 'width', 1280)
-  const height = numFlag(flags, 'height', 720)
-  const out = positionals[1] ?? outName(source, 'webp')
-  // The capture template encodes WebP; a .png/.jpg name would ship WebP
-  // bytes under a lying extension (stores refuse a mislabelled image), so
-  // refuse in words instead of writing it.
-  if (/\.(png|jpe?g)$/i.test(out))
-    throw new UsageError(
-      `vos still writes WebP (the engine's capture format): name the output .webp, or convert afterwards (ffmpeg -i out.webp out.png)`,
-    )
-
-  const browser = await launchBrowser()
-  try {
-    const result = await renderStill(browser, {
-      config,
-      width,
-      height,
-      time,
+      audioProducerCode: audio?.producerCode,
       onPhase: (phase) => {
         r.log(`${phase}…`)
         r.event({ event: 'phase', phase })
@@ -144,10 +152,83 @@ async function cmdStill(argv: string[]): Promise<number> {
         bytes: result.bytes.length,
         width,
         height,
-        time,
-        mimeType: result.mimeType,
+        fps,
+        duration,
+        format,
+        audio: audio?.clips ?? 0,
       },
-      `Wrote ${out} (${(result.bytes.length / 1024).toFixed(0)} KB, ${width}x${height} @ t=${time}s)`,
+      `Wrote ${out} (${(result.bytes.length / 1024).toFixed(0)} KB, ${width}x${height}@${fps}, ${duration}s)`,
+    )
+    return EXIT_OK
+  } finally {
+    await browser.close()
+  }
+}
+
+async function cmdStill(argv: string[]): Promise<number> {
+  const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
+  const source = positionals[0]
+  if (!source)
+    throw new UsageError(
+      'vos still <config.json|url> [out.webp|out.png|out.jpg] [--time t | --times a,b,50%]',
+    )
+  const r = createReporter(flags.json === true)
+
+  const loaded = await loadVosConfig(source)
+  for (const w of loaded.warnings) r.log(`note: ${w}`)
+  void flags.set
+  const config = applyDataSets(
+    loaded.config as Record<string, unknown>,
+    setFlags(argv),
+  )
+  const width = numFlag(flags, 'width', 1280)
+  const height = numFlag(flags, 'height', 720)
+  const out = positionals[1] ?? outName(source, 'webp')
+  const encoding = stillFormat(out)
+  const timesRaw = flags.times === undefined ? undefined : String(flags.times)
+  if (timesRaw !== undefined && flags.time !== undefined)
+    throw new UsageError('--time and --times: pass one')
+  const times =
+    timesRaw !== undefined
+      ? parseTimes(timesRaw, configDuration(config) ?? 5)
+      : [numFlag(flags, 'time', 0)]
+  const many = times.length > 1
+
+  // One browser for every time: each still is its own capture page.
+  const browser = await launchBrowser()
+  try {
+    const written: { out: string; bytes: number; time: number }[] = []
+    for (const time of times) {
+      const target = stillOutFor(out, time, many)
+      const result = await renderStill(browser, {
+        config,
+        width,
+        height,
+        time,
+        onPhase: (phase) => {
+          r.event({ event: 'phase', phase, time })
+        },
+      })
+      // The engine captures WebP; a .png or .jpg name is re-encoded in the
+      // page, so the bytes always match the name.
+      const bytes =
+        encoding === 'webp'
+          ? result.bytes
+          : await reencodeStill(browser, result.bytes, encoding)
+      await writeFile(target, bytes)
+      written.push({ out: target, bytes: bytes.length, time })
+      r.log(
+        `Wrote ${target} (${(bytes.length / 1024).toFixed(0)} KB @ t=${Number(time.toFixed(2))}s)`,
+      )
+    }
+    const first = written[0]
+    r.done(
+      many
+        ? { stills: written, width, height, format: encoding }
+        : { ...first, width, height, format: encoding },
+      many
+        ? `Wrote ${written.length} stills (${width}x${height})`
+        : `Wrote ${first.out} (${(first.bytes / 1024).toFixed(0)} KB, ${width}x${height} @ t=${first.time}s)`,
     )
     return EXIT_OK
   } finally {

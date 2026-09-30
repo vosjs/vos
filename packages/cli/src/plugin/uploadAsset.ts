@@ -84,6 +84,8 @@ export interface UploadOptions {
   durationSeconds?: number
   /** Parts landed, for a caller that reports a long upload's progress. */
   onPart?: (done: number, total: number) => void
+  /** File the asset into one of the caller's folders (single-shot only). */
+  folderId?: string
 }
 
 function failed(what: string, r: ApiResult): Error {
@@ -117,6 +119,11 @@ export async function uploadAsset(
   bytes: Uint8Array,
   opts: UploadOptions,
 ): Promise<UploadedAsset> {
+  if (bytes.length > SINGLE_SHOT_MAX_BYTES && opts.folderId) {
+    throw new Error(
+      `${opts.filename} is over ${SINGLE_SHOT_MAX_BYTES / 1024 / 1024} MB, and a file that large cannot be filed into a project on upload yet. Push it without --folder and reference it from a document, which keeps it`,
+    )
+  }
   return bytes.length > SINGLE_SHOT_MAX_BYTES
     ? uploadInParts(target, bytes, opts)
     : uploadWhole(target, bytes, opts)
@@ -138,6 +145,7 @@ async function uploadWhole(
       ...(opts.durationSeconds && opts.durationSeconds > 0
         ? { 'X-Content-Duration': opts.durationSeconds.toFixed(3) }
         : {}),
+      ...(opts.folderId ? { 'X-Folder-Id': opts.folderId } : {}),
     },
     raw: bytes,
   })

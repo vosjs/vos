@@ -1,5 +1,6 @@
 /** Minimal argv parser — mirrors @vosjs/cli's conventions. */
 import { noteGivenFlag, trackFlags } from '../flagUse'
+import { UsageError } from '../args'
 
 export interface ParsedArgs {
   positionals: string[]
@@ -8,7 +9,9 @@ export interface ParsedArgs {
   multi: Record<string, string[]>
 }
 
-export class UsageError extends Error {}
+// ONE usage error for the whole CLI: a verb that reaches a shared helper
+// (outputs.ts) must be reported as a usage error on either side.
+export { UsageError }
 
 export function parseArgs(
   argv: string[],

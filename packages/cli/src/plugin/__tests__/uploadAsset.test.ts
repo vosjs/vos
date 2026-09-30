@@ -16,6 +16,7 @@ interface Call {
   url: string
   method: string
   body?: unknown
+  headers?: Record<string, string>
 }
 
 /**
@@ -27,7 +28,12 @@ function platform(opts: { partBytes?: number; reused?: boolean } = {}) {
   const partBytes = opts.partBytes ?? 16 * MiB
   const fetchMock = vi.fn(async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? 'GET'
-    calls.push({ url, method, body: init.body })
+    calls.push({
+      url,
+      method,
+      body: init.body,
+      headers: (init.headers ?? {}) as Record<string, string>,
+    })
     const json = (status: number, body: unknown) =>
       ({ status, json: async () => body }) as unknown as Response
 
@@ -115,6 +121,31 @@ describe('picking a transport', () => {
       .map((c) => (c.body as Uint8Array).length)
     expect(bodies.length).toBeGreaterThan(0)
     for (const size of bodies) expect(size).toBeLessThan(100 * MiB)
+  })
+})
+
+describe('filing into a folder', () => {
+  it('names the folder on a whole-file upload', async () => {
+    const { calls } = platform()
+    await uploadAsset(target, bytes(1024), { ...opts, folderId: 'f1' })
+    expect(calls[0].headers?.['X-Folder-Id']).toBe('f1')
+  })
+
+  it('sends no folder header when none was asked for', async () => {
+    const { calls } = platform()
+    await uploadAsset(target, bytes(1024), opts)
+    expect(calls[0].headers?.['X-Folder-Id']).toBeUndefined()
+  })
+
+  it('refuses in words, before sending anything, when a large file asks for a folder', async () => {
+    const { calls } = platform()
+    await expect(
+      uploadAsset(target, bytes(SINGLE_SHOT_MAX_BYTES + 1), {
+        ...opts,
+        folderId: 'f1',
+      }),
+    ).rejects.toThrow(/cannot be filed into a project/)
+    expect(calls).toHaveLength(0)
   })
 })
 
