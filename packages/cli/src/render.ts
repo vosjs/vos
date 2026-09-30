@@ -32,12 +32,49 @@ export interface RenderStillOptions extends RenderCommonOptions {
 export interface RenderResult {
   bytes: Uint8Array
   mimeType: string
+  /** Uncaught exceptions the page threw while it rendered (it may still have
+   * written a frame, so a caller says them instead of hiding them). */
+  pageErrors: string[]
 }
 
 interface RenderComplete {
   success: boolean
   data?: string
   error?: string
+}
+
+/** What a captured still shows, measured from its pixels. */
+export interface StillPicture {
+  /** Every pixel has alpha 0: the frame is empty, whatever the preview showed. */
+  transparent: boolean
+  /** Every pixel is the same colour. */
+  flat: boolean
+}
+
+/**
+ * The sentences a still earns before anyone looks at it (pure). A fully
+ * transparent frame is the one a custom blend or a cleared alpha leaves, and
+ * it reads as black in most viewers while the live preview draws over its
+ * page: say so, because nothing else will.
+ */
+export function stillWarnings(
+  picture: StillPicture,
+  pageErrors: readonly string[],
+): string[] {
+  const out: string[] = []
+  if (picture.transparent) {
+    out.push(
+      'the still is fully transparent (every pixel has alpha 0), though the preview may draw it: something wrote alpha 0, most often a custom material blending (blendDst / blendEquation) or a scene with no background. Give the scene a background or keep the destination alpha in the blend.',
+    )
+  } else if (picture.flat) {
+    out.push(
+      'the still is a single flat colour: nothing drew at this time, or everything is hidden; check the time and the program for errors.',
+    )
+  }
+  for (const e of pageErrors.slice(0, 3)) out.push(`the page threw: ${e}`)
+  if (pageErrors.length > 3)
+    out.push(`the page threw ${pageErrors.length - 3} more errors`)
+  return out
 }
 
 function compile(config: Record<string, unknown>): string {
@@ -48,14 +85,18 @@ async function runCapturePage(
   browser: Browser,
   html: string,
   opts: { width: number; height: number; timeoutMs: number },
-): Promise<RenderComplete> {
+): Promise<RenderComplete & { pageErrors: string[] }> {
   const context = await browser.newContext({
     viewport: { width: opts.width, height: opts.height },
   })
   const page: Page = await context.newPage()
   const errors: string[] = []
+  const pageErrors: string[] = []
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(m.text())
+  })
+  page.on('pageerror', (e) => {
+    pageErrors.push(String(e.message || e))
   })
   try {
     await page.route(`${RENDER_ORIGIN}/**`, (route) =>
@@ -69,15 +110,15 @@ async function runCapturePage(
       const done = (await page.evaluate(
         'window.__renderComplete ?? null',
       )) as RenderComplete | null
-      if (done) return done
+      if (done) return { ...done, pageErrors }
       if (Date.now() - start > opts.timeoutMs) {
+        const all = [...pageErrors, ...errors]
         return {
           success: false,
           error: `render timed out after ${Math.round(opts.timeoutMs / 1000)}s${
-            errors.length
-              ? ` (page errors: ${errors.slice(0, 3).join(' | ')})`
-              : ''
+            all.length ? ` (page errors: ${all.slice(0, 3).join(' | ')})` : ''
           }`,
+          pageErrors,
         }
       }
       await new Promise((r) => setTimeout(r, 400))
@@ -87,10 +128,17 @@ async function runCapturePage(
   }
 }
 
-function decodeDataUrl(dataUrl: string): RenderResult {
+function decodeDataUrl(
+  dataUrl: string,
+  pageErrors: string[] = [],
+): RenderResult {
   const m = /^data:([^;,]+);base64,(.*)$/s.exec(dataUrl)
   if (!m) throw new Error('capture page returned an unexpected payload')
-  return { bytes: Uint8Array.from(Buffer.from(m[2], 'base64')), mimeType: m[1] }
+  return {
+    bytes: Uint8Array.from(Buffer.from(m[2], 'base64')),
+    mimeType: m[1],
+    pageErrors,
+  }
 }
 
 /** Render a vos config to a video (WebM/MP4) in a headless browser. */
@@ -126,7 +174,7 @@ export async function renderVideo(
   })
   if (!done.success || !done.data)
     throw new Error(done.error ?? 'render failed')
-  return decodeDataUrl(done.data)
+  return decodeDataUrl(done.data, done.pageErrors)
 }
 
 /** Render a single frame of a vos config to an image in a headless browser. */
@@ -157,7 +205,50 @@ export async function renderStill(
   })
   if (!done.success || !done.data)
     throw new Error(done.error ?? 'still render failed')
-  return decodeDataUrl(done.data)
+  return decodeDataUrl(done.data, done.pageErrors)
+}
+
+/**
+ * Measure a captured still's pixels in a browser page (the canvas is the
+ * decoder): whether every pixel is transparent, and whether it is one flat
+ * colour. Sampled on a grid, so a large still stays cheap.
+ */
+export async function inspectStill(
+  browser: Browser,
+  webp: Uint8Array,
+): Promise<StillPicture> {
+  const page = await browser.newPage()
+  try {
+    const src = `data:image/webp;base64,${Buffer.from(webp).toString('base64')}`
+    return (await page.evaluate(
+      `(async () => {
+        const img = new Image()
+        img.src = ${JSON.stringify(src)}
+        await img.decode()
+        const w = img.naturalWidth, h = img.naturalHeight
+        const c = document.createElement('canvas')
+        c.width = w
+        c.height = h
+        const g = c.getContext('2d', { willReadFrequently: true })
+        g.drawImage(img, 0, 0)
+        const d = g.getImageData(0, 0, w, h).data
+        const step = Math.max(1, Math.floor(Math.sqrt((w * h) / 40000)))
+        let transparent = true, flat = true, first = null
+        for (let y = 0; y < h; y += step) {
+          for (let x = 0; x < w; x += step) {
+            const i = (y * w + x) * 4
+            if (d[i + 3] !== 0) transparent = false
+            const px = d[i] + ',' + d[i + 1] + ',' + d[i + 2] + ',' + d[i + 3]
+            if (first === null) first = px
+            else if (px !== first) flat = false
+          }
+        }
+        return { transparent, flat }
+      })()`,
+    )) as StillPicture
+  } finally {
+    await page.close()
+  }
 }
 
 /**
