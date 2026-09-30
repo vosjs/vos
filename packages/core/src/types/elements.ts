@@ -267,9 +267,21 @@ export interface ElementProps {
   rotation: number
   rotationX: number
   rotationY: number
-  // Text-specific
+  /** Layer order inside the element's overlay scene (writes `renderOrder`) */
+  zIndex?: number
+  // Text-specific: every one of these re-rasters the text when written
+  // (`RASTER_PROPS` in @vosjs/elements), so a scramble or a counter writes
+  // `props.content` and a colour change sets `props.color` (the tween dialect
+  // animates numbers only, so a colour is set, never tweened).
+  content?: string
   fontSize?: number
+  fontFamily?: string
+  fontWeight?: number | string
+  fontStyle?: 'normal' | 'italic'
   letterSpacing?: number
+  color?: string
+  strokeColor?: string
+  strokeWidth?: number
   // Video-specific (only available for video elements)
   /** Current playback position in seconds (animatable with GSAP) */
   currentTime?: number

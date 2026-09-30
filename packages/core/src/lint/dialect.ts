@@ -180,8 +180,13 @@ const PARAMETERIZABLE = new Set(['back', 'elastic', 'steps'])
 const EASE_RE = /\bease\s*:\s*['"]([^'"]+)['"]/g
 // `family[.direction][(args)]` — mirrors @vosjs/timeline's resolveEase grammar.
 const EASE_EXPR = /^([a-zA-Z0-9]+)(?:\.(in|out|inOut))?(?:\(([^)]*)\))?$/
+// The dialect-only CSS curve, mirroring @vosjs/timeline's CSS_BEZIER_EXPR.
+const CSS_BEZIER_EXPR =
+  /^css-bezier\(\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*,\s*(-?[\d.]+)\s*\)$/
 
 function easeSupported(raw: string): boolean {
+  const cb = CSS_BEZIER_EXPR.exec(raw)
+  if (cb) return cb.slice(1).map(Number).every(Number.isFinite)
   const m = EASE_EXPR.exec(raw)
   if (!m) return false
   const [, family, , argsRaw] = m
@@ -215,7 +220,7 @@ function lintEases(
       match: m[0],
       index: m.index,
       line,
-      message: `Ease "${raw}" is outside the supported set (families: ${[...SUPPORTED_EASE_FAMILIES].join(', ')}; parameterized: back/elastic/steps) — would fall back to linear.`,
+      message: `Ease "${raw}" is outside the supported set (families: ${[...SUPPORTED_EASE_FAMILIES].join(', ')}; parameterized: back/elastic/steps; css-bezier(x1, y1, x2, y2)) — would fall back to linear.`,
     })
   }
   return issues

@@ -35,7 +35,8 @@ Suppress any single line with `// vos-lint-disable-next-line <rule|all>`.
   `power1`–`power4`, `sine`, `expo`, `circ`, `back`, `elastic`, `bounce`; parameterized
   `back(overshoot)`, `elastic(amplitude, period)` and `steps(n)`; a bare family name
   defaults to `.out` (matching GSAP). All curves are verified for numeric parity with
-  `gsap.parseEase`.
+  `gsap.parseEase`. Beyond GSAP, the dialect-only `css-bezier(x1, y1, x2, y2)` is CSS's
+  `cubic-bezier` (and Remotion's `Easing.bezier`) with the same four numbers.
 - **Tweened values:** numbers, plus relative numeric strings (`'+=0.5'` / `'-=10'` —
   destination = start value ± delta). (Colors, unit strings, and complex string
   interpolation are outside the numeric core.)
@@ -52,7 +53,7 @@ Suppress any single line with `// vos-lint-disable-next-line <rule|all>`.
 | `repeat-infinite`         | `repeat: -1`                                                                                                                      | GSAP gives the timeline its infinity sentinel, 10000000000s, so the program loses its real length and anything after it is unreachable; the compiled timeline already loops on its own | A finite `repeat`, or none                                                                                                                                                           |
 | `snap`                    | `snap: { … }`                                                                                                                     | Per-tick post-processing                                                                                                                                                               | Precompute snapped values                                                                                                                                                            |
 | `immediate-render` (warn) | `immediateRender: <override>`                                                                                                     | Overrides default render-on-add semantics                                                                                                                                              | Rely on defaults (`from`/`fromTo`/`set` render on add; `to` does not)                                                                                                                |
-| `unknown-ease` (warn)     | `elastic`, `bounce`, `steps()`, `rough`, `slow`, `back.out(1.7)`, other parameterized/custom eases                                | Not yet implemented by the vendored evaluator — would silently fall back to linear                                                                                                     | Use a supported family, or precompute the curve                                                                                                                                      |
+| `unknown-ease` (warn)     | `rough`, `slow`, `expoScale`, CustomEase strings, a misspelt name (`powr2.out`), a CSS `cubic-bezier(…)` (spell it `css-bezier`)  | Not implemented by the vendored evaluator — would silently fall back to linear                                                                                                         | Use a supported family, or precompute the curve                                                                                                                                      |
 
 ## Determinism (separate check)
 
