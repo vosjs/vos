@@ -36,6 +36,26 @@ export function elementConfigId(
 
 interface ConfigWithElements {
   elements?: Record<string, unknown>[]
+  data?: Record<string, unknown>
+}
+
+/** The data key a `{ $data: key }` binding names, or null for a literal. */
+export function boundDataKey(value: unknown): string | null {
+  return value !== null &&
+    typeof value === 'object' &&
+    typeof (value as { $data?: unknown }).$data === 'string' &&
+    (value as { $data: string }).$data.length > 0
+    ? (value as { $data: string }).$data
+    : null
+}
+
+/** Write a value where a binding points: `data[key]`, the binding kept. */
+function writeData(
+  draft: ConfigWithElements,
+  key: string,
+  value: unknown,
+): void {
+  draft.data = { ...(draft.data ?? {}), [key]: value }
 }
 
 /**
@@ -196,6 +216,11 @@ export interface TextStylePatch {
  * Recipe: set a text element's content (the durable commit behind a typing
  * gesture — the ephemeral preview is `setElementProps(id, { content })`,
  * protocol 4). Returns null when the id doesn't resolve to a text element.
+ *
+ * A content BOUND to data (`{ $data: key }`) is written to `data[key]` and
+ * the binding stays: writing the literal over it cut the text loose from
+ * its knob, so a later knob turn or data patch no longer reached the words
+ * (and the edit became a recompile instead of a live data change).
  */
 export function setTextContentRecipe(
   config: ConfigWithElements,
@@ -211,8 +236,10 @@ export function setTextContentRecipe(
     return null
   }
 
+  const key = boundDataKey((elements[index] as { content?: unknown }).content)
   return (draft) => {
-    ;(draft.elements![index] as { content?: string }).content = content
+    if (key) writeData(draft, key, content)
+    else (draft.elements![index] as { content?: string }).content = content
   }
 }
 
@@ -237,12 +264,26 @@ export function setTextStyleRecipe(
   const { stroke, ...font } = patch
   const fontKeys = Object.keys(font)
   if (fontKeys.length === 0 && stroke === undefined) return null
+  // `font.family` and `font.color` may be bound to data like `content`: an
+  // edit to a bound one writes data and keeps the binding.
+  const currentFont = ((elements[index] as { font?: unknown }).font ??
+    {}) as Record<string, unknown>
+  const bound: [string, string][] = []
+  for (const field of ['family', 'color'] as const) {
+    const key = boundDataKey(currentFont[field])
+    if (key && font[field] !== undefined) bound.push([field, key])
+  }
 
   return (draft) => {
     const el = draft.elements![index] as Record<string, unknown>
     if (fontKeys.length) {
       const current = (el.font ?? {}) as Record<string, unknown>
-      el.font = { ...current, ...font }
+      const next: Record<string, unknown> = { ...current, ...font }
+      for (const [field, key] of bound) {
+        writeData(draft, key, font[field as 'family' | 'color'])
+        next[field] = current[field]
+      }
+      el.font = next
     }
     if (stroke !== undefined) {
       if (stroke === null) delete el.stroke

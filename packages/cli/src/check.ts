@@ -16,6 +16,7 @@ import {
   lintVosFonts,
   lintVosPostprocessing,
 } from '@vosjs/core/lint'
+import { knobWarnings } from './plugin/knobs'
 
 export interface CheckIssue {
   level: 'error' | 'warn'
@@ -130,6 +131,11 @@ export function runCheck(parsed: unknown): CheckResult {
         message: `unknown top-level key "${key}" — the platform drops it on push`,
       })
     }
+  }
+
+  // Knobs and Looks vos.so would drop (the push still saves, without them).
+  for (const message of knobWarnings(migrated as Record<string, unknown>)) {
+    issues.push({ level: 'warn', source: 'shape', message })
   }
 
   // Sound as an ELEMENT is not a track: no timeline row, no gain or fades,

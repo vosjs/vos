@@ -305,3 +305,15 @@ export function formatChanges(changes: readonly VersionChange[]): string[] {
   }
   return lines
 }
+
+/**
+ * The warnings a write came back with (a knob or Look the platform dropped),
+ * one line each. A push that saved is not a push that kept everything.
+ */
+export function serverWarnings(
+  body: Record<string, unknown>,
+  log: (line: string) => void,
+): void {
+  const warnings = Array.isArray(body.warnings) ? body.warnings : []
+  for (const w of warnings) if (typeof w === 'string') log(`warning ${w}`)
+}
