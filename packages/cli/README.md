@@ -48,8 +48,8 @@ vos logout                          # remove ~/.config/vos/credentials
 ## Engine verbs
 
 ```bash
-vos render  <config.json|url|take> [out]   # config → video (a take directory renders through the take pipeline)
-vos still   <config.json|url> [out.webp]   # config → one frame, WebP
+vos render  <config.json|url|take> [out]   # config → video; the name picks mp4/webm; a program document's sound is mixed in
+vos still   <config.json|url> [out.webp]   # config → frames: --times 0,1.5,50% in one browser; .png/.jpg re-encoded
 vos info    <config.json|url>              # inspect a config
 vos check   <config.json|url>              # migrate → schema → syntax → compile → determinism and dialect lints, all local
 vos preview <config.json|url> [--port N]   # serve a local playback page
@@ -95,7 +95,11 @@ vos ingest video.webm --cursor trace.zip --out take     # a Playwright trace: cl
 vos ingest demo.mp4 --cursor steps.jsonl --out take     # stamped records: {"ts":…,"command":["click","@e1"],"point":{"x":…,"y":…}} per line
 vos ingest demo.mp4 --cursor cursor.csv --out take      # t,x,y,type (ms, viewport px; move|down|up|click|scroll)
 vos ingest demo.mp4 --out take                          # no trace: no cursor track, nothing planned, and the done event says so
+vos ingest reel.mp4 --out take                          # a render from HyperFrames or Remotion, a film: opens BARE
+vos ingest loom.mp4 --as take --out take                # a screen demo with no trace: the card, its ground
 ```
+
+**A file with no trace is finished footage by default.** Nothing but a cursor trace says a file is a screen recording, so without one the take opens bare: no card, no browser bar, no drawn cursor or webcam, exported at the footage's own frame rate. `--as take` gives a screen demo the card; `--as footage` says the opposite outright.
 
 What a trace cannot give is named, never guessed: agent-browser's own log carries neither timestamps nor coordinates (measured), so stamp `ts` and a `point` per command when you keep one, or replay the walk with `vos actions from-agent-browser` and `vos record` instead. `--offset <ms>` shifts a trace whose zero is not the video's; `--viewport WxH` names the coordinate space when the video was scaled. A headed capture with the real pointer baked in shows two cursors under a trace's drawn one; turn the drawn cursor off in `doc.json` for those.
 
@@ -298,19 +302,23 @@ vos push bright-loop/config.json --vos <id>            # add a version to a vos 
 vos push bright-loop/config.json --remix-of <id>       # create a SEPARATE vos from this config, with that lineage
 vos push bright-loop/config.json --claimable           # no credential: a 72 h claim link instead (programs only)
 vos push take --yes --label "first pass" --note "…"    # host a take: private vos + version history (the recording uploads once)
+vos push … --wait                                      # stay until the version's still renders; print absolute still and preview links
+vos delete <vosId|url|dir> [--yes]                     # take a vos off vos.so, every version; asks, or --yes headless
 vos pull bright-loop [--since <versionId>] [--check]   # what changed on vos.so since your base; syncs config.json (backup kept), or doc.json for a take
                                                        # --check reports without writing; --since walks from a base you name
 vos duplicate <vosId>                                  # a private sibling of your OWN vos (someone else's is remixed: fetch, then push --remix-of)
 vos folder list | create <name> [--parent] [--desc] | move <ids…> --to <folder|none> | pull <ref> [--media]
-vos asset push <file…> [--folder <slug>] | rename <id> <name.ext>
+vos asset push <file…> [--folder <slug>] | rename <id> <name.ext>   # sound and video too: they land in Sound > Uploads
 vos recipe push <FILE.md> --folder <slug> | --asset <id>   # the one recipe write: create, or replace in place
 ```
 
-`push` is polymorphic by a deterministic sniff, never a flag: a take directory (a `doc.json` carrying `source`) pushes recording and document through the take pipeline; a `config.json` (or a directory holding one) pushes the program, and a `doc.json` beside it that carries `program` (a program document: overlays, objects, audio, speed, tween edits, its own length; `program.config` omitted on disk) rides along, lint-gated. `fetch` and `pull` write a program document back the same way. `pull` takes `--since <versionId>` (walk the changelog from that base instead of the tracked one) and `--check` (print what changed and stop: nothing on disk moves) on both paths. A program push LANDS where `vos.json` says: a directory that tracks a vos iterates it, so the fetch, edit, check, push, pull loop needs no flags, and making something separate from the same config is the explicit `--remix-of` door. Program pushes take `--vos`, `--title`, `--slug`, `--desc`, `--tags`, `--folder`, `--remix-of`, `--base`, `--label`, `--note`, `--override <id>` (repeatable) and `--claimable`; take pushes take `--title`, `--label`, `--note`, `--folder`, `--override` and `--yes`.
+`push` is polymorphic by a deterministic sniff, never a flag: a take directory (a `doc.json` carrying `source`) pushes recording and document through the take pipeline; a `config.json` (or a directory holding one) pushes the program, and a `doc.json` beside it that carries `program` (a program document: overlays, objects, audio, speed, tween edits, its own length; `program.config` omitted on disk) rides along, lint-gated. `fetch` and `pull` write a program document back the same way. `pull` takes `--since <versionId>` (walk the changelog from that base instead of the tracked one) and `--check` (print what changed and stop: nothing on disk moves) on both paths. A program push LANDS where `vos.json` says: a directory that tracks a vos iterates it, so the fetch, edit, check, push, pull loop needs no flags, and making something separate from the same config is the explicit `--remix-of` door. Program pushes take `--vos`, `--title`, `--slug`, `--desc`, `--tags`, `--folder`, `--remix-of`, `--base`, `--label`, `--note`, `--override <id>` (repeatable) and `--claimable`; take pushes take `--title`, `--label`, `--note`, `--folder`, `--override` and `--yes`. Both take `--wait`. A new vos pushed without `--folder` lands unfiled, at the root of the shelf, and the done line says so.
+
+**Sound is a track, never an element.** A document's added sound lives in `doc.json` (`audio: [{ id, key, name, start, in, out, duration, gain, fadeIn, fadeOut }]`) for a program as for a take: `vos push` uploads each local file its keys name and keys the hosted asset; `vos render` of a program mixes it locally; the studio shows it as a track with gain and fades. An `audio` element embedded in the config is not a track (renders do not mix it, and a `data:` source can push a config past what a claimable push carries); `vos check` says so. `vos asset push score.ogg` uploads a sound on its own and prints the url a key takes; an unfiled sound that no document uses is removed after 7 days, so pass `--folder` or reference it.
 
 Both paths share the same base tracking and the same two 409 shapes. `stale_base` replays the platform's typed changelog: run `vos pull`, re-apply, push again. `protected_conflict` lists nodes a human edited in the studio: keep their values, or re-push with `--override <id>` only when the user asked for that exact change. The first push of a take asks before uploading (`--yes` for headless); agents never upload unprompted. The take's duration rides the upload, and the platform refuses a take over the hosted recording cap. Every push should carry `--label` (what changed, one line) and `--note` (why: the user's ask); the version history reads as a conversation, and an unlabelled push is a turn the human cannot read.
 
-`--claimable` is the credential-free rung, programs only: no key is resolved, no `vos.json` is written, and the response is a claim URL (72 h; unclaimed work is deleted, which is deliberate cleanup). Hand the link to the user and nowhere else: it is the only reference and the only credential. Claiming moves the vos into the user's library, and iteration after claim rides their key (`vos push --vos <id>`). Limits are the platform's: config ≤ 200 KB, 5 pushes per day per network.
+`--claimable` is the credential-free rung, programs only: no key is resolved, no `vos.json` is written, and the response is a claim URL (72 h; unclaimed work is deleted, which is deliberate cleanup). Hand the link to the user and nowhere else: it is the only reference and the only credential. Claiming moves the vos into the user's library, and iteration after claim rides their key (`vos push --vos <id>`). Limits are the platform's: config ≤ 200 KB, 5 pushes per day per network. A claim carries no files, so a program document's local sounds are left out of it, and said.
 
 `vos folder pull <ref>` writes a folder's context package to disk (its recipes, the inherited ones, the exemplar programs and assets), which is what an agent reads to create in the owner's style. Recipes are `.md` files named in capitals (`CUT.md`, `BRAND.md`): the server uppercases an agent-filed name.
 

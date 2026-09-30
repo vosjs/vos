@@ -21,12 +21,7 @@ import {
   readSourceText,
 } from './loadConfig'
 import { launchBrowser, BrowserUnavailableError } from './browser'
-import {
-  renderVideo,
-  renderStill,
-  reencodeStill,
-  previewPages,
-} from './render'
+import { renderVideo, renderStill, reencodeStill, previewPages } from './render'
 import { runCheck } from './check'
 import { programAudio } from './programAudio'
 import {
@@ -72,7 +67,9 @@ function hasAudioElements(config: unknown): boolean {
     Array.isArray(elements) &&
     elements.some(
       (e) =>
-        !!e && typeof e === 'object' && (e as { type?: unknown }).type === 'audio',
+        !!e &&
+        typeof e === 'object' &&
+        (e as { type?: unknown }).type === 'audio',
     )
   )
 }
@@ -117,9 +114,10 @@ async function cmdRender(argv: string[]): Promise<number> {
 
   // A program document's sound rides its studio entry; mix it like a take's.
   const audio = await programAudio(config as Record<string, unknown>, {
-    baseDir: existsSync(source) && statSync(source).isDirectory()
-      ? source
-      : dirname(source),
+    baseDir:
+      existsSync(source) && statSync(source).isDirectory()
+        ? source
+        : dirname(source),
     duration,
     origin: platformOrigin({}),
     key: resolveCredential(),

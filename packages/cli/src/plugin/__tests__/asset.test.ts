@@ -48,10 +48,16 @@ function serve(seen: Seen[]): Promise<string> {
       }
       const url = req.url ?? ''
       if (url === '/api/folders') {
-        return send(200, { folders: [{ id: 'f-1', slug: 'reel', parentId: null }] })
+        return send(200, {
+          folders: [{ id: 'f-1', slug: 'reel', parentId: null }],
+        })
       }
       if (url === '/api/assets/recording' && req.method === 'POST') {
-        return send(201, { id: 'snd-1', url: '/api/assets/snd-1/file', size: 8 })
+        return send(201, {
+          id: 'snd-1',
+          url: '/api/assets/snd-1/file',
+          size: 8,
+        })
       }
       if (url.startsWith('/api/assets/') && req.method === 'PATCH') {
         if (body?.filename === 'design.txt') {

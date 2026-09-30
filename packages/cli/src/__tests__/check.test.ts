@@ -37,7 +37,11 @@ describe('runCheck', () => {
     const r = runCheck({
       ...VALID,
       elements: [
-        { id: 'score', type: 'audio', src: `data:audio/ogg;base64,${'A'.repeat(4096)}` },
+        {
+          id: 'score',
+          type: 'audio',
+          src: `data:audio/ogg;base64,${'A'.repeat(4096)}`,
+        },
       ],
     })
     expect(r.ok).toBe(true)

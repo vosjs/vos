@@ -236,7 +236,9 @@ describe('docAudioRefs: the sound a document adds', () => {
   })
 
   it('reads a program document, which has no recording or frame', () => {
-    expect(docAudioRefs({ audio: [clip('s', 'sound/hit.wav')] })).toHaveLength(1)
+    expect(docAudioRefs({ audio: [clip('s', 'sound/hit.wav')] })).toHaveLength(
+      1,
+    )
     expect(docAudioRefs({})).toEqual([])
   })
 })
