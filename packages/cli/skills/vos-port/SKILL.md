@@ -60,8 +60,11 @@ not in `node_modules`.
    (`@vosjs/cli` 0.52+). Never a `data:` URI in an audio element.
 8. **Faces from the catalog.** `fonts: [{ family, weight, url }]` with
    `https://assets.vos.so/fonts/<slug>/<weight>.woff2` (`GET
-   https://vos.so/api/fonts`). A face the catalog lacks is SUBSTITUTED and
-   the substitution is said in the push note.
+   https://vos.so/api/fonts`). An italic the catalog hosts is in the
+   family's `italicFiles` (`<weight>-italic.woff2`): declare it as its own
+   entry with `style: 'italic'` and set `font.style: 'italic'` on the
+   element. A face the catalog lacks is SUBSTITUTED and the substitution is
+   said in the push note.
 
 ## The coordinates, measured (these cost the reference port three rounds)
 
@@ -73,15 +76,17 @@ not in `node_modules`.
 - **`rotation` is degrees, counter-clockwise**: CSS `rotate(12deg)` is
   `rotation: -12`.
 - **A static offset goes in the config**, `transform: { translateX,
-  translateY }` in design pixels, never a `tl.set` on `props.x/y`, for any
-  text whose content or colour changes live: every re-raster lays the
-  element out again from its config and drops a tweened position.
-- **Text that `onFrame` writes is missing from a still.** A scramble or a
-  counter written into `props.content` each frame shows in `vos render`
-  output (a frame late) and is BLANK in `vos still` and in the vos.so
-  thumbnail. Check it in a rendered frame, and set the program's cover
-  (`vos push --still <t>`, cli 0.53+) at a moment where that text is not the
-  point.
+  translateY }` in design pixels, and motion on `props.x/y`. A re-raster
+  (new words, a new colour) keeps the offset a tween added from
+  `@vosjs/elements` 0.8.3; before it the element snapped back to its
+  config position.
+- **Text that `onFrame` writes is in its own frame** from `@vosjs/core`
+  0.25.2: a scramble or a counter written into `props.content` shows in
+  `vos still`, the vos.so thumbnail and every exported frame. Before it the
+  text landed a frame late in video and a still showed another frame's
+  words, so a program compiled earlier gains the fix on its next push.
+  Still choose the program's cover (`vos push --still <t>`, cli 0.53+) at
+  the moment that sells it.
 - **Transform origin is the centre.** Remotion's `transformOrigin: 'right
   center'` with `scaleX` becomes a centre scale plus an `x` tween that keeps
   the right edge still: `{ scaleX: 0, x: x0 + (width / 2) * k }`.
@@ -166,9 +171,8 @@ approximation.
    ```
 
    A number does not catch a missing element: look at every side-by-side.
-   Stills are for layout; text that `onFrame` writes shows in `vos render`
-   output, not in `vos still` (a known capture gap), so check it in a
-   rendered frame.
+   Text that `onFrame` writes is in the still too (core 0.25.2+); on an
+   older CLI check it in a rendered frame.
 6. **Knob honesty**: one `--set data.<key>=<value>` still per param.
 7. **Push** with the score: `vos push config.json --folder <slug> --label
    "port of <source>" --note "<what was substituted, what is a painter>"
