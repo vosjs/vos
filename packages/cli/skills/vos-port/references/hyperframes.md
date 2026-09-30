@@ -24,7 +24,7 @@ units (render pixels, y down, degrees counter-clockwise).
 | a CSS `cubic-bezier(a, b, c, d)` timing | `ease: 'css-bezier(a, b, c, d)'` (exact; spelled `cubic-bezier` it plays linear) |
 | CSS `--chrome` set by the timeline | a `data` value read in `onFrame`, or a tween on the element that shows it |
 | faces resolved by the runtime from CSS families | `fonts: [{ family, weight, url }]` from the catalog |
-| `mix-blend-mode`, `clip-path`, `overflow: hidden` reveals | GAPS: the painter, or an opacity approximation, said |
+| `mix-blend-mode`, `clip-path`, `overflow: hidden` reveals | GAPS: a revealed word keeps its bound element with an opacity approximation; the painter only for a shape; said in the push note |
 
 Two traps specific to HyperFrames sources:
 

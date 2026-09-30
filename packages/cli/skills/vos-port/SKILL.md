@@ -43,10 +43,15 @@ not in `node_modules`.
    `font.family` and `font.color` take `{ "$data": "<key>" }` (they
    re-raster live on a data edit). Logos and shapes are `svg` or `image`
    elements, footage a `video` element. Elements are what the studio selects
-   and moves.
+   and moves. **Every visible word is a bound element**, whatever animates
+   it: a word whose letters rise one by one is ONE `split` element bound to
+   its key, never a pool of per-letter elements filled from `onFrame` (a
+   person can retype the first in the studio and not the second).
 4. **Motion is the timeline.** `createTimeline` holds the tweens, on
    `ctx.elements.get(id).props` (whole) or `.segments` (`split: { type:
-   'chars' | 'words' | 'lines' }` units), in the GSAP dialect. Keep curves
+   'chars' | 'words' | 'lines' }` units), in the GSAP dialect. Read
+   `el.segments` inside `createTimeline` and nowhere else: a data edit to a
+   bound split word rebuilds its units and the timeline over them. Keep curves
    exact: Remotion's `Easing.bezier(a, b, c, d)` is `ease: 'css-bezier(a, b,
    c, d)'`; GSAP eases keep their names.
 5. **Scenes are labels.** One `tl.addLabel('<scene>', t)` per scene or
@@ -185,7 +190,7 @@ stated approximation:
 
 | Source | In vos today |
 | --- | --- |
-| `overflow: hidden` masks, `clip-path` reveals | no element masks: approximate with opacity, or paint the item |
+| `overflow: hidden` masks, `clip-path` reveals | no element masks: approximate a masked WORD with opacity (it stays a bound element); paint only a shape |
 | a colour per split unit (`charStyle` making one letter red) | segments carry x/y/opacity/scale/rotation only: a separate element, or paint it |
 | `mixBlendMode` | no blend modes on elements: paint it |
 | a shape's colour as a knob | an svg's colours are compiled in (static `colors`): paint the shape if its colour must change live |
