@@ -36,6 +36,7 @@ export { createEditorBridgeClient } from './editorBridge'
 export type { EditorBridgeClient, ElementRect } from './editorBridge'
 export {
   DESIGN_HEIGHT,
+  boundDataKey,
   cssDeltaToDesign,
   elementBaseRotation,
   elementConfigId,

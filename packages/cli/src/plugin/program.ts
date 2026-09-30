@@ -32,6 +32,7 @@ import {
   readSyncState,
   requireCredential,
   resolveCredential,
+  serverWarnings,
   writeCredential,
   writeSyncState,
 } from './platform'
@@ -353,6 +354,7 @@ export async function createProgramVos(
       continue
     }
     if (res.status !== 201) throw new Error(apiError('push vos', res))
+    if (opts.log) serverWarnings(res.body, opts.log)
     const created = (res.body.vos ?? {}) as Record<string, unknown>
     return {
       id: String(created.id ?? ''),
@@ -448,6 +450,7 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
     if (slug) body.slug = slug
     const res = await apiJson(origin, '/api/claim', { method: 'POST', body })
     if (res.status !== 201) throw new Error(apiError('claimable push', res))
+    serverWarnings(res.body, (l) => r.log(l))
     const claimUrl = String(res.body.claimUrl ?? '')
     const expiresAt = String(res.body.expiresAt ?? '')
     const created = (res.body.vos ?? {}) as Record<string, unknown>
@@ -565,6 +568,7 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
     }
     if (res.status !== 201)
       throw new Error(apiError(`push version to ${vosId}`, res))
+    serverWarnings(res.body, (l) => r.log(l))
     const version = (res.body.version ?? {}) as Record<string, unknown>
     // Track what we just made: the new version is the next push's base.
     if (typeof version.id === 'string') {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { produce } from 'immer'
 import { createEditorBridgeClient } from '../editorBridge'
 import {
+  boundDataKey,
   cssDeltaToDesign,
   elementBaseRotation,
   elementConfigId,
@@ -9,6 +10,8 @@ import {
   propsForRectCenter,
   rotateElementRecipe,
   scaleElementRecipe,
+  setTextContentRecipe,
+  setTextStyleRecipe,
 } from '../elementEdit'
 
 describe('createEditorBridgeClient', () => {
@@ -181,5 +184,58 @@ describe('element edit commit helpers', () => {
     ).toBe(-15)
     expect(elementBaseRotation(config, 'title')).toBe(0)
     expect(elementBaseRotation({}, 'x')).toBe(0)
+  })
+})
+
+describe('text edits write through a data binding', () => {
+  const bound = () => ({
+    data: { headline: 'MOTION', ink: '#F2EFE8', keep: 1 },
+    elements: [
+      {
+        id: 'title',
+        type: 'text',
+        content: { $data: 'headline' },
+        font: { family: 'Anton', size: 96, color: { $data: 'ink' } },
+      },
+      { id: 'plain', type: 'text', content: 'Hello', font: { size: 24 } },
+    ],
+  })
+
+  it('retyping a bound text writes data and keeps the binding', () => {
+    const config = bound()
+    const next = produce(
+      config,
+      setTextContentRecipe(config, 'title', 'VOSSO')!,
+    )
+    expect(next.elements[0].content).toEqual({ $data: 'headline' })
+    expect(next.data).toEqual({ headline: 'VOSSO', ink: '#F2EFE8', keep: 1 })
+  })
+
+  it('a literal text is still written in place', () => {
+    const config = bound()
+    const next = produce(config, setTextContentRecipe(config, 'plain', 'Bye')!)
+    expect(next.elements[1].content).toBe('Bye')
+    expect(next.data).toEqual(config.data)
+  })
+
+  it('a bound colour writes data; unbound style fields merge as before', () => {
+    const config = bound()
+    const next = produce(
+      config,
+      setTextStyleRecipe(config, 'title', { color: '#C6FF3D', size: 120 })!,
+    )
+    expect(next.elements[0].font).toEqual({
+      family: 'Anton',
+      size: 120,
+      color: { $data: 'ink' },
+    })
+    expect(next.data.ink).toBe('#C6FF3D')
+  })
+
+  it('boundDataKey reads a binding and nothing else', () => {
+    expect(boundDataKey({ $data: 'k' })).toBe('k')
+    expect(boundDataKey('k')).toBeNull()
+    expect(boundDataKey({ $data: '' })).toBeNull()
+    expect(boundDataKey(null)).toBeNull()
   })
 })

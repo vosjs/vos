@@ -36,6 +36,7 @@ import {
   platformOrigin,
   readSyncState,
   requireCredential,
+  serverWarnings,
   writeSyncState,
 } from './platform'
 import type { UploadedAsset } from './uploadAsset'
@@ -417,6 +418,7 @@ export async function pushTake(
         `push failed (${created.status}): ${String(created.json.error ?? '')}${detailLine(created.json)}`,
       )
     }
+    serverWarnings(created.json, (l) => r.log(l))
     const vos = created.json.vos as { id: string; currentVersionId?: string }
     const meta = await api(ctx, `/vos/${vos.id}`)
     const versionId = String(
@@ -464,6 +466,7 @@ export async function pushTake(
       `push failed (${pushed.status}): ${String(pushed.json.error ?? '')}${detailLine(pushed.json)}`,
     )
   }
+  serverWarnings(pushed.json, (l) => r.log(l))
   const version = pushed.json.version as { id: string; versionNumber: number }
   writeSyncState(dir, {
     vosId: state.vosId,
