@@ -1,5 +1,12 @@
 # @vosjs/render-core
 
+## 0.3.8
+
+### Patch Changes
+
+- f4ec253: The audio page imports `@vosjs/core` 0.25.2's audio module, the core a host installs beside this release.
+  - @vosjs/studio-core@0.33.1
+
 ## 0.3.7
 
 ### Patch Changes
