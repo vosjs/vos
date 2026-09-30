@@ -171,7 +171,8 @@ describe('bound elements through renderElements', () => {
     expect(inst.updateData({ headline: 'still ignored' })).toBe(false)
   })
 
-  it('split text resolves at boot but stays structural on updateData', async () => {
+  it('bound split text rebuilds its units on updateData and says so', async () => {
+    const scene = scenes()
     const elements = await renderElements(
       [
         {
@@ -180,17 +181,64 @@ describe('bound elements through renderElements', () => {
           content: { $data: 'headline' },
           position: 'center',
           split: { type: 'chars' },
+          font: { color: { $data: 'ink' } },
         },
       ],
-      scenes(),
+      scene,
       RESOLUTION,
       THREE,
-      { headline: 'Abc' },
+      { headline: 'Abc', ink: '#ff0000' },
     )
     const inst = elements.get('t')!
     expect(inst.config.content).toBe('Abc')
     expect(inst.segments).toHaveLength(3)
-    // per-unit meshes + timeline segment bindings: boot-only by design
-    expect(inst.updateData({ headline: 'Abcdef' })).toBe(false)
+    const oldSegments = inst.segments
+    const oldProps = inst.props
+    expect(scene[100].children).toHaveLength(3)
+
+    // The words are structure: new units, new props, the old meshes gone.
+    expect(inst.updateData({ headline: 'Abcdef', ink: '#ff0000' })).toBe(true)
+    expect(inst.config.content).toBe('Abcdef')
+    expect(inst.segments).toHaveLength(6)
+    expect(inst.segments).not.toBe(oldSegments)
+    expect(inst.props).not.toBe(oldProps)
+    expect(scene[100].children).toHaveLength(6)
+    expect(inst.structural).toBe(true)
+
+    // A colour edit rebuilds too; unchanged data does nothing.
+    inst.structural = false
+    expect(inst.updateData({ headline: 'Abcdef', ink: '#00ff00' })).toBe(true)
+    expect(inst.config.font.color).toBe('#00ff00')
+    expect(scene[100].children).toHaveLength(6)
+    inst.structural = false
+    expect(inst.updateData({ headline: 'Abcdef', ink: '#00ff00' })).toBe(false)
+    expect(inst.structural).toBe(false)
+  })
+
+  it('takeStructural reports a rebuild once, then clears it', async () => {
+    const { createVosElements } = await import('../index')
+    const api = createVosElements(THREE)
+    const elements = await renderElements(
+      [
+        {
+          id: 't',
+          type: 'text',
+          content: { $data: 'w' },
+          position: 'center',
+          split: { type: 'chars' },
+        },
+        { id: 'u', type: 'text', content: { $data: 'x' }, position: 'center' },
+      ],
+      scenes(),
+      RESOLUTION,
+      THREE,
+      { w: 'Go', x: 'Hi' },
+    )
+    // A plain bound text re-rasters in place: not structural.
+    expect(api.updateData(elements, { w: 'Go', x: 'Hello' })).toBe(true)
+    expect(api.takeStructural(elements)).toBe(false)
+    expect(api.updateData(elements, { w: 'Gone', x: 'Hello' })).toBe(true)
+    expect(api.takeStructural(elements)).toBe(true)
+    expect(api.takeStructural(elements)).toBe(false)
   })
 })

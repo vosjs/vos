@@ -47,3 +47,18 @@ describe('the frame flushes element rasters before it draws', () => {
     expect(compileVosConfig(base)).not.toContain('flushRaster')
   })
 })
+
+describe('a rebuilt split text rebuilds the timeline', () => {
+  it('setData asks takeStructural before any other rung', () => {
+    // withText has an onFrame, whose own rung is a bare swap: the
+    // structural check must still rebuild the timeline over new segments.
+    const code = compileVosConfig(withText)
+    const setData = code.slice(code.indexOf('setData: (next'))
+    const take = setData.indexOf('__vosEls.takeStructural(elements)')
+    const rebuild = setData.indexOf('__rebuildContent();', take)
+    const onData = setData.indexOf('content.onData(__vosData)')
+    expect(take).toBeGreaterThan(-1)
+    expect(rebuild).toBeGreaterThan(take)
+    expect(onData).toBeGreaterThan(rebuild)
+  })
+})

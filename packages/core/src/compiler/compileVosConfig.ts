@@ -135,6 +135,8 @@ export function compileVosConfig(
   // A program with onFrame reads ctx.data per frame, so setData can stay a swap;
   // without one, setData rebuilds the content (see __rebuildContent).
   const hasOnFrame = !!config.onFrame
+  // Only a program with elements can have a split text a data edit rebuilds.
+  const hasElements = !!config.elements?.length
   const hasPerLayer = !!config.perLayerEffects?.length
   const hasRetime = !!config.retime
 
@@ -444,8 +446,20 @@ ${
         }
       });
       // Re-resolve {$data}-bound element props (re-raster in place, no re-init).
-      if (window.__vos__ && window.__vos__.elements && window.__vos__.elements.updateData) {
-        window.__vos__.elements.updateData(elements, __vosData);
+      const __vosEls = window.__vos__ && window.__vos__.elements;
+      if (__vosEls && __vosEls.updateData) {
+        __vosEls.updateData(elements, __vosData);
+      }${
+        hasElements
+          ? `
+      // A bound split text whose words changed rebuilt its units: its
+      // segments are new objects, so the timeline that tweens them is
+      // rebuilt too, whatever rung this program would otherwise take.
+      if (__vosEls && __vosEls.takeStructural && __vosEls.takeStructural(elements)) {
+        __rebuildContent();
+        return;
+      }`
+          : ''
       }
       if (content && typeof content.onData === 'function') { content.onData(__vosData); return; }${
         hasOnFrame ? '' : '\n      __rebuildContent();'

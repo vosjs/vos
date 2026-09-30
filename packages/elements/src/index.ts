@@ -31,6 +31,12 @@ export interface VosElements {
    * setData) re-draws over the fallback stack once it lands.
    */
   rerasterAll: (elementMap: Map<string, any>) => boolean
+  /**
+   * After updateData: did any element REBUILD its units (a bound split text
+   * whose words changed)? Its `segments` and `props` are new objects, so the
+   * host rebuilds the timeline that tweens them. Reading clears the flags.
+   */
+  takeStructural: (elementMap: Map<string, any>) => boolean
 }
 
 /**
@@ -74,6 +80,16 @@ export function createVosElements(THREE: typeof THREE_NS): VosElements {
         if (instance.refreshRaster?.()) changed = true
       })
       return changed
+    },
+    takeStructural: (elementMap: Map<string, any>) => {
+      let structural = false
+      elementMap.forEach((instance) => {
+        if (instance.structural) {
+          instance.structural = false
+          structural = true
+        }
+      })
+      return structural
     },
   }
 }
