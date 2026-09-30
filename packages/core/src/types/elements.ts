@@ -257,13 +257,20 @@ export type ElementConfig =
  * GSAP-animatable properties exposed on each element instance
  */
 export interface ElementProps {
+  /**
+   * RENDER pixels from the frame centre, x right, y DOWN. Unlike every config
+   * number (design px of a 1080-high frame), so an offset authored in design
+   * px is scaled: `x0 + dx * (ctx.resolution.height / 1080)`.
+   */
   x: number
+  /** RENDER pixels from the frame centre, y DOWN (see `x`). */
   y: number
   z: number
   opacity: number
   scale: number
   scaleX: number
   scaleY: number
+  /** Degrees, counter-clockwise (CSS `rotate(12deg)` is `rotation: -12`). */
   rotation: number
   rotationX: number
   rotationY: number
@@ -324,6 +331,12 @@ export interface ElementInstance {
    * face landing after first paint re-draws over the fallback stack).
    */
   refreshRaster?: () => boolean
+  /**
+   * Apply queued raster writes now. The engine's frame calls it for every
+   * element after onFrame and before the draw, so text written in a frame is
+   * in that frame (stills included). A no-op when nothing is queued.
+   */
+  flushRaster?: () => void
   /** Re-rasterize canvas-backed textures for a new output resolution */
   updateResolution?: (resolution: unknown) => boolean
   /** Remove element from scene */

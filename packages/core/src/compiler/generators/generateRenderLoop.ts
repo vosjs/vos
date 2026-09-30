@@ -31,6 +31,13 @@ export function generateRenderLoop(config: VosConfig): string {
   const clockDecl =
     hasOnFrame || hasStackFrame ? 'const timer = new THREE.Timer();' : ''
   const dynamicRebuild = hasDynamic ? '\n    __rebuildRenderGroups();' : ''
+  // Text written this frame (by onFrame, a stack entry or a tween's onUpdate)
+  // is rasterized before the draw, so the frame shows it: a capture of this
+  // frame, a still included, never shows the previous words.
+  const flushRasters = hasElements
+    ? `
+    elements.forEach((el) => { if (el.flushRaster) el.flushRaster(); });`
+    : ''
 
   // 3D group rendering — select the right path based on features
   let render3dGroup: string
@@ -126,7 +133,7 @@ export function generateRenderLoop(config: VosConfig): string {
       window.__vos__.frameCallbacks.forEach(cb => cb(currentOutputTime));
     }`
         : ''
-    }${onFrameCall}${dynamicRebuild}
+    }${onFrameCall}${dynamicRebuild}${flushRasters}
 
     renderer.autoClear = false;${globalPre}
     renderer.clear();
