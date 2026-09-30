@@ -12,6 +12,9 @@ export default tseslint.config(
       '**/*.config.mjs',
       '**/*.config.ts',
       '**/bundle.mjs',
+      // The CLI's copy of the public skills catalog, synced byte for byte:
+      // linted in its own repo, never edited here.
+      'packages/cli/skills/**',
     ],
   },
   js.configs.recommended,

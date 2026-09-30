@@ -101,6 +101,9 @@ function makeTextTexture(
   resolution: RasterResolution | undefined,
 ) {
   const texture = new THREE.CanvasTexture(canvas)
+  // The canvas holds sRGB pixels; without this the renderer treats them as
+  // linear and encodes them again, and every colour renders lighter.
+  texture.colorSpace = THREE.SRGBColorSpace
   // Mipmaps + anisotropy: minified/animated text stops shimmering, and
   // oblique (tilted) text stays legible. WebGL2 handles NPOT mipmaps.
   texture.generateMipmaps = true

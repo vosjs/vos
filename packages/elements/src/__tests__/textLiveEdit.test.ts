@@ -62,6 +62,16 @@ const element = (): any => ({
   font: { size: 24 },
 })
 
+describe('text colour', () => {
+  it('the texture is sRGB, before and after a re-raster, so colours render as authored', () => {
+    const r = renderTextElement(element(), RESOLUTION, THREE)
+    const map = () => (r.mesh.material as THREE.MeshBasicMaterial).map!
+    expect(map().colorSpace).toBe(THREE.SRGBColorSpace)
+    r.rerender({ content: 'Hello!' })
+    expect(map().colorSpace).toBe(THREE.SRGBColorSpace)
+  })
+})
+
 describe('live text re-render', () => {
   it('rerender(content) resizes geometry in place, mesh identity stable', () => {
     const el = element()
