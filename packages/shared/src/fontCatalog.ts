@@ -118,6 +118,13 @@ export const FONT_CATALOG: FontCatalogEntry[] = [
     weights: [400, 600, 700],
   },
   {
+    family: 'Inter Tight',
+    slug: 'inter-tight',
+    category: 'sans',
+    weights: [400, 500, 700, 800, 900],
+    italics: [900],
+  },
+  {
     family: 'Playfair Display',
     slug: 'playfair-display',
     category: 'serif',
