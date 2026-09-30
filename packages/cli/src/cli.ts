@@ -21,7 +21,14 @@ import {
   readSourceText,
 } from './loadConfig'
 import { launchBrowser, BrowserUnavailableError } from './browser'
-import { renderVideo, renderStill, reencodeStill, previewPages } from './render'
+import {
+  inspectStill,
+  previewPages,
+  reencodeStill,
+  renderStill,
+  renderVideo,
+  stillWarnings,
+} from './render'
 import { runCheck } from './check'
 import { programAudio } from './programAudio'
 import {
@@ -146,6 +153,11 @@ async function cmdRender(argv: string[]): Promise<number> {
       },
     })
     await writeFile(out, result.bytes)
+    const warnings = stillWarnings(
+      { transparent: false, flat: false },
+      result.pageErrors,
+    )
+    for (const w of warnings) r.log(`warn: ${w}`)
     r.done(
       {
         out,
@@ -156,6 +168,7 @@ async function cmdRender(argv: string[]): Promise<number> {
         duration,
         format,
         audio: audio?.clips ?? 0,
+        ...(warnings.length ? { warnings } : {}),
       },
       `Wrote ${out} (${(result.bytes.length / 1024).toFixed(0)} KB, ${width}x${height}@${fps}, ${duration}s)`,
     )
@@ -197,7 +210,12 @@ async function cmdStill(argv: string[]): Promise<number> {
   // One browser for every time: each still is its own capture page.
   const browser = await launchBrowser()
   try {
-    const written: { out: string; bytes: number; time: number }[] = []
+    const written: {
+      out: string
+      bytes: number
+      time: number
+      warnings?: string[]
+    }[] = []
     for (const time of times) {
       const target = stillOutFor(out, time, many)
       const result = await renderStill(browser, {
@@ -216,10 +234,23 @@ async function cmdStill(argv: string[]): Promise<number> {
           ? result.bytes
           : await reencodeStill(browser, result.bytes, encoding)
       await writeFile(target, bytes)
-      written.push({ out: target, bytes: bytes.length, time })
+      // A still is checked before anyone looks at it: a fully transparent
+      // or flat frame is written, and said, never passed off as a picture.
+      const warnings = stillWarnings(
+        await inspectStill(browser, result.bytes),
+        result.pageErrors,
+      )
+      written.push({
+        out: target,
+        bytes: bytes.length,
+        time,
+        ...(warnings.length ? { warnings } : {}),
+      })
       r.log(
         `Wrote ${target} (${(bytes.length / 1024).toFixed(0)} KB @ t=${Number(time.toFixed(2))}s)`,
       )
+      for (const w of warnings)
+        r.log(`warn: t=${Number(time.toFixed(2))}s ${w}`)
     }
     const first = written[0]
     r.done(

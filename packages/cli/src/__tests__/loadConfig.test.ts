@@ -119,6 +119,40 @@ describe('directories', () => {
     ).toEqual(['t0'])
   })
 
+  it('reads the program document beside a config.json named directly', async () => {
+    const doc = {
+      docSchemaVersion: 2,
+      program: {},
+      audio: [
+        {
+          id: 'score',
+          key: 'score.ogg',
+          start: 0,
+          in: 0,
+          out: 3,
+          duration: 3,
+          gain: 1,
+        },
+      ],
+    }
+    const dir = await dirWith({ 'config.json': MINIMAL, 'doc.json': doc })
+    const { config, warnings } = await loadVosConfig(join(dir, 'config.json'))
+    expect(warnings.some((w) => w.includes('composed'))).toBe(true)
+    const stack = config.stack as { data: Record<string, unknown> }[]
+    expect((stack[0].data.audio as { key: string }[])[0].key).toBe('score.ogg')
+
+    // Another name, or a take's document beside it, stays a plain config.
+    const other = await dirWith({ 'program.json': MINIMAL, 'doc.json': doc })
+    const plain = await loadVosConfig(join(other, 'program.json'))
+    expect(plain.config.stack).toBeUndefined()
+    const takeDir = await dirWith({
+      'config.json': MINIMAL,
+      'doc.json': { source: { videoKey: 'x' } },
+    })
+    const beside = await loadVosConfig(join(takeDir, 'config.json'))
+    expect(beside.config.stack).toBeUndefined()
+  })
+
   it('refuses a take directory in words that name the take pipeline', async () => {
     const dir = await dirWith({ 'doc.json': { source: { videoKey: 'x' } } })
     await expect(loadVosConfig(dir)).rejects.toThrow(UsageError)

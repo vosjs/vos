@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { existsSync, readFileSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import {
   CURRENT_CONFIG_VERSION,
   migrateConfig,
@@ -40,6 +40,18 @@ export function directoryKind(target: string): DirectoryKind {
     }
   }
   return existsSync(join(target, 'config.json')) ? 'program' : 'none'
+}
+
+/** A directory holding a PROGRAM document (`doc.json` without `source`). */
+function hasProgramDoc(dir: string): boolean {
+  const docPath = join(dir, 'doc.json')
+  if (!existsSync(docPath)) return false
+  try {
+    const doc: unknown = JSON.parse(readFileSync(docPath, 'utf8'))
+    return typeof doc === 'object' && doc !== null && !('source' in doc)
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -121,6 +133,17 @@ export async function loadVosConfig(source: string): Promise<LoadedConfig> {
   }
   if (kind === 'program') {
     parsed = await loadProgramDirectory(source, warnings)
+    return finish(source, parsed, warnings)
+  }
+  // A program's config.json named directly, with its document beside it:
+  // read the directory, or the document's sound and layers silently drop
+  // out of a render that looks complete.
+  if (
+    !/^https?:\/\//.test(source) &&
+    basename(source) === 'config.json' &&
+    hasProgramDoc(dirname(source))
+  ) {
+    parsed = await loadProgramDirectory(dirname(source), warnings)
     return finish(source, parsed, warnings)
   }
   const raw = await readSourceText(source)
