@@ -95,17 +95,17 @@ describe('lintVosDialect', () => {
   it('accepts implemented eases incl. parameterized/extended, flags the rest', () => {
     const ok = lintVosDialect(
       ct(
-        "(ctx) => { tl.to(p, { x: 1, ease: 'sine.inOut' }); tl.to(p, { y: 1, ease: 'back.out(1.7)' }); tl.to(p, { z: 1, ease: 'elastic.out(1, 0.3)' }); tl.to(p, { w: 1, ease: 'bounce.out' }); tl.to(p, { v: 1, ease: 'steps(5)' }); tl.to(p, { u: 1, ease: 'power2' }) }",
+        "(ctx) => { tl.to(p, { x: 1, ease: 'sine.inOut' }); tl.to(p, { y: 1, ease: 'back.out(1.7)' }); tl.to(p, { z: 1, ease: 'elastic.out(1, 0.3)' }); tl.to(p, { w: 1, ease: 'bounce.out' }); tl.to(p, { v: 1, ease: 'steps(5)' }); tl.to(p, { u: 1, ease: 'power2' }); tl.to(p, { t: 1, ease: 'css-bezier(0.83, 0, 0.17, 1)' }); tl.to(p, { s: 1, ease: 'css-bezier(-0.2,1.4,.3,1)' }) }",
       ),
     )
     expect(ok.map((i) => i.rule)).not.toContain('unknown-ease')
 
     const bad = lintVosDialect(
       ct(
-        "(ctx) => { tl.to(p, { x: 1, ease: 'slow(0.7, 0.7)' }); tl.to(p, { y: 1, ease: 'steps' }); tl.to(p, { z: 1, ease: 'back.out(abc)' }) }",
+        "(ctx) => { tl.to(p, { x: 1, ease: 'slow(0.7, 0.7)' }); tl.to(p, { y: 1, ease: 'steps' }); tl.to(p, { z: 1, ease: 'back.out(abc)' }); tl.to(p, { w: 1, ease: 'css-bezier(0.1, 0.2, 0.3)' }); tl.to(p, { v: 1, ease: 'cubic-bezier(0.1, 0.2, 0.3, 0.4)' }) }",
       ),
     )
-    expect(bad.filter((i) => i.rule === 'unknown-ease')).toHaveLength(3)
+    expect(bad.filter((i) => i.rule === 'unknown-ease')).toHaveLength(5)
   })
 
   it('respects vos-lint-disable-next-line', () => {
