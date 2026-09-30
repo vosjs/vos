@@ -132,6 +132,32 @@ and `shadow.blur` are design pixels (a 1080-high frame). There is no
 `mask`, `clip`, `blend` or group field on any element: SKILL.md's
 "honest gaps" says what to do instead.
 
+**Where an element sits.** `position` places the element's BOX:
+
+- a preset (`'center'`, `'top-left'`, … `'bottom-right'`) sets the box
+  flush against the frame's edges or centre, with no margin;
+- `{ x: '10%', y: '20%' }` (strings) puts the box's TOP-LEFT corner at
+  that fraction of the frame, the same at every output size;
+- `{ x: 120, y: 80 }` (numbers) is RENDER pixels of that corner, never
+  scaled, so it moves when the output size changes: use a percentage or a
+  preset plus `transform` instead.
+
+Then `transform.translateX` / `translateY` (design px, y down) move it.
+`transform.scale`, `translateZ` and `rotation` / `rotateZ` (degrees,
+about the box's centre) apply to a whole element, and a `split` element
+takes only the translate. `anchor`, `transform.origin`, `scaleX`,
+`scaleY`, `rotateX`, `rotateY` and `perspective` are not read: the
+origin is always the box's centre. A config `rotation` is lost the first
+time a tween writes `props.scale*` or `props.rotation*` (the props start at
+rotation 0), so an element that is both tilted and animated takes its tilt
+as `props.rotation` in the timeline (a `tl.set` at 0), never in the config.
+
+A `stroke` is drawn UNDER the fill and centred on the outline, so around a
+filled word only its outer half shows. CSS `-webkit-text-stroke` paints
+over the fill, so a CSS stroke of N px is `stroke.width: 2N` around a
+filled word and `stroke.width: N` for an outline-only word
+(`font.color: 'transparent'`).
+
 ```ts
 /**
  * `{$data: key}` binding — the value resolves from the host's data object at
@@ -319,6 +345,14 @@ What `createTimeline` and `onFrame` animate: `el.props` (and
 from the frame centre with `y` down, and `rotation` is degrees
 counter-clockwise, unlike the config's design-pixel `transform`.
 
+A `split` element lays its units out as one block at the element's
+position: `el.segments[i]` starts at the CENTRE of unit i's ink, which
+sits `lineStart + advanceBefore + width / 2` from the block's centre
+(`advanceBefore` measured with `letterSpacing` and without kerning across
+unit boundaries, the line aligned by `font.align`). So a per-letter tween
+moves each letter FROM its laid-out place (`from`, or `s.y + dy`), never
+to a position computed by hand.
+
 Writing any of `content`, `fontSize`, `fontFamily`, `fontWeight`, `fontStyle`, `letterSpacing`, `color`, `strokeColor`, `strokeWidth` on a text element's `props`
 re-rasters it (the runtime's own list), so a scramble or a counter writes
 `el.props.content` in `onFrame` and a colour change sets `el.props.color`.
@@ -329,6 +363,13 @@ Every such write queues a re-raster, even of an unchanged value, so guard
 a per-frame write: `if (el.props.content !== next) el.props.content = next`.
 These writes do nothing on a `split` element (its units are structure):
 change a split element's words through its binding, never its props.
+
+When `onFrame` writes a bound element's text, `onFrame` wins: the write
+becomes the element's content, a data edit re-applies the bound value, and
+the next frame's write replaces it before anything draws (the frame flushes
+once, after `onFrame`). So derive the written string from `ctx.data`
+(a scramble resolves to `ctx.data.subtitle`), and the binding stays the
+words a person edits.
 
 A text raster never fails for being long: its density drops until the
 longest side fits the GPU's largest texture (4096 px when the GPU does
@@ -612,6 +653,18 @@ interface ContentResult {
 Author it as GSAP: `const tl = ctx.gsap.timeline({ paused: true })`, tweens
 on `el.props`, `tl.addLabel(name, t)` per scene, return `tl`. This is the
 whole surface the engine calls on it.
+
+**Staggers.** An array target (`el.segments`, a list of props) takes a
+`stagger` in two forms: a number, where target i starts `i × n` seconds
+in; or `{ each | amount, from }`, where `from` is an index, `'start'`,
+`'center'`, `'end'` or `'edges'`, distances are normalized so the
+farthest target sits at n − 1 (as GSAP does), and `amount` spreads that
+range over `amount` seconds. Outside the dialect, and not flagged by
+`vos check`: `grid` and `axis` are ignored (a 2-D grid staggers as one
+line in array order), `from: 'random'` and a stagger `ease` are not
+supported, and a function stagger starts every target at once. For a grid,
+compute each cell's delay in the build script (a row-major distance from the
+source's `from` cell) and place one tween per cell at its time.
 
 ```ts
 /**
