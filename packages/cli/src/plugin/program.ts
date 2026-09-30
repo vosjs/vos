@@ -39,6 +39,7 @@ import { programPushTarget } from './sync'
 import { listFolders, resolveFolder } from './folder'
 import { docAudioRefs, pullMedia, uploadDocRefs } from './media'
 import { lintDoc } from './validateDoc'
+import { landedLines, waitForLanded } from './landed'
 import type { AudioClip, ProjectDoc } from '@vosjs/studio-core'
 import type { VersionChange } from './platform'
 import type { Reporter } from './output'
@@ -51,6 +52,7 @@ const BOOLEAN_FLAGS = new Set([
   'yes',
   'claimable',
   'no-browser',
+  'wait',
 ])
 const MULTI_FLAGS = new Set(['override'])
 
@@ -570,6 +572,16 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
     }
     const watchUrl = `${origin}/vos/${vosId}`
     const studioUrl = `${origin}/studio?vos=${vosId}`
+    const landed =
+      flags.wait === true
+        ? await waitForLanded({
+            origin,
+            key,
+            vosId,
+            versionId: typeof version.id === 'string' ? version.id : null,
+            log: (l) => r.log(l),
+          })
+        : null
     r.done(
       {
         id: vosId,
@@ -578,9 +590,17 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
         base: base ?? null,
         watchUrl,
         studioUrl,
+        ...(landed
+          ? {
+              still: landed.still,
+              thumbnailUrl: landed.thumbnailUrl,
+              previewUrl: landed.previewUrl,
+            }
+          : {}),
       },
       `Pushed version ${String(version.versionNumber ?? '?')} of ${vosId}\n` +
-        `  watch:  ${watchUrl}\n  studio: ${studioUrl}`,
+        `  watch:  ${watchUrl}\n  studio: ${studioUrl}` +
+        (landed ? `\n${landedLines(landed)}` : ''),
     )
     return EXIT_OK
   }
@@ -631,19 +651,39 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
   })
   const watchUrl = `${origin}/vos/${created.id}`
   const studioUrl = `${origin}/studio?vos=${created.id}`
+  const landed =
+    flags.wait === true
+      ? await waitForLanded({
+          origin,
+          key,
+          vosId: created.id,
+          versionId: created.currentVersionId,
+          log: (l) => r.log(l),
+        })
+      : null
   r.done(
     {
       id: created.id,
       slug: created.slug,
       title,
       visibility: 'private',
+      folder: folderRef ?? null,
       remixOfId: remixOfId ?? null,
       currentVersionId: created.currentVersionId,
       watchUrl,
       studioUrl,
+      ...(landed
+        ? {
+            still: landed.still,
+            thumbnailUrl: landed.thumbnailUrl,
+            previewUrl: landed.previewUrl,
+          }
+        : {}),
     },
     `Created private vos ${created.id} (${title})\n` +
       `  watch:  ${watchUrl}\n  studio: ${studioUrl}\n` +
+      (landed ? `${landedLines(landed)}\n` : '') +
+      `  shelf:  ${folderRef ? `in ${folderRef}` : `unfiled, at the root of your shelf (file it: vos folder move ${created.id} --to <slug>)`}\n` +
       `Iterate with: vos push ${source} --vos ${created.id}`,
   )
   return EXIT_OK

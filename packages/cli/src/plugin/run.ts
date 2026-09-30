@@ -1,4 +1,5 @@
 import { videoFormat } from '../outputs'
+import { landedLines, waitForLanded } from './landed'
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -56,6 +57,7 @@ import {
   apiJson,
   platformOrigin,
   readSyncState,
+  requireCredential,
   resolveCredential,
 } from './platform'
 import { startTakeServer } from './server'
@@ -109,6 +111,7 @@ import {
 } from './program'
 import { cmdFolder } from './folder'
 import { cmdAsset } from './asset'
+import { cmdDelete } from './remove'
 import { cmdRecipe } from './recipe'
 import { cmdBrand } from './brand'
 import { hostedEnv, recordHosted } from './hostedRecord'
@@ -122,6 +125,7 @@ import type { ParsedArgs } from './args'
 const BOOLEAN_FLAGS = new Set([
   'json',
   'help',
+  'wait',
   'picture',
   'fresh',
   'reuse',
@@ -201,7 +205,7 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
   vos push  <config.json|take> [--vos id] [--title t] [--slug s] [--remix-of id]
             [--desc d] [--tags a,b] [--folder <folderId|slug>]
             [--note n] [--label l] [--base versionId] [--override <id>]... [--yes] [--json]
-            [--claimable]
+            [--claimable] [--wait]
             a take DIRECTORY (doc.json) pushes recording + doc; a config.json
             pushes the program. No --vos: create a PRIVATE vos; with --vos:
             add a version against the tracked base — a stale push 409s WITH
@@ -213,6 +217,14 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
             user and nowhere else; unclaimed work is deleted after 72h.
             --override consents to touching
             protected (human-edited) nodes, ONLY when the user asked.
+            Without --folder a new vos lands unfiled, at the root of your
+            shelf. A document's local sound (doc.json audio keys) uploads
+            with the push. --wait stays until the version's still has
+            rendered and prints absolute still and preview links.
+  vos delete <vosId|watch-url|dir> [--yes] [--json]
+            take a vos off vos.so, every version of it, for good. Asks on a
+            terminal; headless it needs --yes. A dir that tracked it is
+            unlinked (its vos.json removed)
   vos pull  [dir|take] [--vos <id>] [--since versionId] [--check] [--media] [--json]
             what changed on vos.so since your base; syncs config.json (backup
             kept) or the take's doc.json. ALWAYS pull before editing pushed work.
@@ -234,7 +246,10 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
   vos asset push <file...> [--folder <folderId|slug>]
             upload files onto your shelf (a key takes models .glb/.gltf,
             recipes .md and images .png/.jpg/.webp/.gif — posters and
-            store stills file into the release's project; 40 images/24h)
+            store stills file into the release's project; 40 images/24h —
+            and sound and video, which land in Sound > Uploads and print
+            the url a doc.json audio key takes; an unfiled one that no
+            document uses is removed after 7 days, so pass --folder)
   vos recipe push <file.md> --folder <folderId|slug>
   vos recipe push <file.md> --asset <assetId>
             put a recipe (a plain .md) on the shelf: --folder creates it
@@ -2222,9 +2237,34 @@ async function cmdPush(argv: string[]): Promise<number> {
     origin: strFlag(flags, 'origin'),
     api: strFlag(flags, 'api'),
   }).replace(/\/+$/, '')
+  const landed =
+    flags.wait === true
+      ? await waitForLanded({
+          origin: pushedTo,
+          key: requireCredential(strFlag(flags, 'key')),
+          vosId: result.vosId,
+          versionId: result.versionId ?? null,
+          log: (l) => r.log(l),
+        })
+      : null
+  const filed =
+    result.versionNumber === 1
+      ? `\n  shelf:  ${strFlag(flags, 'folder') ? `in ${strFlag(flags, 'folder')}` : `unfiled, at the root of your shelf (file it: vos folder move ${result.vosId} --to <slug>)`}`
+      : ''
   r.done(
-    { ...result },
-    `pushed v${result.versionNumber} → vos ${result.vosId}\n  review: ${pushedTo}/vos/${result.vosId}\n  studio: ${pushedTo}/studio?vos=${result.vosId}`,
+    {
+      ...result,
+      ...(landed
+        ? {
+            still: landed.still,
+            thumbnailUrl: landed.thumbnailUrl,
+            previewUrl: landed.previewUrl,
+          }
+        : {}),
+    },
+    `pushed v${result.versionNumber} → vos ${result.vosId}\n  review: ${pushedTo}/vos/${result.vosId}\n  studio: ${pushedTo}/studio?vos=${result.vosId}` +
+      filed +
+      (landed ? `\n${landedLines(landed)}` : ''),
   )
   return EXIT_OK
 }
@@ -2365,6 +2405,8 @@ export async function run(argv: string[]): Promise<number> {
           ? await cmdPull(rest)
           : await cmdPullProgram(rest)
       }
+      case 'delete':
+        return await cmdDelete(rest)
       case 'folder':
         return await cmdFolder(rest)
       case 'asset':
