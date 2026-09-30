@@ -20,6 +20,8 @@ export interface RenderVideoOptions extends RenderCommonOptions {
   /** Output duration in seconds. */
   duration: number
   format: 'webm' | 'mp4'
+  /** The page's audio producer (a program document's sound); absent = silent. */
+  audioProducerCode?: string
 }
 
 export interface RenderStillOptions extends RenderCommonOptions {
@@ -106,6 +108,9 @@ export async function renderVideo(
       duration: opts.duration,
       fps: opts.fps,
       format: opts.format,
+      ...(opts.audioProducerCode
+        ? { audioProducerCode: opts.audioProducerCode }
+        : {}),
     },
     elementsBundleCode,
     tweenEngine: 'vos',

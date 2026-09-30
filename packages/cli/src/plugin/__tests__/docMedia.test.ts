@@ -211,6 +211,8 @@ describe('docAudioRefs: the sound a document adds', () => {
     out: 5,
     duration: 5,
     gain: 1,
+    fadeIn: 0,
+    fadeOut: 0,
   })
 
   it('lists a local score and rewrites it in place; catalog and hosted keys are left alone', () => {

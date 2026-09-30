@@ -1,5 +1,5 @@
 import { writeFile } from 'node:fs/promises'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
@@ -23,6 +23,8 @@ import {
 import { launchBrowser, BrowserUnavailableError } from './browser'
 import { renderVideo, renderStill, previewPages } from './render'
 import { runCheck } from './check'
+import { programAudio } from './programAudio'
+import { platformOrigin, resolveCredential } from './plugin/platform'
 
 const BOOLEAN_FLAGS = new Set(['json', 'help', 'version'])
 
@@ -47,6 +49,18 @@ Conventions
   it was asked for (nothing was recorded; it needs a session, not a new
   script). vos <verb> --help prints that verb's flags.
 `
+
+/** An `audio` element in the config: something a render never mixes. */
+function hasAudioElements(config: unknown): boolean {
+  const elements = (config as { elements?: unknown }).elements
+  return (
+    Array.isArray(elements) &&
+    elements.some(
+      (e) =>
+        !!e && typeof e === 'object' && (e as { type?: unknown }).type === 'audio',
+    )
+  )
+}
 
 function outName(source: string, ext: string): string {
   const base = basename(source).replace(/\.[a-z0-9]+$/i, '') || 'vos'
@@ -80,6 +94,23 @@ async function cmdRender(argv: string[]): Promise<number> {
   const fps = numFlag(flags, 'fps', 30)
   const out = positionals[1] ?? outName(source, format)
 
+  // A program document's sound rides its studio entry; mix it like a take's.
+  const audio = await programAudio(config as Record<string, unknown>, {
+    baseDir: existsSync(source) && statSync(source).isDirectory()
+      ? source
+      : dirname(source),
+    duration,
+    origin: platformOrigin({}),
+    key: resolveCredential(),
+    log: (line) => r.log(line),
+  })
+  if (audio) r.log(`mixing ${audio.clips} sound${audio.clips === 1 ? '' : 's'}`)
+  if (hasAudioElements(config)) {
+    r.log(
+      'note: an audio ELEMENT is not mixed by a render; put the sound on the program document instead (doc.json audio: [{ key, start, in, out, duration, gain }])',
+    )
+  }
+
   const browser = await launchBrowser()
   try {
     const result = await renderVideo(browser, {
@@ -89,6 +120,7 @@ async function cmdRender(argv: string[]): Promise<number> {
       fps,
       duration,
       format,
+      audioProducerCode: audio?.producerCode,
       onPhase: (phase) => {
         r.log(`${phase}…`)
         r.event({ event: 'phase', phase })
@@ -96,7 +128,16 @@ async function cmdRender(argv: string[]): Promise<number> {
     })
     await writeFile(out, result.bytes)
     r.done(
-      { out, bytes: result.bytes.length, width, height, fps, duration, format },
+      {
+        out,
+        bytes: result.bytes.length,
+        width,
+        height,
+        fps,
+        duration,
+        format,
+        audio: audio?.clips ?? 0,
+      },
       `Wrote ${out} (${(result.bytes.length / 1024).toFixed(0)} KB, ${width}x${height}@${fps}, ${duration}s)`,
     )
     return EXIT_OK
