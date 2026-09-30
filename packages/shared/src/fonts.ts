@@ -15,9 +15,16 @@ export const FONT_CDN_BASE = 'https://assets.vos.so/fonts'
 
 export type FontCategory = FontCatalogEntry['category']
 
-/** Public URL of a hosted face file (latin subset, normal style). */
-export function fontFaceUrl(slug: string, weight: number): string {
-  return `${FONT_CDN_BASE}/${slug}/${weight}.woff2`
+/**
+ * Public URL of a hosted face file (latin subset). An italic is hosted only
+ * for the weights an entry lists in `italics`.
+ */
+export function fontFaceUrl(
+  slug: string,
+  weight: number,
+  style: 'normal' | 'italic' = 'normal',
+): string {
+  return `${FONT_CDN_BASE}/${slug}/${weight}${style === 'italic' ? '-italic' : ''}.woff2`
 }
 
 /** Case-insensitive family lookup. */
@@ -65,6 +72,16 @@ export function fontManifest() {
       files: Object.fromEntries(
         e.weights.map((w) => [String(w), fontFaceUrl(e.slug, w)]),
       ),
+      ...(e.italics?.length
+        ? {
+            italicFiles: Object.fromEntries(
+              e.italics.map((w) => [
+                String(w),
+                fontFaceUrl(e.slug, w, 'italic'),
+              ]),
+            ),
+          }
+        : {}),
     })),
   }
 }

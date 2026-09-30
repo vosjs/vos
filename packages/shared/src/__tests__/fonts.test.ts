@@ -83,5 +83,25 @@ describe('helpers', () => {
     expect(lexend.files['600']).toBe(
       'https://assets.vos.so/fonts/lexend/600.woff2',
     )
+    expect('italicFiles' in lexend).toBe(false)
+  })
+
+  it('hosts a true italic where the catalog lists one', () => {
+    expect(fontFaceUrl('instrument-serif', 400, 'italic')).toBe(
+      'https://assets.vos.so/fonts/instrument-serif/400-italic.woff2',
+    )
+    const serif = fontManifest().families.find(
+      (f) => f.slug === 'instrument-serif',
+    )!
+    expect(serif.files['400']).toBe(
+      'https://assets.vos.so/fonts/instrument-serif/400.woff2',
+    )
+    expect(serif.italicFiles?.['400']).toBe(
+      'https://assets.vos.so/fonts/instrument-serif/400-italic.woff2',
+    )
+    // Every listed italic is a hosted weight too.
+    for (const e of FONT_CATALOG) {
+      for (const w of e.italics ?? []) expect(e.weights).toContain(w)
+    }
   })
 })
