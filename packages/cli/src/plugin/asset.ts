@@ -14,12 +14,17 @@
  * its posters and store stills into the release's project). A content key
  * uploads models (.glb/.gltf), recipes (.md — though `vos recipe push` is
  * the recipe verb, with replace-in-place) and images (.png/.jpg/.jpeg/
- * .webp/.gif, 40/24h); the server refuses anything else in words. Files
- * upload one by one and a refusal names the file it stopped on, so a
- * partial push is legible, never silent.
+ * .webp/.gif, 40/24h). Sound and video take the RECORDING door instead
+ * (`POST /assets/recording`, content-addressed, in parts when large), the
+ * same one the studio uses, so a score lands in Sound → Uploads. The server
+ * refuses anything else in words. Files upload one by one and a refusal
+ * names the file it stopped on, so a partial push is legible, never silent.
  */
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { basename, extname } from 'node:path'
+import { MEDIA_HEAD_BYTES, nameForType, resolveMediaType } from './container'
+import { uploadAsset } from './uploadAsset'
 import { UsageError, parseArgs, strFlag } from './args'
 import { listFolders, resolveFolder } from './folder'
 import { EXIT_OK, createReporter } from './output'
@@ -86,11 +91,42 @@ async function cmdPush(argv: string[]): Promise<number> {
     : null
 
   const uploaded: { id: unknown; filename: unknown }[] = []
+  let unfiledMedia = 0
   for (const file of positionals) {
     const name = basename(file)
+    const body = readFileSync(file)
+    // Sound and video: the recording door, typed by their bytes.
+    const media = resolveMediaType({
+      head: body.subarray(0, MEDIA_HEAD_BYTES),
+      filename: name,
+    })
+    if (/^(audio|video)\//.test(media.type)) {
+      const sent = nameForType(name, media.type)
+      let put
+      try {
+        put = await uploadAsset({ origin, key }, new Uint8Array(body), {
+          filename: sent,
+          contentType: media.type,
+          contentHash: createHash('sha256').update(body).digest('hex'),
+          ...(folder ? { folderId: folder.id } : {}),
+        })
+      } catch (e) {
+        const landed = uploaded.length
+          ? ` (${uploaded.length} of ${positionals.length} landed before it)`
+          : ''
+        throw new Error(
+          `push ${name}${landed}: ${e instanceof Error ? e.message : String(e)}`,
+        )
+      }
+      if (!folder && !put.reused) unfiledMedia += 1
+      uploaded.push({ id: put.id, filename: sent })
+      r.log(
+        `uploaded ${sent} (${put.id})${put.reused ? ' — already on your shelf' : ''}  ${put.url}`,
+      )
+      continue
+    }
     const mime =
       MIME_BY_EXT[extname(name).toLowerCase()] ?? 'application/octet-stream'
-    const body = readFileSync(file)
     const form = new FormData()
     form.set('file', new Blob([body], { type: mime }), name)
     if (folder) form.set('folderId', folder.id)
@@ -129,7 +165,10 @@ async function cmdPush(argv: string[]): Promise<number> {
     },
     `pushed ${uploaded.length} asset${uploaded.length === 1 ? '' : 's'}${
       folder ? ` into ${folder.slug}` : ''
-    }`,
+    }` +
+      (unfiledMedia
+        ? `\nnote: an unfiled sound or video that no document uses is removed after 7 days. Reference it from a doc (doc.audio key = its url) or push it with --folder <slug>`
+        : ''),
   )
   return EXIT_OK
 }

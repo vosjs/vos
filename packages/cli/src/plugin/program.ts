@@ -37,9 +37,9 @@ import {
 } from './platform'
 import { programPushTarget } from './sync'
 import { listFolders, resolveFolder } from './folder'
-import { pullMedia } from './media'
+import { docAudioRefs, pullMedia, uploadDocRefs } from './media'
 import { lintDoc } from './validateDoc'
-import type { ProjectDoc } from '@vosjs/studio-core'
+import type { AudioClip, ProjectDoc } from '@vosjs/studio-core'
 import type { VersionChange } from './platform'
 import type { Reporter } from './output'
 
@@ -420,7 +420,28 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
       ? `${state.title} remix`
       : basename(source).replace(/\.json$/i, '') || 'vos program'
     const title = (strFlag(flags, 'title') ?? fallback).slice(0, 100)
-    const body: Record<string, unknown> = { title, config }
+    // The COMPOSED config, like every other push, so the document's layers
+    // ride the claim. A claim carries no files, so a sound that is still a
+    // local file cannot come along: it is left out, and said.
+    let claimDoc = programDoc
+    if (programDoc) {
+      const sound = soundOf(programDoc)
+      const local = docAudioRefs(sound)
+      if (local.length) {
+        const dropped = new Set(local.map((ref) => ref.key))
+        claimDoc = {
+          ...programDoc,
+          audio: (sound.audio ?? []).filter((a) => !dropped.has(a.key)),
+        }
+        r.log(
+          `warning a claimable push carries no files, so ${local.length} local sound${local.length === 1 ? '' : 's'} (${[...dropped].join(', ')}) ${local.length === 1 ? 'was' : 'were'} left out. After the claim, push again with a key to add ${local.length === 1 ? 'it' : 'them'}`,
+        )
+      }
+    }
+    const body: Record<string, unknown> = {
+      title,
+      config: storedProgramConfig(config, claimDoc),
+    }
     const slug = strFlag(flags, 'slug')
     if (slug) body.slug = slug
     const res = await apiJson(origin, '/api/claim', { method: 'POST', body })
@@ -441,6 +462,19 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
   }
 
   const key = requireCredential(strFlag(flags, 'key'))
+  // A take's first push asks; a program's never does (it holds no
+  // recording), so --yes is accepted and has nothing to answer.
+  void flags.yes
+  // The sound the document adds, still local files: upload them first, so
+  // the stored config and the document both key hosted assets.
+  if (programDoc) {
+    await uploadDocRefs(
+      docAudioRefs(soundOf(programDoc)),
+      dir,
+      { origin, key },
+      (l) => r.log(l),
+    )
+  }
   // Accept both the repeatable --override id and the legacy --overrides id,id.
   // multi's index access is typed present but runtime-optional — hence the cast.
   const overrides = [
@@ -859,6 +893,11 @@ export function isTakeDir(target: string): boolean {
  * already write `config.json` from the document's own config, so the round
  * trip is unchanged.
  */
+/** A program document's added sound, typed (the document itself is read loosely). */
+function soundOf(doc: Record<string, unknown>): { audio?: AudioClip[] } {
+  return { audio: Array.isArray(doc.audio) ? (doc.audio as AudioClip[]) : [] }
+}
+
 export function storedProgramConfig(
   config: Record<string, unknown>,
   programDoc: Record<string, unknown> | null,

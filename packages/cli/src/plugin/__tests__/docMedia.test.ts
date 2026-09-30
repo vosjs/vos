@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_CAM_STYLE, DEFAULT_CURSOR_STYLE } from '@vosjs/studio-core'
 import {
   assetIdOf,
+  docAudioRefs,
   docMediaRefs,
   extensionFor,
   isTakeRelativeKey,
@@ -197,5 +198,43 @@ describe('docMediaRefs: a media reference is not a file', () => {
       },
     ]
     expect(docMediaRefs(d).some((r) => r.key === 'media:m1')).toBe(false)
+  })
+})
+
+describe('docAudioRefs: the sound a document adds', () => {
+  const clip = (id: string, key: string) => ({
+    id,
+    key,
+    name: id,
+    start: 0,
+    in: 0,
+    out: 5,
+    duration: 5,
+    gain: 1,
+  })
+
+  it('lists a local score and rewrites it in place; catalog and hosted keys are left alone', () => {
+    const d = {
+      audio: [
+        clip('score', 'score.ogg'),
+        clip('bed', 'https://assets.vos.so/music/bed.mp3'),
+        clip('vo', '/api/assets/a1/file'),
+      ],
+    }
+    const refs = docAudioRefs(d)
+    expect(refs.map((r) => r.key)).toEqual(['score.ogg'])
+    refs[0].set('/api/assets/new/file')
+    expect(d.audio[0].key).toBe('/api/assets/new/file')
+  })
+
+  it('rides a take push too: docMediaRefs includes the added sound', () => {
+    const d = doc()
+    d.audio = [clip('score', 'score.ogg')]
+    expect(docMediaRefs(d).map((r) => r.where)).toContain('audio score')
+  })
+
+  it('reads a program document, which has no recording or frame', () => {
+    expect(docAudioRefs({ audio: [clip('s', 'sound/hit.wav')] })).toHaveLength(1)
+    expect(docAudioRefs({})).toEqual([])
   })
 })

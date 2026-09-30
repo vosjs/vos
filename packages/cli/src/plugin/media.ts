@@ -10,10 +10,12 @@ import { isKeyedOverlay } from '@vosjs/studio-core'
  * Same consent shape as the upload direction: nothing moves without the verb
  * the user ran (`--media`). A file already on disk is kept, never re-fetched.
  */
+import { createHash } from 'node:crypto'
 import { createWriteStream, existsSync } from 'node:fs'
 import {
   mkdir,
   open,
+  readFile,
   readdir,
   rename,
   rm,
@@ -24,8 +26,15 @@ import { basename, dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { takeMediaFiles, writeJson } from './take'
-import { MEDIA_HEAD_BYTES, extensionFor, resolveMediaType } from './container'
-import type { ProjectDoc } from '@vosjs/studio-core'
+import {
+  MEDIA_HEAD_BYTES,
+  extensionFor,
+  nameForType,
+  resolveMediaType,
+} from './container'
+import { uploadAsset } from './uploadAsset'
+import type { UploadTarget, UploadedAsset } from './uploadAsset'
+import type { AudioClip, ProjectDoc } from '@vosjs/studio-core'
 
 /** The names the recorders write their sidecars under. */
 export const MIC_NAME = 'mic.webm'
@@ -135,7 +144,81 @@ export function docMediaRefs(
         bg.key = next
       },
     })
+  out.push(...docAudioRefs(doc, keep))
   return out
+}
+
+/**
+ * The sound a document adds (`doc.audio`: a score, a voice-over, an effect),
+ * for either kind of document. A take reads it through `docMediaRefs`; a
+ * program document, which has no recording or frame, reads it here. A
+ * catalog track is an absolute URL and is never walked.
+ */
+export function docAudioRefs(
+  doc: { audio?: AudioClip[] },
+  keep: (key: string | undefined) => boolean = isTakeRelativeKey,
+): DocMediaRef[] {
+  const out: DocMediaRef[] = []
+  for (const clip of doc.audio ?? []) {
+    if (!keep(clip.key)) continue
+    out.push({
+      where: `audio ${clip.id}`,
+      key: clip.key,
+      set: (next) => {
+        clip.key = next
+      },
+    })
+  }
+  return out
+}
+
+/**
+ * Upload the files a document names and point its keys at the hosted
+ * assets. Each file rides the content-addressed recording door, so a re-push
+ * reuses it; the bytes name the type, and the uploaded filename is corrected
+ * to match so the asset is never self-contradictory. A key whose file is
+ * missing is said and left as it is (the hosted render will 404 on it,
+ * honestly). Take pushes and program pushes share it.
+ */
+export async function uploadDocRefs(
+  refs: DocMediaRef[],
+  dir: string,
+  target: UploadTarget,
+  log: (line: string) => void,
+): Promise<void> {
+  for (const ref of refs) {
+    const file = join(dir, takeRelativeFile(ref.key))
+    if (!existsSync(file)) {
+      log(`  ${ref.where}: ${ref.key} is not beside the document — left as is`)
+      continue
+    }
+    const media = await readFile(file)
+    const mediaHash = createHash('sha256').update(media).digest('hex')
+    const { type } = resolveMediaType({
+      head: media.subarray(0, MEDIA_HEAD_BYTES),
+      filename: file,
+    })
+    const name = nameForType(basename(file), type)
+    if (name !== basename(file)) {
+      log(`  ${ref.where}: ${basename(file)} holds ${type} — sent as ${name}`)
+    }
+    let put: UploadedAsset
+    try {
+      put = await uploadAsset(target, new Uint8Array(media), {
+        filename: name,
+        contentType: type,
+        contentHash: mediaHash,
+      })
+    } catch (e) {
+      throw new Error(
+        `${ref.where} upload failed: ${e instanceof Error ? e.message : String(e)}`,
+      )
+    }
+    ref.set(put.url)
+    log(
+      `  ${ref.where}: ${ref.key} → asset ${put.id}${put.reused ? ' (reused)' : ''}`,
+    )
+  }
 }
 
 // The extension↔type table and the byte sniffer live in `container.ts`; these
