@@ -316,9 +316,14 @@ export interface ElementInstance {
   props: ElementProps
   /**
    * Split text segments (only available when split config is defined).
-   * Each segment has its own ElementProps for individual animation.
+   * Each segment has its own ElementProps for individual animation. A data
+   * edit to a BOUND split text rebuilds them from the new words: the array
+   * and its objects are replaced (and the host rebuilds the timeline), so
+   * read `el.segments` inside createTimeline, never cache it elsewhere.
    */
   segments?: ElementProps[]
+  /** Set when a data edit rebuilt this element's units; the host clears it. */
+  structural?: boolean
   /** Update element content (text or image src) */
   setContent: (content: string) => void
   /**

@@ -209,9 +209,9 @@ describe('{$data} element bindings', () => {
     // boot: data rides into the element system for initial resolution
     expect(code).toContain('}, THREE, __vosData')
     // live: setData fans out to updateData so bound text re-rasters in place
-    expect(code).toContain(
-      'window.__vos__.elements.updateData(elements, __vosData)',
-    )
+    expect(code).toContain('__vosEls.updateData(elements, __vosData)')
+    // a bound split text rebuilds its units, and then the timeline
+    expect(code).toContain('__vosEls.takeStructural(elements)')
     // the binding itself is part of the program (data edits never recompile)
     expect(code).toContain('"$data": "headline"')
   })

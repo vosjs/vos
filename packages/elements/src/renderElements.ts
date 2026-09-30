@@ -106,7 +106,11 @@ export async function renderElements(
         | ((patch: any) => { width: number; height: number })
         | null = null
 
-      if (config.type === 'text' && config.split) {
+      // Split text: one mesh and one props proxy per unit. Built by a
+      // function so a data edit to a bound split element can build it again
+      // from the new words (the units are structure, so they are replaced,
+      // never re-rastered, and the host rebuilds the timeline over them).
+      const buildSplit = () => {
         const splitResult = renderSplitTextElement(config, resolution, THREE)
         elementWidth = splitResult.totalWidth
         elementHeight = splitResult.totalHeight
@@ -159,7 +163,23 @@ export async function renderElements(
           )
         })
 
-        mesh = splitResult.meshes[0]?.mesh ?? new THREE.Mesh()
+        return splitResult.meshes[0]?.mesh ?? new THREE.Mesh()
+      }
+      const disposeSplit = () => {
+        const targetScene = getScene(config)
+        for (const m of segmentMeshes) {
+          targetScene.remove(m)
+          m.geometry.dispose()
+          const mat = m.material as THREE_NS.MeshBasicMaterial
+          if (mat.map) mat.map.dispose()
+          mat.dispose()
+        }
+        segmentMeshes.length = 0
+        segmentRerasters.length = 0
+      }
+
+      if (config.type === 'text' && config.split) {
+        mesh = buildSplit()
       } else if (config.type === 'text') {
         const result = renderTextElement(config, resolution, THREE)
         mesh = result.mesh
@@ -328,7 +348,7 @@ export async function renderElements(
           : null,
       )
 
-      const elementInstance = {
+      const elementInstance: Record<string, any> = {
         config,
         mesh,
         node: null,
@@ -361,10 +381,53 @@ export async function renderElements(
           }
           return true
         },
+        // Set when a data edit REBUILT this element's units (split text): its
+        // `segments` and `props` are new objects, so a timeline holding the
+        // old ones must be rebuilt. The host reads it through takeStructural.
+        structural: false,
         // Re-resolve {$data}-bound props against fresh data (host setData).
         // Routed through the raster queue so bursts coalesce with prop
-        // writes; split text is boot-only (per-unit meshes are structural).
+        // writes. Split text has one mesh per unit, so its words are
+        // structure: the units are rebuilt from the new values instead.
         updateData: (next: Record<string, unknown> | null | undefined) => {
+          if (bindings && config.type === 'text' && config.split) {
+            let changed = false
+            if (bindings.content) {
+              const v = String(next?.[bindings.content] ?? '')
+              if (v !== config.content) {
+                config.content = v
+                changed = true
+              }
+            }
+            if (bindings.family) {
+              const v = next?.[bindings.family]
+              if (typeof v === 'string' && v && v !== config.font?.family) {
+                config.font = { ...config.font, family: v }
+                changed = true
+              }
+            }
+            if (bindings.color) {
+              const v = next?.[bindings.color]
+              if (typeof v === 'string' && v && v !== config.font?.color) {
+                config.font = { ...config.font, color: v }
+                changed = true
+              }
+            }
+            if (!changed) return false
+            disposeSplit()
+            const first = buildSplit()
+            elementInstance.mesh = first
+            elementInstance.segments = segments
+            elementInstance.props = createElementProps(
+              THREE,
+              first,
+              first.position.x,
+              -first.position.y,
+              config.opacity ?? 1,
+            )
+            elementInstance.structural = true
+            return true
+          }
           if (!bindings || !textRerender) return false
           let changed = false
           if (bindings.content) {
