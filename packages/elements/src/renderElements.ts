@@ -255,12 +255,20 @@ export async function renderElements(
       }
 
       // Live text editing: raster-prop writes (content, font*, letterSpacing,
-      // color, stroke*) coalesce on a microtask and re-render IN PLACE — the
-      // mesh keeps its identity (scene, render order, timeline bindings), the
-      // element re-measures, and the mesh repositions to config truth. Split
-      // text has one mesh per unit and stays structural (commit = recompile).
+      // color, stroke*) coalesce and re-render IN PLACE — the mesh keeps its
+      // identity (scene, render order, timeline bindings) and the element
+      // re-measures. The engine's frame flushes the queue before it draws
+      // (`flushRaster` on the instance), so a write from onFrame or a tween
+      // lands in the frame that made it; the microtask is the fallback for a
+      // write made outside a frame. Split text has one mesh per unit and
+      // stays structural (commit = recompile).
       let pendingRaster: any = null
       let rasterScheduled = false
+      // Where the layout last put the element, in props space (y down). A
+      // re-raster moves the element to its new layout and keeps whatever
+      // offset a tween or a drag added on top, instead of snapping back.
+      let baseX = mesh.position.x
+      let baseY = -mesh.position.y
       const flushRaster = () => {
         rasterScheduled = false
         const patch = pendingRaster
@@ -285,8 +293,12 @@ export async function renderElements(
         }
         // Write through the proxy (y sign per its convention) so ephemeral
         // transform state stays coherent with the new geometry.
-        ;(props as any).x = posX
-        ;(props as any).y = -posY
+        const offsetX = (props as any).x - baseX
+        const offsetY = (props as any).y - baseY
+        baseX = posX
+        baseY = -posY
+        ;(props as any).x = posX + offsetX
+        ;(props as any).y = -posY + offsetY
       }
       const queueRaster = (prop: string, value: unknown) => {
         if (!textRerender) return
@@ -329,6 +341,12 @@ export async function renderElements(
             // Split text: one mesh per unit — content changes are structural.
             console.warn('[vos] setContent on split text requires a reload')
           }
+        },
+        // Apply queued raster writes NOW. The engine's frame calls this for
+        // every element after onFrame and before it draws; a no-op when
+        // nothing is queued.
+        flushRaster: () => {
+          if (rasterScheduled) flushRaster()
         },
         // Force a re-raster with UNCHANGED values — the hook for late-landing
         // webfonts (a face registered after this element painted with the

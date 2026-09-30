@@ -3,7 +3,7 @@ import { landedLines, waitForLanded } from '../landed'
 
 afterEach(() => vi.restoreAllMocks())
 
-function fleet(stillAfter: number) {
+function fleet(stillAfter: number, visibility = 'unlisted') {
   let polls = 0
   const fetchMock = vi.fn(async (url: string) => {
     if (url.includes('/thumbnail')) {
@@ -19,6 +19,7 @@ function fleet(stillAfter: number) {
       json: async () => ({
         vos: {
           id: 'v1',
+          visibility,
           contentUrls: {
             thumbnail: '/api/vos/v1/thumbnail?v=1',
             preview: 'https://assets.vos.so/vos/v1/preview-1.webm',
@@ -48,6 +49,16 @@ describe('push --wait', () => {
     expect(l.thumbnailUrl).toBe('https://vos.so/api/vos/v1/thumbnail?v=1')
     expect(l.previewUrl).toBe('https://assets.vos.so/vos/v1/preview-1.webm')
     expect(landedLines(l)).toMatch(/still: {3}https:/)
+    expect(landedLines(l)).not.toMatch(/private/)
+  })
+
+  it('says a private vos links answer only to a credential', async () => {
+    fleet(0, 'private')
+    const l = await waitForLanded(base)
+    expect(l.private).toBe(true)
+    expect(landedLines(l)).toMatch(
+      /private: these answer 404 without a credential/,
+    )
   })
 
   it('ends in words, not an error, when the render is still to come', async () => {

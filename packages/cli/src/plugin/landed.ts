@@ -20,6 +20,8 @@ export interface Landed {
   studioUrl: string
   thumbnailUrl: string | null
   previewUrl: string | null
+  /** A private vos's links answer only to its owner's key or session. */
+  private: boolean
   waitedMs: number
 }
 
@@ -80,6 +82,7 @@ export async function waitForLanded(opts: WaitOptions): Promise<Landed> {
     studioUrl: `${origin}/studio?vos=${opts.vosId}`,
     thumbnailUrl: still ? absolute(origin, urls.thumbnail) : null,
     previewUrl: still ? absolute(origin, urls.preview) : null,
+    private: vos.visibility === 'private',
     waitedMs: now() - started,
   }
 }
@@ -89,9 +92,15 @@ export function landedLines(l: Landed): string {
   if (!l.still) {
     return `  still:  not rendered yet (the fleet renders it after the push; open the watch page in a minute)`
   }
+  const links = !!(l.thumbnailUrl || l.previewUrl)
   return [
     l.thumbnailUrl ? `  still:   ${l.thumbnailUrl}` : null,
     l.previewUrl ? `  preview: ${l.previewUrl}` : null,
+    // A bare fetch of a private vos's media answers 404 by design; say so,
+    // or the still reads as missing when it is only fenced.
+    links && l.private
+      ? `  (private: these answer 404 without a credential; fetch with 'Authorization: Bearer <your key>' or open them signed in)`
+      : null,
   ]
     .filter(Boolean)
     .join('\n')
