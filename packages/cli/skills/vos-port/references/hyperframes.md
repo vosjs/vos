@@ -21,6 +21,7 @@ units (render pixels, y down, degrees counter-clockwise).
 | a sub-composition or scene `div` with a time window | `tl.addLabel(name, t)` and its elements tweened in and out inside the window |
 | an `onUpdate` proxy clock that draws (`renderAll(t)`) | `onFrame(ctx)`, reading `ctx.time`, for exactly those procedural parts |
 | GSAP ease names (`power3.out`, `back.out(1.7)`, `expo.inOut`) | the same names |
+| a CSS `cubic-bezier(a, b, c, d)` timing | `ease: 'css-bezier(a, b, c, d)'` (exact; spelled `cubic-bezier` it plays linear) |
 | CSS `--chrome` set by the timeline | a `data` value read in `onFrame`, or a tween on the element that shows it |
 | faces resolved by the runtime from CSS families | `fonts: [{ family, weight, url }]` from the catalog |
 | `mix-blend-mode`, `clip-path`, `overflow: hidden` reveals | GAPS: the painter, or an opacity approximation, said |
