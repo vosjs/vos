@@ -1,3 +1,4 @@
+import { videoFormat } from '../outputs'
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -954,10 +955,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
   if (!url)
     throw new UsageError('no URL — set "url" in the actions file or pass --url')
   const outDir = resolve(strFlag(flags, 'out') ?? 'take')
-  const fmtRaw = strFlag(flags, 'format') ?? 'webm'
-  if (fmtRaw !== 'webm' && fmtRaw !== 'mp4')
-    throw new UsageError('--format must be webm or mp4')
-  const format = fmtRaw
+  const format = videoFormat(strFlag(flags, 'format'), positionals[0])
   const out = positionals[0] ?? join(outDir, `out.${format}`)
   const parallel = numFlag(flags, 'parallel', 1)
   if (!Number.isInteger(parallel) || parallel < 1 || parallel > 16) {
@@ -1372,10 +1370,7 @@ async function cmdRender(argv: string[]): Promise<number> {
       'vos render <take> [out] [--width] [--height] [--fps] [--format] [--parallel]',
     )
   const r = createReporter(flags.json === true)
-  const fmtRaw = strFlag(flags, 'format') ?? 'webm'
-  if (fmtRaw !== 'webm' && fmtRaw !== 'mp4')
-    throw new UsageError('--format must be webm or mp4')
-  const format = fmtRaw
+  const format = videoFormat(strFlag(flags, 'format'), positionals[1])
   const out = positionals[1] ?? join(dir, `out.${format}`)
   const parallel = numFlag(flags, 'parallel', 1)
   if (!Number.isInteger(parallel) || parallel < 1 || parallel > 16) {
