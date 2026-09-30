@@ -245,6 +245,7 @@ export { studioLayerData } from './lower/lowerToComposition'
 export {
   PROGRAM_RETIME,
   lowerProgramDoc,
+  programStillTime,
   lowerStudioDoc,
   programDuration,
   wrapProgramLength,

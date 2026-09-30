@@ -5,7 +5,7 @@
  * document and composed config key the hosted asset; a claimable push, which
  * carries no files, leaves the local sound out and composes the rest.
  */
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -137,6 +137,28 @@ describe('vos push of a program document with its own sound', () => {
     expect(studioAudio(create?.body?.config).map((a) => a.key)).toEqual([
       '/api/assets/snd/file',
     ])
+  })
+
+  it('--still writes the cover into doc.json and the push carries it', async () => {
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    const dir = mkdtempSync(join(tmpdir(), 'vos-program-'))
+    writeFileSync(join(dir, 'config.json'), JSON.stringify(CONFIG))
+    const code = await cmdPushProgram([
+      join(dir, 'config.json'),
+      '--still',
+      '2.5',
+      '--origin',
+      origin,
+      '--key',
+      'vos_sk_test',
+      '--json',
+    ])
+    expect(code).toBe(0)
+    const onDisk = JSON.parse(readFileSync(join(dir, 'doc.json'), 'utf8'))
+    expect(onDisk.still).toBe(2.5)
+    const create = seen.find((s) => s.url === '/api/vos')
+    expect((create?.body?.doc as { still?: number }).still).toBe(2.5)
   })
 
   it('a claimable push composes the document but leaves a local sound out', async () => {

@@ -68,6 +68,19 @@ export const PROGRAM_RETIME = `(t, data) => {
 }`
 
 /**
+ * The cover a program document declares, in OUTPUT seconds and clamped to
+ * the program's output length (after any retime); null when it declares
+ * none, so a host keeps its own default. The take's cover is `docStillTime`.
+ */
+export function programStillTime(doc: ProgramAnchorDoc): number | null {
+  const still = doc.still
+  if (typeof still !== 'number' || !Number.isFinite(still)) return null
+  const end = programDuration(doc) > 0 ? totalDuration(ratedSegments(doc)) : 0
+  const t = Math.max(0, end > 0 ? Math.min(end, still) : still)
+  return Math.round(t * 1000) / 1000
+}
+
+/**
  * With speed spans the OUTPUT length is not the program's own, but the
  * engine hands ONE \`duration\` to both the clock and \`createTimeline\`. The
  * composed config's \`duration\` is the output length (the clock, the fleet's

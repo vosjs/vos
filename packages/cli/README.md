@@ -303,6 +303,7 @@ vos push bright-loop/config.json --remix-of <id>       # create a SEPARATE vos f
 vos push bright-loop/config.json --claimable           # no credential: a 72 h claim link instead (programs only)
 vos push take --yes --label "first pass" --note "…"    # host a take: private vos + version history (the recording uploads once)
 vos push … --wait                                      # stay until the version's still renders; print absolute still and preview links
+vos push config.json --still 2.5                        # a program's cover: doc.json "still", kept by every later push
 vos delete <vosId|url|dir> [--yes]                     # take a vos off vos.so, every version; asks, or --yes headless
 vos pull bright-loop [--since <versionId>] [--check]   # what changed on vos.so since your base; syncs config.json (backup kept), or doc.json for a take
                                                        # --check reports without writing; --since walks from a base you name

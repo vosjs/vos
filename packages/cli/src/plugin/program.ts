@@ -399,6 +399,17 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
   const state = readSyncState(dir)
   const vosFlag = strFlag(flags, 'vos')
   const explicitVosId = vosFlag ? parseVosId(vosFlag) : null
+  // --still <t>: the program's cover, in output seconds. It is intent the
+  // config cannot hold, so it lives in doc.json (minted when there is none)
+  // and every later push keeps it.
+  const stillFlag = strFlag(flags, 'still')
+  if (stillFlag !== undefined) {
+    const t = Number(stillFlag)
+    if (!Number.isFinite(t) || t < 0)
+      throw new UsageError('--still expects seconds, like --still 2.5')
+    await setProgramStill(dir, t)
+    r.log(`cover: ${t}s (doc.json "still")`)
+  }
   // A program document beside the config: the shared layers, the tween
   // overlay, the anchor's own length. Lint-gated like a take's doc.
   const programDoc = await readProgramDoc(dir, config)
@@ -688,6 +699,7 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
       `  watch:  ${watchUrl}\n  studio: ${studioUrl}\n` +
       (landed ? `${landedLines(landed)}\n` : '') +
       `  shelf:  ${folderRef ? `in ${folderRef}` : `unfiled, at the root of your shelf (file it: vos folder move ${created.id} --to <slug>)`}\n` +
+      `  cover:  ${typeof programDoc?.still === 'number' ? `${String(programDoc.still)}s` : 'the platform picks an early frame; choose one with --still <seconds>'}\n` +
       `Iterate with: vos push ${source} --vos ${created.id}`,
   )
   return EXIT_OK
@@ -969,6 +981,25 @@ export async function readProgramDoc(
 }
 
 /** Write a hosted program document to disk: config.json + doc.json sans config. */
+/**
+ * Write a program's cover into doc.json beside its config: the existing
+ * document with `still` set, or a minimal program document when there is
+ * none (no `program.config` on disk; the push composes it).
+ */
+export async function setProgramStill(dir: string, t: number): Promise<void> {
+  const docPath = join(dir, 'doc.json')
+  let doc: Record<string, unknown> = { program: {}, audio: [] }
+  if (existsSync(docPath)) {
+    const parsed: unknown = JSON.parse(await readFile(docPath, 'utf8'))
+    if (!parsed || typeof parsed !== 'object' || 'source' in parsed)
+      throw new UsageError(
+        `${docPath} is a take's document; a take's cover is its own "still" field`,
+      )
+    doc = parsed as Record<string, unknown>
+  }
+  await writeFile(docPath, JSON.stringify({ ...doc, still: t }, null, 2) + '\n')
+}
+
 export async function writeProgramDoc(
   dir: string,
   hosted: Record<string, unknown>,
