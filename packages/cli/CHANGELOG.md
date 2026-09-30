@@ -1,5 +1,19 @@
 # @vosjs/cli
 
+## 0.53.2
+
+### Patch Changes
+
+- e541410: `vos push --wait` says when the still and preview links it prints belong to a private vos: they answer 404 to a request without a credential, so a bare fetch read as "the still is missing" when it was only fenced. The line names the fix (the key as a bearer, or a signed-in browser).
+- Updated dependencies [f4ec253]
+- Updated dependencies [e541410]
+- Updated dependencies [9614531]
+  - @vosjs/render-core@0.3.8
+  - @vosjs/core@0.25.2
+  - @vosjs/elements@0.8.3
+  - @vosjs/shared@0.5.0
+  - @vosjs/studio-core@0.33.1
+
 ## 0.53.1
 
 ### Patch Changes
