@@ -692,7 +692,7 @@
     },
     {
       "title": "Program document",
-      "description": "A program plus the shared layers. `program.config` is THE user's config (functions as strings), untouched; the platform stores the COMPOSED config (the config plus the studio stack entry) as what plays. In a program DIRECTORY the CLI keeps `program.config` in config.json and omits it here. Minted only when a program gains a layer, a tween edit, a speed span or its own length; a bare program has no doc.",
+      "description": "A program plus the shared layers. `program.config` is THE user's config (functions as strings), untouched; the platform stores the COMPOSED config (the config plus the studio stack entry) as what plays. In a program DIRECTORY the CLI keeps `program.config` in config.json and omits it here. Minted only when a program gains a layer, a tween edit, a speed span, its own length or a cover; a bare program has no doc.",
       "type": "object",
       "required": ["program"],
       "additionalProperties": true,
@@ -734,6 +734,11 @@
         },
         "export": {
           "$ref": "#/definitions/export"
+        },
+        "still": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The program's cover, in OUTPUT seconds: the still the shelf, the thumbnail and the OG card show (vos push --still <t>). Clamped to the program's length. Absent, the platform's default early frame."
         }
       }
     }

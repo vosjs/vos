@@ -205,7 +205,7 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
   vos push  <config.json|take> [--vos id] [--title t] [--slug s] [--remix-of id]
             [--desc d] [--tags a,b] [--folder <folderId|slug>]
             [--note n] [--label l] [--base versionId] [--override <id>]... [--yes] [--json]
-            [--claimable] [--wait]
+            [--claimable] [--wait] [--still <seconds>]
             a take DIRECTORY (doc.json) pushes recording + doc; a config.json
             pushes the program. No --vos: create a PRIVATE vos; with --vos:
             add a version against the tracked base — a stale push 409s WITH
@@ -221,6 +221,9 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
             shelf. A document's local sound (doc.json audio keys) uploads
             with the push. --wait stays until the version's still has
             rendered and prints absolute still and preview links.
+            --still <seconds> sets a PROGRAM's cover (doc.json "still", kept
+            by every later push); without it the platform picks an early
+            frame. A take's cover is its doc.json "still".
   vos delete <vosId|watch-url|dir> [--yes] [--json]
             take a vos off vos.so, every version of it, for good. Asks on a
             terminal; headless it needs --yes. A dir that tracked it is
@@ -2207,8 +2210,8 @@ async function cmdPush(argv: string[]): Promise<number> {
   const refusal = takePushRefusal({
     vos: strFlag(flags, 'vos'),
     trackedVosId: readSyncState(resolve(dir))?.vosId ?? null,
-    programOnly: ['slug', 'desc', 'tags', 'base', 'remix-of'].filter((name) =>
-      hasFlag(flags, name),
+    programOnly: ['slug', 'desc', 'tags', 'base', 'remix-of', 'still'].filter(
+      (name) => hasFlag(flags, name),
     ),
   })
   if (refusal) throw new UsageError(refusal)

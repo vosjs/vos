@@ -46,6 +46,11 @@ export interface ProgramAnchorDoc {
   /** Retime spans over the ANCHOR's clock: the recording's type, `in`/`out` in program seconds. */
   speed?: SpeedSpan[]
   export?: ProjectDoc['export']
+  /**
+   * The program's cover: the OUTPUT second its still (the shelf card, the
+   * thumbnail, the OG card) is taken at. Absent, the platform's default.
+   */
+  still?: number
 }
 
 export type StudioDoc = ProjectDoc | ProgramAnchorDoc
