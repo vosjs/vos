@@ -1863,6 +1863,26 @@ export const BASE_FRAME_STYLE: FrameStyle = {
  */
 export const DEFAULT_FRAME_STYLE: FrameStyle = BASE_FRAME_STYLE
 
+/**
+ * The frame FINISHED footage opens on: nothing around it. A render from
+ * another tool, a film, a clip with no cursor trace behind it is already the
+ * picture, so it gets no card, no ground, no browser bar. It keeps the
+ * clamped magnifier (no `camera`), so a zoom added later stays inside the
+ * footage instead of showing past its edge.
+ */
+export const FOOTAGE_FRAME_STYLE: FrameStyle = (() => {
+  const { camera: _stage, ...base } = BASE_FRAME_STYLE
+  return {
+    ...base,
+    background: '#000000',
+    padding: 0,
+    radius: 0,
+    shadow: 0,
+    border: 0,
+    browserBar: { ...DEFAULT_BROWSER_BAR, kind: 'none' },
+  }
+})()
+
 /** Border alpha applied when the Frame-border toggle turns on. */
 export const FRAME_BORDER_DEFAULT = 0.35
 

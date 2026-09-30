@@ -93,6 +93,12 @@ export interface PlanOptions {
    */
   backdrop?: Backdrop | null
   /**
+   * The take is FINISHED footage (a render from another tool): a fresh doc
+   * opens bare, with no drawn cursor or webcam, at the footage's own rate.
+   * `backdrop` is ignored for it.
+   */
+  footage?: boolean
+  /**
    * The release's words, patched into the stage clips a layout carries
    * (`stage-title` ← headline, `stage-kicker` ← kicker, `stage-brand` ←
    * the wordmark) and read by the end card.
@@ -224,9 +230,11 @@ export async function planTake(
   // The frame a fresh doc opens on: the house backdrop on the bare frame
   // when one was handed in. The ingest still derives the browser bar from
   // the footage on top of it.
-  const ingest = opts.backdrop
-    ? { frame: withBackdrop(DEFAULT_FRAME_STYLE, opts.backdrop) }
-    : {}
+  const ingest = opts.footage
+    ? { footage: true }
+    : opts.backdrop
+      ? { frame: withBackdrop(DEFAULT_FRAME_STYLE, opts.backdrop) }
+      : {}
 
   let doc: ProjectDoc
   let fresh: boolean

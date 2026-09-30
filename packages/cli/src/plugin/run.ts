@@ -168,8 +168,8 @@ Take pipeline
   vos validate <actions.json|take|kit.json> [--picture] [--json]
   vos judge <kit.json> --against <MANIFEST.json> [--out dir] [--json]
   vos actions from-agent-browser <steps.jsonl> [--out actions.json] [--url <url>] [--viewport WxH] [--json]
-  vos ingest <video.webm|mp4> [--cursor <trace.zip|steps.jsonl|cursor.csv>] [--out take] [--offset <ms>] [--viewport WxH] [--background <slug|url|none>] [--json]
-            a take from a recording someone else made (a cloud agent's PR video, a Playwright run's video, a Loom export): the file becomes recording.<container>, meta.json from its own dimensions and duration, and a trace beside it becomes cursor.json so the planner has clicks to zoom on; without one, nothing is planned and the done event says so
+  vos ingest <video.webm|mp4> [--cursor <trace.zip|steps.jsonl|cursor.csv>] [--as footage|take] [--out take] [--offset <ms>] [--viewport WxH] [--background <slug|url|none>] [--json]
+            a take from a recording someone else made (a cloud agent's PR video, a Playwright run's video, a Loom export): the file becomes recording.<container>, meta.json from its own dimensions and duration, and a trace beside it becomes cursor.json so the planner has clicks to zoom on; without one, nothing is planned and the done event says so. Without a trace the file opens as FINISHED footage (a render from HyperFrames or Remotion, a film): no card, no browser bar, no drawn cursor, its own frame rate; --as take gives a screen demo the card
   vos session open <url> --name <app>   a plain Chrome window on a vos-owned profile; sign in, close it
   vos session check <name> [--url <url>]   headless: does the session still open the page? exit 0/4
   vos session list | rm <name>          what exists and how old; delete one

@@ -54,13 +54,15 @@ spans). `vos validate take` before rendering.
 ## 3. Render the ingredient — full-bleed, no chrome
 
 ```bash
-vos render take clip.webm --frame none --set frame.padding=0
-vos render take clip.mp4  --frame none --set frame.padding=0 --format mp4
+vos render take clip.webm --frame none --set frame.padding=0 --set frame.radius=0 --set frame.shadow=0
+vos render take clip.mp4  --frame none --set frame.padding=0 --set frame.radius=0 --set frame.shadow=0
 ```
 
-`--frame none` drops the browser-bar chrome and `frame.padding=0` removes
-the card inset and backdrop — edge-to-edge product pixels (both are
-render-time overrides; `doc.json` is untouched). Match `--width/--height`
+`--frame none` drops the browser-bar chrome; `frame.padding=0` removes the
+card inset, and `frame.radius=0` with `frame.shadow=0` square the corners,
+which otherwise show the backdrop through them — edge-to-edge product pixels
+(all render-time overrides; `doc.json` is untouched). The output's name
+picks the container (vos 0.52+; older, add `--format mp4`). Match `--width/--height`
 to their composition. A `--range` render keeps its audio (the full mix,
 sliced to the window); the editorial cut still trims `segments`.
 

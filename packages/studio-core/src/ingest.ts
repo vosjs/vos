@@ -7,6 +7,7 @@ import {
   DEFAULT_CAM_STYLE,
   DEFAULT_CURSOR_STYLE,
   DEFAULT_FRAME_STYLE,
+  FOOTAGE_FRAME_STYLE,
   pageDisplayUrl,
   platformBarKind,
 } from './types'
@@ -24,6 +25,13 @@ export interface IngestOptions {
    * below. Absent, `DEFAULT_FRAME_STYLE`.
    */
   frame?: FrameStyle
+  /**
+   * The artifact is FINISHED footage (a render from another tool, a film):
+   * it opens bare (`FOOTAGE_FRAME_STYLE`, whatever `frame` says), with no
+   * drawn cursor or webcam and the export at the footage's own frame rate.
+   * A host decides it; no field on the document records it.
+   */
+  footage?: boolean
 }
 
 /** Build a ProjectDoc from a RecordingArtifact handed off by a recorder. */
@@ -122,6 +130,17 @@ export function projectFromArtifact(
     // 60 fps: the footage duplicates frames, the camera does not, and a
     // 0.5 s glide at 30 fps is fifteen visible steps.
     export: { resolution: '1080p', fps: 60, format: 'mp4' },
+  }
+  if (opts.footage) {
+    doc.frame = { ...FOOTAGE_FRAME_STYLE }
+    doc.cursor = { ...doc.cursor, visible: false }
+    doc.cam = { ...doc.cam, visible: false }
+    // The footage's own rate: a 30 fps film exported at 60 is every frame
+    // twice. The export enum holds 30 and 60.
+    doc.export = {
+      ...doc.export,
+      fps: (artifact.meta.fps ?? 30) > 30 ? 60 : 30,
+    }
   }
   return { doc, videoUrl }
 }

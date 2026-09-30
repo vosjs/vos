@@ -178,7 +178,7 @@ export async function cmdIngest(argv: string[]): Promise<number> {
   const source = positionals[0]
   if (!source)
     throw new UsageError(
-      'vos ingest <video.webm|mp4> [--cursor <trace.zip|steps.jsonl|cursor.csv>] [--out take] [--offset <ms>] [--viewport WxH] [--background <slug|url|none>] [--json]',
+      'vos ingest <video.webm|mp4> [--cursor <trace.zip|steps.jsonl|cursor.csv>] [--as footage|take] [--out take] [--offset <ms>] [--viewport WxH] [--background <slug|url|none>] [--json]',
     )
   const videoPath = resolve(source)
   if (!existsSync(videoPath)) throw new UsageError(`${source}: no such file`)
@@ -187,7 +187,19 @@ export async function cmdIngest(argv: string[]): Promise<number> {
   const offsetMs = numFlag(flags, 'offset', 0)
   const viewportFlag = parseViewport(strFlag(flags, 'viewport'))
   const cursorPath = strFlag(flags, 'cursor')
-  const backdrop = await takeBackdrop(flags, r)
+  // What the file IS decides how it opens. A cursor trace is the one
+  // evidence of a screen recording; without it the file is finished footage
+  // (a render from another tool, a film) and opens bare, with nothing drawn
+  // over it. --as says it outright either way.
+  const asFlag = strFlag(flags, 'as')
+  if (asFlag !== undefined && asFlag !== 'footage' && asFlag !== 'take')
+    throw new UsageError('--as expects footage or take')
+  const footage = asFlag ? asFlag === 'footage' : !cursorPath
+  if (footage && strFlag(flags, 'background') !== undefined)
+    r.log(
+      'note: finished footage opens bare, so --background is not used (pass --as take for the screen-recording card and its ground)',
+    )
+  const backdrop = footage ? null : await takeBackdrop(flags, r)
 
   r.log(`probing ${basename(videoPath)}…`)
   const probed = await probeVideoFile(videoPath)
@@ -245,16 +257,22 @@ export async function cmdIngest(argv: string[]): Promise<number> {
   await writeJson(paths.meta, meta, true)
   if (events.length) await writeJson(paths.cursor, events)
 
-  const plan = await planTake(outDir, { backdrop })
+  const plan = await planTake(outDir, { backdrop, footage })
   const clicks = events.filter((e) => e.type === 'down').length
   const seconds = (probed.durationMs / 1000).toFixed(1)
   const facts = `${seconds}s, ${probed.width}×${probed.height} @ ${meta.fps} fps${probed.hasAudio ? ', audio' : ', no audio'}${remuxed ? '' : ', copied as is'}`
   const cursorLine = trace
     ? `${events.length} cursor events (${clicks} clicks) from ${basename(cursorPath!)}${trace.dropped ? `, ${trace.dropped} not placed` : ''}; ${plan.zoomAuto} zoom${plan.zoomAuto === 1 ? '' : 's'} planned`
     : 'no cursor track, so nothing was planned'
-  const next = trace
-    ? `Next: vos digest ${outDir} — look before you cut; edit doc.json; vos push ${outDir}`
-    : `Add --cursor <trace> recorded beside the video (a Playwright trace.zip, stamped JSON records, or a t,x,y,type CSV) to plan zooms from its clicks; else place them by eye: vos frames ${outDir} --times 0,25%,50%,75%,100%, then edit doc.json`
+  const opened = footage
+    ? `opened as finished footage: no card, no browser bar, no drawn cursor, ${meta.fps > 30 ? 60 : 30} fps export (--as take for a screen recording's card)`
+    : `opened as a screen recording: the card, its ground and the drawn cursor (--as footage to open it bare)`
+  const next =
+    footage && !trace
+      ? `Next: vos push ${outDir} --wait — it lands as it is; trim or add to it in the studio`
+      : trace
+        ? `Next: vos digest ${outDir} — look before you cut; edit doc.json; vos push ${outDir}`
+        : `Add --cursor <trace> recorded beside the video (a Playwright trace.zip, stamped JSON records, or a t,x,y,type CSV) to plan zooms from its clicks; else place them by eye: vos frames ${outDir} --times 0,25%,50%,75%,100%, then edit doc.json`
   r.done(
     {
       out: outDir,
@@ -279,8 +297,9 @@ export async function cmdIngest(argv: string[]): Promise<number> {
         : null,
       zooms: plan.zoomAuto,
       backdrop: plan.backdrop ?? null,
+      as: footage ? 'footage' : 'take',
     },
-    `Ingested ${basename(videoPath)} → ${outDir}/${basename(recording)} (${facts})\n  ${cursorLine}\n  ${next}`,
+    `Ingested ${basename(videoPath)} → ${outDir}/${basename(recording)} (${facts})\n  ${opened}\n  ${cursorLine}\n  ${next}`,
   )
   return EXIT_OK
 }
