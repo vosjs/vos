@@ -308,8 +308,13 @@ export interface ElementProps {
 export interface ElementInstance {
   /** Original configuration */
   config: ElementConfig
-  /** Three.js mesh (textured plane) */
+  /** Three.js mesh (textured plane); a split text's FIRST unit only */
   mesh: THREE.Mesh
+  /**
+   * Every mesh the element draws (a split text's units), for picking and
+   * the editor's box. Absent on instances from @vosjs/elements < 0.10.1.
+   */
+  meshes?: () => THREE.Mesh[]
   /** DOM node for SplitText (text elements only) - typed as unknown for portability */
   node: unknown
   /** GSAP-animatable properties */

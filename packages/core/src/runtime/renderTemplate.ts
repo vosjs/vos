@@ -8,6 +8,7 @@ import {
 } from '../addons/cdn'
 import { ADDON_REGISTRY } from '../addons/registry'
 import { VOS_BRIDGE_PROTOCOL } from './bridge'
+import { ELEMENT_PICK_JS } from './elementPick'
 import { transformModuleCode } from './transformModuleCode'
 
 export interface RenderTemplateOptions {
@@ -588,10 +589,11 @@ function editorMessageCases(editor: boolean): string {
                     break;`
 }
 
-function editorExtension(editor: boolean): string {
+/** @internal Exported for the picking tests; not part of the package API. */
+export function editorExtension(editor: boolean): string {
   if (!editor) return ''
   return `
-        const __editorApi = (() => {
+        const __editorApi = (() => {${ELEMENT_PICK_JS}
             const raycaster = new THREE.Raycaster();
             const ndc = new THREE.Vector2();
             const v3 = new THREE.Vector3();
@@ -639,11 +641,25 @@ function editorExtension(editor: boolean): string {
                 if (!cam) return [];
                 cam.updateMatrixWorld();
                 const rect = canvasRect();
-                return instances().map(({ id, inst }) => ({
-                    id,
-                    ...meshRect(inst.mesh, cam, rect),
-                    visible: inst.mesh.visible !== false,
-                }));
+                // The box spans EVERY mesh of the element (a split word's
+                // units, seen or not yet, so a typewriter's box is the word);
+                // visible says whether any of them shows right now.
+                return instances().map(({ id, inst }) => {
+                    const meshes = __elementMeshes(inst);
+                    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                    for (const m of meshes) {
+                        const r = meshRect(m, cam, rect);
+                        if (r.x < minX) minX = r.x;
+                        if (r.y < minY) minY = r.y;
+                        if (r.x + r.width > maxX) maxX = r.x + r.width;
+                        if (r.y + r.height > maxY) maxY = r.y + r.height;
+                    }
+                    return {
+                        id,
+                        x: minX, y: minY, width: maxX - minX, height: maxY - minY,
+                        visible: meshes.some(__meshSeen),
+                    };
+                });
             };
 
             const hitTest = (x, y) => {
@@ -655,10 +671,15 @@ function editorExtension(editor: boolean): string {
                 raycaster.setFromCamera(ndc, cam);
                 const byMesh = new Map();
                 const meshes = [];
+                // Only what shows is under the pointer: a press goes through
+                // an element that is hidden or faded out at this moment.
                 for (const { id, inst, order } of instances()) {
-                    if (inst.mesh.visible === false) continue;
-                    byMesh.set(inst.mesh, { id, z: (inst.config && inst.config.zIndex) ?? 100, order });
-                    meshes.push(inst.mesh);
+                    const z = (inst.config && inst.config.zIndex) ?? 100;
+                    for (const m of __elementMeshes(inst)) {
+                        if (!__meshSeen(m)) continue;
+                        byMesh.set(m, { id, z, order });
+                        meshes.push(m);
+                    }
                 }
                 // Topmost wins: overlay groups render in ascending zIndex with depth
                 // cleared between groups, so pick by (zIndex, config order) — ray
