@@ -298,7 +298,17 @@ export const initVos = async (container, deps) => {
   // What the scene held before the program added anything: the live rebuild
   // (setData without onFrame) strips everything the content put there.
   const __baseChildren = new Set(scene.children);
+  // The engine never adds content.objects to a scene: the program adds what it
+  // draws and lists it for cleanup. A listed object no scene holds is the
+  // program that forgot, and it draws nothing with no error, so say it.
+  // A Scene is exempt: a program may render a private one itself.
+  const __warnLostObjects = (c) => {
+    const listed = c && Array.isArray(c.objects) ? c.objects : [];
+    const lost = listed.filter((o) => o && o.isObject3D && !o.isScene && !o.parent).length;
+    if (lost) console.warn('[vos] createContent returned ' + lost + (lost === 1 ? ' object' : ' objects') + ' that no scene holds, so ' + (lost === 1 ? 'it draws' : 'they draw') + ' nothing: add ' + (lost === 1 ? 'it' : 'them') + ' with ctx.scene.add() (content.objects only lists what the program added, for cleanup).');
+  };
   let content = createContent(context, ${setupDataArg});
+  __warnLostObjects(content);
   ${stack.decls}
   ${stack.mount}
 
@@ -402,7 +412,8 @@ ${
       if (!__baseChildren.has(child)) scene.remove(child);
     }
     __resetLayers();
-    content = createContent(context, ${setupDataArg});${stack.remount}
+    content = createContent(context, ${setupDataArg});
+    __warnLostObjects(content);${stack.remount}
     __assignLayers();${hasPerLayer ? '\n    __buildLayerComposers();' : ''}
     tl = __asCarrierIfEmpty(createTimeline(context, content, DURATION));
     tl.repeat(-1);

@@ -156,6 +156,7 @@ async function cmdRender(argv: string[]): Promise<number> {
     const warnings = stillWarnings(
       { transparent: false, flat: false },
       result.pageErrors,
+      result.engineNotes,
     )
     for (const w of warnings) r.log(`warn: ${w}`)
     r.done(
@@ -239,6 +240,7 @@ async function cmdStill(argv: string[]): Promise<number> {
       const warnings = stillWarnings(
         await inspectStill(browser, result.bytes),
         result.pageErrors,
+        result.engineNotes,
       )
       written.push({
         out: target,

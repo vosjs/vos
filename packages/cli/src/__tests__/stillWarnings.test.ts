@@ -30,4 +30,20 @@ describe('a still is checked before anyone looks at it', () => {
       'the page threw 2 more errors',
     ])
   })
+
+  it("says the engine's own notes, without the tag, once each", () => {
+    const note =
+      '[vos] createContent returned 1 object that no scene holds, so it draws nothing: add it with ctx.scene.add() (content.objects only lists what the program added, for cleanup).'
+    const w = stillWarnings(
+      { transparent: false, flat: true },
+      [],
+      [note, note],
+    )
+    expect(w).toEqual([
+      expect.stringMatching(/single flat colour/),
+      expect.stringMatching(
+        /^createContent returned 1 object that no scene holds/,
+      ),
+    ])
+  })
 })
