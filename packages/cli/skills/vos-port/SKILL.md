@@ -171,7 +171,7 @@ approximation.
    TODO per scene, each scene's words shown in its window, a painter only
    when the inventory needs one, and the PAINTER STARTER as
    `content.refs.lib` when the piece needs a painter or springs: Remotion's
-   `spring` to the frame, `springTo` for the timeline, `interpolate`,
+   `spring` to the frame, `springSeconds` for a tween eased `spring(...)`, `interpolate`,
    `bezier`, seeded noise; never read another engine's source for these),
    `doc.json` with the score as a track, and
    `port/REPORT.md` (substituted faces, gaps). Read the report first. On an
@@ -206,7 +206,7 @@ stated approximation:
 | a colour per split unit (`charStyle` making one letter red) | segments carry x/y/opacity/scale/rotation only: a separate element, or paint it |
 | `mixBlendMode` | no blend modes on elements: paint it |
 | a shape's colour as a knob | an svg's colours are compiled in (static `colors`): paint the shape if its colour must change live |
-| `spring()` | no spring EASE in the dialect; the scaffold's painter starter (cli 0.56+) has `lib.springTo`, Remotion's spring on the timeline a step per frame, exact. Older: `back.out(n)`, by eye |
+| `spring()` | the `spring(damping, stiffness, mass)` ease (cli 0.57+), duration `lib.springSeconds(config)`: Remotion's spring on the timeline, exact. Older: `lib.springTo` (0.56), else `back.out(n)` by eye |
 | `@remotion/noise`, SVG `feTurbulence` | the painter, on the starter's `lib.noise2D/noise3D` (the same character, not the same values) |
 | a group transform (scale the whole scene) | no element groups: tween each element the same way |
 

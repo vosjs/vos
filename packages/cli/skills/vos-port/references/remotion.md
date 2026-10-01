@@ -16,7 +16,7 @@ rows name what has no element equivalent yet.
 | `useCurrentFrame()` | nothing in a tween (the timeline is the clock); `ctx.time * fps` inside `onFrame` |
 | `interpolate(f, [a, b], [x, y], { easing, extrapolate: 'clamp' })` | `tl.fromTo(props, { p: x }, { p: y, duration: (b - a) / fps, ease }, a / fps)` |
 | `Easing.bezier(x1, y1, x2, y2)` | `ease: 'css-bezier(x1, y1, x2, y2)'` (exact) |
-| `spring({ frame, fps, config })` | the painter starter (cli 0.56+): `content.refs.lib.springTo(tl, props, { y: [from, to] }, at, { fps, config })` puts Remotion's own spring on the timeline, a step per frame, exact to the frame; `lib.spring({ frame, fps, config })` is the value (`durationInFrames`, `delay`, `overshootClamping` as Remotion's). On an older CLI: `back.out(n)` of a similar overshoot, by eye |
+| `spring({ frame, fps, config })` | the `spring(damping, stiffness, mass)` ease ON THE TIMELINE (cli 0.57+): `tl.to(p, { y: 0, ease: 'spring(200)', duration: content.refs.lib.springSeconds({ damping: 200 }) }, at)` moves exactly as Remotion's spring; a longer duration stretches it as `durationInFrames` does. Never compute a spring in `onFrame`. `lib.spring({ frame, fps, config })` is the value, for a painter. On cli 0.56, `lib.springTo`; older, `back.out(n)` by eye |
 | `<Sequence from durationInFrames>` | `tl.addLabel(name, from / fps)` and the scene's elements tweened in and out inside that window |
 | `<TransitionSeries>` + `fade()` | opacity tweens across the overlap window |
 | `<AbsoluteFill>` + flex centring | `position: 'center'`; offsets in `transform: { translateX, translateY }` (design px) |
