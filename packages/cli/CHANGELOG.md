@@ -1,5 +1,11 @@
 # @vosjs/cli
 
+## 0.55.0
+
+### Minor Changes
+
+- 7afd3ee: `vos port inventory` reads a Remotion project, where it read only its render. The project is bundled with its own `@remotion/bundler` and its first composition mounted the way Remotion's renderer mounts it: the composition's size, fps, length and `defaultProps`; the `<Sequence>`s as scenes, named by the component each holds, with a sequence lying over a longer one (a wipe) kept out as a transition; every word read nine tenths into its scene, where it has settled and a scramble has resolved, with its rendered face; the palette named after the colour constants the source declares; `<Audio>` as the score. Without the project's dependencies it says to run `npm install` and reads only the render. For every source, a word animated one span per letter is read as one `split` word in its letters' face, a line with a styled word inside it is read run by run, a face is reported as it renders (a family loaded only italic is italic), and each scene's ground (the frame-filling colour behind it) is measured; `vos port scaffold` emits the split words, hides a split word's units outside its scene, and stands each scene on its ground by palette key. On the Remotion showreel the untouched scaffold scores a mean SSIM of 0.67 against its render where it had no words at all; on the HyperFrames showreel 0.82, from 0.73.
+
 ## 0.54.2
 
 ### Patch Changes
