@@ -159,8 +159,13 @@ approximation.
    the palette from its custom properties, faces with their catalog match,
    media, scenes, the CSS no element can say) into `port/inventory.json`,
    with stills from its render. A HyperFrames word is laid out where it
-   SETTLES in its scene. A Remotion project's words live in `src/`: read
-   them there. This IS the port's contract.
+   SETTLES in its scene. A Remotion project (cli 0.55+) is bundled with its
+   own `@remotion/bundler` and read the same way, so run `npm install` in it
+   first: its `<Sequence>`s are the scenes, named by what they hold, its
+   colour constants name the palette, `<Audio>` is the score. Each scene's
+   ground is measured, and a word animated letter by letter is one `split`
+   word. On an older CLI, read a Remotion project's words in `src/`. This IS
+   the port's contract.
 3. **Scaffold**: `npx vos port scaffold` writes `port/program/program.mjs`
    (every word a bound element, every colour a key, the knobs, a label and a
    TODO per scene, each scene's words shown in its window, a painter only
