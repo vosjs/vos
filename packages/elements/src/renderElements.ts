@@ -1,5 +1,11 @@
 import { preloadAssets } from './assetCache'
-import { createElementProps } from './createElementProps'
+import {
+  createElementProps,
+  createSplitGroup,
+  createSplitGroupProps,
+  relayoutSplitGroup,
+} from './createElementProps'
+import type { SplitGroup } from './createElementProps'
 import { extractTextBindings, resolveTextElement } from './dataBinding'
 import { renderAudioElement } from './renderers/audio'
 import { renderImageElement } from './renderers/image'
@@ -110,6 +116,9 @@ export async function renderElements(
       // function so a data edit to a bound split element can build it again
       // from the new words (the units are structure, so they are replaced,
       // never re-rastered, and the host rebuilds the timeline over them).
+      // The word the units make up: the element's `props` (a group over
+      // the units). It outlives a rebuild, keeping what the timeline set.
+      let splitGroup: SplitGroup | null = null
       const buildSplit = () => {
         const splitResult = renderSplitTextElement(config, resolution, THREE)
         elementWidth = splitResult.totalWidth
@@ -136,6 +145,12 @@ export async function renderElements(
 
         const zIndex = config.zIndex ?? 100
 
+        const centreX = basePosX + transformX
+        const centreY = -(basePosY + transformY)
+        if (splitGroup) relayoutSplitGroup(splitGroup, centreX, centreY)
+        else splitGroup = createSplitGroup(centreX, centreY, zIndex)
+        const group = splitGroup
+
         segments = splitResult.meshes.map((item: any, si: number) => {
           const segMesh = item.mesh
           if (item.rerasterize) segmentRerasters.push(item.rerasterize)
@@ -160,8 +175,16 @@ export async function renderElements(
             segMesh.position.x,
             -segMesh.position.y,
             config.opacity ?? 1,
+            null,
+            null,
+            null,
+            null,
+            null,
+            group,
           )
         })
+        // A group a tween already moved places the new units where it is.
+        for (const recompose of group.members) recompose()
 
         return splitResult.meshes[0]?.mesh ?? new THREE.Mesh()
       }
@@ -333,20 +356,22 @@ export async function renderElements(
         }
       }
 
-      const props = createElementProps(
-        THREE,
-        mesh,
-        mesh.position.x,
-        -mesh.position.y,
-        config.opacity ?? 1,
-        videoElement,
-        videoSource,
-        videoTexture,
-        textRerender ? queueRaster : null,
-        videoElement && Array.isArray((config as any).gainEnvelope)
-          ? (config as any).gainEnvelope
-          : null,
-      )
+      const props = splitGroup
+        ? createSplitGroupProps(splitGroup, () => segmentMeshes)
+        : createElementProps(
+            THREE,
+            mesh,
+            mesh.position.x,
+            -mesh.position.y,
+            config.opacity ?? 1,
+            videoElement,
+            videoSource,
+            videoTexture,
+            textRerender ? queueRaster : null,
+            videoElement && Array.isArray((config as any).gainEnvelope)
+              ? (config as any).gainEnvelope
+              : null,
+          )
 
       const elementInstance: Record<string, any> = {
         config,
@@ -418,12 +443,9 @@ export async function renderElements(
             const first = buildSplit()
             elementInstance.mesh = first
             elementInstance.segments = segments
-            elementInstance.props = createElementProps(
-              THREE,
-              first,
-              first.position.x,
-              -first.position.y,
-              config.opacity ?? 1,
+            elementInstance.props = createSplitGroupProps(
+              splitGroup as SplitGroup,
+              () => segmentMeshes,
             )
             elementInstance.structural = true
             return true

@@ -41,6 +41,105 @@ const RASTER_PROPS = new Set([
   'strokeWidth',
 ])
 
+/**
+ * The word a split text element's units make up, as ONE thing: the
+ * element's `props` write here, and every unit composes its own animated
+ * state over it, so `props.x` moves the word, `props.opacity` fades it and
+ * `props.scale`/`rotation` turn it about its centre while the units keep
+ * animating under it through `segments`.
+ */
+export interface SplitGroup {
+  /** The word's centre where the layout put it, in props space (y down). */
+  x0: number
+  y0: number
+  state: {
+    x: number
+    y: number
+    z: number
+    opacity: number
+    scale: number
+    scaleX: number
+    scaleY: number
+    rotation: number
+    rotationX: number
+    rotationY: number
+    zIndex: number
+  }
+  /** Each unit's recompose, called when the group changes. */
+  members: Set<() => void>
+}
+
+export function createSplitGroup(
+  x0: number,
+  y0: number,
+  zIndex = 100,
+): SplitGroup {
+  return {
+    x0,
+    y0,
+    state: {
+      x: x0,
+      y: y0,
+      z: 0,
+      opacity: 1,
+      scale: 1,
+      scaleX: 1,
+      scaleY: 1,
+      rotation: 0,
+      rotationX: 0,
+      rotationY: 0,
+      zIndex,
+    },
+    members: new Set(),
+  }
+}
+
+/**
+ * Move a group to a new layout centre (a data edit rebuilt the units), keeping
+ * whatever offset a tween or a drag added on top.
+ */
+export function relayoutSplitGroup(group: SplitGroup, x0: number, y0: number) {
+  group.state.x = x0 + (group.state.x - group.x0)
+  group.state.y = y0 + (group.state.y - group.y0)
+  group.x0 = x0
+  group.y0 = y0
+  group.members.clear()
+}
+
+const GROUP_TRANSFORM = new Set([
+  'x',
+  'y',
+  'z',
+  'opacity',
+  'scale',
+  'scaleX',
+  'scaleY',
+  'rotation',
+  'rotationX',
+  'rotationY',
+])
+
+/** The `props` of a split text element: the group, animatable like any props. */
+export function createSplitGroupProps(
+  group: SplitGroup,
+  units: () => THREE_NS.Mesh[],
+) {
+  return new Proxy(group.state as Record<string, any>, {
+    set(target, prop, value) {
+      target[prop as string] = value
+      if (GROUP_TRANSFORM.has(prop as string)) {
+        for (const recompose of group.members) recompose()
+      } else if (prop === 'zIndex') {
+        units().forEach((m, si) => {
+          m.renderOrder = value + si * 0.001
+          m.userData.zIndex = value
+        })
+      }
+      return true
+    },
+  })
+}
+
 export function createElementProps(
   _THREE: typeof THREE_NS,
   mesh: THREE_NS.Mesh,
@@ -52,6 +151,7 @@ export function createElementProps(
   videoTexture: THREE_NS.Texture | null = null,
   onRasterProp: ((prop: string, value: unknown) => void) | null = null,
   gainEnvelope: GainEnvelope | null = null,
+  group: SplitGroup | null = null,
 ) {
   // Capture base scale (set by renderer for resolution scaling)
   const baseScaleX = mesh.scale.x
@@ -76,29 +176,53 @@ export function createElementProps(
     gain: videoElement ? videoElement.volume : 1,
   }
 
+  // A unit of a split word composes its own state over the word's (`group`):
+  // its offset from the word's centre is scaled and rotated with the word,
+  // then placed where the word is. Without a group the state is the mesh's.
   const updateMeshPosition = () => {
-    mesh.position.x = state.x
-    mesh.position.y = -state.y
-    mesh.position.z = state.z
+    if (!group) {
+      mesh.position.x = state.x
+      mesh.position.y = -state.y
+      mesh.position.z = state.z
+      return
+    }
+    const g = group.state
+    const ox = (state.x - group.x0) * g.scale * g.scaleX
+    const oy = -(state.y - group.y0) * g.scale * g.scaleY
+    const r = (g.rotation * Math.PI) / 180
+    const c = Math.cos(r)
+    const s = Math.sin(r)
+    mesh.position.x = g.x + ox * c - oy * s
+    mesh.position.y = -g.y + ox * s + oy * c
+    mesh.position.z = state.z + g.z
   }
 
   const updateMeshTransform = () => {
+    const g = group?.state
     mesh.scale.set(
-      baseScaleX * state.scale * state.scaleX,
-      baseScaleY * state.scale * state.scaleY,
+      baseScaleX * state.scale * state.scaleX * (g ? g.scale * g.scaleX : 1),
+      baseScaleY * state.scale * state.scaleY * (g ? g.scale * g.scaleY : 1),
       1,
     )
     mesh.rotation.set(
-      (state.rotationX * Math.PI) / 180,
-      (state.rotationY * Math.PI) / 180,
-      (state.rotation * Math.PI) / 180,
+      ((state.rotationX + (g?.rotationX ?? 0)) * Math.PI) / 180,
+      ((state.rotationY + (g?.rotationY ?? 0)) * Math.PI) / 180,
+      ((state.rotation + (g?.rotation ?? 0)) * Math.PI) / 180,
     )
   }
 
   const updateMeshOpacity = () => {
     const mat = mesh.material as THREE_NS.MeshBasicMaterial
-    mat.opacity = state.opacity
+    mat.opacity = state.opacity * (group ? group.state.opacity : 1)
     mat.needsUpdate = true
+  }
+
+  if (group) {
+    group.members.add(() => {
+      updateMeshPosition()
+      updateMeshTransform()
+      updateMeshOpacity()
+    })
   }
 
   // The element's own mute (a video config's `muted`, false for audio). The

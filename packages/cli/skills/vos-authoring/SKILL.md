@@ -164,6 +164,37 @@ Configs pushed to vos.so get preview-rendered on a software-GL fleet: no
 (too slow), and any fetched asset must be reachable and CORS-open. These are
 fine for purely local renders on a real GPU.
 
+## Your own passes: depth of field, refraction
+
+The `postprocessing` list has no depth-of-field pass. For lens effects,
+render the world yourself:
+
+- Build the world in a private `THREE.Scene` with its own camera. In the
+  timeline's `onUpdate`, render it into `WebGLRenderTarget`s (`samples: 4`
+  plus a `DepthTexture` works, the render fleet included), run your passes,
+  then restore the renderer's target, clear colour and `autoClear`.
+- `ctx.scene` holds ONE full-screen quad that composites the result
+  (`gl_Position = vec4(position.xy, 0.0, 1.0)`, `frustumCulled = false`, no
+  depth test). Add it with `ctx.scene.add()`: the engine never adds
+  `objects` for you, and a quad left out renders a flat black frame.
+- Size the targets from `renderer.getDrawingBufferSize()`; rebuild them
+  when it changes.
+
+Depth of field that reads:
+
+- **Set the blur in pixels, by design.** A physical lens at scene scale
+  (f/1.6 at 40 cm) leaves a sharp zone a few millimetres deep, so the
+  subject you mean to show goes soft too. Decide what one depth step should
+  cost (8 to 20 px at 1080p) and solve for the lens strength.
+- **Keep the subject square to the camera while it is in focus.** A plane
+  seen at an angle spans depth, and shallow focus sharpens only a strip of
+  it. Check that the blur at the subject's corners stays under 1 px.
+- **Focus on a plane, not a point:** the focus distance is measured along
+  the camera's axis.
+- **Judge focus at full size.** Render `vos still … --width 1920 --height
+  1080` and crop at 100%: a 1280×720 still or a contact sheet hides 10 px
+  of blur.
+
 ## Design principles
 
 - **Visual impact**: bloom for glow (even 0.3–0.5 elevates); emissive
