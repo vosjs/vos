@@ -112,6 +112,9 @@ import {
 import { cmdFolder } from './folder'
 import { cmdAsset } from './asset'
 import { cmdDelete } from './remove'
+import { cmdBuild } from './buildProgram'
+import { cmdCompare } from './compare'
+import { cmdPort } from './port'
 import { cmdRecipe } from './recipe'
 import { cmdBrand } from './brand'
 import { hostedEnv, recordHosted } from './hostedRecord'
@@ -170,6 +173,14 @@ Take pipeline
   vos actions from-agent-browser <steps.jsonl> [--out actions.json] [--url <url>] [--viewport WxH] [--json]
   vos ingest <video.webm|mp4> [--cursor <trace.zip|steps.jsonl|cursor.csv>] [--as footage|take] [--out take] [--offset <ms>] [--viewport WxH] [--background <slug|url|none>] [--json]
             a take from a recording someone else made (a cloud agent's PR video, a Playwright run's video, a Loom export): the file becomes recording.<container>, meta.json from its own dimensions and duration, and a trace beside it becomes cursor.json so the planner has clicks to zoom on; without one, nothing is planned and the done event says so. Without a trace the file opens as FINISHED footage (a render from HyperFrames or Remotion, a film): no card, no browser bar, no drawn cursor, its own frame rate; --as take gives a screen demo the card
+  vos port inventory <page.html|project dir> [--render <their render.mp4>] [--out port] [--json]
+            a finished piece (HyperFrames, Remotion's render, a hand-rolled page) read as a browser renders it: words, palette, faces (catalog or missing), media, scenes, gaps → port/inventory.json, with stills from its render
+  vos port scaffold [--from port/inventory.json] [--out port/program] [--json]
+            a data-first program from it: every word a bound element, every colour a key, knobs, a label and a TODO per scene, the score as a doc.json track, port/REPORT.md
+  vos build <program.mjs> [--out config.json] [--json]
+            real functions → config.json, refusing a module-scope read, syntax the page cannot run and non-JSON data; config.sources.json maps each function to its line
+  vos compare <program dir|config.json> --against <their render.mp4> [--times a,b,50%] [--every 1] [--threshold 0.95] [--out compare] [--json]
+            per-frame SSIM and source | vos | difference sheets; exit 1 when ANY frame is under the threshold (needs ffmpeg)
   vos session open <url> --name <app>   a plain Chrome window on a vos-owned profile; sign in, close it
   vos session check <name> [--url <url>]   headless: does the session still open the page? exit 0/4
   vos session list | rm <name>          what exists and how old; delete one
@@ -2410,6 +2421,12 @@ export async function run(argv: string[]): Promise<number> {
       }
       case 'delete':
         return await cmdDelete(rest)
+      case 'build':
+        return await cmdBuild(rest)
+      case 'compare':
+        return await cmdCompare(rest)
+      case 'port':
+        return await cmdPort(rest)
       case 'folder':
         return await cmdFolder(rest)
       case 'asset':

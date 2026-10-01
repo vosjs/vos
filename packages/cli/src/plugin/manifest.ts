@@ -69,6 +69,21 @@ export const manifest: PluginManifest = {
         'a take from a recording someone else made, with its cursor track from a trace beside it (Playwright trace.zip, stamped records, CSV); without one nothing is planned',
     },
     {
+      name: 'port',
+      summary:
+        'bring a page, a HyperFrames or a Remotion piece: inventory (its words, colours, faces, media, scenes) then scaffold (a data-first program.mjs to translate the motion into)',
+    },
+    {
+      name: 'build',
+      summary:
+        'program.mjs (real functions) → config.json, refusing what cannot run on its own (module-scope reads, syntax the page cannot parse, non-JSON data)',
+    },
+    {
+      name: 'compare',
+      summary:
+        "a program against the source's own render: per-frame SSIM and source | vos | difference sheets; exits 1 when any frame is under the threshold",
+    },
+    {
       name: 'brand',
       summary:
         "write a product's BRAND.md, witnessed: /design.md, /llms.txt, then the page (palette, faces, marks, the avoid list)",
