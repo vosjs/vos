@@ -17,7 +17,7 @@ export type {
   Segment,
   SpeedSpan,
 } from './types'
-export { EASINGS, resolveEase } from './easings'
+export { EASINGS, resolveEase, springSettleTime } from './easings'
 export { lerpArray, sample, sortKeyframes } from './sample'
 export {
   mapTime,

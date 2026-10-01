@@ -399,9 +399,11 @@ function programSource(p: {
     : "    // TODO: translate the source's motion here, one block per scene (tl.addLabel above names them)"
   const springHint = p.uses.includes('spring')
     ? `
-    // The source springs: content.refs.lib.springTo(tl, target, { y: [120, 0] }, at,
-    //   { fps: ctx.data.fps, config: { damping: 200 } }) puts Remotion's spring on
-    //   the timeline frame by frame (spring({ frame, fps, config }) for a value).`
+    // The source springs. Put a spring ON THE TIMELINE with the spring ease:
+    //   tl.to(p, { y: 0, ease: 'spring(200)', duration: content.refs.lib.springSeconds({ damping: 200 }) }, at)
+    // moves exactly as Remotion's spring({ config: { damping: 200 } }) (a longer
+    // duration stretches it, as durationInFrames does). Never compute a spring in
+    // onFrame. lib.spring({ frame, fps, config }) is the value, for a painter.`
     : ''
   const libBlock = p.lib ? `\n${PAINTER_LIB}` : ''
   const painterContent = p.painter

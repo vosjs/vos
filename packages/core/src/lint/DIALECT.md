@@ -36,7 +36,14 @@ Suppress any single line with `// vos-lint-disable-next-line <rule|all>`.
   `back(overshoot)`, `elastic(amplitude, period)` and `steps(n)`; a bare family name
   defaults to `.out` (matching GSAP). All curves are verified for numeric parity with
   `gsap.parseEase`. Beyond GSAP, the dialect-only `css-bezier(x1, y1, x2, y2)` is CSS's
-  `cubic-bezier` (and Remotion's `Easing.bezier`) with the same four numbers.
+  `cubic-bezier` (and Remotion's `Easing.bezier`) with the same four numbers, and the
+  dialect-only `spring(damping, stiffness, mass)` (defaults 10, 100, 1; bare `spring`,
+  `spring.in`, `spring.inOut` too) is a damped spring released from rest: it runs for its
+  natural settle time (within 0.5 % of the target) stretched over the tween and lands
+  exactly on 1, as Remotion's `durationInFrames` stretches its `spring()`. A tween as long
+  as that settle time moves as Remotion's spring does, frame for frame; a damping ratio of 1
+  or more settles critically at the natural frequency, as Remotion's does. GSAP has neither
+  name, so the GSAP backend falls back to its default ease on both.
 - **Tweened values:** numbers, plus relative numeric strings (`'+=0.5'` / `'-=10'` —
   destination = start value ± delta). (Colors, unit strings, and complex string
   interpolation are outside the numeric core.)

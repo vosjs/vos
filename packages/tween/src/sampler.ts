@@ -125,7 +125,10 @@ function trackValueAt(track: Track, t: number): number {
     for (const tw of track.tweens) {
       if (!first || tw.start < first.start) first = tw
     }
-    return first && first.entry.spec.from?.[track.property] !== undefined
+    const spec = first?.entry.spec
+    return first &&
+      (spec?.from?.[track.property] !== undefined ||
+        spec?.fromRelative?.[track.property] !== undefined)
       ? first.from[track.property]
       : track.base
   }
@@ -192,6 +195,7 @@ export function createSampler(
       ...Object.keys(spec.from ?? {}),
       ...Object.keys(spec.to),
       ...Object.keys(spec.toRelative ?? {}),
+      ...Object.keys(spec.fromRelative ?? {}),
     ])
     if (!props.size && !entry.callbacks) continue
 
@@ -229,11 +233,18 @@ export function createSampler(
       // start time over the previously-authored tweens (GSAP's lazy capture
       // under monotonic playback, resolved analytically).
       const atStart = () => trackValueAt(track, spec.startTime)
-      c.from[property] = explicitFrom ?? atStart()
-      c.to[property] =
-        relative !== undefined
-          ? c.from[property] + relative // '+=x' / '-=x' off the start value
-          : (explicitTo ?? atStart())
+      const fromRelative = spec.fromRelative?.[property]
+      if (fromRelative !== undefined) {
+        // from(target, { y: '-=500' }): lands where the target is, starts off it.
+        c.to[property] = explicitTo ?? atStart()
+        c.from[property] = c.to[property] + fromRelative
+      } else {
+        c.from[property] = explicitFrom ?? atStart()
+        c.to[property] =
+          relative !== undefined
+            ? c.from[property] + relative // '+=x' / '-=x' off the start value
+            : (explicitTo ?? atStart())
+      }
       track.tweens.push(c)
     }
   }

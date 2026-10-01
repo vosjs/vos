@@ -108,6 +108,19 @@ describe('lintVosDialect', () => {
     expect(bad.filter((i) => i.rule === 'unknown-ease')).toHaveLength(5)
   })
 
+  it('accepts the dialect-only spring ease in every spelling, flags a malformed one', () => {
+    const ok = lintVosDialect(
+      ct(
+        "(ctx) => { tl.to(p, { x: 1, ease: 'spring' }); tl.to(p, { y: 1, ease: 'spring(200)' }); tl.to(p, { z: 1, ease: 'spring(12, 180, 1)' }); tl.to(p, { w: 1, ease: 'spring.inOut' }) }",
+      ),
+    )
+    expect(ok.map((i) => i.rule)).not.toContain('unknown-ease')
+    const bad = lintVosDialect(
+      ct("(ctx) => { tl.to(p, { x: 1, ease: 'spring(stiff)' }) }"),
+    )
+    expect(bad.filter((i) => i.rule === 'unknown-ease')).toHaveLength(1)
+  })
+
   it('respects vos-lint-disable-next-line', () => {
     const clean = lintVosDialect(
       ct(

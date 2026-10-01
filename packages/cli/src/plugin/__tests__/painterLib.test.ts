@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { resolveEase, springSettleTime } from '@vosjs/timeline'
 import { PAINTER_LIB } from '../painterLib'
 
 // The block runs as written into a program: evaluated, it defines `lib`.
 const lib = new Function(`${PAINTER_LIB}\nreturn lib`)() as {
   spring: (o: Record<string, unknown>) => number
   springFrames: (fps: number, config?: Record<string, unknown>) => number
+  springSeconds: (config?: { damping?: number; stiffness?: number }) => number
   springTo: (...a: unknown[]) => number
   interpolate: (
     v: number,
@@ -54,6 +56,28 @@ describe('the painter starter', () => {
     expect(at(21)).toBe(1)
     expect(lib.springFrames(30)).toBe(28)
     expect(lib.springFrames(30, { damping: 200 })).toBe(23)
+  })
+
+  it("gives the duration that makes the timeline's spring ease Remotion's spring", () => {
+    for (const config of [
+      {},
+      { damping: 200 },
+      { damping: 12, stiffness: 180 },
+    ]) {
+      const secs = lib.springSeconds(config)
+      expect(secs).toBe(
+        springSettleTime(config.damping, config.stiffness, undefined),
+      )
+      // A tween that long, eased spring(...), IS Remotion's spring.
+      const ease = resolveEase(
+        `spring(${config.damping ?? 10}, ${config.stiffness ?? 100}, 1)`,
+      )
+      for (let frame = 0; frame * (1 / 30) < secs; frame++)
+        expect(ease(frame / 30 / secs)).toBeCloseTo(
+          lib.spring({ frame, fps: 30, config }),
+          9,
+        )
+    }
   })
 
   it('takes from, to, delay, and clamps an overshoot when asked', () => {

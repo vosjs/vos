@@ -60,6 +60,11 @@ export interface TweenSpec {
    * to the tween's start value (`destination = start + delta`).
    */
   toRelative?: Record<string, number>
+  /**
+   * A \`from()\` tween's relative start ('-=500'): the start is the END plus the
+   * delta, and the end is the target's value where the tween begins.
+   */
+  fromRelative?: Record<string, number>
   /** Absolute start on the master timeline (seconds), after position resolution. */
   startTime: number
   /** Tween duration (seconds); 0 for `.set`. */
