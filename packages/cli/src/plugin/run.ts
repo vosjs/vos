@@ -174,7 +174,7 @@ Take pipeline
   vos ingest <video.webm|mp4> [--cursor <trace.zip|steps.jsonl|cursor.csv>] [--as footage|take] [--out take] [--offset <ms>] [--viewport WxH] [--background <slug|url|none>] [--json]
             a take from a recording someone else made (a cloud agent's PR video, a Playwright run's video, a Loom export): the file becomes recording.<container>, meta.json from its own dimensions and duration, and a trace beside it becomes cursor.json so the planner has clicks to zoom on; without one, nothing is planned and the done event says so. Without a trace the file opens as FINISHED footage (a render from HyperFrames or Remotion, a film): no card, no browser bar, no drawn cursor, its own frame rate; --as take gives a screen demo the card
   vos port inventory <page.html|project dir> [--render <their render.mp4>] [--out port] [--json]
-            a finished piece (HyperFrames, Remotion's render, a hand-rolled page) read as a browser renders it: words, palette, faces (catalog or missing), media, scenes, gaps → port/inventory.json, with stills from its render
+            a finished piece (a HyperFrames composition, a Remotion project bundled with its own bundler, a hand-rolled page) read as a browser renders it: words, palette, faces (catalog or missing), media, scenes, gaps → port/inventory.json, with stills from its render
   vos port scaffold [--from port/inventory.json] [--out port/program] [--json]
             a data-first program from it: every word a bound element, every colour a key, knobs, a label and a TODO per scene, the score as a doc.json track, port/REPORT.md
   vos build <program.mjs> [--out config.json] [--json]
