@@ -1,5 +1,11 @@
 # @vosjs/elements
 
+## 0.10.1
+
+### Patch Changes
+
+- 699d2e5: The editor bridge picks what the frame shows. `HIT_TEST` skips an element that is hidden or faded to opacity 0 at this moment (a press goes through it to what is there), and `GET_ELEMENT_RECTS` reports such an element `visible: false`. A split text is picked by any of its units and boxed as the whole word, through the new `ElementInstance.meshes()`; before, only its first unit could be pressed.
+
 ## 0.10.0
 
 ### Minor Changes

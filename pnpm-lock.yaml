@@ -236,7 +236,7 @@ importers:
   packages/tween:
     dependencies:
       '@vosjs/timeline':
-        specifier: ^0.4.1
+        specifier: ^0.5.0
         version: link:../timeline
     devDependencies:
       esbuild:
