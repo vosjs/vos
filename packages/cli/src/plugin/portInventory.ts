@@ -95,6 +95,8 @@ export interface Inventory {
   variables: Record<string, unknown>
   /** Quoted strings in the page's scripts, for a piece that paints its words. */
   scriptStrings: string[]
+  /** Maths the source reaches for that the painter starter provides: 'spring', 'noise', 'interpolate', 'bezier', 'random'. */
+  uses?: string[]
   /** The source's own render, when one sits beside it. */
   render: string | null
   /** Stills from that render, at each scene's middle or each second. */
@@ -236,6 +238,22 @@ export function scriptFontFamilies(code: string): string[] {
       out.add(first)
   }
   return [...out]
+}
+
+/**
+ * What the source's code reaches for that the painter starter provides
+ * (pure): a Remotion \`spring(\` or \`measureSpring(\`, \`@remotion/noise\`
+ * or a \`noise2D/3D(\` call, \`interpolate(\`, \`Easing.bezier(\`, a seeded
+ * \`random(\`.
+ */
+export function sourceUses(code: string): string[] {
+  const out: string[] = []
+  if (/\bspring\s*\(|\bmeasureSpring\s*\(/.test(code)) out.push('spring')
+  if (/@remotion\/noise|\bnoise[234]D\s*\(/.test(code)) out.push('noise')
+  if (/\binterpolate\s*\(/.test(code)) out.push('interpolate')
+  if (/Easing\.bezier\s*\(|cubic-bezier\(/.test(code)) out.push('bezier')
+  if (/\brandom\s*\(\s*['"\w]/.test(code)) out.push('random')
+  return out
 }
 
 /** The catalog family for a source family, or null (pure over the catalog). */
@@ -637,6 +655,8 @@ export async function readInventory(
     gaps: read.gaps,
     variables: read.variables,
     scriptStrings,
+    uses:
+      (read.uses as string[] | undefined) ?? sourceUses(read.scriptText ?? ''),
     render: render ? relative(process.cwd(), render) : null,
     stills,
   }

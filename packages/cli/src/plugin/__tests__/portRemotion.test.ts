@@ -67,6 +67,8 @@ describe('reading a Remotion source', () => {
       },
       { scene: 'Depth', texts: [hud, text('DEPTH', 667, 355)] },
     ])
+    // Tag-numbered ids stay tag-numbered, so the scaffold names keys after the words.
+    for (const t of merged) expect(t.id).toMatch(/^div-\d+$/)
     expect(merged.map((t) => [t.text, t.scene])).toEqual([
       ['CLAUDE / REEL', null],
       ['MOTION', 'Intro'],
