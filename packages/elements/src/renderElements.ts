@@ -376,6 +376,10 @@ export async function renderElements(
       const elementInstance: Record<string, any> = {
         config,
         mesh,
+        // Every mesh the element draws: a split text is one per unit (and
+        // `mesh` is only the first), so picking and its box read this.
+        meshes: (): THREE_NS.Mesh[] =>
+          segmentMeshes.length ? segmentMeshes.slice() : [elementInstance.mesh],
         node: null,
         props,
         segments,
@@ -522,6 +526,7 @@ export async function renderElements(
       elementMap.set(id, {
         config,
         mesh: fallbackMesh,
+        meshes: () => [fallbackMesh],
         node: null,
         props,
         segments: null,
