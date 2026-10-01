@@ -35,6 +35,8 @@ export interface RenderResult {
   /** Uncaught exceptions the page threw while it rendered (it may still have
    * written a frame, so a caller says them instead of hiding them). */
   pageErrors: string[]
+  /** The engine's own '[vos] …' warnings: causes a picture cannot show. */
+  engineNotes: string[]
 }
 
 interface RenderComplete {
@@ -60,6 +62,7 @@ export interface StillPicture {
 export function stillWarnings(
   picture: StillPicture,
   pageErrors: readonly string[],
+  engineNotes: readonly string[] = [],
 ): string[] {
   const out: string[] = []
   if (picture.transparent) {
@@ -71,6 +74,8 @@ export function stillWarnings(
       'the still is a single flat colour: nothing drew at this time, or everything is hidden; check the time and the program for errors.',
     )
   }
+  // The engine's own notes ('[vos] …') name a cause the picture cannot.
+  for (const n of new Set(engineNotes)) out.push(n.replace(/^\[vos\]\s*/, ''))
   for (const e of pageErrors.slice(0, 3)) out.push(`the page threw: ${e}`)
   if (pageErrors.length > 3)
     out.push(`the page threw ${pageErrors.length - 3} more errors`)
@@ -85,15 +90,18 @@ async function runCapturePage(
   browser: Browser,
   html: string,
   opts: { width: number; height: number; timeoutMs: number },
-): Promise<RenderComplete & { pageErrors: string[] }> {
+): Promise<RenderComplete & { pageErrors: string[]; engineNotes: string[] }> {
   const context = await browser.newContext({
     viewport: { width: opts.width, height: opts.height },
   })
   const page: Page = await context.newPage()
   const errors: string[] = []
   const pageErrors: string[] = []
+  const engineNotes: string[] = []
   page.on('console', (m) => {
     if (m.type() === 'error') errors.push(m.text())
+    else if (m.type() === 'warning' && m.text().startsWith('[vos] '))
+      engineNotes.push(m.text())
   })
   page.on('pageerror', (e) => {
     pageErrors.push(String(e.message || e))
@@ -110,7 +118,7 @@ async function runCapturePage(
       const done = (await page.evaluate(
         'window.__renderComplete ?? null',
       )) as RenderComplete | null
-      if (done) return { ...done, pageErrors }
+      if (done) return { ...done, pageErrors, engineNotes }
       if (Date.now() - start > opts.timeoutMs) {
         const all = [...pageErrors, ...errors]
         return {
@@ -119,6 +127,7 @@ async function runCapturePage(
             all.length ? ` (page errors: ${all.slice(0, 3).join(' | ')})` : ''
           }`,
           pageErrors,
+          engineNotes,
         }
       }
       await new Promise((r) => setTimeout(r, 400))
@@ -131,6 +140,7 @@ async function runCapturePage(
 function decodeDataUrl(
   dataUrl: string,
   pageErrors: string[] = [],
+  engineNotes: string[] = [],
 ): RenderResult {
   const m = /^data:([^;,]+);base64,(.*)$/s.exec(dataUrl)
   if (!m) throw new Error('capture page returned an unexpected payload')
@@ -138,6 +148,7 @@ function decodeDataUrl(
     bytes: Uint8Array.from(Buffer.from(m[2], 'base64')),
     mimeType: m[1],
     pageErrors,
+    engineNotes,
   }
 }
 
@@ -174,7 +185,7 @@ export async function renderVideo(
   })
   if (!done.success || !done.data)
     throw new Error(done.error ?? 'render failed')
-  return decodeDataUrl(done.data, done.pageErrors)
+  return decodeDataUrl(done.data, done.pageErrors, done.engineNotes)
 }
 
 /** Render a single frame of a vos config to an image in a headless browser. */
@@ -205,7 +216,7 @@ export async function renderStill(
   })
   if (!done.success || !done.data)
     throw new Error(done.error ?? 'still render failed')
-  return decodeDataUrl(done.data, done.pageErrors)
+  return decodeDataUrl(done.data, done.pageErrors, done.engineNotes)
 }
 
 /**
