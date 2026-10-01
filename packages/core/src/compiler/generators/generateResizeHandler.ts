@@ -19,15 +19,23 @@ export function generateResizeHandler(config: VosConfig): string {
     ? '\n    if (compositeTarget) compositeTarget.setSize(bufferW, bufferH);\n    if (globalComposer) globalComposer.setSize(bufferW, bufferH);'
     : ''
 
-  // Overlay camera update (same for all main camera types). Canvas-backed
-  // element textures (text, SVG) re-rasterize for the new buffer density —
-  // the element system applies its own hysteresis, so calling per resize is
-  // cheap; the guard keeps older injected bundles working.
+  // Overlay camera update (same for all main camera types). The overlay world
+  // keeps the HEIGHT it was laid out at: element meshes (and any painter
+  // sized at setup) are placed in the pixels of the first frame, so a
+  // frustum re-pointed at the new pixel size left them at their old size in a
+  // smaller frame, cropped. Holding the height scales the whole overlay with
+  // the canvas; the width follows the new aspect, centred, so an unchanged
+  // aspect maps exactly. Canvas-backed element textures (text, SVG)
+  // re-rasterize for the new buffer density — the element system applies its
+  // own hysteresis, so calling per resize is cheap; the guard keeps older
+  // injected bundles working.
   const overlayResize = `
-    overlayCamera.left = -w / 2;
-    overlayCamera.right = w / 2;
-    overlayCamera.top = h / 2;
-    overlayCamera.bottom = -h / 2;
+    const overlayH = height;
+    const overlayW = height * (w / h);
+    overlayCamera.left = -overlayW / 2;
+    overlayCamera.right = overlayW / 2;
+    overlayCamera.top = overlayH / 2;
+    overlayCamera.bottom = -overlayH / 2;
     overlayCamera.updateProjectionMatrix();
     if (window.__vos__ && window.__vos__.elements && window.__vos__.elements.updateResolution) {
       window.__vos__.elements.updateResolution(elements, {
