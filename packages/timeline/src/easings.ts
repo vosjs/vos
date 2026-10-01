@@ -136,6 +136,74 @@ const stepsEase = (n: number): EaseFn => {
   return (x) => Math.min(1, Math.max(0, Math.floor(x * (count + 1)) / count))
 }
 
+/**
+ * spring(damping, stiffness, mass): a damped spring released from rest — the
+ * physics Remotion's `spring()` steps through, with its defaults (10, 100, 1).
+ * A DIALECT-ONLY name, like `css-bezier` (GSAP has no `spring` ease, so the
+ * GSAP backend falls back to its default there).
+ *
+ * The spring runs for its natural settle time (until it stays within 0.5 % of
+ * its target) stretched over the tween's duration, and lands exactly on 1, the
+ * way Remotion's `durationInFrames` stretches a spring. A damping ratio of 1 or
+ * more settles CRITICALLY at the natural frequency, as Remotion's does
+ * (measured), rather than crawling the way a true overdamped spring would.
+ * `out` is the spring; `in` and `inOut` are its reflections.
+ */
+const SPRING_SETTLE = 0.005
+const springUnit = (
+  t: number,
+  damping: number,
+  stiffness: number,
+  mass: number,
+): number => {
+  if (t <= 0) return 0
+  const w0 = Math.sqrt(stiffness / mass)
+  const z = damping / (2 * Math.sqrt(stiffness * mass))
+  if (z >= 1) return 1 - Math.exp(-w0 * t) * (1 + w0 * t)
+  const wd = w0 * Math.sqrt(1 - z * z)
+  return (
+    1 -
+    Math.exp(-z * w0 * t) *
+      (Math.cos(wd * t) + ((z * w0) / wd) * Math.sin(wd * t))
+  )
+}
+
+/** The spring's natural settle time in seconds (1 ms resolution, 30 s cap). */
+export function springSettleTime(
+  damping = 10,
+  stiffness = 100,
+  mass = 1,
+): number {
+  // Integer steps, never an accumulated float: the same instants on every
+  // engine, so the starter's springSeconds equals this to the last bit.
+  let last = 0
+  for (let i = 0; i <= 30000; i++)
+    if (
+      Math.abs(springUnit(i * 0.001, damping, stiffness, mass) - 1) >=
+      SPRING_SETTLE
+    )
+      last = i * 0.001
+  return last + 0.001
+}
+
+const springOut = (damping = 10, stiffness = 100, mass = 1): EaseFn => {
+  const d = damping > 0 ? damping : 10
+  const k = stiffness > 0 ? stiffness : 100
+  const m = mass > 0 ? mass : 1
+  const settle = springSettleTime(d, k, m)
+  return (x) => (x <= 0 ? 0 : x >= 1 ? 1 : springUnit(x * settle, d, k, m))
+}
+
+const springTriple = (
+  damping?: number,
+  stiffness?: number,
+  mass?: number,
+): EaseTriple => {
+  const o = springOut(damping, stiffness, mass)
+  const i: EaseFn = (x) => 1 - o(1 - x)
+  return { in: i, out: o, inOut: inOut(i) }
+}
+
 const build = (): Record<string, EaseFn> => {
   const e: Record<string, EaseFn> = {
     none: (x) => x,
@@ -179,6 +247,7 @@ const CONFIGURABLE: Record<string, (...args: number[]) => EaseTriple> = {
     return { in: f, out: out(f), inOut: inOut(f) }
   },
   elastic: (amplitude, period) => elastic(amplitude, period),
+  spring: (damping, stiffness, mass) => springTriple(damping, stiffness, mass),
 }
 
 /**
@@ -217,7 +286,9 @@ function parse(name: string): EaseFn | undefined {
   // Bare family (no direction) defaults to `.out`, matching GSAP.
   const direction = (dir ?? 'out') as keyof EaseTriple
 
-  if (args.length && fam in CONFIGURABLE) {
+  // `spring` is dialect-only and kept OUT of the GSAP-parity registry, so its
+  // bare forms (`spring`, `spring.in`) resolve here, defaults and all.
+  if ((args.length && fam in CONFIGURABLE) || fam === 'spring') {
     return CONFIGURABLE[fam](...args)[direction]
   }
   // Unparameterized (possibly bare) name → registry lookup.

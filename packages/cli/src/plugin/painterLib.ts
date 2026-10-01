@@ -99,6 +99,15 @@ export const PAINTER_LIB = `    // THE PAINTER STARTER (vos port): the maths eve
       return 1 - Math.exp(-z * w0 * t) * (Math.cos(wd * t) + ((z * w0) / wd) * Math.sin(wd * t))
     }
     // The frames a spring takes to settle within half a percent and stay there.
+    // The spring's continuous settle time in seconds: the duration that makes
+    // a tween eased 'spring(damping, stiffness, mass)' (@vosjs/timeline 0.5+)
+    // move exactly as Remotion's spring. Same rule and 1 ms step as the ease.
+    const springSeconds = (config = {}) => {
+      let last = 0
+      for (let i = 0; i <= 30000; i++)
+        if (Math.abs(springUnit(i * 0.001, config) - 1) >= 0.005) last = i * 0.001
+      return last + 0.001
+    }
     const springFrames = (fps, config = {}) => {
       let last = 0
       for (let f = 0; f <= fps * 10; f++)
@@ -200,4 +209,4 @@ export const PAINTER_LIB = `    // THE PAINTER STARTER (vos port): the maths eve
         corner(p[ii + i2 + p[jj + j2 + p[kk + k2]]], x0 - i2 + 2 * G3, y0 - j2 + 2 * G3, z0 - k2 + 2 * G3) +
         corner(p[ii + 1 + p[jj + 1 + p[kk + 1]]], x0 - 1 + 3 * G3, y0 - 1 + 3 * G3, z0 - 1 + 3 * G3))
     }
-    const lib = { clamp, interpolate, bezier, spring, springFrames, springTo, noise2D, noise3D, random, rng }`
+    const lib = { clamp, interpolate, bezier, spring, springFrames, springSeconds, springTo, noise2D, noise3D, random, rng }`

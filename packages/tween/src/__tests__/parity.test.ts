@@ -249,6 +249,22 @@ const CASES: Case[] = [
     },
   },
   {
+    // A from() with a RELATIVE value starts off the destination and lands on
+    // it (GSAP: from y-500 to y). It used to be read as a `to` delta, so the
+    // tween ENDED 500 off and the element left the frame.
+    name: "relative from ('-=' / '+=' on .from) lands on the target's value",
+    targets: () => ({ a: { y: 200, x: 40 }, b: { y: 0 } }),
+    build: (tl, o) => {
+      tl.from(o.a, { y: '-=500', duration: 1, ease: 'power2.out' }, 0.2)
+      tl.from(o.a, { x: '+=30', duration: 0.5, ease: 'none' }, 0)
+      tl.from(
+        o.b,
+        { y: '-=80', x: 3, duration: 0.8, ease: 'back.out(1.7)' },
+        0.5,
+      )
+    },
+  },
+  {
     name: 'default duration and default ease',
     targets: () => ({ a: { x: 0 } }),
     build: (tl, o) => {

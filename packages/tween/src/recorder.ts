@@ -211,6 +211,7 @@ export class RecordingTimeline {
     from: Record<string, number> | undefined,
     parsed: ParsedVars,
     position: number | string | undefined,
+    fromRelative?: Record<string, number>,
   ): void {
     const base = this.pos.resolve(position) + parsed.delay
     // Array targets expand into one spec per element with stagger offsets.
@@ -229,6 +230,7 @@ export class RecordingTimeline {
       }
       if (from) spec.from = from
       if (parsed.relative) spec.toRelative = parsed.relative
+      if (fromRelative) spec.fromRelative = fromRelative
       if (parsed.repeat !== undefined) spec.repeat = parsed.repeat
       if (parsed.yoyo !== undefined) spec.yoyo = parsed.yoyo
       if (parsed.repeatDelay !== undefined)
@@ -338,8 +340,16 @@ export class RecordingTimeline {
   ): this {
     // `.from` animates FROM these values TO the target's current state; we record the
     // explicit values as `from` and leave `to` empty (destination resolved at extract).
+    // A relative value ('-=500') is relative to that destination, so it rides as
+    // `fromRelative`, never as a `to` delta (which would END the tween 500 off).
     const parsed = parseVars(vars)
-    this.record(target, parsed.props, { ...parsed, props: {} }, position)
+    this.record(
+      target,
+      parsed.props,
+      { ...parsed, props: {}, relative: undefined },
+      position,
+      parsed.relative,
+    )
     this.backend?.from(target, vars, position)
     return this
   }

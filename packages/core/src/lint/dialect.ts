@@ -171,10 +171,12 @@ const SUPPORTED_EASE_FAMILIES = new Set([
   'back',
   'elastic',
   'bounce',
+  // Dialect-only, like css-bezier: a damped spring stretched over the tween.
+  'spring',
 ])
 
 /** Families whose parameterized form the evaluator implements. */
-const PARAMETERIZABLE = new Set(['back', 'elastic', 'steps'])
+const PARAMETERIZABLE = new Set(['back', 'elastic', 'steps', 'spring'])
 
 // Capture the string value of `ease: '<name>'` (single or double quoted).
 const EASE_RE = /\bease\s*:\s*['"]([^'"]+)['"]/g
@@ -220,7 +222,7 @@ function lintEases(
       match: m[0],
       index: m.index,
       line,
-      message: `Ease "${raw}" is outside the supported set (families: ${[...SUPPORTED_EASE_FAMILIES].join(', ')}; parameterized: back/elastic/steps; css-bezier(x1, y1, x2, y2)) — would fall back to linear.`,
+      message: `Ease "${raw}" is outside the supported set (families: ${[...SUPPORTED_EASE_FAMILIES].join(', ')}; parameterized: back/elastic/steps/spring(damping, stiffness, mass); css-bezier(x1, y1, x2, y2)) — would fall back to linear.`,
     })
   }
   return issues
