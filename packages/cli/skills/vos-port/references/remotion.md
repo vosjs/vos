@@ -16,7 +16,7 @@ rows name what has no element equivalent yet.
 | `useCurrentFrame()` | nothing in a tween (the timeline is the clock); `ctx.time * fps` inside `onFrame` |
 | `interpolate(f, [a, b], [x, y], { easing, extrapolate: 'clamp' })` | `tl.fromTo(props, { p: x }, { p: y, duration: (b - a) / fps, ease }, a / fps)` |
 | `Easing.bezier(x1, y1, x2, y2)` | `ease: 'css-bezier(x1, y1, x2, y2)'` (exact) |
-| `spring({ frame, fps, config })` | GAP: no spring ease; `back.out(n)` of a similar overshoot, checked by eye |
+| `spring({ frame, fps, config })` | the painter starter (cli 0.56+): `content.refs.lib.springTo(tl, props, { y: [from, to] }, at, { fps, config })` puts Remotion's own spring on the timeline, a step per frame, exact to the frame; `lib.spring({ frame, fps, config })` is the value (`durationInFrames`, `delay`, `overshootClamping` as Remotion's). On an older CLI: `back.out(n)` of a similar overshoot, by eye |
 | `<Sequence from durationInFrames>` | `tl.addLabel(name, from / fps)` and the scene's elements tweened in and out inside that window |
 | `<TransitionSeries>` + `fade()` | opacity tweens across the overlap window |
 | `<AbsoluteFill>` + flex centring | `position: 'center'`; offsets in `transform: { translateX, translateY }` (design px) |
@@ -31,7 +31,7 @@ rows name what has no element equivalent yet.
 | `<Audio src={staticFile('s.mp3')} />` | `doc.json` `audio: [{ key: 's.mp3', start, in, out, duration, gain, fadeIn, fadeOut }]` |
 | `<Video>` / `<OffthreadVideo>` | a `video` element, windowed by opacity; a source in-point is not supported yet |
 | `@remotion/google-fonts` `loadFont()` | `fonts: [{ family, weight, url }]` from `https://vos.so/api/fonts`; a face the catalog lacks is substituted and said |
-| `@remotion/noise` `noise3D`, SVG `feTurbulence` grain | the painter, reading its seed and amounts from `data` |
+| `@remotion/noise` `noise3D`, SVG `feTurbulence` grain | the painter, with `content.refs.lib.noise2D/noise3D(seed, …)` (cli 0.56+: seeded simplex, the character of `@remotion/noise`, not its values, so match by eye), reading its seed and amounts from `data` |
 | `mixBlendMode` | GAP: the painter |
 | an inline `<svg>` shape | an `svg` element (`src` is the markup); its colours are static, so a shape colour that must be a knob is painted |
 | a solid background | `ctx.scene.background = new ctx.THREE.Color(ctx.data.ink)` in `createContent`, `.set(ctx.data.ink)` in `onFrame` |

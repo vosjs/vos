@@ -10,6 +10,7 @@ import { spawnSync } from 'node:child_process'
 import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, resolve } from 'node:path'
 import { findFontFamily, fontFaceUrl, nearestFontWeight } from '@vosjs/shared'
+import { PAINTER_LIB } from './painterLib'
 import type { Inventory, InventoryText } from './portInventory'
 
 const DESIGN_HEIGHT = 1080
@@ -288,6 +289,11 @@ export function planScaffold(
     : []
 
   const painter = inv.canvases.length > 0 || inv.gaps.length > 0
+  const uses = inv.uses ?? []
+  // The starter rides along when a painter needs it or the source's motion
+  // reaches for its maths (a spring, noise), so the timeline can use it too.
+  const lib = painter || uses.length > 0
+  if (uses.includes('spring')) data.fps = inv.fps ?? 30
   const duration = Math.round((inv.duration ?? 5) * 1000) / 1000
   const program = programSource({
     source: inv.source,
@@ -299,6 +305,8 @@ export function planScaffold(
     elements,
     scenes: inv.scenes,
     painter,
+    lib,
+    uses,
   })
 
   // ── the score: a document track, the file beside the program ──
@@ -360,6 +368,7 @@ export function planScaffold(
       elements: elements.length,
       params: params.length,
       painter,
+      uses,
       scores: audio.map((a) => String(a.key)),
       extra: report,
     }),
@@ -376,6 +385,8 @@ function programSource(p: {
   elements: Record<string, unknown>[]
   scenes: { name: string; start: number; duration: number | null }[]
   painter: boolean
+  lib: boolean
+  uses: string[]
 }): string {
   const j = (v: unknown) => JSON.stringify(v, null, 2).replace(/\n/g, '\n  ')
   const sceneTodos = p.scenes.length
@@ -386,6 +397,13 @@ function programSource(p: {
         )
         .join('\n')
     : "    // TODO: translate the source's motion here, one block per scene (tl.addLabel above names them)"
+  const springHint = p.uses.includes('spring')
+    ? `
+    // The source springs: content.refs.lib.springTo(tl, target, { y: [120, 0] }, at,
+    //   { fps: ctx.data.fps, config: { damping: 200 } }) puts Remotion's spring on
+    //   the timeline frame by frame (spring({ frame, fps, config }) for a value).`
+    : ''
+  const libBlock = p.lib ? `\n${PAINTER_LIB}` : ''
   const painterContent = p.painter
     ? `
     // THE PAINTER (vos-port rule 6): one canvas, only for what no element can
@@ -406,31 +424,9 @@ function programSource(p: {
     plane.renderOrder = 100.995
     plane.frustumCulled = false
     ctx.overlayScene.add(plane)
-    // The starter's helpers: Remotion's interpolate, a seeded PRNG, smooth noise.
-    const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v)
-    const interpolate = (v, [a, b], [x, y], ease = (t) => t) =>
-      x + (y - x) * ease(clamp01((v - a) / (b - a)))
-    const rand = (seed) => () => {
-      seed |= 0
-      seed = (seed + 0x6d2b79f5) | 0
-      let r = Math.imul(seed ^ (seed >>> 15), 1 | seed)
-      r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r
-      return ((r ^ (r >>> 14)) >>> 0) / 4294967296
-    }
-    const hash = (x, y) => {
-      const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453
-      return s - Math.floor(s)
-    }
-    const noise2 = (x, y) => {
-      const xi = Math.floor(x), yi = Math.floor(y)
-      const xf = x - xi, yf = y - yi
-      const u = xf * xf * (3 - 2 * xf), v = yf * yf * (3 - 2 * yf)
-      const a = hash(xi, yi), b = hash(xi + 1, yi), c = hash(xi, yi + 1), d = hash(xi + 1, yi + 1)
-      return (a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v) * 2 - 1
-    }
-    return { objects: [], refs: { canvas, g: canvas.getContext('2d'), tex, lib: { interpolate, rand, noise2 } } }`
+    return { objects: [], refs: { canvas, g: canvas.getContext('2d'), tex${p.lib ? ', lib' : ''} } }`
     : `
-    return { objects: [], refs: {} }`
+    return { objects: [], refs: {${p.lib ? ' lib ' : ''}} }`
   const painterFrame = p.painter
     ? `
     // Paint the procedural layer from ctx.time and ctx.data, then upload it.
@@ -456,7 +452,7 @@ export default {
   elements: ${j(p.elements)},
 
   createContent(ctx) {
-    ctx.scene.background = new ctx.THREE.Color(ctx.data.bg)${painterContent}
+    ctx.scene.background = new ctx.THREE.Color(ctx.data.bg)${libBlock}${painterContent}
   },
 
   createTimeline(ctx, content, duration) {
@@ -475,7 +471,7 @@ export default {
         if (s.until != null && s.until < duration) tl.set(p, { opacity: 0 }, s.until)
       }
     }
-${sceneTodos}
+${sceneTodos}${springHint}
     tl.to({}, { duration }, 0)
     return tl
   },
@@ -499,6 +495,7 @@ function reportText(
     elements: number
     params: number
     painter: boolean
+    uses: string[]
     scores: string[]
     extra: string[]
   },
@@ -513,6 +510,11 @@ function reportText(
     '',
     `- ${r.elements} words as bound text elements, ${Object.keys(inv.palette).length} palette colours the source names (its custom properties or colour constants), ${r.params} knobs.`,
     `- ${inv.scenes.length} scenes as labels${inv.scenes.length ? '' : ' (none declared: name them as you translate)'}.`,
+    ...(r.painter || r.uses.length
+      ? [
+          `- the painter starter as \`content.refs.lib\`${r.uses.length ? ` (the source uses ${r.uses.join(', ')})` : ''}: \`spring\` (Remotion's, to the frame, \`durationInFrames\` included) and \`springTo\` (a spring on the timeline, a step per frame), \`interpolate\`, \`bezier\`, \`noise2D\`/\`noise3D\` (simplex: \`@remotion/noise\`'s character, not its values, so match blobs by eye), \`random\`/\`rng\`. Use these instead of reading the source engine's code.`,
+        ]
+      : []),
     ...(r.scores.length
       ? [
           `- the score as a doc.json track (${r.scores.join(', ')}, copied beside the program; vos push uploads it).`,

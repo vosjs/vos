@@ -15,7 +15,7 @@ import type { AddressInfo } from 'node:net'
 import { createRequire } from 'node:module'
 import { basename, extname, join } from 'node:path'
 import { launchBrowser } from '../browser'
-import { READ_GROUND, READ_PAGE } from './portInventory'
+import { READ_GROUND, READ_PAGE, sourceUses } from './portInventory'
 import type { InventoryMedia, InventoryText } from './portInventory'
 
 export interface RemotionSequence {
@@ -117,7 +117,9 @@ export function mergeSceneTexts(
       textPlaced.add(shape)
       out.push({
         ...t,
-        id: `${t.id}-${out.length}`,
+        // A tag-numbered id stays tag-numbered (the scaffold then names the
+        // key after the words); a real id is kept as the source wrote it.
+        id: /^[a-z][a-z0-9]*-\d+$/.test(t.id) ? `${t.tag}-${out.length}` : t.id,
         scene: shared ? null : s.scene,
       })
     }
@@ -377,6 +379,7 @@ export async function readRemotion(
       perScene.push({ scene: s.name, texts: read.texts ?? [] })
     }
 
+    const sources = sourceTexts(dir)
     const publicDir = join(dir, 'public')
     const media: InventoryMedia[] = tree.audio.map((a) => {
       const name = basename(a.src.split('?')[0])
@@ -399,7 +402,8 @@ export async function readRemotion(
       fps: c.fps,
       duration: Math.round(total * 1000) / 1000,
       texts: mergeSceneTexts(perScene),
-      palette: themeColors(sourceTexts(dir)),
+      palette: themeColors(sources),
+      uses: sourceUses(sources.join('\n')),
       colors: [...colors],
       gaps: [...gaps],
       media,
