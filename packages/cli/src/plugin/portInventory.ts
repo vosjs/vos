@@ -18,7 +18,7 @@ import {
   readdirSync,
   statSync,
 } from 'node:fs'
-import { basename, dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { findFontFamily } from '@vosjs/shared'
 import { launchBrowser } from '../browser'
@@ -62,7 +62,10 @@ export interface InventoryMedia {
 }
 
 export interface Inventory {
+  /** The source as given, relative to where the inventory ran ('.' for there). */
   source: string
+  /** The folder holding the source page or project, absolute: what the scaffold resolves media against. */
+  root?: string
   engine: SourceEngine
   width: number
   height: number
@@ -537,7 +540,8 @@ export async function readInventory(
 
   const scriptStrings = scriptStringsOf(read.scriptText as string)
   return {
-    source: relative(process.cwd(), abs) || basename(abs),
+    source: relative(process.cwd(), abs) || '.',
+    root: abs.endsWith('.html') ? dirname(abs) : abs,
     engine,
     width: read.width,
     height: read.height,

@@ -1,4 +1,8 @@
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { scaffoldSourceDir } from '../port'
 import {
   scriptFontFamilies,
   scriptScenes,
@@ -140,6 +144,64 @@ describe('the scaffold', () => {
     expect(plan.report).toMatch(/Mystery Grotesk\*\* is not in the catalog/)
     // The title's colour is the palette's accent, bound by key.
     expect(plan.program).toMatch(/"color": \{\s*"\$data": "accent"\s*\}/)
+  })
+})
+
+describe('the score', () => {
+  it('resolves media against the folder the inventory read, wherever the scaffold runs', () => {
+    expect(scaffoldSourceDir({ source: '.', root: '/work/reel' })).toBe(
+      '/work/reel',
+    )
+    expect(scaffoldSourceDir({ source: 'reel/index.html' })).toBe(
+      join(process.cwd(), 'reel'),
+    )
+  })
+
+  it('places a page audio as a doc.json track and says so only when it did', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'vos-port-'))
+    writeFileSync(join(dir, 'score.wav'), '')
+    const inv = {
+      source: '.',
+      root: dir,
+      engine: 'hyperframes',
+      width: 1920,
+      height: 1080,
+      fps: 30,
+      duration: 15,
+      scenes: [],
+      texts: [],
+      palette: {},
+      colors: [],
+      fonts: [],
+      canvases: [],
+      gaps: [],
+      variables: {},
+      scriptStrings: [],
+      render: null,
+      stills: [],
+      media: [
+        {
+          kind: 'audio',
+          src: 'score.wav',
+          start: 0,
+          duration: 15,
+          volume: 0.8,
+          mediaStart: null,
+        },
+      ],
+    } as unknown as Inventory
+    const placed = planScaffold(inv, {
+      sourceDir: dir,
+      probeDuration: () => 15,
+    })
+    expect(
+      (placed.doc.audio as { key: string; gain: number }[])[0],
+    ).toMatchObject({ key: 'score.wav', gain: 0.8 })
+    expect(placed.report).toMatch(/score as a doc\.json track \(score\.wav/)
+    const missing = planScaffold(inv, { sourceDir: join(dir, 'nowhere') })
+    expect(missing.doc.audio).toEqual([])
+    expect(missing.report).not.toMatch(/score as a doc\.json track/)
+    expect(missing.report).toMatch(/not in the source folder/)
   })
 })
 

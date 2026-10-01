@@ -358,6 +358,7 @@ export function planScaffold(
       elements: elements.length,
       params: params.length,
       painter,
+      scores: audio.map((a) => String(a.key)),
       extra: report,
     }),
   }
@@ -489,6 +490,7 @@ function reportText(
     elements: number
     params: number
     painter: boolean
+    scores: string[]
     extra: string[]
   },
 ): string {
@@ -502,8 +504,10 @@ function reportText(
     '',
     `- ${r.elements} words as bound text elements, ${Object.keys(inv.palette).length} palette colours from the source's custom properties, ${r.params} knobs.`,
     `- ${inv.scenes.length} scenes as labels${inv.scenes.length ? '' : ' (none declared: name them as you translate)'}.`,
-    ...(inv.media.some((m) => m.kind === 'audio')
-      ? ['- the score as a doc.json track (vos push uploads it).']
+    ...(r.scores.length
+      ? [
+          `- the score as a doc.json track (${r.scores.join(', ')}, copied beside the program; vos push uploads it).`,
+        ]
       : []),
     '',
     '## Faces',
