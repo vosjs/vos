@@ -22,6 +22,7 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { findFontFamily } from '@vosjs/shared'
 import { launchBrowser } from '../browser'
+import { readRemotion } from './portRemotion'
 
 export type SourceEngine = 'hyperframes' | 'remotion' | 'page'
 
@@ -33,6 +34,8 @@ export interface InventoryText {
   box: { x: number; y: number; width: number; height: number } | null
   /** The scene element it sits in, when the piece has scenes. */
   scene?: string | null
+  /** 'chars' when the source animates the word one span per letter: one split element. */
+  split?: 'chars' | null
   font: {
     family: string
     size: number
@@ -71,7 +74,13 @@ export interface Inventory {
   height: number
   fps: number | null
   duration: number | null
-  scenes: { name: string; start: number; duration: number | null }[]
+  /** `ground`: the full-frame colour behind the scene, when it was measured. */
+  scenes: {
+    name: string
+    start: number
+    duration: number | null
+    ground?: string | null
+  }[]
   texts: InventoryText[]
   /** CSS custom properties that hold a colour, by name, first. */
   palette: Record<string, string>
@@ -266,7 +275,7 @@ function probe(video: string): { fps: number | null; duration: number | null } {
 
 // The page-side reader, as a string: a serialized function would carry the
 // bundler's helpers into a page that has none.
-const READ_PAGE = `(() => {
+export const READ_PAGE = `(() => {
   const root = document.querySelector('[data-composition-id], [data-width][data-height]') || document.body
   const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null }
   const canvases = [...document.querySelectorAll('canvas')].map((c) => ({ width: c.width, height: c.height }))
@@ -277,31 +286,68 @@ const READ_PAGE = `(() => {
   const sx = rootRect.width ? width / rootRect.width : 1
   const sy = rootRect.height ? height / rootRect.height : 1
 
+  // The faces that actually render: a family loaded only italic, or only at
+  // one weight, draws that face whatever the CSS asked for.
+  const loaded = {}
+  if (document.fonts) for (const f of document.fonts) {
+    if (f.status !== 'loaded') continue
+    const fam = f.family.replace(/^["']|["']$/g, '')
+    const e = loaded[fam] || (loaded[fam] = { styles: new Set(), weights: new Set() })
+    e.styles.add(f.style)
+    const w = Number(f.weight)
+    if (Number.isFinite(w)) e.weights.add(w)
+  }
+  const renderedFace = (fam, style, weight) => {
+    const e = loaded[fam]
+    if (!e) return { style, weight }
+    const st = e.styles.has(style) ? style : style === 'normal' && e.styles.has('italic') ? 'italic' : style
+    const ws = [...e.weights]
+    const wt = !ws.length || ws.includes(weight) ? weight : ws.reduce((a, b) => (Math.abs(b - weight) < Math.abs(a - weight) ? b : a))
+    return { style: st, weight: wt }
+  }
   const texts = []
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
   const seen = new Set()
   let n = 0
   while (walker.nextNode()) {
     const node = walker.currentNode
-    const text = (node.textContent || '').replace(/\\s+/g, ' ').trim()
-    const el = node.parentElement
-    if (!text || !el || ['SCRIPT', 'STYLE', 'NOSCRIPT', 'TITLE'].includes(el.tagName)) continue
-    if (seen.has(el)) continue
-    seen.add(el)
-    const cs = getComputedStyle(el)
-    const r = el.getBoundingClientRect()
+    let el = node.parentElement
+    if (!el || !(node.textContent || '').trim() || el.closest('script, style, noscript, title')) continue
+    // A word animated letter by letter is one span per glyph: read the word,
+    // once, as a split word, never as its letters.
+    let split = null
+    const glyphs = (a) => a && a.children.length >= 3 && [...a.childNodes].every((c) => c.nodeType === 1 ? (c.textContent || '').trim().length <= 2 : !(c.textContent || '').trim())
+    for (let a = el.parentElement, up = 0; a && up < 3; a = a.parentElement, up++) {
+      if (glyphs(a)) { el = a; split = 'chars'; break }
+    }
+    // A line with a styled word inside it ("TYPE <span>that</span> MOVES")
+    // is read run by run, each with its own box, or the runs after the
+    // first are lost.
+    const mixed = !split && [...el.children].some((c) => (c.textContent || '').trim())
+    const unit = mixed ? node : el
+    if (seen.has(unit)) continue
+    seen.add(unit)
+    const text = ((mixed ? node.textContent : el.textContent) || '').replace(/\\s+/g, ' ').trim()
+    if (!text) continue
+    // A split word wears its letters' face, never its container's.
+    const cs = getComputedStyle(split ? node.parentElement : el)
+    let r
+    if (mixed) { const range = document.createRange(); range.selectNodeContents(node); r = range.getBoundingClientRect() }
+    else r = el.getBoundingClientRect()
     const box = r.width && r.height ? {
       x: Math.round((r.left - rootRect.left) * sx), y: Math.round((r.top - rootRect.top) * sy),
       width: Math.round(r.width * sx), height: Math.round(r.height * sy) } : null
     const ls = parseFloat(cs.letterSpacing)
-    el.setAttribute('data-vos-inv', String(texts.length))
+    if (!mixed) el.setAttribute('data-vos-inv', String(texts.length))
     const sceneEl = el.closest('.scene, [data-scene], section[id]')
+    const fam = cs.fontFamily.split(',')[0].trim().replace(/^["']|["']$/g, '')
+    const face = renderedFace(fam, cs.fontStyle, Number(cs.fontWeight) || 400)
     texts.push({
-      id: el.id || (el.className && typeof el.className === 'string' ? el.className.split(' ')[0] : '') || el.tagName.toLowerCase() + '-' + (n++),
-      text, tag: el.tagName.toLowerCase(), box, scene: sceneEl && sceneEl.id ? sceneEl.id : null,
-      font: { family: cs.fontFamily.split(',')[0].trim().replace(/^["']|["']$/g, ''),
-        size: Math.round(parseFloat(cs.fontSize) * sy), weight: Number(cs.fontWeight) || 400,
-        style: cs.fontStyle, color: cs.color, letterSpacing: Number.isFinite(ls) ? Math.round(ls * sy * 100) / 100 : 0,
+      id: (mixed ? '' : el.id || (el.className && typeof el.className === 'string' ? el.className.split(' ')[0] : '')) || el.tagName.toLowerCase() + '-' + (n++),
+      text, tag: el.tagName.toLowerCase(), box, scene: sceneEl && sceneEl.id ? sceneEl.id : null, split,
+      font: { family: fam,
+        size: Math.round(parseFloat(cs.fontSize) * sy), weight: face.weight,
+        style: face.style, color: cs.color, letterSpacing: Number.isFinite(ls) ? Math.round(ls * sy * 100) / 100 : 0,
         transform: cs.textTransform },
     })
   }
@@ -354,6 +400,30 @@ const READ_PAGE = `(() => {
     width, height, fps: num(root.dataset && root.dataset.fps), duration: num(root.dataset && root.dataset.duration),
     texts, palette, colors: [...colors], gaps: [...gaps], media, canvases, scenes, sceneEls, variables, scriptText,
   }
+})()`
+
+/**
+ * The scene's ground: the colour of the opaque, frame-filling element on top
+ * at the centre and the four corners, by majority (a circle in the middle or
+ * a card is not the ground).
+ */
+export const READ_GROUND = `(() => {
+  const W = innerWidth, H = innerHeight
+  const counts = {}
+  for (const [px, py] of [[0.5, 0.5], [0.06, 0.06], [0.94, 0.94], [0.06, 0.94], [0.94, 0.06]]) {
+    for (const el of document.elementsFromPoint(px * W, py * H)) {
+      const cs = getComputedStyle(el)
+      const bg = cs.backgroundColor
+      if (!bg || bg === 'transparent' || /rgba\\([^)]*,\\s*0\\)$/.test(bg)) continue
+      const r = el.getBoundingClientRect()
+      if (r.width < W * 0.9 || r.height < H * 0.9 || Number(cs.opacity) < 0.99) continue
+      counts[bg] = (counts[bg] || 0) + 1
+      break
+    }
+  }
+  let best = null
+  for (const k in counts) if (!best || counts[k] > counts[best]) best = k
+  return best
 })()`
 
 /**
@@ -444,12 +514,16 @@ export async function readInventory(
         const indices = (read.texts as InventoryText[])
           .map((t, i) => (t.scene === s.name ? i : -1))
           .filter((i) => i >= 0)
-        if (!indices.length) continue
         const t = s.start + (s.duration ?? 1) * 0.75
         const boxes = (await p.evaluate(
           `${SEEK_AND_READ}(${JSON.stringify({ t, indices, width: read.width, height: read.height })})`,
         )) as Record<string, InventoryText['box']> | null
-        if (!boxes) break
+        if (!boxes)
+          break
+          // The colour the scene stands on, where its timeline has put it.
+        ;(s as { ground?: string | null }).ground = (await p.evaluate(
+          READ_GROUND,
+        )) as string | null
         for (const [i, box] of Object.entries(boxes)) {
           read.texts[Number(i)].box = box
           settled++
@@ -460,9 +534,15 @@ export async function readInventory(
       await browser.close()
     }
   } else if (engine === 'remotion') {
-    opts.log?.(
-      'a Remotion project: its words and colours live in its source (src/), which the agent reads; the inventory records the render and its stills',
-    )
+    const r = await readRemotion(dir, opts.log)
+    if (r) {
+      read = r
+      fps = (r.fps as number) ?? fps
+      duration = (r.duration as number) ?? duration
+      opts.log?.(
+        `read the Remotion composition ${String(r.composition)} in its own bundle: ${(r.scenes as unknown[]).length} sequences as scenes, the words where they settle in each`,
+      )
+    }
   }
   if (settled)
     opts.log?.(

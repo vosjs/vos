@@ -94,7 +94,7 @@ export function planScaffold(
   const report: string[] = []
   const scale = DESIGN_HEIGHT / (inv.height || DESIGN_HEIGHT)
 
-  // ── palette: the source's own custom properties first ──
+  // ── palette: the colours the source names (custom properties, constants) first ──
   const colorKey = new Map<string, string>()
   for (const [name, value] of Object.entries(inv.palette)) {
     const key = keyFor(name, taken, 'color')
@@ -156,6 +156,7 @@ export function planScaffold(
       id: key,
       type: 'text',
       content: { $data: key },
+      ...(t.split ? { split: { type: t.split } } : {}),
       position: t.box
         ? { x: fmtPct(t.box.x / inv.width), y: fmtPct(t.box.y / inv.height) }
         : 'center',
@@ -245,6 +246,7 @@ export function planScaffold(
   data.scenes = inv.scenes.map((s) => ({
     name: s.name,
     at: s.start,
+    ...(s.ground ? { ground: colorOf(s.ground) } : {}),
     until:
       s.duration == null
         ? null
@@ -463,7 +465,9 @@ export default {
       tl.addLabel(s.name, s.at)
       // Each scene's words show in its window; the motion replaces this.
       for (const id of ctx.data.sceneElements[s.name] || []) {
-        const p = ctx.elements.get(id).props
+        // A split word's units carry their own opacity: hide the units.
+        const el = ctx.elements.get(id)
+        const p = el.segments && el.segments.length ? el.segments : el.props
         if (s.at > 0) {
           tl.set(p, { opacity: 0 }, 0)
           tl.set(p, { opacity: 1 }, s.at)
@@ -477,7 +481,12 @@ ${sceneTodos}
   },
 
   onFrame(ctx, content) {
-    ctx.scene.background.set(ctx.data.bg)${painterFrame}
+    // Each scene's ground, by its palette key; the frame's own colour between them.
+    let ground = ctx.data.bg
+    for (const s of ctx.data.scenes)
+      if (s.ground && ctx.time >= s.at && (s.until == null || ctx.time < s.until))
+        ground = ctx.data[s.ground] ?? ground
+    ctx.scene.background.set(ground)${painterFrame}
   },
 }
 `
@@ -495,14 +504,14 @@ function reportText(
   },
 ): string {
   const lines = [
-    `# Port report: ${inv.source}`,
+    `# Port report: ${inv.source === '.' && inv.root ? basename(inv.root) : inv.source}`,
     '',
     `${inv.engine} piece, ${inv.width}×${inv.height}${inv.fps ? ` at ${inv.fps} fps` : ''}, ${inv.duration ?? '?'} s. ` +
       `A program has no size of its own: render it with \`--width ${inv.width} --height ${inv.height}\`.`,
     '',
     '## Placed',
     '',
-    `- ${r.elements} words as bound text elements, ${Object.keys(inv.palette).length} palette colours from the source's custom properties, ${r.params} knobs.`,
+    `- ${r.elements} words as bound text elements, ${Object.keys(inv.palette).length} palette colours the source names (its custom properties or colour constants), ${r.params} knobs.`,
     `- ${inv.scenes.length} scenes as labels${inv.scenes.length ? '' : ' (none declared: name them as you translate)'}.`,
     ...(r.scores.length
       ? [
@@ -556,7 +565,7 @@ function reportText(
     '## Reference',
     '',
     inv.render
-      ? `The source's render: ${inv.render}. Stills in port/ref/. Check every scene: \`npx vos compare . --against ${inv.render}\`.`
+      ? `The source's render: ${inv.render}. Stills in port/ref/. Check every scene, from where the inventory ran: \`npx vos compare port/program --against ${inv.render}\`.`
       : 'No render of the source was found: render it with its own tool and pass it to `vos compare --against`.',
     '',
   ]
