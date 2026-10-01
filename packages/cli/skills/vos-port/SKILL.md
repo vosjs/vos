@@ -151,33 +151,36 @@ approximation.
 
 ## The procedure
 
-1. **Inventory before writing.** From the source: size, fps, duration;
-   scenes and their frame windows; every visible string; every colour (CSS
-   custom properties, theme constants); fonts; media and audio files; the
-   variables or `defaultProps` (they become params). Write them into `data`
-   first. This IS the port's contract.
-2. **Get the source's own render.** Remotion: `npx remotion render <id>
-   out/source.mp4`. HyperFrames: `npx hyperframes render`. It is the
-   reference every check compares against.
-3. **Scaffold** a `build.mjs` from `references/intro-port.mjs`: real
-   functions stringified, a template-literal guard, `data`, `params`,
-   `fonts`, one element per string and shape, a label per scene.
-4. **Translate scene by scene** with the tables. One scene, then check it,
-   then the next.
+1. **Get the source's own render.** Remotion: `npx remotion render <id>
+   out/source.mp4`. HyperFrames: `npx hyperframes render` (or the one in
+   `renders/`). It is the reference every check compares against.
+2. **Inventory before writing** (cli 0.54+): `npx vos port inventory
+   <page.html|project dir>` reads the piece as a browser renders it (words,
+   the palette from its custom properties, faces with their catalog match,
+   media, scenes, the CSS no element can say) into `port/inventory.json`,
+   with stills from its render. A HyperFrames word is laid out where it
+   SETTLES in its scene. A Remotion project's words live in `src/`: read
+   them there. This IS the port's contract.
+3. **Scaffold**: `npx vos port scaffold` writes `port/program/program.mjs`
+   (every word a bound element, every colour a key, the knobs, a label and a
+   TODO per scene, each scene's words shown in its window, a painter only
+   when the inventory needs one), `doc.json` with the score as a track, and
+   `port/REPORT.md` (substituted faces, gaps). Read the report first. On an
+   older CLI, scaffold from `references/intro-port.mjs` by hand.
+4. **Translate scene by scene** with the tables, replacing each TODO. One
+   scene, then check it, then the next.
 5. **Check** after every scene:
 
    ```bash
-   node build.mjs && vos check config.json
-   vos still config.json v.png --times 0.5,1,2 --width 1920 --height 1080
-   ffmpeg -ss 1 -i out/source.mp4 -frames:v 1 r-1.png
-   ffmpeg -i r-1.png -i v-1.00s.png -filter_complex "[0:v][1:v]ssim" -f null -   # SSIM
-   ffmpeg -i r-1.png -i v-1.00s.png -filter_complex hstack side.png            # LOOK at it
-   vos render config.json small.mp4 --width 960 --height 540                  # the scale check
+   npx vos build program.mjs && npx vos check .         # real functions → config.json; refuses module-scope reads
+   npx vos compare . --against ../../renders/source.mp4 # per-frame SSIM + source | vos | difference sheets
+   npx vos render . small.mp4 --width 960 --height 540  # the scale check (and the score, from doc.json)
    ```
 
-   A number does not catch a missing element: look at every side-by-side.
-   Text that `onFrame` writes is in the still too (core 0.25.2+); on an
-   older CLI check it in a rendered frame.
+   `vos compare` exits 1 when ANY frame is under 0.95 and writes a sheet
+   per frame: LOOK at them, because a number does not catch a missing
+   element. Without the 0.54 CLI, the same loop is `ffmpeg -ss <t>` for the
+   source frame, `vos still` for yours, and ffmpeg's `ssim` and `hstack`.
 6. **Knob honesty**: one `--set data.<key>=<value>` still per param.
 7. **Push** with the score: `vos push config.json --folder <slug> --label
    "port of <source>" --note "<what was substituted, what is a painter>"

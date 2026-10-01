@@ -63,6 +63,8 @@
     "@vosjs/studio-core": "workspace:^",
     "@vosjs/timeline": "workspace:^",
     "@vosjs/tween": "workspace:^",
+    "acorn": "^8.18.0",
+    "acorn-walk": "^8.3.5",
     "mediabunny": "^1.55.7",
     "playwright": "^1.49.0"
   },

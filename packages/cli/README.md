@@ -183,6 +183,20 @@ A session never enters a take directory and never reaches vos.so: `vos push` ref
 
 **Render time** (measured on an M-series laptop, 1080p): about 1.5x real time single-flight, of which several seconds are fixed browser launch and CDN module cost, so short takes are overhead-dominated and `--parallel` pays off on takes past roughly 30 s. 2K roughly doubles per-frame cost. Recording is real time plus a few seconds of encode.
 
+## Bringing a finished piece
+
+A video made in HyperFrames, Remotion or as a hand-rolled page is REWRITTEN into a vos program whose words and colours are data, so it keeps changing without code (the `vos-port` skill). Three verbs do the mechanical part:
+
+```bash
+vos port inventory ./piece          # words, palette, faces (catalog or missing), media, scenes, gaps → port/inventory.json, plus stills from its render
+vos port scaffold                   # port/program/: program.mjs (every word a bound element, every colour a key, knobs, a label per scene,
+                                    # a TODO per scene for the motion, a painter only when needed), doc.json (the score), config.json; port/REPORT.md
+vos build port/program/program.mjs  # real functions → config.json; refuses a module-scope read, syntax the page cannot run, non-JSON data
+vos compare port/program --against ./piece/renders/render.mp4   # per-frame SSIM and source | vos | difference sheets; exit 1 under 0.95
+```
+
+`inventory` reads the page as a browser renders it (computed styles, not CSS text): a HyperFrames composition's root `data-*`, its `<audio data-start data-volume>`, the scenes its timeline reveals, and each word laid out where it settles in its scene (the piece's own `window.__timelines`, seeked). A page that paints on a canvas gets the words and faces its scripts name. `compare` needs ffmpeg on PATH; it judges every frame on its own, because one missing element is a frame's failure that an average would hide.
+
 ## The take directory
 
 ```
