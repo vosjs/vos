@@ -19,6 +19,17 @@ describe('runCheck', () => {
     expect(r.config).not.toBeNull()
   })
 
+  it("never reports the studio's own layer code as the author's", () => {
+    const studio = {
+      id: 'vosso.studio',
+      setup: '(ctx) => { setTimeout(() => {}, 10) }',
+    }
+    const mine = { id: 'grain', setup: '(ctx) => { setTimeout(() => {}, 10) }' }
+    const r = runCheck({ ...VALID, stack: [studio, mine] })
+    const timers = r.issues.filter((i) => /\[timer\]/.test(i.message))
+    expect(timers).toHaveLength(1)
+  })
+
   it('unwraps { config } API envelopes', () => {
     const r = runCheck({ config: VALID })
     expect(r.ok).toBe(true)

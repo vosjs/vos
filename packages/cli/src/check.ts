@@ -16,6 +16,7 @@ import {
   lintVosFonts,
   lintVosPostprocessing,
 } from '@vosjs/core/lint'
+import { STUDIO_ENTRY_ID } from '@vosjs/studio-core'
 import { knobWarnings } from './plugin/knobs'
 
 export interface CheckIssue {
@@ -195,7 +196,11 @@ export function runCheck(parsed: unknown): CheckResult {
     return finish(migrated)
   }
 
+  // The studio's own layers ride a program document's composed config as a
+  // stack entry: machinery the author did not write, tested where it lives.
+  // Its lines are not the author's, so they never reach the author's check.
   for (const i of lintVosConfig(migrated as never)) {
+    if (i.entry === STUDIO_ENTRY_ID) continue
     issues.push({
       level: i.severity === 'error' ? 'error' : 'warn',
       source: 'determinism',

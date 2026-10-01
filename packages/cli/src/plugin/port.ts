@@ -88,13 +88,7 @@ async function scaffold(argv: string[]): Promise<number> {
     strFlag(flags, 'out') ?? join(dirname(from), 'program'),
   )
   const plan = planScaffold(inv, {
-    sourceDir: dirname(
-      resolve(
-        inv.source.endsWith('.html')
-          ? inv.source
-          : join(inv.source, 'index.html'),
-      ),
-    ),
+    sourceDir: scaffoldSourceDir(inv),
     probeDuration: probeAudioDuration,
   })
   writeScaffold(plan, outDir)
@@ -117,4 +111,18 @@ async function scaffold(argv: string[]): Promise<number> {
       'Translate the motion where it says TODO, then: npx vos build program.mjs && npx vos compare . --against <their render>',
   )
   return EXIT_OK
+}
+
+/**
+ * The folder the scaffold resolves the source's media against: the absolute
+ * root the inventory recorded, else (an older inventory) its source label
+ * read from where the scaffold runs.
+ */
+export function scaffoldSourceDir(
+  inv: Pick<Inventory, 'source' | 'root'>,
+): string {
+  if (inv.root) return inv.root
+  return inv.source.endsWith('.html')
+    ? dirname(resolve(inv.source))
+    : resolve(inv.source)
 }
