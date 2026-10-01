@@ -20,6 +20,8 @@ the render: a config produces the same frames on every machine.
 3. **Generate the config**: write a complete, valid VosConfigJson to
    `<kebab-case-name>.json` wherever the project keeps configs.
 4. **Validate locally** (see below), then render or preview it.
+5. **Push it and give the link** (see below): the work is done when the
+   user has a link that plays it, not when a file sits on disk.
 
 If the user provides an image, analyze its visual style (colors, mood,
 composition, lighting) and translate those qualities into the scene.
@@ -44,12 +46,25 @@ vos preview my-config.json             # local playback page
 vos info   my-config.json
 ```
 
-## Share for preview (no account needed)
+## Push it and give the link
 
-Local render is the default — nothing leaves the machine unless the user
-asks for sharing or hosting. When they do want to see it hosted (playable
-link, fine-tuning in the vos.so studio) and no API key is configured, use
-the claimable push:
+A vos program is made to be watched, tuned in the studio and remixed, so
+finish by pushing it and handing back the link. Skip the push only when the
+user said to keep the work local.
+
+Find a credential in this order, without printing it: `VOS_API_KEY`, then
+the first line of `~/.config/vos/credentials`. With one, push:
+
+```bash
+vos push my-config.json --title "…" --desc "one line" --wait
+# --wait stays until the cover has rendered, then prints the links
+```
+
+The vos lands PRIVATE on the key owner's shelf: only they can open the
+links, and publishing stays their act on vos.so. Keyed pushes never expire;
+iterate with `vos push my-config.json --vos <id>`.
+
+No credential at all? Use the claimable push instead of stopping:
 
 ```bash
 vos push my-config.json --claimable --title "…"
@@ -62,12 +77,16 @@ curl -s -X POST https://vos.so/api/claim \
 # → { "claimUrl": "https://vos.so/claim/…", "expiresAt": "…" }
 ```
 
-Hand `claimUrl` to the user and nowhere else — it is the only reference and
-the only credential. It lasts 72 hours; unclaimed work is deleted after
+Hand `claimUrl` to the user and nowhere else: it is the only reference and
+the only credential. It lasts 72 hours, and unclaimed work is deleted after
 that (re-push if it lapses). Claiming moves the vos into the user's
-library. With a key configured (`VOS_API_KEY` or `vos login`), prefer
-`vos push` — keyed pushes have no expiry. Programs only, config ≤200KB,
-5 pushes per day per network.
+library. Programs only, config ≤200KB, 5 pushes per day per network.
+
+End your reply with the links, never only a file path: the watch page
+(`https://vos.so/vos/<id>`, it plays the program) and the studio
+(`https://vos.so/studio?vos=<id>`, where the user tunes your knobs), or
+the claim link when there was no credential. A local MP4 is a bonus, not
+the deliverable.
 
 ## VosConfigJson structure
 
@@ -162,7 +181,8 @@ Values must reference declared param keys with matching types.
 Configs pushed to vos.so get preview-rendered on a software-GL fleet: no
 `THREE.DoubleSide` on transmission materials (hard hang), no `dispersion`
 (too slow), and any fetched asset must be reachable and CORS-open. These are
-fine for purely local renders on a real GPU.
+fine for purely local renders on a real GPU. They are things to avoid, never
+a reason to skip the push: keep transmission single-sided, and push.
 
 ## Your own passes: depth of field, refraction
 

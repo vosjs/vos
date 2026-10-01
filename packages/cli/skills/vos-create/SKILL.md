@@ -180,6 +180,8 @@ publish; promoting is the human's gesture on vos.so.
 **Look at what landed.** Every push renders a still within about 15
 seconds: `GET /api/vos/{id}`, follow `contentUrls.thumbnail`, and view the
 image before reporting done. A push you never looked at is not finished.
+Then end your reply with the links: the watch page
+(`https://vos.so/vos/<id>`) and the studio (`https://vos.so/studio?vos=<id>`).
 
 **Pace a batch**: back-to-back pushes are fine at the quota (the render
 queue spaces browser launches and backs off itself). Verify state after a
