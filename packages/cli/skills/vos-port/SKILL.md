@@ -169,7 +169,11 @@ approximation.
 3. **Scaffold**: `npx vos port scaffold` writes `port/program/program.mjs`
    (every word a bound element, every colour a key, the knobs, a label and a
    TODO per scene, each scene's words shown in its window, a painter only
-   when the inventory needs one), `doc.json` with the score as a track, and
+   when the inventory needs one, and the PAINTER STARTER as
+   `content.refs.lib` when the piece needs a painter or springs: Remotion's
+   `spring` to the frame, `springTo` for the timeline, `interpolate`,
+   `bezier`, seeded noise; never read another engine's source for these),
+   `doc.json` with the score as a track, and
    `port/REPORT.md` (substituted faces, gaps). Read the report first. On an
    older CLI, scaffold from `references/intro-port.mjs` by hand.
 4. **Translate scene by scene** with the tables, replacing each TODO. One
@@ -202,8 +206,8 @@ stated approximation:
 | a colour per split unit (`charStyle` making one letter red) | segments carry x/y/opacity/scale/rotation only: a separate element, or paint it |
 | `mixBlendMode` | no blend modes on elements: paint it |
 | a shape's colour as a knob | an svg's colours are compiled in (static `colors`): paint the shape if its colour must change live |
-| `spring()` | no spring ease in the dialect: a `back.out(n)` of the same shape, checked by eye |
-| `@remotion/noise`, SVG `feTurbulence` | the painter |
+| `spring()` | no spring EASE in the dialect; the scaffold's painter starter (cli 0.56+) has `lib.springTo`, Remotion's spring on the timeline a step per frame, exact. Older: `back.out(n)`, by eye |
+| `@remotion/noise`, SVG `feTurbulence` | the painter, on the starter's `lib.noise2D/noise3D` (the same character, not the same values) |
 | a group transform (scale the whole scene) | no element groups: tween each element the same way |
 
 Colours render as authored from `@vosjs/elements` 0.8.2 (older versions
