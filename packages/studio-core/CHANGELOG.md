@@ -1,5 +1,12 @@
 # @vosjs/studio-core
 
+## 0.33.3
+
+### Patch Changes
+
+- Updated dependencies [bf37561]
+  - @vosjs/timeline@0.5.0
+
 ## 0.33.2
 
 ### Patch Changes

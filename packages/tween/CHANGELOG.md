@@ -1,5 +1,14 @@
 # @vosjs/tween
 
+## 0.8.3
+
+### Patch Changes
+
+- bf37561: A `from()` with a relative value now starts off the target's value and lands on it, as GSAP's does: `tl.from(props, { y: '-=500' })` starts 500 above and ends where the element is. The recorder read the relative value as a `to` delta, so the tween ENDED 500 off and the element left the frame for good (the element was on screen before the tween and gone after it). It is recorded as `fromRelative` now, and before the tween starts the target shows its start value (`immediateRender`), as an absolute `from` already did. Held to GSAP in the differential parity suite.
+- bf37561: A `spring(damping, stiffness, mass)` ease (defaults 10, 100, 1; bare `spring`, `spring.in`, `spring.inOut` too), dialect-only like `css-bezier`: a damped spring released from rest, run for its natural settle time (until it stays within 0.5 % of the target) stretched over the tween, landing exactly on 1, as Remotion's `durationInFrames` stretches its `spring()`. A damping ratio of 1 or more settles critically at the natural frequency, as Remotion's does. A tween whose duration is the spring's settle time moves as Remotion's spring does, frame for frame (`springSettleTime(damping, stiffness, mass)` in `@vosjs/timeline`; `content.refs.lib.springSeconds(config)` in a ported program). The dialect lint accepts it in every spelling; GSAP has no such ease, so the GSAP backend falls back to its default. `@vosjs/tween`'s runtime bundle carries it to every render page. The port scaffold's hint now puts a source's springs on the timeline with the ease, never in `onFrame`.
+- Updated dependencies [bf37561]
+  - @vosjs/timeline@0.5.0
+
 ## 0.8.2
 
 ### Patch Changes
