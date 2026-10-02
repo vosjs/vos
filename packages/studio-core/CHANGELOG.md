@@ -1,5 +1,12 @@
 # @vosjs/studio-core
 
+## 0.35.0
+
+### Minor Changes
+
+- f2a2230: A text layer can mix weights. Emphasis is OPT-IN per clip: with `emphasis` set (`{}` is enough), `*words between asterisks*` are set in the emphasis weight (the family's bold step, or `emphasis.weight`) and colour (`emphasis.color`), so a light line can carry bold words, the two-weight caption, and a word-by-word or char-by-char reveal keeps every word in its own weight; `\*` is a literal asterisk there. Without `emphasis`, asterisks are text as typed, so no existing caption changes. The markers become two control characters around every emphasized word at lowering (`parseEmphasis`, `overlayDisplayText`, `stripEmphasis`); ON_FRAME measures and draws run by run, switching fonts at them, and the host's picking rect and wrap measure through `measureEmphasized`, its mirror. The emphasis face loads with the rest, so the first frame has it. `vos validate` checks `emphasis` and says so when a clip has marked words but emphasis is off; the doc schema documents both.
+- 53057e5: A zoom can hold its target to one side: `zoom[].screen` (`{ x, y }`, fractions of the frame) is where the target lands at the apex under the stage camera, instead of the centre, so a deep zoom can keep its subject at the left third with the ground open beside it for a caption. A placed span is the author's composition, so the stage camera's cover band does not clamp it; a span that follows the cursor ignores it, and the magnifier has no use for it. ON_FRAME, `zoomView`, `zoomViewport` and its inverse `focusForViewportCentre`, `focusBounds`/`clampFocus`, the pin projection and the framing lint (`zoomWindow`/`zoomCoversRect`) all take the point; the track carries it as two more components only when some span is placed, so every other document lowers its four-component track byte-identically. `vos validate` and the doc schema take `screen`, refuse pixels in words, and warn when it cannot act.
+
 ## 0.34.0
 
 ### Minor Changes
