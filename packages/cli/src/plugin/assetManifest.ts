@@ -16,7 +16,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { extname, join, relative } from 'node:path'
+import { join, relative } from 'node:path'
 import { hostedAssetId, localFile, manifestRefs } from '../programAssets'
 import { downloadMedia, uploadDocRefs } from './media'
 import type { DocMediaRef } from './media'
@@ -32,20 +32,6 @@ const homeOrigins = (origin: string) => [
   'https://vos.so',
   'https://www.vos.so',
 ]
-
-/**
- * Kinds a push cannot carry yet: the upload door takes pictures, video,
- * sound and a GLB. Said before anything is sent, with what to do instead.
- */
-const NOT_UPLOADABLE: Record<string, string> = {
-  '.woff2': 'a font',
-  '.woff': 'a font',
-  '.ttf': 'a font',
-  '.otf': 'a font',
-  '.hdr': 'an HDR',
-  '.exr': 'an EXR',
-  '.gltf': 'a .gltf (export it as one .glb)',
-}
 
 /** `assets/.hosted.json`: which hosted file each file brought home is. */
 const HOME_INDEX = '.hosted.json'
@@ -93,12 +79,6 @@ export async function uploadManifest(
       continue
     }
     if (isUrl(ref)) continue
-    const kind = NOT_UPLOADABLE[extname(ref).toLowerCase()]
-    if (kind) {
-      throw new Error(
-        `${where(name, index)} names ${ref}: a push cannot upload ${kind} yet (pictures, video, sound and .glb models go). Host it at a URL and name the URL; the font and HDR catalogs are on assets.vos.so (GET /api/fonts)`,
-      )
-    }
     // A push uploads what the manifest names, so it holds the same line a
     // render does: only a file inside the program's own directory.
     const found = localFile(ref, dir)

@@ -362,6 +362,7 @@ export async function pushTake(
       `recording upload failed: ${e instanceof Error ? e.message : String(e)}`,
     )
   }
+  for (const note of upload.notes) r.log(`  note: ${note}`)
   const assetId = upload.id
   const assetUrl = upload.url
   r.event({ event: 'recording', assetId, reused: upload.reused })

@@ -24,6 +24,7 @@ import {
 } from '../assetManifest'
 import { cmdPushProgram } from '../program'
 import type { Server } from 'node:http'
+import { uploadDoor } from './uploadDoor'
 
 const A = '11111111-1111-4111-8111-111111111111'
 const B = '22222222-2222-4222-8222-222222222222'
@@ -46,6 +47,12 @@ interface Seen {
 
 function serve(seen: Seen[]): Promise<string> {
   const ids = [A, B]
+  const door = uploadDoor((declared) => ({
+    id: ids.shift() ?? A,
+    kind: 'image',
+    filename: declared.filename,
+    size: declared.size,
+  }))
   server = createServer((req, res) => {
     const chunks: Buffer[] = []
     req.on('data', (c: Buffer) => chunks.push(c))
@@ -64,20 +71,14 @@ function serve(seen: Seen[]): Promise<string> {
         method: req.method ?? '',
         url,
         body,
-        hash: req.headers['x-content-hash'] as string | undefined,
+        hash: body?.sha256 as string | undefined,
       })
       const send = (status: number, payload: Record<string, unknown>) => {
         res.writeHead(status, { 'content-type': 'application/json' })
         res.end(JSON.stringify(payload))
       }
-      if (url === '/api/assets/recording') {
-        const id = ids.shift() ?? A
-        return send(201, {
-          id,
-          url: `/api/assets/${id}/file`,
-          size: raw.length,
-        })
-      }
+      const upload = door(req.method ?? '', url, body)
+      if (upload) return send(upload.status, upload.payload)
       if (url.startsWith('/api/assets/') && url.endsWith('/file')) {
         res.writeHead(200, { 'content-type': 'image/png' })
         return res.end(PNG)
@@ -148,7 +149,7 @@ describe('uploadManifest', () => {
       (l) => log.push(l),
     )
     expect(got.uploaded).toBe(2)
-    const uploads = seen.filter((s) => s.url === '/api/assets/recording')
+    const uploads = seen.filter((s) => s.url === '/api/assets/uploads')
     expect(uploads).toHaveLength(2)
     // Content-addressed: each upload says its own hash, so a re-push is free.
     expect(new Set(uploads.map((u) => u.hash)).size).toBe(2)
@@ -193,22 +194,25 @@ describe('uploadManifest', () => {
     expect(config.assets).toEqual({ gone: { ref: './gone.png' } })
   })
 
-  it('says in words what a push cannot carry yet, before sending anything', async () => {
+  it('uploads a font or an HDR like any other file the manifest names', async () => {
     const seen: Seen[] = []
     const origin = await serve(seen)
     const dir = mkdtempSync(join(tmpdir(), 'vos-manifest-'))
-    writeFileSync(join(dir, 'studio.hdr'), 'x')
-    await expect(
-      uploadManifest(
-        { assets: { env: { ref: './studio.hdr' } } },
-        dir,
-        { origin, key: 'k' },
-        () => {},
-      ),
-    ).rejects.toThrow(
-      /assets\.env names \.\/studio\.hdr: a push cannot upload an HDR yet/,
+    writeFileSync(join(dir, 'studio.hdr'), '#?RADIANCE\n')
+    const config: Record<string, unknown> = {
+      assets: { env: { ref: './studio.hdr', kind: 'hdr' } },
+    }
+    const got = await uploadManifest(
+      config,
+      dir,
+      { origin, key: 'k' },
+      () => {},
     )
-    expect(seen).toEqual([])
+    expect(got.uploaded).toBe(1)
+    expect(config.assets).toEqual({ env: { ref: `asset:${A}`, kind: 'hdr' } })
+    // What it is, is the platform's answer: nothing here guesses a type.
+    const begin = seen.find((s) => s.url === '/api/assets/uploads')
+    expect(begin?.body?.filename).toBe('studio.hdr')
   })
 
   it('leaves the same path on another host a URL', async () => {

@@ -328,7 +328,7 @@ vos pull bright-loop [--since <versionId>] [--check]   # what changed on vos.so 
                                                        # --check reports without writing; --since walks from a base you name
 vos duplicate <vosId>                                  # a private sibling of your OWN vos (someone else's is remixed: fetch, then push --remix-of)
 vos folder list | create <name> [--parent] [--desc] | move <ids…> --to <folder|none> | pull <ref> [--media]
-vos asset push <file…> [--folder <slug>] | rename <id> <name.ext>   # sound and video too: they land in Sound > Uploads
+vos asset push <file…> [--folder <slug>] | rename <id> <name.ext>   # any kind the platform takes (GET /api/limits): models, pictures, SVG, fonts, HDR, sound, video
 vos recipe push <FILE.md> --folder <slug> | --asset <id>   # the one recipe write: create, or replace in place
 ```
 
