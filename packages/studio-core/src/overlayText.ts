@@ -238,14 +238,18 @@ export function overlayFontFaces(
 ): OverlayFontFace[] {
   const faces = [...OVERLAY_FONT_FACES]
   const seen = new Set(faces.map((f) => `${f.family}|${f.weight}`))
-  for (const o of doc.overlays ?? []) {
-    if (o.kind !== 'text') continue
-    const face = overlayFaceFor(o)
-    if (!face) continue
+  const add = (face: OverlayFontFace | null | undefined) => {
+    if (!face) return
     const key = `${face.family}|${face.weight}`
-    if (seen.has(key)) continue
+    if (seen.has(key)) return
     seen.add(key)
     faces.push(face)
+  }
+  for (const o of doc.overlays ?? []) {
+    if (o.kind !== 'text') continue
+    add(overlayFaceFor(o))
+    // The emphasis weight's face, so the first frame has it (SETUP awaits).
+    add(resolveEmphasis(o)?.face)
   }
   return faces
 }
@@ -253,6 +257,160 @@ export function overlayFontFaces(
 export function overlayLines(text: string): string[] {
   const lines = text.split('\n')
   return lines.length ? lines : ['']
+}
+
+// ---------------------------------------------------------------------------
+// Emphasis. `*words*` in a text layer are set in the emphasis weight. The
+// lowering turns the markers into two control characters around EVERY
+// emphasized word (never across a space), so a wrapped line, a word unit or
+// a line unit always carries its own state; a char unit reads its state
+// from the line's prefix. ON_FRAME switches fonts at the marks; a layer
+// with no markers bakes no marks and takes the old draw calls unchanged.
+// ---------------------------------------------------------------------------
+
+/** Opens an emphasized word in the displayed text. */
+export const EM_OPEN = '\u0001'
+/** Closes an emphasized word in the displayed text. */
+export const EM_CLOSE = '\u0002'
+
+/**
+ * The displayed text of `*marked*` source, with EM_OPEN/EM_CLOSE around each
+ * emphasized word, or null when nothing is marked (the caller keeps the
+ * source as it is). A `*` pairs with the next `*` on the same line around
+ * non-blank words; `\*` is a literal asterisk; a lone `*` stays literal.
+ */
+export function parseEmphasis(text: string): string | null {
+  let any = false
+  const lines = text.split('\n').map((line) => {
+    const chars: string[] = []
+    const bold: boolean[] = []
+    // Unescape first, remembering which asterisks are markers.
+    const marker: boolean[] = []
+    for (let i = 0; i < line.length; i++) {
+      if (line[i] === '\\' && line[i + 1] === '*') {
+        chars.push('*')
+        marker.push(false)
+        i++
+      } else {
+        chars.push(line[i])
+        marker.push(line[i] === '*')
+      }
+    }
+    const keep = chars.map(() => true)
+    for (let i = 0; i < chars.length; i++) {
+      if (!marker[i]) continue
+      let j = i + 1
+      while (j < chars.length && !marker[j]) j++
+      if (j >= chars.length) break
+      const inner = chars.slice(i + 1, j).join('')
+      if (!inner.trim()) {
+        i = j - 1
+        continue
+      }
+      keep[i] = false
+      keep[j] = false
+      for (let k = i + 1; k < j; k++) bold[k] = true
+      any = true
+      i = j
+    }
+    // Over the KEPT characters only (the markers are gone): an emphasized
+    // non-space character opens a mark when the one before it is not one,
+    // and closes it when the one after it is not, so every word carries its
+    // own pair and a space is never inside a mark.
+    const kept: { c: string; b: boolean }[] = []
+    for (let i = 0; i < chars.length; i++) {
+      if (keep[i])
+        kept.push({ c: chars[i], b: !!bold[i] && !/\s/.test(chars[i]) })
+    }
+    let out = ''
+    for (let i = 0; i < kept.length; i++) {
+      const { c, b } = kept[i]
+      if (b && !(i > 0 && kept[i - 1].b)) out += EM_OPEN
+      out += c
+      if (b && !(i + 1 < kept.length && kept[i + 1].b)) out += EM_CLOSE
+    }
+    return out
+  })
+  return any ? lines.join('\n') : null
+}
+
+/** The text a layer paints: its emphasis marks applied, else its source. */
+export function overlayDisplayText(
+  clip: Pick<TextOverlayClip, 'text'>,
+): string {
+  return parseEmphasis(clip.text) ?? clip.text
+}
+
+/** A displayed text without its marks: what a person reads. */
+export function stripEmphasis(text: string): string {
+  return text.split(EM_OPEN).join('').split(EM_CLOSE).join('')
+}
+
+/** The emphasis set a text layer resolves to, when its text marks any word. */
+export interface ResolvedEmphasis {
+  weight: number
+  color?: string
+  /** The hosted face to load for the weight, when it is not a base face. */
+  face?: OverlayFontFace
+}
+
+/** The weight a family's bold step resolves to when the clip names none. */
+const EMPHASIS_WEIGHT = 700
+
+export function resolveEmphasis(
+  clip: TextOverlayClip,
+): ResolvedEmphasis | null {
+  if (parseEmphasis(clip.text) === null) return null
+  const style = resolveOverlayStyle(clip)
+  const entry = findFontFamily(
+    clip.family ??
+      PRESET_FAMILY[clip.preset in TEXT_PRESETS ? clip.preset : 'title'],
+  )
+  const wanted =
+    clip.emphasis?.weight ?? Math.max(EMPHASIS_WEIGHT, style.weight)
+  const weight = entry ? nearestFontWeight(entry, wanted) : wanted
+  const inBase = OVERLAY_FONT_FACES.some(
+    (f) => entry && f.family === entry.family && f.weight === weight,
+  )
+  return {
+    weight,
+    ...(clip.emphasis?.color ? { color: clip.emphasis.color } : {}),
+    ...(entry && !inBase
+      ? {
+          face: {
+            family: entry.family,
+            weight,
+            url: fontFaceUrl(entry.slug, weight),
+          },
+        }
+      : {}),
+  }
+}
+
+/**
+ * The width of a displayed text with emphasis marks, measured run by run
+ * in the normal and the emphasis font. MIRRORS ON_FRAME's `olMeasure`
+ * (change together). `bold` is the state the text starts in.
+ */
+export function measureEmphasized(
+  text: string,
+  measure: (run: string, font: string) => number,
+  font: string,
+  emFont: string,
+  bold = false,
+): number {
+  let w = 0
+  let run = ''
+  let b = bold
+  for (const c of text) {
+    if (c === EM_OPEN || c === EM_CLOSE) {
+      if (run) w += measure(run, b ? emFont : font)
+      run = ''
+      b = c === EM_OPEN
+    } else run += c
+  }
+  if (run) w += measure(run, b ? emFont : font)
+  return w
 }
 
 /**
@@ -373,7 +531,9 @@ export function resolveOverlayFx(
   const spec = overlayFxSpec(clip) ?? clip.fx ?? null
   if (!spec) return null
   const unit = spec.unit ?? 'block'
-  const units = overlaySegments(clip.text, unit)
+  // The DISPLAYED text: emphasis marks ride inside the units (zero-width).
+  const text = overlayDisplayText(clip)
+  const units = overlaySegments(text, unit)
   const n =
     unit === 'block' ? 1 : units.reduce((sum, line) => sum + line.length, 0)
   // Wrapping happens at DRAW time (it needs measurement), so with maxWidth
@@ -383,7 +543,7 @@ export function resolveOverlayFx(
   // actual per-line delays regroup in ON_FRAME.
   const upperN =
     unit === 'line' && clip.maxWidth
-      ? overlayLines(clip.text).reduce(
+      ? overlayLines(text).reduce(
           (sum, line) => sum + overlayTokens(line).length,
           0,
         )
@@ -476,18 +636,25 @@ export function overlayRect(
   const style = resolveOverlayStyle(clip)
   const font = overlayFontString(style, scale, 1)
   const ls = style.letterSpacing * scale
+  // Emphasized words measure in their own weight, run by run (the
+  // painter's olMeasure); a clip with no markers measures as it always did.
+  const em = resolveEmphasis(clip)
+  const emFont = em
+    ? overlayFontString({ ...style, weight: em.weight }, scale, 1)
+    : ''
+  const width = (t: string) =>
+    em
+      ? measureEmphasized(t, (run, f) => measure(run, f, ls), font, emFont)
+      : measure(t, font, ls)
+  const text = overlayDisplayText(clip)
   // Wrap BEFORE measuring the block — mirrors ON_FRAME's wrap (maxWidth is
   // a frame-width fraction; this rect works in design px, so the budget is
   // maxWidth × frameW directly).
   const lines = clip.maxWidth
-    ? wrapOverlayLines(
-        overlayLines(clip.text),
-        (t) => measure(t, font, ls),
-        clip.maxWidth * frameW,
-      )
-    : overlayLines(clip.text)
+    ? wrapOverlayLines(overlayLines(text), width, clip.maxWidth * frameW)
+    : overlayLines(text)
   let w = 0
-  for (const line of lines) w = Math.max(w, measure(line, font, ls))
+  for (const line of lines) w = Math.max(w, width(line))
   const lineH = style.size * scale * style.lineHeight
   // The background pill extends the drawn (and thus pickable) bounds —
   // mirrors ON_FRAME's pill geometry exactly.
