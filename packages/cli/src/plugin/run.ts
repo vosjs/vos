@@ -274,10 +274,26 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
   vos asset push <file...> [--folder <folderId|slug>]
             add files to your library: models, pictures and SVGs, fonts,
             HDR maps, sound, video, captions and recipes. The platform
-            reads each file and answers what it is and the name it is
-            stored under; the same bytes twice are the same file. Prints
-            the url a doc.json key takes. GET /api/limits lists the
-            kinds, their size caps and their daily rates
+            reads each file and answers what it is; the same bytes twice
+            are the same file. Prints, per file, what was read, its
+            asset:<id>, the url a doc.json key takes, and the line that
+            declares it in a program's "assets"
+  vos asset import <url> [--name <file>] [--folder <slug>]
+                         [--license <text>] [--attribution <text>]
+            fetch a file from an address and add it, with where it came
+            from kept beside it. Say the license: it is what lets the
+            next person use the file
+  vos assets ls [--kind <kind>] [--folder <slug>|none] [--q <text>]
+                [--sort recent|size|name] [--limit <n>]
+            what is in your library: id, kind, size, whether a program
+            uses it, and whether it is a library file or attached to a
+            document
+  vos assets usage
+            storage held, of how much, and the part in Trash; uploads in
+            the last 24 hours per kind against each daily rate
+  vos assets why <assetId>
+            every program that uses a file, and how (in what plays now,
+            in history, in a draft): why it is kept
   vos recipe push <file.md> --folder <folderId|slug>
   vos recipe push <file.md> --asset <assetId>
             put a recipe (a plain .md) on the shelf: --folder creates it
@@ -2448,6 +2464,7 @@ export async function run(argv: string[]): Promise<number> {
       case 'folder':
         return await cmdFolder(rest)
       case 'asset':
+      case 'assets':
         return await cmdAsset(rest)
       case 'recipe':
         return await cmdRecipe(rest)

@@ -113,7 +113,8 @@ export const manifest: PluginManifest = {
     },
     {
       name: 'asset',
-      summary: 'rename one of your assets in place (recipes included)',
+      summary:
+        'your files: push or import one, list them (assets ls), see storage (assets usage) and what uses a file (assets why)',
     },
     {
       name: 'recipe',

@@ -263,6 +263,8 @@ A file the program uses (a picture, a video, a model, a font file) is named in `
 - `kind` is a hint: `image`, `video`, `audio`, `model`, `font`, `hdr`.
 - A name is an identifier (`cover`, `shot_2`), because it is read as `ctx.assets.<name>`.
 - A file on `assets.vos.so` (the font and HDR catalogs) is a URL and may stay one: `"ref": "https://assets.vos.so/…"`.
+- A file that is not on this machine: `vos asset push <file>` adds it to the person's library and prints the line to paste into `assets` (`"cover": { "ref": "asset:<id>", "kind": "image" }`). `vos asset import <url> --license <text> --attribution <text>` does the same for a file at an address and keeps where it came from beside it: say the license, because it is what lets the next person use the file. Both need `@vosjs/cli` 0.63 or later.
+- `vos assets ls` lists what the library already holds (`--kind image`, `--q logo`): look before uploading a file again. `vos assets why <id>` names every program that uses one.
 
 **Never type a file's URL or path inside a function string.** It renders on your machine and then fails where it matters: a server render of a private vos cannot fetch it, and a remix does not bring it along. `vos check` reports a `"$assets.<name>"` that names nothing, a declared path that is not a file, and a hosted file typed in code.
 

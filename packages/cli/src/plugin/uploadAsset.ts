@@ -75,6 +75,10 @@ export interface UploadedAsset {
   metadata: Record<string, unknown> | null
   /** What the platform did to the file or wants said about it. */
   notes: string[]
+  /** The reference a program's manifest takes. */
+  ref: string
+  /** Seconds, for what plays. */
+  duration: number | null
 }
 
 export interface UploadTarget {
@@ -109,6 +113,11 @@ export interface UploadOptions {
    * the platform collects if nothing ever does.
    */
   intent?: 'library' | 'attached'
+  /**
+   * Where the file came from, as the uploader states it: kept beside the
+   * file and shown with it. The platform does not check it.
+   */
+  provenance?: { sourceUrl?: string; license?: string; attribution?: string }
 }
 
 function failed(what: string, r: ApiResult): Error {
@@ -136,6 +145,9 @@ function asAsset(
     notes: Array.isArray(body.notes)
       ? body.notes.filter((n): n is string => typeof n === 'string')
       : [],
+    ref:
+      typeof asset.ref === 'string' ? asset.ref : `asset:${String(asset.id)}`,
+    duration: typeof asset.duration === 'number' ? asset.duration : null,
   }
 }
 
@@ -233,12 +245,21 @@ export async function uploadAsset(
     const sealed = await apiJson(
       target.origin,
       `${door}/${uploadId}/complete`,
-      { method: 'POST', key: target.key, body: { parts: etags } },
+      {
+        method: 'POST',
+        key: target.key,
+        body: {
+          parts: etags,
+          ...(opts.provenance ? { provenance: opts.provenance } : {}),
+        },
+      },
     )
     if (sealed.status !== 201 && sealed.status !== 200) {
       throw failed('upload failed', sealed)
     }
-    return asAsset(sealed.body, false)
+    // The platform hashes what it stored: bytes this account already held
+    // come back as the file it had, whatever was declared.
+    return asAsset(sealed.body, sealed.body.reused === true)
   } catch (err) {
     // Hand the parts back rather than leaving them held server-side.
     await apiJson(target.origin, `${door}/${uploadId}`, {
