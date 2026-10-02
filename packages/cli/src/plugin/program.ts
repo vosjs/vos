@@ -37,8 +37,15 @@ import {
   writeSyncState,
 } from './platform'
 import { programPushTarget } from './sync'
+import { hostedAssetId, manifestRefs } from '../programAssets'
 import { listFolders, resolveFolder } from './folder'
 import { docAudioRefs, docLayerRefs, pullMedia, uploadDocRefs } from './media'
+import {
+  hostedLiteralWarnings,
+  localManifestRefs,
+  pullManifest,
+  uploadManifest,
+} from './assetManifest'
 import { lintDoc } from './validateDoc'
 import { landedLines, waitForLanded } from './landed'
 import type {
@@ -229,6 +236,33 @@ export async function cmdFetch(argv: string[]): Promise<number> {
     }
   }
 
+  // A program's declared files: with --media they come home beside the
+  // config and its manifest names them by path; without, the manifest keeps
+  // the hosted refs, which a local render reads with your key.
+  let assetsLine = ''
+  if (!take) {
+    const configPath = join(out, 'config.json')
+    const written = JSON.parse(await readFile(configPath, 'utf8')) as Record<
+      string,
+      unknown
+    >
+    const hostedCount = manifestRefs(written).filter(({ ref }) =>
+      hostedAssetId(ref),
+    ).length
+    if (hostedCount && flags.media === true) {
+      const pulled = await pullManifest({ origin, key }, out, written, r.log)
+      if (pulled) {
+        await writeFile(
+          configPath,
+          JSON.stringify({ ...written, assets: pulled.assets }, null, 2),
+        )
+        assetsLine = `\n${pulled.files.length} declared file${pulled.files.length === 1 ? '' : 's'} in ${out}/assets`
+      }
+    } else if (hostedCount) {
+      assetsLine = `\n${hostedCount} declared file${hostedCount === 1 ? ' is' : 's are'} hosted (a render reads ${hostedCount === 1 ? 'it' : 'them'} with your key). Add --media to bring ${hostedCount === 1 ? 'it' : 'them'} home`
+    }
+  }
+
   r.done(
     {
       out,
@@ -243,7 +277,7 @@ export async function cmdFetch(argv: string[]): Promise<number> {
           (flags.media === true
             ? `Then: vos digest ${out} — look before you cut; edit doc.json; vos validate ${out}; vos push ${out}`
             : `Add --media to bring the recording home (digest/frames/render need it); then edit doc.json and vos push ${out}`)
-      : `Wrote ${out}/config.json + vos.json (${title || id})\n` +
+      : `Wrote ${out}/config.json + vos.json (${title || id})${assetsLine}\n` +
           `Edit config.json, then: vos check ${out}/config.json && vos push ${out}/config.json`,
   )
   return EXIT_OK
@@ -417,6 +451,7 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
   }
   // A program document beside the config: the shared layers, the tween
   // overlay, the anchor's own length. Lint-gated like a take's doc.
+  for (const w of hostedLiteralWarnings(config)) r.log(`warning ${w}`)
   const programDoc = await readProgramDoc(dir, config)
   if (programDoc) {
     const lint = lintDoc(programDoc as never)
@@ -457,6 +492,12 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
           `warning a claimable push carries no files, so ${local.length} local sound${local.length === 1 ? '' : 's'} (${[...dropped].join(', ')}) ${local.length === 1 ? 'was' : 'were'} left out. After the claim, push again with a key to add ${local.length === 1 ? 'it' : 'them'}`,
         )
       }
+    }
+    const stay = localManifestRefs(config)
+    if (stay.length) {
+      r.log(
+        `warning a claimable push carries no files, so ${stay.length} declared file${stay.length === 1 ? '' : 's'} (${stay.join(', ')}) will not load until the work is claimed and pushed again with a key`,
+      )
     }
     const body: Record<string, unknown> = {
       title,
@@ -499,6 +540,11 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
       (l) => r.log(l),
     )
   }
+  // The files the program itself declares (config.assets): uploaded the
+  // same way, and named on the platform as asset:<id>. The config object is
+  // the one the document carries, so both leave with the hosted refs; the
+  // file on disk keeps its paths.
+  await uploadManifest(config, dir, { origin, key }, (l) => r.log(l))
   // Accept both the repeatable --override id and the legacy --overrides id,id.
   // multi's index access is typed present but runtime-optional — hence the cast.
   const overrides = [

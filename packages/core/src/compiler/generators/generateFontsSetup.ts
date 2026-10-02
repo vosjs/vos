@@ -17,7 +17,12 @@
  *
  * Always emitted — data fonts must work on configs that declare none.
  */
-export function generateFontsSetup(config: { fonts?: unknown }): string {
+import { bindAssets } from './generateAssetsSetup'
+
+export function generateFontsSetup(config: {
+  fonts?: unknown
+  assets?: unknown
+}): string {
   const fonts = config.fonts
   const fontsJson =
     Array.isArray(fonts) && fonts.length > 0
@@ -48,7 +53,7 @@ export function generateFontsSetup(config: { fonts?: unknown }): string {
     }
     return loads;
   };
-  const fontFaceDecls = ${fontsJson};
+  const fontFaceDecls = ${bindAssets(config, fontsJson)};
   {
     const bootFontLoads = [
       ...__vosRegisterFonts(fontFaceDecls),

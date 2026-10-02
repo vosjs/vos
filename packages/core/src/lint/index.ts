@@ -24,3 +24,10 @@ export {
   type PostprocessingRule,
   type PostprocessingSeverity,
 } from './postprocessing'
+export {
+  lintVosAssets,
+  hasAssetErrors,
+  type AssetIssue,
+  type AssetRule,
+  type AssetSeverity,
+} from './assets'

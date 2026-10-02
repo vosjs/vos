@@ -53,6 +53,11 @@ export interface SetupContext {
    * Always defined (defaults to `{}`). Shape is the author's/app's, not vos's.
    */
   data: Readonly<Record<string, unknown>>
+  /**
+   * The files the program declared in `config.assets`, by name, each as the
+   * URL (or URLs) the host resolved for this surface. Always defined.
+   */
+  assets: Readonly<Record<string, string | string[]>>
 }
 
 /**
@@ -320,6 +325,9 @@ export interface VosConfig {
 
   /** Webfont faces registered + awaited before first render (fail-open). */
   fonts?: import('./vosConfigJson').FontFaceDecl[]
+
+  /** The files the program uses, by name: read as `ctx.assets.<name>`. */
+  assets?: Record<string, import('./vosConfigJson').AssetDecl>
 
   /** Arbitrary input data exposed as `ctx.data` (overridable by `deps.data` at runtime). */
   data?: Record<string, unknown>

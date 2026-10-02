@@ -31,6 +31,8 @@ export type {
 
 // JSON-serializable config type
 export type {
+  AssetDecl,
+  AssetKind,
   AuthoredVosConfigJson,
   ProgramEntryJson,
   VosConfigJson,

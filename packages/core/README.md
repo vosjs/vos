@@ -66,6 +66,7 @@ Other `generateRenderTemplate` options: `elementsBundleCode` (the `@vosjs/elemen
 | `createTimeline`    | `(ctx, content, duration) => timeline`, in the GSAP dialect on `ctx.gsap`.                                                                                                                                                                                                                                   |
 | `onFrame`           | `(ctx, content, deltaTime)`. Runs every frame; the place to read `ctx.data` for live knobs.                                                                                                                                                                                                                  |
 | `data`              | Arbitrary JSON the program reads as `ctx.data`. Replaced live with `SET_DATA`; see below.                                                                                                                                                                                                                    |
+| `assets`            | `{ name: { ref, kind? } }`: the files the program uses, by name. Read as `ctx.assets.<name>`, or `"$assets.<name>"` in an element, object or font; see below.                                                                                                                                                |
 | `elements`          | 2D overlay elements (text, image, svg, video, audio) rendered by `@vosjs/elements`. Text `content`, `font.family` and `font.color` accept `{ $data: key }`.                                                                                                                                                  |
 | `objects`           | Declared 3D objects: primitives, GLB models and 3D text.                                                                                                                                                                                                                                                     |
 | `fonts`             | `[{ family, url, weight?, style? }]`. Registered and awaited before the first frame (capped at 4 s, fail-open).                                                                                                                                                                                              |
@@ -85,6 +86,35 @@ A program compiled once can take new `data` without reloading. The bridge comman
 3. Otherwise the content is rebuilt in place: dispose, run `createContent` again, restore the transport. No module re-import, no blank frame.
 
 So knobs work on every program, and `onFrame` is the cheap path. Bind text to data with `{ $data: key }` and a `SET_DATA` re-rasters only the affected elements.
+
+## Declared files: `assets` and `ctx.assets`
+
+A program that types a file's URL inside a function has hidden that file from every host: nothing can serve it to a render page on another origin, bring it along when the program is copied, or know it is still in use. Declare the file by name instead and read the name:
+
+```ts
+const config = {
+  version: 2,
+  duration: 6,
+  assets: {
+    logo: { ref: './logo.png', kind: 'image' },
+    shots: { ref: ['./shots/1.png', './shots/2.png'], kind: 'image' },
+  },
+  elements: [{ id: 'mark', type: 'image', src: '$assets.logo' }],
+  setup:
+    'async (ctx) => ({ maps: await Promise.all(ctx.assets.shots.map((url) => new ctx.THREE.TextureLoader().loadAsync(url))) })',
+  // …
+}
+```
+
+`ctx.assets.<name>` is a URL, or an array of URLs when the entry's `ref` is a list. It is on the context of `setup`, `createContent`, `createTimeline`, `onFrame` and every stack entry. An element, object or font is data, so it names a file as the string `"$assets.<name>"` (`"$assets.<name>[2]"` for one of a list; a list named without an index is its first file).
+
+The URL a program sees is resolved in three rungs, nearest first:
+
+1. `deps.assets[name]`, handed to `initVos(container, deps)` by the host for the surface it is running on. A capture page takes it as `capture.assets` in `generateRenderTemplate`.
+2. The default baked at compile time: the `ref` passed through `compileVosConfig(config, { resolveAssetRef })`, which is where a host maps its own reference scheme to a URL.
+3. The `ref` as written, when no host said anything. Right for a URL or a path.
+
+`kind` (`image`, `video`, `audio`, `model`, `font`, `hdr`) is a hint for a host that lists or checks files; the engine does not read it. `lintVosAssets` reports a `"$assets.<name>"` string that names nothing (an error), a function that reads a name the manifest lacks, and a declared file nothing reads.
 
 ## Retime
 
@@ -176,6 +206,7 @@ import {
   hasDeterminismErrors,
   lintVosDialect,
   lintVosFonts,
+  lintVosAssets,
 } from '@vosjs/core/lint'
 
 const issues = lintVosConfig(config)
