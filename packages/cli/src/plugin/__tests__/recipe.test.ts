@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { cmdRecipe } from '../recipe'
+import { uploadDoor } from './uploadDoor'
 import { UsageError } from '../args'
 import type { Server } from 'node:http'
 
@@ -25,6 +26,17 @@ interface Seen {
 }
 
 function serve(seen: Seen[]): Promise<string> {
+  // A recipe an agent files is stored under the CAPS convention: the
+  // platform names it, and the verb reports the name that landed.
+  const door = uploadDoor((declared) => ({
+    id: 'asset-9',
+    kind: 'recipe',
+    filename: String(declared.filename).replace(
+      /^(.*)\.md$/,
+      (_, stem) => `${String(stem).toUpperCase()}.md`,
+    ),
+    metadata: { name: 'louver-design', description: 'Slatted light.' },
+  }))
   server = createServer((req, res) => {
     const chunks: Buffer[] = []
     req.on('data', (c: Buffer) => chunks.push(c))
@@ -49,16 +61,14 @@ function serve(seen: Seen[]): Promise<string> {
           ],
         })
       }
-      if (url === '/api/assets/upload' && req.method === 'POST') {
-        if (!body.includes('name="folderId"')) {
-          return send(400, { error: 'Folder not found' })
-        }
-        return send(201, {
-          id: 'asset-9',
-          filename: 'design.md',
-          metadata: { name: 'louver-design', description: 'Slatted light.' },
-        })
+      let json: Record<string, unknown> | null = null
+      try {
+        json = JSON.parse(body) as Record<string, unknown>
+      } catch {
+        // a part's body is the file's bytes, not JSON
       }
+      const upload = door(req.method ?? '', url, json)
+      if (upload) return send(upload.status, upload.payload)
       if (url === '/api/assets/asset-1/file' && req.method === 'PUT') {
         return send(200, { id: 'asset-1', filename: 'design.md' })
       }
@@ -96,7 +106,7 @@ function tmpFile(name: string): string {
 }
 
 describe('vos recipe push', () => {
-  it('--folder resolves the slug and POSTs the file as multipart into it', async () => {
+  it('--folder resolves the slug and files the recipe through the upload door', async () => {
     const seen: Seen[] = []
     const origin = await serve(seen)
     const code = await cmdRecipe([
@@ -111,14 +121,18 @@ describe('vos recipe push', () => {
     expect(code).toBe(0)
     expect(seen.map((s) => `${s.method} ${s.url}`)).toEqual([
       'GET /api/folders',
-      'POST /api/assets/upload',
+      'POST /api/assets/uploads',
+      'PUT /api/assets/uploads/up-1/parts/1',
+      'POST /api/assets/uploads/up-1/complete',
     ])
-    const upload = seen[1]
-    expect(upload.contentType).toMatch(/^multipart\/form-data; boundary=/)
-    expect(upload.body).toContain('name="file"; filename="design.md"')
-    expect(upload.body).toContain('name="folderId"')
-    expect(upload.body).toContain('folder-1')
-    expect(upload.body).toContain('Slatted light.')
+    expect(JSON.parse(seen[1].body)).toMatchObject({
+      filename: 'design.md',
+      folderId: 'folder-1',
+      intent: 'library',
+      size: Buffer.byteLength(MD),
+    })
+    // The part is the file itself, byte for byte.
+    expect(seen[2].body).toBe(MD)
   })
 
   it('--asset PUTs the raw markdown to the file route', async () => {

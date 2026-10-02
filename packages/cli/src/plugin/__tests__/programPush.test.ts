@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { STUDIO_ENTRY_ID } from '@vosjs/studio-core'
 import { cmdPushProgram } from '../program'
 import type { Server } from 'node:http'
+import { uploadDoor } from './uploadDoor'
 
 let server: Server | undefined
 
@@ -23,6 +24,7 @@ interface Seen {
 }
 
 function serve(seen: Seen[]): Promise<string> {
+  const door = uploadDoor(() => ({ id: 'snd', kind: 'audio', size: 18 }))
   server = createServer((req, res) => {
     const chunks: Buffer[] = []
     req.on('data', (c: Buffer) => chunks.push(c))
@@ -40,8 +42,8 @@ function serve(seen: Seen[]): Promise<string> {
         res.writeHead(status, { 'content-type': 'application/json' })
         res.end(JSON.stringify(payload))
       }
-      if (url === '/api/assets/recording')
-        return send(201, { id: 'snd', url: '/api/assets/snd/file', size: 18 })
+      const upload = door(req.method ?? '', url, body)
+      if (upload) return send(upload.status, upload.payload)
       if (url === '/api/vos' && req.method === 'POST')
         return send(201, {
           vos: { id: 'v-1', slug: 'reel', currentVersionId: 'ver-1' },
@@ -130,7 +132,7 @@ describe('vos push of a program document with its own sound', () => {
       '--yes',
     ])
     expect(code).toBe(0)
-    expect(seen.some((s) => s.url === '/api/assets/recording')).toBe(true)
+    expect(seen.some((s) => s.url === '/api/assets/uploads')).toBe(true)
     const create = seen.find((s) => s.url === '/api/vos')
     const doc = create?.body?.doc as { audio: { key: string }[] }
     expect(doc.audio[0].key).toBe('/api/assets/snd/file')
@@ -173,7 +175,7 @@ describe('vos push of a program document with its own sound', () => {
       '--json',
     ])
     expect(code).toBe(0)
-    expect(seen.some((s) => s.url === '/api/assets/recording')).toBe(false)
+    expect(seen.some((s) => s.url === '/api/assets/uploads')).toBe(false)
     const claim = seen.find((s) => s.url === '/api/claim')
     const stack = (claim?.body?.config as { stack?: { id: string }[] }).stack
     expect(stack?.some((e) => e.id === STUDIO_ENTRY_ID)).toBe(true)

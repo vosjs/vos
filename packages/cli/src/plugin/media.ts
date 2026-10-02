@@ -59,7 +59,7 @@ const SOURCE_MEDIA = [
 /** A take-relative media key: neither a URL, a blob, nor a hosted asset path. */
 export function isTakeRelativeKey(key: string | undefined): key is string {
   // `media:<id>` names a document media (a layer that shows one); the media
-  // itself rides the recording door, so the reference is never a file.
+  // itself rides the upload door, so the reference is never a file.
   return (
     !!key &&
     !/^(https?:|blob:|data:|media:|\/\/)/.test(key) &&
@@ -182,7 +182,7 @@ export function docMediaRefs(
 ): DocMediaRef[] {
   const out: DocMediaRef[] = []
   // The take's OTHER media (concat): each recording, and its sidecars,
-  // rides the recording door like the primary's; a pull brings them home.
+  // rides the upload door like the primary's; a pull brings them home.
   for (const m of doc.media ?? []) {
     if (keep(m.videoKey))
       out.push({
@@ -263,7 +263,7 @@ export function docAudioRefs(
 
 /**
  * Upload the files a document names and point its keys at the hosted
- * assets. Each file rides the content-addressed recording door, so a re-push
+ * assets. Each file rides the content-addressed upload door, so a re-push
  * reuses it; the bytes name the type, and the uploaded filename is corrected
  * to match so the asset is never self-contradictory. A key whose file is
  * missing is said and left as it is (the hosted render will 404 on it,
@@ -307,6 +307,7 @@ export async function uploadDocRefs(
     log(
       `  ${ref.where}: ${ref.key} → asset ${put.id}${put.reused ? ' (reused)' : ''}`,
     )
+    for (const note of put.notes) log(`  ${ref.where}: ${note}`)
   }
 }
 

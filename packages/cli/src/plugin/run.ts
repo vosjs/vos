@@ -272,12 +272,12 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
             and fileUrl untouched; the extension must keep matching the
             asset's kind (a recipe stays .md)
   vos asset push <file...> [--folder <folderId|slug>]
-            upload files onto your shelf (a key takes models .glb/.gltf,
-            recipes .md and images .png/.jpg/.webp/.gif — posters and
-            store stills file into the release's project; 40 images/24h —
-            and sound and video, which land in Sound > Uploads and print
-            the url a doc.json audio key takes; an unfiled one that no
-            document uses is removed after 7 days, so pass --folder)
+            add files to your library: models, pictures and SVGs, fonts,
+            HDR maps, sound, video, captions and recipes. The platform
+            reads each file and answers what it is and the name it is
+            stored under; the same bytes twice are the same file. Prints
+            the url a doc.json key takes. GET /api/limits lists the
+            kinds, their size caps and their daily rates
   vos recipe push <file.md> --folder <folderId|slug>
   vos recipe push <file.md> --asset <assetId>
             put a recipe (a plain .md) on the shelf: --folder creates it

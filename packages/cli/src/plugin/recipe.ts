@@ -7,7 +7,7 @@
  *   vos recipe push <file.md> --folder <folderId|slug> [--json]   create
  *   vos recipe push <file.md> --asset <assetId> [--json]           replace
  *
- * Create is `POST /assets/upload` (multipart, filed into the folder you
+ * Create goes through the upload door (declared, sent, sealed; filed into the folder you
  * pulled); replace is `PUT /assets/:id/file` (raw markdown, same id and
  * fileUrl, the displaced body kept as the one prior version). ONE verb for
  * both because from the agent's side they are the same act: put this
@@ -16,11 +16,13 @@
  * on the recipe page — a verb that undoes the owner's edit is not one to
  * hand an agent.
  */
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { basename } from 'node:path'
 import { UsageError, parseArgs, strFlag } from './args'
 import { listFolders, resolveFolder } from './folder'
 import { EXIT_OK, createReporter } from './output'
+import { uploadAsset } from './uploadAsset'
 import {
   apiError,
   apiJson,
@@ -76,45 +78,37 @@ async function cmdPush(argv: string[]): Promise<number> {
   }
 
   const folder = resolveFolder(await listFolders(origin, key), folderRef!)
-  const form = new FormData()
-  form.set('file', new Blob([body], { type: 'text/markdown' }), filename)
-  form.set('folderId', folder.id)
-  const res = await fetch(`${origin}/api/assets/upload`, {
-    method: 'POST',
-    headers: { accept: 'application/json', authorization: `Bearer ${key}` },
-    body: form,
-  })
-  let payload: Record<string, unknown> = {}
+  let put
   try {
-    payload = (await res.json()) as Record<string, unknown>
-  } catch {
-    // non-JSON error bodies stay {}
-  }
-  if (res.status !== 200 && res.status !== 201) {
+    put = await uploadAsset({ origin, key }, new Uint8Array(body), {
+      filename,
+      contentType: 'text/markdown',
+      contentHash: createHash('sha256').update(body).digest('hex'),
+      intent: 'library',
+      folderId: folder.id,
+    })
+  } catch (e) {
     throw new Error(
-      apiError(`push recipe ${filename}`, {
-        status: res.status,
-        body: payload,
-      }),
+      `push recipe ${filename}: ${e instanceof Error ? e.message : String(e)}`,
     )
   }
-  const meta = (payload.metadata ?? {}) as Record<string, unknown>
+  const meta = put.metadata ?? {}
   // The SERVER names the file (a recipe a key files takes the CAPS
   // convention, CUT.md), so report what landed — never the local basename,
   // or the terminal and the shelf describe the same recipe differently.
-  const stored =
-    typeof payload.filename === 'string' ? payload.filename : filename
+  const stored = put.filename || filename
   r.done(
     {
-      id: payload.id,
-      filename: payload.filename,
+      id: put.id,
+      filename: stored,
       folder: folder.slug,
       name: meta.name,
       description: meta.description,
+      ...(put.notes.length ? { notes: put.notes } : {}),
     },
-    `pushed ${stored} into ${folder.slug} (${String(payload.id)})${
+    `pushed ${stored} into ${folder.slug} (${put.id})${
       typeof meta.name === 'string' ? ` — ${meta.name}` : ''
-    }\nReplace it later with: vos recipe push ${file} --asset ${String(payload.id)}`,
+    }\nReplace it later with: vos recipe push ${file} --asset ${put.id}`,
   )
   return EXIT_OK
 }

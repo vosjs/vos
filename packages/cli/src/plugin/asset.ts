@@ -10,19 +10,19 @@
  * one-column update, bytes and fileUrl untouched. The server holds the
  * extension to the asset's category (a recipe stays .md).
  *
- * push is `POST /assets/upload` per file (SKQ: the launch-kit loop files
- * its posters and store stills into the release's project). A content key
- * uploads models (.glb/.gltf), recipes (.md — though `vos recipe push` is
- * the recipe verb, with replace-in-place) and images (.png/.jpg/.jpeg/
- * .webp/.gif, 40/24h). Sound and video take the RECORDING door instead
- * (`POST /assets/recording`, content-addressed, in parts when large), the
- * same one the studio uses, so a score lands in Sound → Uploads. The server
- * refuses anything else in words. Files upload one by one and a refusal
- * names the file it stopped on, so a partial push is legible, never silent.
+ * push sends each file through the platform's one upload door (declare,
+ * parts, seal), filed as a library file: models, pictures and SVGs, fonts,
+ * HDR maps, sound, video, captions and recipes (though `vos recipe push`
+ * is the recipe verb, with replace-in-place). The platform reads what it
+ * stores, so the kind and the stored name come back from it, and a file it
+ * has no use for is refused in words before anything is sent
+ * (`GET /api/limits` lists the kinds and their caps). The same bytes pushed
+ * twice are the same file. Files upload one by one and a refusal names the
+ * file it stopped on, so a partial push is legible, never silent.
  */
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { basename, extname } from 'node:path'
+import { basename } from 'node:path'
 import { MEDIA_HEAD_BYTES, nameForType, resolveMediaType } from './container'
 import { uploadAsset } from './uploadAsset'
 import { UsageError, parseArgs, strFlag } from './args'
@@ -36,17 +36,6 @@ import {
 } from './platform'
 
 const BOOLEAN_FLAGS = new Set(['json', 'help'])
-
-const MIME_BY_EXT: Record<string, string> = {
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.webp': 'image/webp',
-  '.gif': 'image/gif',
-  '.glb': 'model/gltf-binary',
-  '.gltf': 'model/gltf+json',
-  '.md': 'text/markdown',
-}
 
 async function cmdRename(argv: string[]): Promise<number> {
   const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
@@ -90,72 +79,59 @@ async function cmdPush(argv: string[]): Promise<number> {
     ? resolveFolder(await listFolders(origin, key), folderRef)
     : null
 
-  const uploaded: { id: unknown; filename: unknown }[] = []
-  let unfiledMedia = 0
+  // What the platform answered per file, in the result as well as the log:
+  // a caller reading JSON (an agent) must not lose the note that an SVG's
+  // scripts were removed, or that the file was already there.
+  const uploaded: {
+    id: string
+    filename: string
+    kind: string
+    url: string
+    reused?: true
+    notes?: string[]
+  }[] = []
   for (const file of positionals) {
     const name = basename(file)
     const body = readFileSync(file)
-    // Sound and video: the recording door, typed by their bytes.
+    // Sound and video are typed by their bytes here too, so a clip is sent
+    // under the name its container earns. Everything else goes as it is
+    // named, and the platform answers what it turned out to be.
     const media = resolveMediaType({
       head: body.subarray(0, MEDIA_HEAD_BYTES),
       filename: name,
     })
-    if (/^(audio|video)\//.test(media.type)) {
-      const sent = nameForType(name, media.type)
-      let put
-      try {
-        put = await uploadAsset({ origin, key }, new Uint8Array(body), {
-          filename: sent,
-          contentType: media.type,
-          contentHash: createHash('sha256').update(body).digest('hex'),
-          ...(folder ? { folderId: folder.id } : {}),
-        })
-      } catch (e) {
-        const landed = uploaded.length
-          ? ` (${uploaded.length} of ${positionals.length} landed before it)`
-          : ''
-        throw new Error(
-          `push ${name}${landed}: ${e instanceof Error ? e.message : String(e)}`,
-        )
-      }
-      if (!folder && !put.reused) unfiledMedia += 1
-      uploaded.push({ id: put.id, filename: sent })
-      r.log(
-        `uploaded ${sent} (${put.id})${put.reused ? ' — already on your shelf' : ''}  ${put.url}`,
-      )
-      continue
-    }
-    const mime =
-      MIME_BY_EXT[extname(name).toLowerCase()] ?? 'application/octet-stream'
-    const form = new FormData()
-    form.set('file', new Blob([body], { type: mime }), name)
-    if (folder) form.set('folderId', folder.id)
-    const res = await fetch(`${origin}/api/assets/upload`, {
-      method: 'POST',
-      headers: { accept: 'application/json', authorization: `Bearer ${key}` },
-      body: form,
-    })
-    let payload: Record<string, unknown> = {}
+    const isMedia = /^(audio|video)\//.test(media.type)
+    const sent = isMedia ? nameForType(name, media.type) : name
+    let put
     try {
-      payload = (await res.json()) as Record<string, unknown>
-    } catch {
-      // non-JSON error bodies stay {}
-    }
-    if (res.status !== 200 && res.status !== 201) {
+      put = await uploadAsset({ origin, key }, new Uint8Array(body), {
+        filename: sent,
+        ...(isMedia ? { contentType: media.type } : {}),
+        contentHash: createHash('sha256').update(body).digest('hex'),
+        intent: 'library',
+        ...(folder ? { folderId: folder.id } : {}),
+      })
+    } catch (e) {
       const landed = uploaded.length
         ? ` (${uploaded.length} of ${positionals.length} landed before it)`
         : ''
       throw new Error(
-        apiError(`push ${name}${landed}`, {
-          status: res.status,
-          body: payload,
-        }),
+        `push ${name}${landed}: ${e instanceof Error ? e.message : String(e)}`,
       )
     }
-    uploaded.push({ id: payload.id, filename: payload.filename })
+    const stored = put.filename || sent
+    uploaded.push({
+      id: put.id,
+      filename: stored,
+      kind: put.kind,
+      url: put.url,
+      ...(put.reused ? { reused: true as const } : {}),
+      ...(put.notes.length ? { notes: put.notes } : {}),
+    })
     r.log(
-      `uploaded ${String(payload.filename ?? name)} (${String(payload.id)})`,
+      `uploaded ${stored} (${put.id})${put.reused ? ' — already on your shelf' : ''}  ${put.url}`,
     )
+    for (const note of put.notes) r.log(`  note: ${note}`)
   }
   r.done(
     {
@@ -165,10 +141,7 @@ async function cmdPush(argv: string[]): Promise<number> {
     },
     `pushed ${uploaded.length} asset${uploaded.length === 1 ? '' : 's'}${
       folder ? ` into ${folder.slug}` : ''
-    }` +
-      (unfiledMedia
-        ? `\nnote: an unfiled sound or video that no document uses is removed after 7 days. Reference it from a doc (doc.audio key = its url) or push it with --folder <slug>`
-        : ''),
+    }`,
   )
   return EXIT_OK
 }

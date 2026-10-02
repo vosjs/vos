@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SINGLE_SHOT_MAX_BYTES, planParts, uploadAsset } from '../uploadAsset'
+import { planParts, uploadAsset } from '../uploadAsset'
 
 const MiB = 1024 * 1024
 const target = { origin: 'https://vos.so', key: 'vos_sk_test' }
@@ -20,7 +20,7 @@ interface Call {
 }
 
 /**
- * A platform that plays the chunked door: declaring returns a part size,
+ * A platform that plays the upload door: declaring returns a part size,
  * every part answers with an etag, sealing returns the asset.
  */
 function platform(opts: { partBytes?: number; reused?: boolean } = {}) {
@@ -37,15 +37,19 @@ function platform(opts: { partBytes?: number; reused?: boolean } = {}) {
     const json = (status: number, body: unknown) =>
       ({ status, json: async () => body }) as unknown as Response
 
-    if (url.endsWith('/multipart') && method === 'POST') {
+    if (url.endsWith('/assets/uploads') && method === 'POST') {
       return opts.reused
         ? json(200, {
-            id: 'old',
-            url: '/api/assets/old/file',
-            size: 7,
+            asset: {
+              id: 'old',
+              kind: 'video',
+              filename: 'recording.webm',
+              size: 7,
+              fileUrl: '/api/assets/old/file',
+            },
             reused: true,
           })
-        : json(201, { id: 'up1', partBytes, partCount: 3 })
+        : json(201, { uploadId: 'up1', partBytes, partCount: 3 })
     }
     if (method === 'PUT') {
       const partNumber = Number(url.split('/').pop())
@@ -53,13 +57,16 @@ function platform(opts: { partBytes?: number; reused?: boolean } = {}) {
     }
     if (url.endsWith('/complete')) {
       return json(201, {
-        id: 'asset1',
-        url: '/api/assets/asset1/file',
-        size: 40 * MiB,
+        asset: {
+          id: 'asset1',
+          kind: 'video',
+          filename: 'recording.webm',
+          size: 40 * MiB,
+          metadata: { width: 1280, height: 720 },
+          fileUrl: '/api/assets/asset1/file',
+        },
+        notes: ['a note from the platform'],
       })
-    }
-    if (url.endsWith('/assets/recording')) {
-      return json(201, { id: 'small', url: '/api/assets/small/file', size: 10 })
     }
     return json(200, {})
   })
@@ -97,18 +104,15 @@ describe('planParts', () => {
   })
 })
 
-describe('picking a transport', () => {
-  it('sends a small file whole, in one request', async () => {
+describe('one protocol for every size', () => {
+  it('declares, sends and seals even a small file', async () => {
     const { calls } = platform()
     await uploadAsset(target, bytes(1024), opts)
-    expect(calls).toHaveLength(1)
-    expect(calls[0].url).toBe('https://vos.so/api/assets/recording')
-  })
-
-  it('sends a recording in parts', async () => {
-    const { calls } = platform()
-    await uploadAsset(target, bytes(SINGLE_SHOT_MAX_BYTES + 1), opts)
-    expect(calls.some((c) => c.url.endsWith('/multipart'))).toBe(true)
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      'POST https://vos.so/api/assets/uploads',
+      'PUT https://vos.so/api/assets/uploads/up1/parts/1',
+      'POST https://vos.so/api/assets/uploads/up1/complete',
+    ])
   })
 
   it('never puts a whole recording in one request body', async () => {
@@ -119,37 +123,64 @@ describe('picking a transport', () => {
     const bodies = calls
       .filter((c) => c.method === 'PUT')
       .map((c) => (c.body as Uint8Array).length)
-    expect(bodies.length).toBeGreaterThan(0)
-    for (const size of bodies) expect(size).toBeLessThan(100 * MiB)
+    expect(bodies.length).toBeGreaterThan(1)
+    for (const size of bodies) expect(size).toBeLessThanOrEqual(16 * MiB)
+  })
+
+  it('answers what the platform read the file to be', async () => {
+    platform()
+    const result = await uploadAsset(target, bytes(1024), opts)
+    expect(result).toEqual({
+      id: 'asset1',
+      url: '/api/assets/asset1/file',
+      size: 40 * MiB,
+      reused: false,
+      kind: 'video',
+      filename: 'recording.webm',
+      metadata: { width: 1280, height: 720 },
+      notes: ['a note from the platform'],
+    })
   })
 })
 
-describe('filing into a folder', () => {
-  it('names the folder on a whole-file upload', async () => {
-    const { calls } = platform()
-    await uploadAsset(target, bytes(1024), { ...opts, folderId: 'f1' })
-    expect(calls[0].headers?.['X-Folder-Id']).toBe('f1')
-  })
+describe('what is declared', () => {
+  const declared = (calls: Call[]) =>
+    JSON.parse(calls[0].body as string) as Record<string, unknown>
 
-  it('sends no folder header when none was asked for', async () => {
+  it('carries the hash, so the same bytes are never sent twice', async () => {
     const { calls } = platform()
     await uploadAsset(target, bytes(1024), opts)
-    expect(calls[0].headers?.['X-Folder-Id']).toBeUndefined()
+    expect(declared(calls).sha256).toBe('a'.repeat(64))
   })
 
-  it('refuses in words, before sending anything, when a large file asks for a folder', async () => {
+  it('names the folder and the intent when asked, at any size', async () => {
     const { calls } = platform()
-    await expect(
-      uploadAsset(target, bytes(SINGLE_SHOT_MAX_BYTES + 1), {
-        ...opts,
-        folderId: 'f1',
-      }),
-    ).rejects.toThrow(/cannot be filed into a project/)
-    expect(calls).toHaveLength(0)
+    await uploadAsset(target, bytes(40 * MiB), {
+      ...opts,
+      folderId: 'f1',
+      intent: 'library',
+    })
+    expect(declared(calls)).toMatchObject({ folderId: 'f1', intent: 'library' })
+  })
+
+  it('says neither when neither was asked for', async () => {
+    const { calls } = platform()
+    await uploadAsset(target, bytes(1024), opts)
+    expect(declared(calls)).not.toHaveProperty('folderId')
+    expect(declared(calls)).not.toHaveProperty('intent')
+  })
+
+  it('leaves the type out when the caller does not know it', async () => {
+    const { calls } = platform()
+    await uploadAsset(target, bytes(1024), {
+      filename: 'Brand.woff2',
+      contentHash: 'b'.repeat(64),
+    })
+    expect(declared(calls)).not.toHaveProperty('contentType')
   })
 })
 
-describe('the chunked upload', () => {
+describe('the upload', () => {
   it('declares, sends every part in order, then seals', async () => {
     const { calls } = platform()
     const result = await uploadAsset(target, bytes(40 * MiB), {
@@ -163,9 +194,9 @@ describe('the chunked upload', () => {
       durationSeconds: 480,
     })
     expect(calls.filter((c) => c.method === 'PUT').map((c) => c.url)).toEqual([
-      'https://vos.so/api/assets/recording/multipart/up1/parts/1',
-      'https://vos.so/api/assets/recording/multipart/up1/parts/2',
-      'https://vos.so/api/assets/recording/multipart/up1/parts/3',
+      'https://vos.so/api/assets/uploads/up1/parts/1',
+      'https://vos.so/api/assets/uploads/up1/parts/2',
+      'https://vos.so/api/assets/uploads/up1/parts/3',
     ])
     expect(JSON.parse(calls.at(-1)?.body as string)).toEqual({
       parts: [
@@ -181,7 +212,6 @@ describe('the chunked upload', () => {
     // The split can change server-side without a CLI release, and the
     // platform holds each part to exactly the length it implied.
     const { calls } = platform({ partBytes: 10 * MiB })
-    // Past the threshold, so it chunks — at the size the platform named.
     await uploadAsset(target, bytes(35 * MiB), opts)
     const sizes = calls
       .filter((c) => c.method === 'PUT')
@@ -216,15 +246,15 @@ describe('when a part fails', () => {
         const method = init.method ?? 'GET'
         const json = (status: number, body: unknown) =>
           ({ status, json: async () => body }) as unknown as Response
-        if (url.endsWith('/multipart') && method === 'POST') {
-          return json(201, { id: 'up1', partBytes: 16 * MiB })
+        if (url.endsWith('/assets/uploads') && method === 'POST') {
+          return json(201, { uploadId: 'up1', partBytes: 16 * MiB })
         }
         if (method === 'PUT') {
           const partNumber = Number(url.split('/').pop())
           if (partNumber === 2 && ++tries === 1) return json(503, {})
           return json(200, { partNumber, etag: `etag-${partNumber}` })
         }
-        return json(201, { id: 'asset1', url: '/x', size: 1 })
+        return json(201, { asset: { id: 'asset1', fileUrl: '/x', size: 1 } })
       }),
     )
     const result = await uploadAsset(target, bytes(40 * MiB), opts)
@@ -242,8 +272,8 @@ describe('when a part fails', () => {
         calls.push({ url, method })
         const json = (status: number, body: unknown) =>
           ({ status, json: async () => body }) as unknown as Response
-        if (url.endsWith('/multipart') && method === 'POST') {
-          return json(201, { id: 'up1', partBytes: 16 * MiB })
+        if (url.endsWith('/assets/uploads') && method === 'POST') {
+          return json(201, { uploadId: 'up1', partBytes: 16 * MiB })
         }
         if (method === 'PUT') return json(403, { error: 'Account suspended' })
         return json(200, {})
@@ -257,7 +287,7 @@ describe('when a part fails', () => {
       calls.some(
         (c) =>
           c.method === 'DELETE' &&
-          c.url === 'https://vos.so/api/assets/recording/multipart/up1',
+          c.url === 'https://vos.so/api/assets/uploads/up1',
       ),
     ).toBe(true)
   })

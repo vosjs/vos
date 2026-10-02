@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { cmdAsset } from '../asset'
+import { uploadDoor } from './uploadDoor'
 import { UsageError } from '../args'
 import type { Server } from 'node:http'
 
@@ -19,10 +20,15 @@ interface Seen {
   method: string
   url: string
   body: Record<string, unknown> | null
-  headers?: Record<string, string | string[] | undefined>
 }
 
 function serve(seen: Seen[]): Promise<string> {
+  const door = uploadDoor((declared) => ({
+    id: 'snd-1',
+    kind: 'audio',
+    filename: declared.filename,
+    size: 8,
+  }))
   server = createServer((req, res) => {
     const chunks: Buffer[] = []
     req.on('data', (c: Buffer) => chunks.push(c))
@@ -32,16 +38,9 @@ function serve(seen: Seen[]): Promise<string> {
       try {
         body = raw ? (JSON.parse(raw) as Record<string, unknown>) : null
       } catch {
-        // a raw media body (the recording door) is not JSON
+        // a part's body is the file's bytes, not JSON
       }
-      seen.push({
-        method: req.method ?? '',
-        url: req.url ?? '',
-        body,
-        ...(req.url === '/api/assets/recording'
-          ? { headers: req.headers }
-          : {}),
-      })
+      seen.push({ method: req.method ?? '', url: req.url ?? '', body })
       const send = (status: number, payload: Record<string, unknown>) => {
         res.writeHead(status, { 'content-type': 'application/json' })
         res.end(JSON.stringify(payload))
@@ -52,13 +51,8 @@ function serve(seen: Seen[]): Promise<string> {
           folders: [{ id: 'f-1', slug: 'reel', parentId: null }],
         })
       }
-      if (url === '/api/assets/recording' && req.method === 'POST') {
-        return send(201, {
-          id: 'snd-1',
-          url: '/api/assets/snd-1/file',
-          size: 8,
-        })
-      }
+      const upload = door(req.method ?? '', url, body)
+      if (upload) return send(upload.status, upload.payload)
       if (url.startsWith('/api/assets/') && req.method === 'PATCH') {
         if (body?.filename === 'design.txt') {
           return send(400, { error: 'a recipe asset keeps a .md extension' })
@@ -109,7 +103,7 @@ describe('vos asset', () => {
     ])
   })
 
-  it('push sends a sound to the recording door, typed by its bytes and filed when asked', async () => {
+  it('push declares a sound typed by its bytes, as a library file, filed when asked', async () => {
     const seen: Seen[] = []
     const origin = await serve(seen)
     const dir = mkdtempSync(join(tmpdir(), 'vos-asset-'))
@@ -125,11 +119,37 @@ describe('vos asset', () => {
       ...KEY,
     ])
     expect(code).toBe(0)
-    const upload = seen.find((s) => s.url === '/api/assets/recording')
-    expect(upload?.method).toBe('POST')
-    expect(upload?.headers?.['content-type']).toMatch(/^audio\//)
-    expect(upload?.headers?.['x-folder-id']).toBe('f-1')
-    expect(seen.some((s) => s.url === '/api/assets/upload')).toBe(false)
+    const begin = seen.find((s) => s.url === '/api/assets/uploads')
+    expect(begin?.method).toBe('POST')
+    expect(begin?.body).toMatchObject({
+      filename: 'score.ogg',
+      folderId: 'f-1',
+      intent: 'library',
+      size: 16,
+    })
+    expect(String(begin?.body?.contentType)).toMatch(/^audio\//)
+    expect(String(begin?.body?.sha256)).toMatch(/^[0-9a-f]{64}$/)
+    expect(seen.map((s) => `${s.method} ${s.url}`).slice(-2)).toEqual([
+      'PUT /api/assets/uploads/up-1/parts/1',
+      'POST /api/assets/uploads/up-1/complete',
+    ])
+  })
+
+  it('push sends a font the same way, and leaves its type to the platform', async () => {
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    const dir = mkdtempSync(join(tmpdir(), 'vos-asset-'))
+    const file = join(dir, 'Brand.woff2')
+    writeFileSync(file, Buffer.from('wOF2 not really a font'))
+    const code = await cmdAsset(['push', file, '--origin', origin, ...KEY])
+    expect(code).toBe(0)
+    const begin = seen.find((s) => s.url === '/api/assets/uploads')
+    expect(begin?.body).toMatchObject({
+      filename: 'Brand.woff2',
+      intent: 'library',
+    })
+    expect(begin?.body).not.toHaveProperty('contentType')
+    expect(begin?.body).not.toHaveProperty('folderId')
   })
 
   it('a server refusal surfaces with the reason', async () => {
