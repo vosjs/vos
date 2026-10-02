@@ -864,6 +864,19 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
           } catch (e) {}
         }
       }
+      // The emphasis weight's face, the same way (a live edit that adds the
+      // first *marked* word paints without a LOAD).
+      if (ol.em && ol.em.face) {
+        var oeKey = ol.em.face.f + '|' + ol.em.face.w
+        if (!ofSet[oeKey]) {
+          ofSet[oeKey] = 1
+          try {
+            var oeFace = new FontFace(ol.em.face.f, 'url(' + ol.em.face.u + ')', { weight: String(ol.em.face.w) })
+            document.fonts.add(oeFace)
+            oeFace.load().catch(function () {})
+          } catch (e) {}
+        }
+      }
     }
     ovC.save()
     ovC.globalAlpha = olA
@@ -879,6 +892,69 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
     ovC.textAlign = 'center'
     ovC.textBaseline = 'middle'
     ovC.letterSpacing = ((ol.ls || 0) * olMS * s) + 'px'
+    // Emphasis (ol.em, baked only when the text marks a word): the lines
+    // carry \\u0001/\\u0002 around every emphasized word, and the normal and
+    // emphasis fonts alternate at them, run by run. MIRRORS measureEmphasized
+    // in overlayText.ts — change together. A clip without ol.em never reaches
+    // these helpers: it keeps its plain measureText/fillText calls.
+    var olEm = ol.em || null
+    var olFN = ovC.font
+    var olFB = olEm ? (ol.sty ? ol.sty + ' ' : '') + olEm.w + ' ' + olPx + 'px ' + ol.stack : ''
+    var olMeasure = function (t, b0) {
+      if (!olEm) return ovC.measureText(t).width
+      var mw = 0, mrun = '', mb = !!b0
+      for (var mi = 0; mi < t.length; mi++) {
+        var mc = t.charAt(mi)
+        if (mc === '\\u0001' || mc === '\\u0002') {
+          if (mrun) { ovC.font = mb ? olFB : olFN; mw += ovC.measureText(mrun).width }
+          mrun = ''
+          mb = mc === '\\u0001'
+        } else mrun += mc
+      }
+      if (mrun) { ovC.font = mb ? olFB : olFN; mw += ovC.measureText(mrun).width }
+      ovC.font = olFN
+      return mw
+    }
+    // The emphasis state after a run of text (a char unit starts in it).
+    var olStateAfter = function (t, b0) {
+      var sb = !!b0
+      for (var si = 0; si < t.length; si++) {
+        var sc = t.charAt(si)
+        if (sc === '\\u0001') sb = true
+        else if (sc === '\\u0002') sb = false
+      }
+      return sb
+    }
+    // Draw t LEFT-aligned from x, run by run: the font switches at the
+    // marks, an emphasized run takes ol.em.c when set, stroke under fill.
+    var olDraw = function (t, x, y, b0) {
+      var drun = '', db = !!b0, dx = x
+      var dflush = function () {
+        if (!drun) return
+        ovC.font = db ? olFB : olFN
+        var dfs = ovC.fillStyle
+        if (db && olEm.c) ovC.fillStyle = olEm.c
+        if (ol.stroke) {
+          ovC.strokeStyle = ol.stroke.c
+          ovC.lineWidth = ol.stroke.w * olMS * s
+          ovC.lineJoin = 'round'
+          ovC.strokeText(drun, dx, y)
+        }
+        ovC.fillText(drun, dx, y)
+        dx += ovC.measureText(drun).width
+        ovC.fillStyle = dfs
+        drun = ''
+      }
+      for (var di = 0; di < t.length; di++) {
+        var dc = t.charAt(di)
+        if (dc === '\\u0001' || dc === '\\u0002') {
+          dflush()
+          db = dc === '\\u0001'
+        } else drun += dc
+      }
+      dflush()
+      ovC.font = olFN
+    }
     var olLines = ol.lines || ['']
     // maxWidth wrap (ol.mw = frame-width fraction): greedy over word tokens
     // (/\\S+\\s*/ — the SAME tokenization fx uses, trailing spaces kept, so
@@ -890,7 +966,7 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
       var olWrapped = []
       for (var olwl = 0; olwl < olLines.length; olwl++) {
         var olWLine = olLines[olwl]
-        if (!olWLine || ovC.measureText(olWLine).width <= olWMax) {
+        if (!olWLine || olMeasure(olWLine) <= olWMax) {
           olWrapped.push(olWLine)
           continue
         }
@@ -898,7 +974,7 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
         var olCur = ''
         for (var olti = 0; olti < olToks.length; olti++) {
           if (!olCur) { olCur = olToks[olti]; continue }
-          if (ovC.measureText(olCur + olToks[olti]).width <= olWMax) {
+          if (olMeasure(olCur + olToks[olti]) <= olWMax) {
             olCur += olToks[olti]
           } else {
             olWrapped.push(olCur)
@@ -948,10 +1024,10 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
       olFx = { k: olFx.k, u: olFx.u, d: olFx.d, st: olFx.st, dur: olFx.dur, tt: olFx.tt, units: olRe, n: olReN }
     }
     var olLWs = null, olMaxW = 0
-    if (ol.box || ol.align || olFx) {
+    if (ol.box || ol.align || olFx || olEm) {
       olLWs = []
       for (var olwi = 0; olwi < olLines.length; olwi++) {
-        var olw = ovC.measureText(olLines[olwi]).width
+        var olw = olMeasure(olLines[olwi])
         olLWs.push(olw)
         if (olw > olMaxW) olMaxW = olw
       }
@@ -987,6 +1063,12 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
             : (olMaxW - olLWs[ok]) / 2
         }
         var olLY = olY0 + ok * olLH
+        if (olEm) {
+          // Runs draw LEFT-aligned from the centred line's left edge.
+          ovC.textAlign = 'left'
+          olDraw(olLines[ok], olXof - olLWs[ok] / 2, olLY, false)
+          continue
+        }
         if (ol.stroke) {
           ovC.strokeStyle = ol.stroke.c
           ovC.lineWidth = ol.stroke.w * olMS * s
@@ -1023,7 +1105,10 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
               : olIdx
           var olT2 = olT - olOrd * olFx.st
           var olNext = olPref + olUs[ou]
-          var olNW = ovC.measureText(olNext).width
+          var olNW = olMeasure(olNext)
+          // The emphasis state this unit starts in (a char unit inside a
+          // marked word carries no mark of its own).
+          var olUB = olEm ? olStateAfter(olPref) : false
           var olUW = olNW - olPW
           var olUX = olXb + olPW
           var olUA = 1, olUu = 1
@@ -1051,6 +1136,11 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
             } else if (olFx.k === 'blur') {
               ovC.filter = 'blur(' + ((1 - olUu) * olPx * 0.12).toFixed(2) + 'px)'
             }
+          }
+          if (olEm) {
+            olDraw(olUnit, olUX, olLY2, olUB)
+            ovC.restore()
+            continue
           }
           if (ol.stroke) {
             ovC.strokeStyle = ol.stroke.c

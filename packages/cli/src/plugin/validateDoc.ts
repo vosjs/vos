@@ -48,6 +48,7 @@ import {
   pinCandidates,
   pinRectOnScreen,
   pinReferent,
+  parseEmphasis,
   ratedSegments,
   recommendedExportResolution,
   resolvePins,
@@ -1203,6 +1204,29 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       if (typeof o.preset === 'string' && !PRESETS.includes(o.preset)) {
         warnings.push(
           `${name}.preset "${String(o.preset)}" is not a known preset (${PRESETS.join('|')}) — falls back to "title"`,
+        )
+      }
+      // Emphasis is OPT-IN: asterisks are markers only on a clip carrying
+      // `emphasis`. A pair on a clip without it shows as typed, which is
+      // right for a literal `*`, so say it rather than refuse it.
+      if (o.emphasis !== undefined) {
+        const em = o.emphasis as Record<string, unknown> | null
+        if (!em || typeof em !== 'object' || Array.isArray(em)) {
+          problems.push(
+            `${name}.emphasis must be { weight?, color? } ({} turns *markers* on)`,
+          )
+        } else {
+          if (
+            em.weight !== undefined &&
+            (!isNum(em.weight) || em.weight < 100 || em.weight > 900)
+          )
+            problems.push(`${name}.emphasis.weight must be 100..900`)
+          if (em.color !== undefined && typeof em.color !== 'string')
+            problems.push(`${name}.emphasis.color must be a CSS colour`)
+        }
+      } else if (typeof o.text === 'string' && parseEmphasis(o.text) !== null) {
+        warnings.push(
+          `${name}.text has *marked* words but no emphasis, so the asterisks show as typed; add emphasis: {} to set them bold (\\* keeps one literal)`,
         )
       }
       if (

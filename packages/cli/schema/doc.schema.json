@@ -965,7 +965,24 @@
           },
           "text": {
             "type": "string",
-            "description": "content; \\n breaks lines"
+            "description": "content; \\n breaks lines. With `emphasis` set (OPT-IN; {} is enough), *words between asterisks* are set in the emphasis weight (a two-weight caption: light words with bold ones), a word-by-word reveal keeps each word in its own weight, \\* is a literal asterisk and a lone * stays as typed. Without `emphasis`, asterisks are text as typed"
+          },
+          "emphasis": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "weight": {
+                "type": "number",
+                "minimum": 100,
+                "maximum": 900,
+                "description": "the weight of *marked* words, snapped to what the family hosts (absent = the family's bold step, 700 or the nearest)"
+              },
+              "color": {
+                "type": "string",
+                "description": "the colour of *marked* words (absent = the clip's colour)"
+              }
+            },
+            "description": "text kind: turns *markers* in text ON ({} is enough) and says how marked words are set. Absent = emphasis off: asterisks are text as typed"
           },
           "preset": {
             "enum": ["title", "caption", "label"],

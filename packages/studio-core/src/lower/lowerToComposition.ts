@@ -67,6 +67,8 @@ import {
   overlayFaceFor,
   overlayFontFaces,
   overlayLines,
+  overlayDisplayText,
+  resolveEmphasis,
   resolveOverlayBox,
   resolveOverlayFx,
   resolveOverlayStyle,
@@ -2962,10 +2964,31 @@ export function studioLayerData(
             }
             const st = resolveOverlayStyle(o)
             const bx = resolveOverlayBox(o)
+            const em = resolveEmphasis(o)
             return {
               ...base,
               text: o.text,
-              lines: overlayLines(o.text),
+              // The DISPLAYED lines: emphasis marks inline, else the source.
+              lines: overlayLines(overlayDisplayText(o)),
+              // Emphasis set (weight, colour, face to lazy-load), only when
+              // the text marks a word: an unmarked clip's data is unchanged.
+              ...(em
+                ? {
+                    em: {
+                      w: em.weight,
+                      ...(em.color ? { c: em.color } : {}),
+                      ...(em.face
+                        ? {
+                            face: {
+                              f: em.face.family,
+                              w: em.face.weight,
+                              u: em.face.url,
+                            },
+                          }
+                        : {}),
+                    },
+                  }
+                : {}),
               fs: st.size,
               weight: st.weight,
               stack: st.stack,

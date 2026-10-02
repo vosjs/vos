@@ -1350,6 +1350,45 @@ describe('a strong lean is said once', () => {
   })
 })
 
+describe('emphasis is opt-in (overlays[].emphasis)', () => {
+  const textDoc = (text: string, emphasis?: unknown) =>
+    makeDoc({
+      overlays: [
+        {
+          id: 't0',
+          kind: 'text',
+          start: 1,
+          duration: 3,
+          text,
+          transform: { x: 0.5, y: 0.5, scale: 1, rotation: 0 },
+          ...(emphasis !== undefined ? { emphasis } : {}),
+        },
+      ] as unknown as ProjectDoc['overlays'],
+    })
+  const about = (r: ReturnType<typeof lintDoc>) =>
+    [...r.problems, ...r.warnings].filter((x) => x.includes('emphasis'))
+
+  it('says so when *marked* words have no emphasis, never refuses', () => {
+    const r = lintDoc(textDoc('Read *every candle*'))
+    expect(r.problems).toEqual([])
+    expect(about(r)[0]).toContain('add emphasis: {}')
+  })
+
+  it('is silent on a plain text, and on markers with emphasis on', () => {
+    expect(about(lintDoc(textDoc('Plain words')))).toEqual([])
+    expect(about(lintDoc(textDoc('Read *every candle*', {})))).toEqual([])
+  })
+
+  it('refuses a malformed emphasis in words', () => {
+    expect(about(lintDoc(textDoc('*a*', { weight: 2000 })))[0]).toContain(
+      'emphasis.weight must be 100..900',
+    )
+    expect(about(lintDoc(textDoc('*a*', 'bold')))[0]).toContain(
+      '{} turns *markers* on',
+    )
+  })
+})
+
 describe('a zoom placed on screen (zoom[].screen)', () => {
   const placedDoc = (
     screen: unknown,
