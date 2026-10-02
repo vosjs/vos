@@ -15,6 +15,16 @@ describe('storedProgramConfig', () => {
     createTimeline: '(ctx) => ctx.gsap.timeline()',
   }
 
+  it("keeps the program's declared size through composition", () => {
+    const sized = { ...config, size: { width: 1080, height: 1920 } }
+    const stored = storedProgramConfig(sized, {
+      program: { config: sized },
+      audio: [],
+      still: 2,
+    })
+    expect(stored.size).toEqual({ width: 1080, height: 1920 })
+  })
+
   it('is the config itself when no document rides along', () => {
     expect(storedProgramConfig(config, null)).toBe(config)
   })

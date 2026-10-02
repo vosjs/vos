@@ -8,6 +8,7 @@ import {
   CURRENT_CONFIG_VERSION,
   compileVosConfig,
   migrateConfig,
+  programSize,
   vosConfigJsonSchema,
 } from '@vosjs/core'
 import {
@@ -132,6 +133,17 @@ export function runCheck(parsed: unknown): CheckResult {
         message: `unknown top-level key "${key}" — the platform drops it on push`,
       })
     }
+  }
+
+  // A declared size with an odd edge renders, but an MP4 (H.264) cannot
+  // carry it: say so before an export does.
+  const size = programSize(migrated)
+  if (size && (size.width % 2 || size.height % 2)) {
+    issues.push({
+      level: 'warn',
+      source: 'shape',
+      message: `size ${size.width}x${size.height} has an odd edge; an MP4 needs even edges, so pick ${size.width + (size.width % 2)}x${size.height + (size.height % 2)}`,
+    })
   }
 
   // Knobs and Looks vos.so would drop (the push still saves, without them).

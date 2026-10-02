@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { cameraSchema, postprocessingSchema, sceneSchema } from './shared'
+import { programSizeSchema } from './size'
 
 // ---------------------------------------------------------------------------
 // VosConfig
@@ -15,6 +16,7 @@ export const vosConfigSchema = z.object({
   // Required — the post-migrate shape always carries one.
   version: z.number().int().positive(),
   duration: z.number().positive(),
+  size: programSizeSchema.optional(),
   scene: sceneSchema,
   camera: cameraSchema,
   postprocessing: z.array(postprocessingSchema).optional(),

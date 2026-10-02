@@ -56,11 +56,13 @@ vos preview <config.json|url> [--port N]   # serve a local playback page
 vos versions                               # installed @vosjs/* versions
 ```
 
-| Verb     | Flags and defaults                                                                                                                        |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `render` | `--width 1920` `--height 1080` `--fps 30` `--duration <config.duration>` `--format webm\|mp4` (webm); `out` defaults to `<name>.<format>` |
-| `still`  | `--time 0` `--width 1280` `--height 720`; the output is always WebP (a `.png` name is refused)                                            |
-| `check`  | Exits 1 on any error. Runs the same compiler a hosted push runs, so a clean check is a config that compiles anywhere                      |
+| Verb     | Flags and defaults                                                                                                                                                     |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `render` | `--width` `--height` (the program's `size`, else 1920x1080) `--fps 30` `--duration <config.duration>` `--format webm\|mp4` (webm); `out` defaults to `<name>.<format>` |
+| `still`  | `--time 0` `--width` `--height` (the program's `size`, else 1280x720); the output is always WebP (a `.png` name is refused)                                            |
+| `check`  | Exits 1 on any error. Runs the same compiler a hosted push runs, so a clean check is a config that compiles anywhere                                                   |
+
+A program that declares `size: { width, height }` renders at that size with no flags, at any shape (1080x1920, 1080x1350, 2560x1080). One of `--width`/`--height` keeps its aspect and derives the other edge, rounded even; both set the frame outright, with a note when that changes the declared aspect (a program lays itself out in the frame it gets, so that is a different picture, not a scaled one). `vos info` prints the size and `vos preview` letterboxes to it.
 
 Configs can be local files or URLs; a platform `{ "config": … }` envelope is unwrapped. Rendering compiles the config with `@vosjs/core`, wraps it in the engine's capture template, and encodes frame by frame (WebCodecs) in headless Chromium. Same input, same video: locally, in CI, or on a server. Every engine verb takes a directory too: a take (its `doc.json` is a recording document) renders through the take pipeline, and a program directory (`config.json`, composed with the program document beside it when there is one) renders as what the studio plays. A deterministic sniff of the document, never a flag.
 

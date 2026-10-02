@@ -30,6 +30,8 @@ import {
   stillWarnings,
 } from './render'
 import { runCheck } from './check'
+import { outputSizeFor, RENDER_FALLBACK, STILL_FALLBACK } from './outputSize'
+import { aspectLabel, programSize } from '@vosjs/core'
 import { programAudio } from './programAudio'
 import {
   applyDataSets,
@@ -46,9 +48,11 @@ const BOOLEAN_FLAGS = new Set(['json', 'help', 'version'])
 const HELP_ENGINE = `vos — command line for the vos programmatic video engine (https://vos.so/engine)
 
 Engine verbs (local, no account, no network beyond the render page's CDN deps)
-  vos render <config.json|url|take> [out.mp4|out.webm] [--width 1920] [--height 1080] [--fps 30]
+  vos render <config.json|url|take> [out.mp4|out.webm] [--width] [--height] [--fps 30]
                                [--duration <s>] [--format webm|mp4] [--set data.<key>=<value>]... [--json]
              the output's name picks the container; a program document's sound is mixed in
+             size: the program's own "size" (else 1920x1080; a still, 1280x720); one of
+             --width/--height keeps the program's aspect, both set the frame
   vos still  <config.json|url> [out.webp|out.png|out.jpg] [--time 0 | --times 0,1.5,50%]
                                [--width] [--height] [--set data.<key>=<value>]... [--json]
   vos info   <config.json|url> [--json]
@@ -114,8 +118,9 @@ async function cmdRender(argv: string[]): Promise<number> {
     setFlags(argv),
   )
   const duration = numFlag(flags, 'duration', configDuration(config) ?? 5)
-  const width = numFlag(flags, 'width', 1920)
-  const height = numFlag(flags, 'height', 1080)
+  const size = outputSizeFor(config, flags, RENDER_FALLBACK)
+  if (size.note) r.log(`note: ${size.note}`)
+  const { width, height } = size
   const fps = numFlag(flags, 'fps', 30)
   const out = positionals[1] ?? outName(source, format)
 
@@ -195,8 +200,9 @@ async function cmdStill(argv: string[]): Promise<number> {
     loaded.config as Record<string, unknown>,
     setFlags(argv),
   )
-  const width = numFlag(flags, 'width', 1280)
-  const height = numFlag(flags, 'height', 720)
+  const size = outputSizeFor(config, flags, STILL_FALLBACK)
+  if (size.note) r.log(`note: ${size.note}`)
+  const { width, height } = size
   const out = positionals[1] ?? outName(source, 'webp')
   const encoding = stillFormat(out)
   const timesRaw = flags.times === undefined ? undefined : String(flags.times)
@@ -284,9 +290,11 @@ async function cmdInfo(argv: string[]): Promise<number> {
   const fns = ['setup', 'createContent', 'createTimeline', 'onFrame'].filter(
     (k) => typeof config[k] === 'string',
   )
+  const declared = programSize(config)
   const info = {
     version: config.version,
     duration: configDuration(config) ?? null,
+    size: declared ?? null,
     camera:
       (config.camera as Record<string, unknown> | undefined)?.preset ?? null,
     elements,
@@ -300,6 +308,7 @@ async function cmdInfo(argv: string[]): Promise<number> {
     process.stdout.write(
       `version:   v${String(info.version)}\n` +
         `duration:  ${info.duration === null ? '(none)' : `${info.duration}s`}\n` +
+        `size:      ${declared ? `${declared.width}x${declared.height} (${aspectLabel(declared)})` : '(none declared; render 1920x1080, still 1280x720)'}\n` +
         `camera:    ${String(info.camera ?? '(default)')}\n` +
         `elements:  ${elements}\n` +
         `data keys: ${data.length ? data.join(', ') : '(none)'}\n` +

@@ -24,6 +24,15 @@ export type { ValidatedVosConfig } from './schema/configSchema'
 export type { ValidatedVosConfigJson } from './schema/configJsonSchema'
 export { isValidVosConfigJson } from './schema/validators'
 export { CURRENT_CONFIG_VERSION, migrateConfig } from './schema/migrations'
+export {
+  aspectLabel,
+  evenEdge,
+  fitWithinEdges,
+  programSize,
+  programSizeSchema,
+  resolveOutputSize,
+} from './schema/size'
+export type { ProgramSize, ResolvedOutputSize } from './schema/size'
 
 // Addon registry
 export {

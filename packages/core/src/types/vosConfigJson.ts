@@ -60,6 +60,14 @@ export interface VosConfigJson {
    */
   duration: number
 
+  /**
+   * The canvas the program is designed for, in pixels. Its ratio is the
+   * program's aspect (any shape: 1080x1920, 1080x1080, 2560x1080); its pixels
+   * are the default output size of a render or still. Absent, a host picks
+   * (16:9 by convention). Design units stay 1080-high at every size.
+   */
+  size?: { width: number; height: number }
+
   /** Scene configuration (background, fog) */
   scene?: SceneConfig
 
