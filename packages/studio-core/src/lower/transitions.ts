@@ -15,6 +15,7 @@
  * own `slide` enter at the open is the same record with no outgoing.
  */
 import { segmentOutputExtents } from './segmentStarts'
+import { entranceAt } from './motion'
 import {
   enterOf,
   exitOf,
@@ -100,7 +101,8 @@ export function docTransitions(doc: ProjectDoc): Transition[] {
   if (open?.kind === 'slide' && extents.length) {
     const first = extents[0]
     const m = move(open, 'enter', Math.max(0, first.end - first.start) / 2)
-    if (m) out.push({ t: 0, d: m.d, in: m })
+    // A card that waits (`at`) slides in when it arrives, not at the open.
+    if (m) out.push({ t: round3(entranceAt(open)), d: m.d, in: m })
   }
   for (let i = 0; i + 1 < segments.length; i++) {
     const a = segments[i]

@@ -804,6 +804,12 @@
               "minimum": 0,
               "maximum": 2,
               "description": "words only: seconds between one unit's start and the next"
+            },
+            "at": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 30,
+              "description": "the CARD's enter only (frame.anim.enter): OUTPUT seconds the card waits before it enters. The ground plays alone until then, so a film can open on its title over the ground, and the card arrives from nothing. Absent = 0, the card on screen from the first frame"
             }
           }
         }

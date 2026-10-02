@@ -1100,6 +1100,13 @@ export interface AnimStep {
    * page turns forward).
    */
   side?: AnimSide
+  /**
+   * The CARD's enter only: OUTPUT seconds the card waits before it enters.
+   * The ground plays alone until then (a film that opens on its title), and
+   * the card arrives from nothing rather than from its softened first pose.
+   * Absent = 0: the card is on screen from the first frame.
+   */
+  at?: number
 }
 
 export interface Anim {
