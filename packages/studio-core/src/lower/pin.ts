@@ -302,14 +302,17 @@ export function pinRectOnScreen(
   let cx = 0.5
   let cy = 0.5
   let centring: number | undefined
+  let screen: { x: number; y: number } | undefined
   if (zoomTrack && zoomTrack.keyframes.length) {
     const z = sample(zoomTrack, t, lerpArray)
     level = z[0]
     cx = z[1]
     cy = z[2]
     if (z.length > 3) centring = z[3]
+    // A placed span's screen point (MIRRORS ON_FRAME's zsx/zsy).
+    if (z.length > 5) screen = { x: z[4], y: z[5] }
   }
-  const v = zoomView(level, cx, cy, layout, camera, centring)
+  const v = zoomView(level, cx, cy, layout, camera, centring, screen)
   const map = (nx: number, ny: number) => {
     const px = layout.dx + nx * layout.dw
     const py = layout.dy + ny * layout.dh

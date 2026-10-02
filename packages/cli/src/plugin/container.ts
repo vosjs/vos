@@ -33,6 +33,7 @@ const TYPES_BY_EXTENSION: Record<string, string> = {
   wav: 'audio/wav',
   ogg: 'audio/ogg',
   m4a: 'audio/mp4',
+  glb: 'model/gltf-binary',
 }
 
 /** The extension each type is written under, where the table is many-to-one. */
@@ -100,6 +101,8 @@ export function sniffMediaType(head: Uint8Array): string | null {
   if (ascii(0, 4) === 'GIF8') return 'image/gif'
   if (ascii(0, 4) === 'OggS') return 'audio/ogg'
   if (ascii(0, 3) === 'ID3') return 'audio/mpeg'
+  // Binary glTF: the magic is the four ASCII bytes `glTF`.
+  if (ascii(0, 4) === 'glTF') return 'model/gltf-binary'
   return null
 }
 

@@ -24,13 +24,22 @@ export interface ZoomWindow {
  * focus is clamped first exactly as the lowering clamps it).
  */
 export function zoomWindow(
-  span: { level: number; cx: number; cy: number },
+  span: {
+    level: number
+    cx: number
+    cy: number
+    screen?: { x: number; y: number }
+    focusMode?: string
+  },
   layout: CardLayout,
   camera: CameraModel = 'card',
 ): ZoomWindow {
   const L = Math.max(1, span.level)
-  const { cx, cy } = clampFocus(span.cx, span.cy, L, layout, camera)
-  const v = zoomViewport(L, cx, cy, layout, camera)
+  // A span placed on screen lands its target there (a follow span ignores
+  // it, as the lowering does).
+  const screen = span.focusMode !== 'auto' ? span.screen : undefined
+  const { cx, cy } = clampFocus(span.cx, span.cy, L, layout, camera, screen)
+  const v = zoomViewport(L, cx, cy, layout, camera, undefined, screen)
   const px0 = v.x * layout.W
   const px1 = (v.x + v.w) * layout.W
   const py0 = v.y * layout.H
@@ -49,7 +58,13 @@ export function zoomWindow(
  * frame and covers everything.
  */
 export function zoomCoversRect(
-  span: { level: number; cx: number; cy: number },
+  span: {
+    level: number
+    cx: number
+    cy: number
+    screen?: { x: number; y: number }
+    focusMode?: string
+  },
   rect: NormRect,
   layout: CardLayout,
   tol = 0.02,

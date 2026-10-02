@@ -496,6 +496,31 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       ) {
         problems.push(`${name}: focusMode must be 'manual' or 'auto'`)
       }
+      if (z.screen !== undefined) {
+        const sp = z.screen as Record<string, unknown> | null
+        const ok =
+          !!sp &&
+          typeof sp === 'object' &&
+          isNum(sp.x) &&
+          isNum(sp.y) &&
+          (sp.x as number) >= 0 &&
+          (sp.x as number) <= 1 &&
+          (sp.y as number) >= 0 &&
+          (sp.y as number) <= 1
+        if (!ok) {
+          problems.push(
+            `${name}: screen must be { x, y } in 0..1 — where the target lands as FRACTIONS of the frame (0.35, 0.5 = a third across, centred), not pixels`,
+          )
+        } else if (z.focusMode === 'auto') {
+          warnings.push(
+            `${name}: screen is ignored on a span that follows the cursor (focusMode 'auto'); drop one or the other`,
+          )
+        } else if (cameraModel(doc.frame as never) !== 'stage') {
+          warnings.push(
+            `${name}: screen places the target under the stage camera only (frame.camera: 'stage'); the magnifier keeps the target where it is`,
+          )
+        }
+      }
       if (
         z.source !== undefined &&
         z.source !== 'manual' &&
@@ -2021,7 +2046,13 @@ function framingWarnings(
       const rect = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
       if (
         !zoomCoversRect(
-          { level: z.level, cx: z.cx, cy: z.cy },
+          {
+            level: z.level,
+            cx: z.cx,
+            cy: z.cy,
+            screen: z.screen as { x: number; y: number } | undefined,
+            focusMode: z.focusMode as string | undefined,
+          },
           rect,
           layout,
           0.02,

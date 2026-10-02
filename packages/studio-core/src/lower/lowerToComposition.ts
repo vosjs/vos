@@ -424,6 +424,20 @@ export function zoomTrackFromDoc(
   // Monotonic emit: clamp into strictly-increasing time (skip exact no-ops).
   const { keyframes, push } = trackEmitter()
 
+  // A span placed on SCREEN (and not following the cursor) lands its target
+  // there instead of the centre: the track then carries [sx, sy] as its
+  // fifth and sixth components on EVERY keyframe, so a pan between two
+  // placed spans glides the screen point too. Only when some span is
+  // placed; every other document keeps the four-component track it had.
+  const placedAt = (z: LoweredZoomSpan) =>
+    z.screen && z.focusMode !== 'auto' ? z.screen : null
+  const placed = mapped.some(({ z }) => placedAt(z) !== null)
+  const sc = (z: LoweredZoomSpan): number[] => {
+    if (!placed) return []
+    const s = placedAt(z)
+    return s ? [s.x, s.y] : [0.5, 0.5]
+  }
+
   let chained = false
   for (let i = 0; i < mapped.length; i++) {
     const { z, tIn, tOut } = mapped[i]
@@ -434,7 +448,7 @@ export function zoomTrackFromDoc(
     // was a jump: any ease reaches level 1.3 in its first frames, so the
     // whole slide landed at once and the corner drifted back out as the
     // scale caught up (the twitch measured on the tweakcn take).
-    const entry = [clampZoomLevel(z.level), z.cx, z.cy, 1]
+    const entry = [clampZoomLevel(z.level), z.cx, z.cy, 1, ...sc(z)]
     // The camera's current state within the span — advanced by follow recenters.
     let cur = entry
     // Per-span transition speed: a multiplier on the style's ramps.
@@ -445,7 +459,7 @@ export function zoomTrackFromDoc(
       // Rest until the ramp starts; scale in place around this span's focus
       // (level 1 renders identically for any focus, so the rest focus is free).
       const startWanted = tIn - (style.rampIn - style.rampInOverlap) * m
-      const start = push(startWanted, [1, z.cx, z.cy, 0], 'none')
+      const start = push(startWanted, [1, z.cx, z.cy, 0, ...sc(z)], 'none')
       push(
         rampLanding(start, startWanted, style.rampIn * m, tOut),
         entry,
@@ -464,7 +478,7 @@ export function zoomTrackFromDoc(
       // before the exit would compress into a jump (the focus freezes for
       // the zoom-out anyway); it is dropped, and the next one glides.
       if (eOut - tIn < RAMP_FLOOR || tOut - eOut < RAMP_FLOOR) continue
-      const next = [cur[0], e.cx, e.cy, 1]
+      const next = [cur[0], e.cx, e.cy, 1, ...cur.slice(4)]
       if (e.path) {
         // A path sample: the camera is HERE at this time. The first sample
         // of a run is reached by a glide of the recenter length from the
@@ -502,7 +516,13 @@ export function zoomTrackFromDoc(
       tOut > landed
     ) {
       const grow = Math.min(HOLD_DRIFT_MAX, drift * (tOut - landed))
-      cur = [clampZoomLevel(cur[0] * (1 + grow)), cur[1], cur[2], cur[3]]
+      cur = [
+        clampZoomLevel(cur[0] * (1 + grow)),
+        cur[1],
+        cur[2],
+        cur[3],
+        ...cur.slice(4),
+      ]
       push(tOut, cur, 'linear')
     } else {
       push(tOut, cur, 'none')
@@ -514,7 +534,13 @@ export function zoomTrackFromDoc(
       // get a real pan by letting it land up to rampInOverlap into the next.
       // The pan is the NEXT span's arrival, so its transition speed governs.
       const mNext = transitionMult(next.z.transition)
-      const nextValue = [clampZoomLevel(next.z.level), next.z.cx, next.z.cy, 1]
+      const nextValue = [
+        clampZoomLevel(next.z.level),
+        next.z.cx,
+        next.z.cy,
+        1,
+        ...sc(next.z),
+      ]
       push(
         Math.max(
           tOut + RAMP_FLOOR,
@@ -532,7 +558,7 @@ export function zoomTrackFromDoc(
       // back from wherever the follow left it, no parting pan.
       push(
         tOut + style.rampOut * m,
-        [1, cur[1], cur[2], 0],
+        [1, cur[1], cur[2], 0, ...cur.slice(4)],
         spanEase(z.ease, style.ease),
       )
       chained = false
@@ -1955,7 +1981,7 @@ const ON_FRAME = `(ctx, content, dt) => {
   // current zoom — a standard keyframe track in OUTPUT time (hold + arrival pairs
   // expanded by the lowering), sampled with the shared deterministic interpolator.
   // Sampled here, before the rect math, so a cover crop can follow it.
-  var lvl = 1, zx = 0.5, zy = 0.5, zc = -1
+  var lvl = 1, zx = 0.5, zy = 0.5, zc = -1, zsx = 0.5, zsy = 0.5
   var zt = d.zoomTrack
   if (zt && zt.keyframes && zt.keyframes.length) {
     var z = TL.sample(zt, tpT, TL.lerpArray)
@@ -1964,6 +1990,9 @@ const ON_FRAME = `(ctx, content, dt) => {
     // with the level); a three-component track (a document lowered before
     // the component existed) falls back to the level band below.
     if (z.length > 3) zc = z[3]
+    // A span placed on screen carries where its target lands (frame
+    // fractions); a track without them lands it at the centre.
+    if (z.length > 5) { zsx = z[4]; zsy = z[5] }
   }
   var barH = bar.kind && bar.kind !== 'none' ? (bar.height || 44) * s2 : 0
   var availW = Math.max(1, W - ipL - ipR), availH = Math.max(1, H - ipT - ipB - barH)
@@ -2024,6 +2053,10 @@ const ON_FRAME = `(ctx, content, dt) => {
   var camStage = cfr.camera === 'stage'
   var fx = dx + zx * dw, fy = dy + zy * dh
   var wcx = fx, wcy = fy
+  // The point the stage camera lands its focus on: the span's place on
+  // screen, else the centre (0.5·W is W / 2 exactly). MIRRORS zoomView's
+  // screenPoint — change together.
+  var cox = camStage ? zsx * W : W / 2, coy = camStage ? zsy * H : H / 2
   if (lvl > 1.001 && !d.zoomSuppressed) {
     if (camStage) {
       var ctt = zc
@@ -2031,9 +2064,9 @@ const ON_FRAME = `(ctx, content, dt) => {
         var ctu = Math.max(0, Math.min(1, (lvl - 1) / ${CAMERA_CENTRE_RAMP}))
         ctt = ctu * ctu * (3 - 2 * ctu)
       }
-      wcx = fx + ((W / 2 - fx) / lvl) * (1 - ctt)
-      wcy = fy + ((H / 2 - fy) / lvl) * (1 - ctt)
-      c.translate(W / 2, H / 2); c.scale(lvl, lvl); c.translate(-wcx, -wcy)
+      wcx = fx + ((cox - fx) / lvl) * (1 - ctt)
+      wcy = fy + ((coy - fy) / lvl) * (1 - ctt)
+      c.translate(cox, coy); c.scale(lvl, lvl); c.translate(-wcx, -wcy)
     } else {
       c.translate(fx, fy); c.scale(lvl, lvl); c.translate(-fx, -fy)
     }
@@ -2433,7 +2466,7 @@ const ON_FRAME = `(ctx, content, dt) => {
     if (trOut) {
       var tqX = ax, tqY = ay
       if (lvl > 1.001 && !d.zoomSuppressed) {
-        if (camStage) { tqX = W / 2 + (ax - wcx) * lvl; tqY = H / 2 + (ay - wcy) * lvl }
+        if (camStage) { tqX = cox + (ax - wcx) * lvl; tqY = coy + (ay - wcy) * lvl }
         else { tqX = fx + (ax - fx) * lvl; tqY = fy + (ay - fy) * lvl }
       }
       if (tpG) trQa = [tqX, tqY]
@@ -2555,8 +2588,8 @@ const ON_FRAME = `(ctx, content, dt) => {
       }
       if (lvl > 1.001 && !d.zoomSuppressed) {
         if (camStage) {
-          pqAx = W / 2 + (pqAx - wcx) * lvl; pqAy = H / 2 + (pqAy - wcy) * lvl
-          pqBx = W / 2 + (pqBx - wcx) * lvl; pqBy = H / 2 + (pqBy - wcy) * lvl
+          pqAx = cox + (pqAx - wcx) * lvl; pqAy = coy + (pqAy - wcy) * lvl
+          pqBx = cox + (pqBx - wcx) * lvl; pqBy = coy + (pqBy - wcy) * lvl
         } else {
           pqAx = fx + (pqAx - fx) * lvl; pqAy = fy + (pqAy - fy) * lvl
           pqBx = fx + (pqBx - fx) * lvl; pqBy = fy + (pqBy - fy) * lvl
@@ -3270,7 +3303,15 @@ function loweredZoomSpans(
     }
     return {
       ...z,
-      ...clampFocus(z.cx, z.cy, clampZoomLevel(z.level), layout, camera),
+      // A span placed on screen is the author's composition: no cover band.
+      ...clampFocus(
+        z.cx,
+        z.cy,
+        clampZoomLevel(z.level),
+        layout,
+        camera,
+        z.focusMode !== 'auto' ? z.screen : undefined,
+      ),
     }
   })
 }

@@ -1388,3 +1388,53 @@ describe('emphasis is opt-in (overlays[].emphasis)', () => {
     )
   })
 })
+
+describe('a zoom placed on screen (zoom[].screen)', () => {
+  const placedDoc = (
+    screen: unknown,
+    over: Record<string, unknown> = {},
+    camera: 'stage' | 'card' = 'stage',
+  ) =>
+    makeDoc({
+      frame: { ...makeDoc().frame, camera } as ProjectDoc['frame'],
+      zoom: [
+        {
+          id: 'z1',
+          in: 1.5,
+          out: 3,
+          level: 2,
+          cx: 0.5,
+          cy: 0.5,
+          screen,
+          ...over,
+        },
+      ] as unknown as ProjectDoc['zoom'],
+    })
+  const about = (r: ReturnType<typeof lintDoc>) =>
+    [...r.problems, ...r.warnings].filter((x) => x.includes('screen'))
+
+  it('takes frame fractions under the stage camera, and says nothing', () => {
+    expect(about(lintDoc(placedDoc({ x: 0.3, y: 0.5 })))).toEqual([])
+  })
+
+  it('refuses pixels, or a missing axis, in words', () => {
+    const [p] = lintDoc(placedDoc({ x: 640, y: 360 })).problems.filter((x) =>
+      x.includes('screen'),
+    )
+    expect(p).toContain('FRACTIONS of the frame')
+    expect(
+      lintDoc(placedDoc({ x: 0.3 })).problems.some((x) =>
+        x.includes('screen must be'),
+      ),
+    ).toBe(true)
+  })
+
+  it('warns where it cannot act: a follow span, the magnifier camera', () => {
+    expect(
+      about(lintDoc(placedDoc({ x: 0.3, y: 0.5 }, { focusMode: 'auto' })))[0],
+    ).toContain('follows the cursor')
+    expect(
+      about(lintDoc(placedDoc({ x: 0.3, y: 0.5 }, {}, 'card')))[0],
+    ).toContain('stage camera only')
+  })
+})

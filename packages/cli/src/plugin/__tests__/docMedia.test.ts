@@ -3,10 +3,13 @@ import { DEFAULT_CAM_STYLE, DEFAULT_CURSOR_STYLE } from '@vosjs/studio-core'
 import {
   assetIdOf,
   docAudioRefs,
+  docLayerRefs,
   docMediaRefs,
+  docObjectRefs,
   extensionFor,
   isTakeRelativeKey,
   mediaContentType,
+  sourceSidecarRefs,
   takeRelativeFile,
 } from '../media'
 import type { ProjectDoc } from '@vosjs/studio-core'
@@ -240,5 +243,86 @@ describe('docAudioRefs: the sound a document adds', () => {
       1,
     )
     expect(docAudioRefs({})).toEqual([])
+  })
+})
+
+// A take's voice and webcam, and a document's 3D props: files a push used to
+// leave on the pusher's disk. `vos fetch --media` writes mic.webm and
+// cam.webm beside the take, so fetch-then-push lost both without a word.
+describe('sourceSidecarRefs: the voice and the webcam', () => {
+  it('lists a local mic and cam and rewrites them in place', () => {
+    const d = doc()
+    d.source.micKey = 'mic.webm'
+    d.source.camKey = 'cam.webm'
+    const refs = sourceSidecarRefs(d)
+    expect(refs.map((r) => r.where)).toEqual(['mic track', 'cam track'])
+    refs[0].set('/api/assets/m1/file')
+    refs[1].set('/api/assets/c1/file')
+    expect(d.source.micKey).toBe('/api/assets/m1/file')
+    expect(d.source.camKey).toBe('/api/assets/c1/file')
+  })
+
+  it('leaves a hosted sidecar alone, and a take that has none', () => {
+    const d = doc()
+    expect(sourceSidecarRefs(d)).toEqual([])
+    d.source.micKey = '/api/assets/m1/file'
+    expect(sourceSidecarRefs(d)).toEqual([])
+  })
+})
+
+describe('docObjectRefs: a prop’s model is a file too', () => {
+  const prop = (id: string, key: string) =>
+    ({
+      id,
+      asset: { kind: 'gltf', key },
+      transform3d: { x: 0.5, y: 0.5, z: 0, rx: 0, ry: 0, rz: 0, scale: 0.3 },
+    }) as never
+
+  it('lists a local GLB and rewrites it; a hosted one is left alone', () => {
+    const d = {
+      objects: [
+        prop('chair', 'models/chair.glb'),
+        prop('lamp', '/api/assets/g1/file'),
+      ],
+    }
+    const refs = docObjectRefs(d)
+    expect(refs.map((r) => r.where)).toEqual(['object chair'])
+    refs[0].set('/api/assets/new/file')
+    expect((d.objects[0] as { asset: { key: string } }).asset.key).toBe(
+      '/api/assets/new/file',
+    )
+  })
+
+  it('rides a take push: docMediaRefs includes the prop', () => {
+    const d = doc()
+    d.objects = [prop('chair', 'models/chair.glb')]
+    expect(docMediaRefs(d).map((r) => r.where)).toContain('object chair')
+  })
+})
+
+describe('docLayerRefs: what a program document can name', () => {
+  it('lists its overlays, its props and its sound, in that order', () => {
+    const refs = docLayerRefs({
+      overlays: [
+        { id: 'mark', kind: 'image', key: 'brand/logo.png' } as never,
+        { id: 'title', kind: 'text', text: 'Hi' } as never,
+      ],
+      objects: [
+        {
+          id: 'chair',
+          asset: { kind: 'gltf', key: 'models/chair.glb' },
+        } as never,
+      ],
+      audio: [{ id: 'score', key: 'score.ogg' } as never],
+    })
+    expect(refs.map((r) => r.where)).toEqual([
+      'overlay mark',
+      'object chair',
+      'audio score',
+    ])
+  })
+
+  it('answers empty for a document with no layers', () => {
+    expect(docLayerRefs({})).toEqual([])
   })
 })
