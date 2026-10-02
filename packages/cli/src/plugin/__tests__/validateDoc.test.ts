@@ -1201,3 +1201,102 @@ describe('pinned layers', () => {
     expect(w).toContain('pinned right')
   })
 })
+
+describe('a layer is ABOUT a step only by its words or its place', () => {
+  const stepDoc = (overlays: ProjectDoc['overlays']) =>
+    makeDoc({
+      source: {
+        ...makeDoc().source,
+        // A recorded take: the framing lints read the presses' rects.
+        cursor: [
+          {
+            t: 2100,
+            x: 440,
+            y: 200,
+            type: 'down' as const,
+            button: 0 as const,
+            rect: { x: 380, y: 180, w: 120, h: 40 },
+          },
+        ],
+        meta: {
+          ...makeDoc().source.meta,
+          steps: [
+            {
+              id: 'ohlc',
+              do: 'click',
+              selector:
+                "[data-testid='Candlestick style editor'] label:has-text('OHLC Bars')",
+              tStart: 2,
+              tEnd: 3,
+              rect: { x: 380, y: 180, w: 120, h: 40 },
+            },
+          ],
+        },
+      } as ProjectDoc['source'],
+      overlays,
+    })
+  const html = (id: string, words: string, x: number, y: number) => ({
+    id,
+    kind: 'html' as const,
+    start: 1,
+    duration: 3,
+    html: `<div>${words}</div>`,
+    css: 'div{color:#fff}',
+    box: { width: 200, height: 60 },
+    transform: { x, y, scale: 1, rotation: 0 },
+  })
+  const pinAdvice = (r: ReturnType<typeof lintDoc>) =>
+    r.warnings.filter((w) => w.includes('is not pinned'))
+
+  it('a caption that only shares the step window warns nothing', () => {
+    const r = lintDoc(stepDoc([html('c0', 'Every option, live', 0.5, 0.92)]))
+    expect(pinAdvice(r)).toEqual([])
+  })
+
+  it('a layer whose words name the element names the pin, and says why', () => {
+    const r = lintDoc(
+      stepDoc([html('c0', 'Switch to OHLC bars in one click', 0.5, 0.92)]),
+    )
+    const [w] = pinAdvice(r)
+    expect(w).toContain('its words name ohlc')
+    expect(w).toContain('"ohlc bars"')
+    expect(w).toContain('pin: { step: "ohlc" }')
+  })
+
+  it('a layer beside the element names the pin', () => {
+    const r = lintDoc(stepDoc([html('c0', 'Faster', 0.46, 0.3)]))
+    const [w] = pinAdvice(r)
+    expect(w).toContain("sits beside ohlc's element")
+  })
+
+  it('a layer on a SURFACE the step touched (a chart, a canvas) is not beside it', () => {
+    const surface = stepDoc([html('c0', 'Faster', 0.46, 0.3)])
+    const steps = surface.source.meta.steps ?? []
+    steps[0] = { ...steps[0], rect: { x: 100, y: 80, w: 1000, h: 500 } }
+    expect(pinAdvice(lintDoc(surface))).toEqual([])
+  })
+
+  it('a test id is never read as words a person sees', () => {
+    const r = lintDoc(stepDoc([html('c0', 'Candlestick style', 0.5, 0.92)]))
+    expect(pinAdvice(r)).toEqual([])
+  })
+})
+
+describe('a strong lean is said once', () => {
+  it('four dramatic spans make one warning that lists them', () => {
+    const r = lintDoc(
+      makeDoc({
+        tilt: [
+          { id: 'u1', in: 0.5, out: 3, rx: 9, ry: 20 },
+          { id: 'u2', in: 3.2, out: 6, rx: 7, ry: -24 },
+          { id: 'u3', in: 6.2, out: 9, rx: 10, ry: -18 },
+          { id: 'u4', in: 9.2, out: 12, rx: 13, ry: 15 },
+        ],
+      }),
+    )
+    const lines = r.warnings.filter((w) => w.includes('dramatic'))
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toContain('4 spans lean past 25°')
+    expect(lines[0]).toContain('tilt u3 28°')
+  })
+})

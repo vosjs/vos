@@ -73,6 +73,27 @@ describe('a layer that outlives the footage', () => {
     )
   })
 
+  it('offers the card leaving as the way to a closing card on the ground', () => {
+    const r = lintDoc(makeDoc({ overlays: [text(18, 3.4)] }))
+    const [w] = aboutFootage(r.warnings)
+    expect(w).toContain('the card holds its last frame under it')
+    expect(w).toContain("frame.anim.exit: 'fade'")
+  })
+
+  // A card that leaves when its footage ends is an ending made on purpose:
+  // the words past the footage are that ending's, over the ground.
+  it('is silent when the card leaves with its footage', () => {
+    for (const exit of ['fade', { kind: 'recede', seconds: 0.8 }]) {
+      const r = lintDoc(
+        makeDoc({
+          frame: { ...makeDoc().frame, anim: { exit } },
+          overlays: [text(18, 3.4)],
+        }),
+      )
+      expect(aboutFootage(r.warnings)).toEqual([])
+    }
+  })
+
   it('is silent for a layer inside the footage, to the last frame', () => {
     const r = lintDoc(makeDoc({ overlays: [text(17, 3)] }))
     expect(aboutFootage(r.warnings)).toEqual([])
