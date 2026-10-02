@@ -1742,37 +1742,71 @@ const ON_FRAME = `(ctx, content, dt) => {
   bgC.fillStyle = '#0b0b0c'
   bgC.fillStyle = (function () {
     var bgcss = frame.background || '#0b0b0c'
-    if (typeof bgcss === 'string' && bgcss.indexOf('linear-gradient') === 0) {
-      var inner = bgcss.substring(bgcss.indexOf('(') + 1, bgcss.lastIndexOf(')'))
-      var parts = inner.split(',').map(function (x) { return x.trim() })
-      var ang = 135, cols = []
-      for (var i = 0; i < parts.length; i++) {
-        if (parts[i].indexOf('deg') >= 0) ang = parseFloat(parts[i])
-        else cols.push(parts[i])
+    if (typeof bgcss !== 'string') return '#0b0b0c'
+    var gKind = bgcss.indexOf('linear-gradient') === 0 ? 'linear' : bgcss.indexOf('radial-gradient') === 0 ? 'radial' : ''
+    if (!gKind) return bgcss
+    // Split on TOP-LEVEL commas only: an rgba() or hsl() stop has commas of
+    // its own, and splitting inside one hands canvas half a colour.
+    var gin = bgcss.substring(bgcss.indexOf('(') + 1, bgcss.lastIndexOf(')'))
+    var gps = [], gDepth = 0, gCur = ''
+    for (var gi = 0; gi < gin.length; gi++) {
+      var gch = gin.charAt(gi)
+      if (gch === '(') gDepth++
+      else if (gch === ')') gDepth--
+      if (gch === ',' && gDepth === 0) { gps.push(gCur.trim()); gCur = '' } else gCur += gch
+    }
+    gps.push(gCur.trim())
+    // The geometry (an angle, a side, a shape and centre) leads; every other
+    // part is a STOP, a colour with an optional position ('#2b6f64 40%').
+    var ang = 135, rcx = 0.5, rcy = 0.5, gStops = []
+    for (var gj = 0; gj < gps.length; gj++) {
+      var gp = gps[gj]
+      if (!gp) continue
+      if (gKind === 'linear' && gj === 0 && gp.indexOf('deg') >= 0) { ang = parseFloat(gp); continue }
+      if (gKind === 'linear' && gj === 0 && gp.indexOf('to ') === 0) {
+        var tdx = gp.indexOf('right') >= 0 ? 1 : gp.indexOf('left') >= 0 ? -1 : 0
+        var tdy = gp.indexOf('bottom') >= 0 ? 1 : gp.indexOf('top') >= 0 ? -1 : 0
+        ang = Math.atan2(tdx, -tdy) * 180 / Math.PI
+        continue
       }
-      if (cols.length < 2) cols = [cols[0] || '#000', cols[0] || '#000']
+      if (gKind === 'radial' && gj === 0 && (gp.indexOf('circle') === 0 || gp.indexOf('ellipse') === 0 || gp.indexOf('at ') === 0 || gp.indexOf('closest') === 0 || gp.indexOf('farthest') === 0)) {
+        var rat = /at\\s+([\\d.]+)%\\s+([\\d.]+)%/.exec(gp)
+        if (rat) { rcx = parseFloat(rat[1]) / 100; rcy = parseFloat(rat[2]) / 100 }
+        continue
+      }
+      var gSp = gp.lastIndexOf(' ')
+      var gTail = gSp > 0 ? gp.substring(gSp + 1) : ''
+      if (gTail.charAt(gTail.length - 1) === '%' && !isNaN(parseFloat(gTail))) {
+        gStops.push({ c: gp.substring(0, gSp).trim(), p: parseFloat(gTail) / 100 })
+      } else gStops.push({ c: gp, p: null })
+    }
+    if (!gStops.length) return '#0b0b0c'
+    if (gStops.length === 1) gStops.push({ c: gStops[0].c, p: null })
+    // CSS's own fix-up: an unplaced first stop sits at 0 and last at 1, a
+    // position never runs backwards, and the unplaced stops between two
+    // placed ones spread evenly. Canvas throws outside 0..1, so clamp.
+    var gN = gStops.length
+    if (gStops[0].p === null) gStops[0].p = 0
+    if (gStops[gN - 1].p === null) gStops[gN - 1].p = 1
+    var gMax = 0
+    for (var gk = 0; gk < gN; gk++) {
+      if (gStops[gk].p !== null) { gStops[gk].p = Math.min(1, Math.max(gMax, gStops[gk].p)); gMax = gStops[gk].p }
+    }
+    for (var gm = 1; gm < gN; gm++) {
+      if (gStops[gm].p !== null) continue
+      var gEnd = gm
+      while (gStops[gEnd].p === null) gEnd++
+      var gFrom = gStops[gm - 1].p, gTo = gStops[gEnd].p, gRun = gEnd - gm + 1
+      for (var gq = gm; gq < gEnd; gq++) gStops[gq].p = gFrom + (gTo - gFrom) * (gq - gm + 1) / gRun
+    }
+    var g
+    if (gKind === 'linear') {
       var rad = (ang - 90) * Math.PI / 180
       var ux = Math.cos(rad), uy = Math.sin(rad)
-      var g = bgC.createLinearGradient(W / 2 - ux * W / 2, H / 2 - uy * H / 2, W / 2 + ux * W / 2, H / 2 + uy * H / 2)
-      g.addColorStop(0, cols[0]); g.addColorStop(1, cols[cols.length - 1])
-      return g
-    }
-    // Radial: 'radial-gradient([circle|ellipse] [at X% Y%,] A, B)'. Canvas
-    // cannot take the string, so it is built here like the linear one, with
-    // CSS's own default extent (farthest corner) so the second colour lands
-    // exactly where a browser would put it.
-    if (typeof bgcss === 'string' && bgcss.indexOf('radial-gradient') === 0) {
-      var rin = bgcss.substring(bgcss.indexOf('(') + 1, bgcss.lastIndexOf(')'))
-      var rps = rin.split(',').map(function (x) { return x.trim() })
-      var rcx = 0.5, rcy = 0.5, rcols = []
-      for (var ri = 0; ri < rps.length; ri++) {
-        var rp = rps[ri]
-        if (rp.indexOf('circle') === 0 || rp.indexOf('ellipse') === 0 || rp.indexOf('at ') === 0) {
-          var rat = /at\\s+([\\d.]+)%\\s+([\\d.]+)%/.exec(rp)
-          if (rat) { rcx = parseFloat(rat[1]) / 100; rcy = parseFloat(rat[2]) / 100 }
-        } else rcols.push(rp)
-      }
-      if (rcols.length < 2) rcols = [rcols[0] || '#000', rcols[0] || '#000']
+      g = bgC.createLinearGradient(W / 2 - ux * W / 2, H / 2 - uy * H / 2, W / 2 + ux * W / 2, H / 2 + uy * H / 2)
+    } else {
+      // CSS's default extent (farthest corner), so the last stop lands
+      // exactly where a browser would put it.
       var rpx = rcx * W, rpy = rcy * H
       var rr = Math.max(
         Math.sqrt(rpx * rpx + rpy * rpy),
@@ -1780,11 +1814,15 @@ const ON_FRAME = `(ctx, content, dt) => {
         Math.sqrt(rpx * rpx + (H - rpy) * (H - rpy)),
         Math.sqrt((W - rpx) * (W - rpx) + (H - rpy) * (H - rpy))
       )
-      var rg = bgC.createRadialGradient(rpx, rpy, 0, rpx, rpy, rr)
-      rg.addColorStop(0, rcols[0]); rg.addColorStop(1, rcols[rcols.length - 1])
-      return rg
+      g = bgC.createRadialGradient(rpx, rpy, 0, rpx, rpy, rr)
     }
-    return bgcss
+    // A stop canvas still cannot parse (a colour keyword it lacks, a second
+    // position) lands on the known ground: a background must never take the
+    // frame down with it.
+    try {
+      for (var gs = 0; gs < gN; gs++) g.addColorStop(gStops[gs].p, gStops[gs].c)
+    } catch (e) { return '#0b0b0c' }
+    return g
   })()
   bgC.fillRect(0, 0, W, H)
 

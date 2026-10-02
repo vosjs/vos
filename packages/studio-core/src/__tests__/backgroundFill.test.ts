@@ -54,6 +54,7 @@ function makeDoc(background: string): ProjectDoc {
 function fillFor(background: string): {
   kinds: string[]
   strings: string[]
+  stops: [number, string][]
 } {
   const { config, data } = lowerToComposition(makeDoc(background))
   const onFrame = new Function(`return (${config.onFrame as string})`)() as (
@@ -74,15 +75,24 @@ function fillFor(background: string): {
 
   const kinds: string[] = []
   const strings: string[] = []
+  const stops: [number, string][] = []
+  // Canvas's own contract: addColorStop THROWS on an offset outside 0..1 or
+  // a string that is not a colour, so a stop handed over with its position
+  // still attached ('#2b6f64 40%') must throw here as it does in Chrome.
+  const addColorStop = (offset: number, color: string) => {
+    if (!(offset >= 0 && offset <= 1)) throw new RangeError('offset')
+    if (/\s[\d.]+%/.test(color)) throw new SyntaxError(color)
+    stops.push([offset, color])
+  }
   const c2d = new Proxy(
     {},
     {
       get: (_t, key: string) => {
         if (key === 'measureText') return () => ({ width: 42 })
         if (key === 'createLinearGradient')
-          return () => ({ __kind: 'linear', addColorStop: () => {} })
+          return () => ({ __kind: 'linear', addColorStop })
         if (key === 'createRadialGradient')
-          return () => ({ __kind: 'radial', addColorStop: () => {} })
+          return () => ({ __kind: 'radial', addColorStop })
         return () => undefined
       },
       set: (_t, key: string, v: unknown) => {
@@ -126,7 +136,7 @@ function fillFor(background: string): {
     },
   }
   onFrame(ctx, content, 1 / 30)
-  return { kinds, strings }
+  return { kinds, strings, stops }
 }
 
 describe('background fill', () => {
@@ -163,5 +173,57 @@ describe('background fill', () => {
     // ground beneath it the layer keeps whatever was there before.
     const { strings } = fillFor('conic-gradient(#fff, #000)')
     expect(strings[0]).toBe('#0b0b0c')
+  })
+
+  it('reads stop POSITIONS instead of handing canvas "#2b6f64 0%" (which throws and kills the frame)', () => {
+    const { kinds, stops } = fillFor(
+      'radial-gradient(ellipse at 88% 4%, #2b6f64 0%, #123a35 26%, #0a1716 52%, #060808 80%)',
+    )
+    expect(kinds).toContain('radial')
+    expect(stops).toEqual([
+      [0, '#2b6f64'],
+      [0.26, '#123a35'],
+      [0.52, '#0a1716'],
+      [0.8, '#060808'],
+    ])
+  })
+
+  it('keeps EVERY stop, spreading unplaced ones evenly as CSS does', () => {
+    const { stops } = fillFor('linear-gradient(90deg, #111, #222, #333 60%, #444)')
+    expect(stops).toEqual([
+      [0, '#111'],
+      [0.3, '#222'],
+      [0.6, '#333'],
+      [1, '#444'],
+    ])
+  })
+
+  it('never splits inside rgba(), and never lets a position run backwards or past 1', () => {
+    const { stops } = fillFor(
+      'linear-gradient(180deg, rgba(0, 0, 0, 0.5) 40%, #fff 20%, #000 140%)',
+    )
+    expect(stops).toEqual([
+      [0.4, 'rgba(0, 0, 0, 0.5)'],
+      [0.4, '#fff'],
+      [1, '#000'],
+    ])
+  })
+
+  it('reads a "to <side>" direction as its angle rather than as a colour', () => {
+    const { kinds, stops } = fillFor('linear-gradient(to right, #111, #222)')
+    expect(kinds).toContain('linear')
+    expect(stops).toEqual([
+      [0, '#111'],
+      [1, '#222'],
+    ])
+  })
+
+  it('falls back to the known ground, never throws, on a stop canvas cannot read', () => {
+    const run = () => fillFor('linear-gradient(90deg, #111 10% 20%, #222)')
+    expect(run).not.toThrow()
+    const { kinds, strings } = run()
+    // The ground, then the ground again in place of the gradient.
+    expect(strings.slice(0, 2)).toEqual(['#0b0b0c', '#0b0b0c'])
+    expect(kinds).not.toContain('linear')
   })
 })
