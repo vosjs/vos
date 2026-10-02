@@ -1,5 +1,12 @@
 # @vosjs/studio-core
 
+## 0.35.3
+
+### Patch Changes
+
+- Updated dependencies [a8b4300]
+  - @vosjs/shared@0.7.0
+
 ## 0.35.2
 
 ### Patch Changes
