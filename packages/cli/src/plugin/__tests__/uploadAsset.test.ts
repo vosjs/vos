@@ -139,7 +139,54 @@ describe('one protocol for every size', () => {
       filename: 'recording.webm',
       metadata: { width: 1280, height: 720 },
       notes: ['a note from the platform'],
+      ref: 'asset:asset1',
+      duration: null,
     })
+  })
+})
+
+describe('what is said at the seal', () => {
+  it('states where the file came from, when the caller says', async () => {
+    const { calls } = platform()
+    await uploadAsset(target, bytes(1024), {
+      ...opts,
+      provenance: { sourceUrl: 'https://example.com/a.jpg', license: 'CC0' },
+    })
+    expect(JSON.parse(calls.at(-1)?.body as string)).toMatchObject({
+      provenance: { sourceUrl: 'https://example.com/a.jpg', license: 'CC0' },
+    })
+  })
+
+  it('says nothing about it otherwise', async () => {
+    const { calls } = platform()
+    await uploadAsset(target, bytes(1024), opts)
+    expect(JSON.parse(calls.at(-1)?.body as string)).not.toHaveProperty(
+      'provenance',
+    )
+  })
+
+  it('reads "already yours" from the seal too', async () => {
+    // The platform hashes what it stored, so it can recognise bytes that
+    // were sent with no hash or a wrong one.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string, init: RequestInit = {}) => {
+        const method = init.method ?? 'GET'
+        const json = (status: number, body: unknown) =>
+          ({ status, json: async () => body }) as unknown as Response
+        if (url.endsWith('/assets/uploads') && method === 'POST') {
+          return json(201, { uploadId: 'up1', partBytes: 16 * MiB })
+        }
+        if (method === 'PUT') return json(200, { partNumber: 1, etag: 'e' })
+        return json(201, {
+          asset: { id: 'old', fileUrl: '/api/assets/old/file', size: 7 },
+          notes: [],
+          reused: true,
+        })
+      }),
+    )
+    const result = await uploadAsset(target, bytes(1024), opts)
+    expect(result).toMatchObject({ id: 'old', reused: true })
   })
 })
 
