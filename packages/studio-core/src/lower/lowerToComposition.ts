@@ -501,7 +501,9 @@ export function zoomTrackFromDoc(
 
     // Pin the hold to the span's end — the exit transition starts here. A
     // style with a hold drift pushes in through the hold instead of parking:
-    // linear from the landing to the span's end, so the exit (a pan or the
+    // EASED in and out from the landing to the span's end (sine.inOut), so it
+    // starts and ends still and meets the arrival and the exit without the
+    // jolt a constant rate makes at both joints; the exit (a pan or the
     // zoom-out) leaves from where the drift arrived. A span that FOLLOWS
     // the cursor never drifts: its recenters carry the level, and one whose
     // pointer stayed in the safe zone bakes no recenter yet is still a
@@ -523,7 +525,7 @@ export function zoomTrackFromDoc(
         cur[3],
         ...cur.slice(4),
       ]
-      push(tOut, cur, 'linear')
+      push(tOut, cur, 'sine.inOut')
     } else {
       push(tOut, cur, 'none')
     }
