@@ -73,6 +73,27 @@ export const fontFaceDeclSchema = z
   .passthrough()
 
 // ---------------------------------------------------------------------------
+// The manifest: the files a program uses, declared by name.
+// ---------------------------------------------------------------------------
+
+/** A name a program reads as `ctx.assets.<name>`: an identifier. */
+export const ASSET_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+export const assetDeclSchema = z
+  .object({
+    ref: z.union([z.string().min(1), z.array(z.string().min(1)).max(200)]),
+    kind: z
+      .enum(['image', 'video', 'audio', 'model', 'font', 'hdr'])
+      .optional(),
+  })
+  .passthrough()
+
+export const assetsSchema = z.record(
+  z.string().regex(ASSET_NAME, 'an asset name is an identifier'),
+  assetDeclSchema,
+)
+
+// ---------------------------------------------------------------------------
 // The program stack: ids unique, hooks as strings, no timeline.
 // ---------------------------------------------------------------------------
 
@@ -114,6 +135,8 @@ export const vosConfigJsonSchema = z.object({
   fonts: z.array(fontFaceDeclSchema).optional(),
   // Arbitrary, app-defined input data exposed as ctx.data (no shape imposed)
   data: z.record(z.string(), z.unknown()).optional(),
+  // The files the program uses, by name: read as ctx.assets.<name>.
+  assets: assetsSchema.optional(),
   // Functions as strings
   setup: z.string().optional(),
   createContent: z.string(),

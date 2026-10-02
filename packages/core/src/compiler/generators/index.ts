@@ -21,6 +21,12 @@ export { generateLayerAssignment } from './generateLayerAssignment'
 export { generatePerLayerComposerSetup } from './generatePerLayerComposerSetup'
 export { generateGlobalComposerSetup } from './generateGlobalComposerSetup'
 export { generateDynamicLayerRebuild } from './generateDynamicLayerRebuild'
+export {
+  bakedAssetDefaults,
+  generateAssetsSetup,
+  hasAssets,
+} from './generateAssetsSetup'
+export type { ResolveAssetRef } from './generateAssetsSetup'
 export { generateStack } from './generateStack'
 export type { StackCodegen } from './generateStack'
 export { serializeFunction } from './serializeFunction'

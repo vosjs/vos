@@ -1,5 +1,5 @@
 import { writeFile } from 'node:fs/promises'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
@@ -33,6 +33,12 @@ import { runCheck } from './check'
 import { outputSizeFor, RENDER_FALLBACK, STILL_FALLBACK } from './outputSize'
 import { aspectLabel, programSize } from '@vosjs/core'
 import { programAudio } from './programAudio'
+import {
+  ASSET_ROUTE,
+  missingManifestFiles,
+  programAssets,
+} from './programAssets'
+import type { ProgramAssets } from './programAssets'
 import {
   applyDataSets,
   parseTimes,
@@ -90,6 +96,28 @@ function outName(source: string, ext: string): string {
   return `${base}.${ext}`
 }
 
+/** Where a source's relative files are read against; null for a URL. */
+function baseDirOf(source: string): string | null {
+  if (/^https?:\/\//.test(source)) return null
+  return existsSync(source) && statSync(source).isDirectory()
+    ? source
+    : dirname(source)
+}
+
+/** The program's declared files (`config.assets`), reachable for a page. */
+function assetsFor(
+  source: string,
+  config: Record<string, unknown>,
+  log: (line: string) => void,
+): Promise<ProgramAssets | null> {
+  return programAssets(config, {
+    baseDir: baseDirOf(source) ?? process.cwd(),
+    origin: platformOrigin({}),
+    key: resolveCredential(),
+    log: (line) => log(line),
+  })
+}
+
 async function cmdRender(argv: string[]): Promise<number> {
   // Polymorphic render: a take DIRECTORY (its doc.json is a recording
   // document) renders through the plugin; a program directory (config.json,
@@ -142,10 +170,13 @@ async function cmdRender(argv: string[]): Promise<number> {
     )
   }
 
+  const assets = await assetsFor(source, config, (line) => r.log(line))
+
   const browser = await launchBrowser()
   try {
     const result = await renderVideo(browser, {
       config,
+      assets,
       width,
       height,
       fps,
@@ -213,6 +244,7 @@ async function cmdStill(argv: string[]): Promise<number> {
       ? parseTimes(timesRaw, configDuration(config) ?? 5)
       : [numFlag(flags, 'time', 0)]
   const many = times.length > 1
+  const assets = await assetsFor(source, config, (line) => r.log(line))
 
   // One browser for every time: each still is its own capture page.
   const browser = await launchBrowser()
@@ -227,6 +259,7 @@ async function cmdStill(argv: string[]): Promise<number> {
       const target = stillOutFor(out, time, many)
       const result = await renderStill(browser, {
         config,
+        assets,
         width,
         height,
         time,
@@ -404,9 +437,23 @@ async function cmdPreview(argv: string[]): Promise<number> {
   const r = createReporter(false)
   const { config, warnings } = await loadVosConfig(source)
   for (const w of warnings) r.log(`note: ${w}`)
-  const { hostHtml, playerHtml } = previewPages(config)
+  const assets = await assetsFor(source, config, (line) => r.log(line))
+  const { hostHtml, playerHtml } = previewPages(config, assets)
   const server = createServer((req, res) => {
     const path = new URL(req.url ?? '/', 'http://x').pathname
+    // The program's declared files, streamed from disk under their route.
+    const file = path.startsWith(ASSET_ROUTE)
+      ? assets?.files[decodeURIComponent(path)]
+      : undefined
+    if (path.startsWith(ASSET_ROUTE)) {
+      if (!file) {
+        res.writeHead(404).end('no such declared file')
+        return
+      }
+      res.writeHead(200, { 'content-length': statSync(file).size })
+      createReadStream(file).pipe(res)
+      return
+    }
     res.writeHead(200, { 'content-type': 'text/html' })
     res.end(path === '/player' ? playerHtml : hostHtml)
   })
@@ -466,6 +513,20 @@ async function cmdCheck(argv: string[]): Promise<number> {
   }
 
   const result = runCheck(parsed)
+  // What only a check that knows where the config lives can say: a declared
+  // file that is not there, and a hosted file named in code.
+  if (result.config) {
+    const baseDir = baseDirOf(source)
+    const { hostedLiteralWarnings } = await import('./plugin/assetManifest')
+    const extra = [
+      ...(baseDir ? missingManifestFiles(result.config, baseDir) : []),
+      ...hostedLiteralWarnings(result.config),
+    ]
+    for (const message of extra) {
+      result.issues.push({ level: 'warn', source: 'assets', message })
+      result.warnings++
+    }
+  }
   if (r.json) {
     r.done(
       {

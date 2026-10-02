@@ -8,6 +8,16 @@
 
 import type { CameraConfig, PostprocessingEffect, SceneConfig } from './vos'
 
+/** What a declared file is, for a host that lists, checks or converts it. */
+export type AssetKind = 'image' | 'video' | 'audio' | 'model' | 'font' | 'hdr'
+
+/** One entry of `config.assets`: a file, or a list of them, under a name. */
+export interface AssetDecl {
+  /** A URL, a path, or a reference in a scheme the host resolves. */
+  ref: string | string[]
+  kind?: AssetKind
+}
+
 /** A webfont face declaration: registered via the FontFace API at boot. */
 export interface FontFaceDecl {
   /** Family name as used in `font.family` / canvas font strings. */
@@ -106,6 +116,26 @@ export interface VosConfigJson {
    * @example { cursor: [{ t: 0, x: 10, y: 20, type: 'down' }] }
    */
   data?: Record<string, unknown>
+
+  /**
+   * The files this program uses, declared by name: its manifest.
+   *
+   * A program reads `ctx.assets.<name>` and gets a URL (or an array of
+   * them) that the HOST resolved for the surface it is running on. An
+   * element, object or font may name one as the string `"$assets.<name>"`
+   * (or `"$assets.<name>[2]"`), which is replaced the same way.
+   *
+   * Declaring a file here instead of typing its URL inside a function is
+   * what lets a host see it: it can serve a private file to a render page,
+   * bring it along when the program is copied, and refuse to collect it
+   * while the program still plays.
+   *
+   * A `ref` is whatever the host understands: a URL or path is used as it
+   * is; any other scheme is mapped by the compile option `resolveAssetRef`
+   * and, per surface, by `deps.assets`.
+   * @example { logo: { ref: './logo.png', kind: 'image' } }
+   */
+  assets?: Record<string, AssetDecl>
 
   /**
    * Async setup hook as a string.

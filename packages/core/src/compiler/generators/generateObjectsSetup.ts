@@ -16,6 +16,8 @@
  * GLB roots are bbox-normalized at load (largest dimension = 1 world unit) so
  * `props.scale` is asset-independent.
  */
+import { bindAssets } from './generateAssetsSetup'
+
 export function generateObjectsSetup(config: any): string {
   const objects = config.objects
   if (!objects || objects.length === 0) {
@@ -30,7 +32,7 @@ export function generateObjectsSetup(config: any): string {
 
   return `
   // World-space objects (declarative)
-  const objectsConfig = ${objectsJson};
+  const objectsConfig = ${bindAssets(config, objectsJson)};
   const objects = new Map();
   const __objBuild = async (cfg) => {
     let root;

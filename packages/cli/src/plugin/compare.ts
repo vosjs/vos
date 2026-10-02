@@ -10,14 +10,16 @@
  * missing element is one frame's failure that an average would hide.
  */
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, writeFileSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs'
+import { dirname, join, resolve } from 'node:path'
 import { UsageError, parseArgs, strFlag } from './args'
 import { EXIT_ERROR, EXIT_OK, createReporter } from './output'
 import { launchBrowser } from '../browser'
 import { configDuration, loadVosConfig } from '../loadConfig'
 import { parseTimes } from '../outputs'
+import { programAssets } from '../programAssets'
 import { reencodeStill, renderStill } from '../render'
+import { platformOrigin, resolveCredential } from './platform'
 
 const BOOLEAN_FLAGS = new Set(['json', 'help'])
 
@@ -103,6 +105,15 @@ export async function cmdCompare(argv: string[]): Promise<number> {
   for (const w of loaded.warnings) r.log(`note: ${w}`)
   const config = loaded.config as Record<string, unknown>
   const duration = configDuration(config) ?? 5
+  const assets = await programAssets(config, {
+    baseDir:
+      existsSync(source) && statSync(source).isDirectory()
+        ? source
+        : dirname(source),
+    origin: platformOrigin({}),
+    key: resolveCredential(),
+    log: (line) => r.log(line),
+  })
 
   // Compare at the render's own size unless told otherwise, halved past
   // 1280 wide: the sheet is for looking at, and SSIM is stable at half size.
@@ -150,6 +161,7 @@ export async function cmdCompare(argv: string[]): Promise<number> {
         )
       const still = await renderStill(browser, {
         config,
+        assets,
         width,
         height,
         time: t,

@@ -338,7 +338,7 @@ export async function readMediaHead(file: string): Promise<Uint8Array> {
   }
 }
 
-interface DownloadTarget {
+export interface DownloadTarget {
   dir: string
   /** Directory under the take dir, when the file is filed away. */
   subdir?: string
@@ -361,7 +361,7 @@ interface DownloadTarget {
  * re-uploads that file, so a wrong name here becomes a wrong Content-Type on
  * the asset, and a render that dies inside the video element.
  */
-async function downloadMedia(
+export async function downloadMedia(
   ctx: { origin: string; key: string | null },
   url: string,
   target: DownloadTarget,

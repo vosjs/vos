@@ -7,6 +7,7 @@ import {
 import { vosConfigJsonSchema } from '../schema/configJsonSchema'
 import { migrateConfig } from '../schema/migrations'
 import {
+  generateAssetsSetup,
   generateCameraSetup,
   generateCleanup,
   generateDynamicLayerRebuild,
@@ -24,6 +25,7 @@ import {
   generateSceneSetup,
   generateStack,
 } from './generators'
+import type { ResolveAssetRef } from './generators'
 import type { AuthoredVosConfigJson, VosConfigJson } from '../types'
 
 /**
@@ -55,6 +57,17 @@ export interface CompileVosConfigOptions {
    * modules still run in a vos-backend host (the importmap entry remains).
    */
   tweenEngine?: 'gsap' | 'vos'
+  /**
+   * How this host spells a declared file's default URL (`config.assets`).
+   *
+   * Each `ref` is passed through it and the result is baked as the default
+   * `ctx.assets.<name>`: a host with its own reference scheme maps it to
+   * the URL that works wherever the compiled program normally runs. A
+   * surface that needs another URL (a render page, a local server) hands
+   * `deps.assets` to `initVos` and wins per name. Omitted, a `ref` is used
+   * as it is written, which is right for a URL or a path.
+   */
+  resolveAssetRef?: ResolveAssetRef
 }
 
 export function compileVosConfig(
@@ -125,6 +138,10 @@ export function compileVosConfig(
   const cleanup = generateCleanup(configForGenerators)
   const elementsSetup = generateElementsSetup(configForGenerators)
   const fontsSetup = generateFontsSetup(configForGenerators)
+  const assetsSetup = generateAssetsSetup(
+    configForGenerators,
+    options.resolveAssetRef,
+  )
   const objectsSetup = generateObjectsSetup(configForGenerators)
   const layerAssignment = generateLayerAssignment()
   const perLayerComposerSetup =
@@ -229,6 +246,7 @@ ${utilEntries}
     loaders,
     utils,
     get data() { return __vosData; },
+    assets: __vosAssets,
   };`
     : ''
 
@@ -243,6 +261,7 @@ export const initVos = async (container, deps) => {
   // can swap inputs live without re-init; onFrame reads ctx.data fresh every frame. Each
   // snapshot is frozen to preserve determinism (output is a pure fn of program + data + time).
   let __vosData = Object.freeze((deps && deps.data) ?? ${bakedData});
+  ${assetsSetup}
 
   // Resolution
   const width = resolution?.width ?? container.clientWidth ?? window.innerWidth;
@@ -284,6 +303,7 @@ export const initVos = async (container, deps) => {
     elements,
     objects,
     get data() { return __vosData; },
+    assets: __vosAssets,
     get time() { return currentTime; },
     get outputTime() { return currentOutputTime; },
     get progress() { return currentProgress; },

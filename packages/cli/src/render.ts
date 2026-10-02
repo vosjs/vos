@@ -3,6 +3,8 @@ import { generateRenderTemplate } from '@vosjs/core/runtime'
 import { elementsBundleCode } from '@vosjs/elements/bundle'
 import { tweenRuntimeCode } from '@vosjs/tween/bundle'
 import type { Browser, Page } from 'playwright'
+import { ASSET_ROUTE } from './programAssets'
+import type { ProgramAssets } from './programAssets'
 
 /** Fake secure origin the render page is served from (WebCodecs needs one). */
 const RENDER_ORIGIN = 'https://vos-cli.render'
@@ -13,6 +15,12 @@ export interface RenderCommonOptions {
   height: number
   /** Phase callback for progress reporting. */
   onPhase?: (phase: string) => void
+  /**
+   * The program's declared files made reachable for this page
+   * (`programAssets`): handed to the engine as `ctx.assets`, with the local
+   * ones served from disk on the page's own origin.
+   */
+  assets?: ProgramAssets | null
 }
 
 export interface RenderVideoOptions extends RenderCommonOptions {
@@ -82,14 +90,57 @@ export function stillWarnings(
   return out
 }
 
-function compile(config: Record<string, unknown>): string {
-  return compileVosConfig(config as never, { tweenEngine: 'vos' })
+function compile(
+  config: Record<string, unknown>,
+  /** Bake these URLs as the program's `ctx.assets` defaults (a preview). */
+  assets?: ProgramAssets | null,
+): string {
+  if (!assets) return compileVosConfig(config as never, { tweenEngine: 'vos' })
+  // The compiler asks per ref; the resolved table is per name, so walk the
+  // manifest in the same order to answer.
+  const byRef = new Map<string, string>()
+  const manifest = (config.assets ?? {}) as Record<
+    string,
+    { ref: string | string[] }
+  >
+  for (const [name, decl] of Object.entries(manifest)) {
+    const got = assets.assets[name]
+    const refs = Array.isArray(decl.ref) ? decl.ref : [decl.ref]
+    const urls = Array.isArray(got) ? got : [got]
+    refs.forEach((ref, i) => {
+      if (typeof urls[i] === 'string') byRef.set(`${name}\u0000${ref}`, urls[i])
+    })
+  }
+  return compileVosConfig(config as never, {
+    tweenEngine: 'vos',
+    resolveAssetRef: (ref, name) => byRef.get(`${name}\u0000${ref}`) ?? ref,
+  })
+}
+
+/** A page on the render origin reads a served file by its full URL. */
+function captureAssets(assets: ProgramAssets | null | undefined): {
+  assets?: Record<string, string | string[]>
+} {
+  if (!assets) return {}
+  const absolute = (url: string) =>
+    url.startsWith(ASSET_ROUTE) ? `${RENDER_ORIGIN}${url}` : url
+  const out: Record<string, string | string[]> = {}
+  for (const [name, url] of Object.entries(assets.assets)) {
+    out[name] = Array.isArray(url) ? url.map(absolute) : absolute(url)
+  }
+  return { assets: out }
 }
 
 async function runCapturePage(
   browser: Browser,
   html: string,
-  opts: { width: number; height: number; timeoutMs: number },
+  opts: {
+    width: number
+    height: number
+    timeoutMs: number
+    /** Served path → file on disk (a program's declared files). */
+    files?: Record<string, string>
+  },
 ): Promise<RenderComplete & { pageErrors: string[]; engineNotes: string[] }> {
   const context = await browser.newContext({
     viewport: { width: opts.width, height: opts.height },
@@ -110,6 +161,17 @@ async function runCapturePage(
     await page.route(`${RENDER_ORIGIN}/**`, (route) =>
       route.fulfill({ status: 200, contentType: 'text/html', body: html }),
     )
+    // The program's own files, on the page's origin. Registered after the
+    // page route on purpose: the newest matching route answers first.
+    const files = opts.files ?? {}
+    if (Object.keys(files).length > 0) {
+      await page.route(`${RENDER_ORIGIN}${ASSET_ROUTE}**`, (route) => {
+        const file = files[new URL(route.request().url()).pathname]
+        return file
+          ? route.fulfill({ status: 200, path: file })
+          : route.fulfill({ status: 404, body: 'no such declared file' })
+      })
+    }
     await page.goto(`${RENDER_ORIGIN}/render`, {
       waitUntil: 'domcontentloaded',
     })
@@ -170,6 +232,7 @@ export async function renderVideo(
       ...(opts.audioProducerCode
         ? { audioProducerCode: opts.audioProducerCode }
         : {}),
+      ...captureAssets(opts.assets),
     },
     elementsBundleCode,
     tweenEngine: 'vos',
@@ -182,6 +245,7 @@ export async function renderVideo(
     width: opts.width,
     height: opts.height,
     timeoutMs,
+    files: opts.assets?.files,
   })
   if (!done.success || !done.data)
     throw new Error(done.error ?? 'render failed')
@@ -203,6 +267,7 @@ export async function renderStill(
       duration: Math.max(1, opts.time + 1),
       fps: 30,
       thumbnailTime: opts.time,
+      ...captureAssets(opts.assets),
     },
     elementsBundleCode,
     tweenEngine: 'vos',
@@ -213,6 +278,7 @@ export async function renderStill(
     width: opts.width,
     height: opts.height,
     timeoutMs: 120_000,
+    files: opts.assets?.files,
   })
   if (!done.success || !done.data)
     throw new Error(done.error ?? 'still render failed')
@@ -310,8 +376,12 @@ export interface PreviewPages {
  * serves a minimal host page that sends `LOAD { code, autoplay }` and shows
  * a transport line (time / duration, click to play-pause).
  */
-export function previewPages(config: Record<string, unknown>): PreviewPages {
-  const code = compile(config)
+export function previewPages(
+  config: Record<string, unknown>,
+  /** Declared files, served by the preview server under `ASSET_ROUTE`. */
+  assets?: ProgramAssets | null,
+): PreviewPages {
+  const code = compile(config, assets)
   const playerHtml = generateRenderTemplate(code, {
     mode: 'playback',
     elementsBundleCode,

@@ -9,6 +9,8 @@
 /**
  * Generate elements setup code
  */
+import { bindAssets } from './generateAssetsSetup'
+
 export function generateElementsSetup(config: any): string {
   const elements = config.elements
   if (!elements || elements.length === 0) {
@@ -70,7 +72,7 @@ export function generateElementsSetup(config: any): string {
   );
 
   // Elements config
-  const elementsConfig = ${elementsJson};
+  const elementsConfig = ${bindAssets(config, elementsJson)};
 
   // Build overlay scenes keyed by unique zIndex
   const elementZIndices = [...new Set(elementsConfig.map(e => e.zIndex ?? 100))].sort((a, b) => a - b);
