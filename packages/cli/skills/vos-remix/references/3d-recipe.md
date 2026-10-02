@@ -18,7 +18,9 @@ Reveal: https://vos.so/gallery?tag=3d) are built to take a model swap.
      POINT** in these programs — with the loaded `setupData.model`,
      bbox-normalized to ~1.7 units and grounded at `y = 0` (the templates
      ship the normalization snippet; keep it so `scale` knobs stay
-     model-independent).
+     model-independent). To let the person swap the model later from the
+     editor, add a file knob over it (`params-knobs.md`, File knobs):
+     `{ "key": "product", "label": "Model", "kind": "asset" }`.
    - Or keep the template's own product and only retune params.
 3. **Never type the model's URL or path inside a function string.**
    `vos render` and `vos preview` serve the declared file to the page;

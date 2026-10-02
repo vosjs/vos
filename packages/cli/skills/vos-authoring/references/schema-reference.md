@@ -268,7 +268,7 @@ A file the program uses (a picture, a video, a model, a font file) is named in `
 
 **Never type a file's URL or path inside a function string.** It renders on your machine and then fails where it matters: a server render of a private vos cannot fetch it, and a remix does not bring it along. `vos check` reports a `"$assets.<name>"` that names nothing, a declared path that is not a file, and a hosted file typed in code.
 
-A file a knob swaps (a `modelUrl` text param) is the one exception: it lives in `data` as a URL, because a person changes it.
+A file a person should be able to swap is still declared here, with a FILE KNOB over its name: `"params": [{ "key": "cover", "label": "Cover", "kind": "asset" }]` (`@vosjs/cli` 0.65 or later). The knob's value is the declared file's `ref`, so it has no `default` and nothing in `data`; `accept` lists the kinds it takes and defaults to the file's own `kind`. Older programs spell this as a text knob holding a URL in `data` (a `modelUrl` param); that still plays, but write new ones with a file knob.
 
 ---
 
