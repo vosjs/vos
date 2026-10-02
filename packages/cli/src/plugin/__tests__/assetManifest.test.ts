@@ -240,30 +240,48 @@ describe('vos push of a program that declares files', () => {
     expect(own.assets.logo.ref).toBe(`asset:${A}`)
   })
 
-  it('a claimable push uploads nothing and says which files stay behind', async () => {
+  it('a claimable push is refused, in words, when the program declares local files', async () => {
     const seen: Seen[] = []
     const origin = await serve(seen)
     const dir = programDir()
-    const lines: string[] = []
-    const write = process.stderr.write.bind(process.stderr)
-    process.stderr.write = ((chunk: string | Uint8Array) => {
-      lines.push(String(chunk))
-      return true
-    }) as typeof process.stderr.write
-    try {
-      await cmdPushProgram([
+    await expect(
+      cmdPushProgram([
         join(dir, 'config.json'),
         '--origin',
         origin,
         '--claimable',
-      ])
-    } finally {
-      process.stderr.write = write
-    }
-    expect(seen.some((s) => s.url === '/api/assets/recording')).toBe(false)
-    expect(lines.join('')).toContain(
-      '2 declared files (assets.logo, assets.shots[0]) will not load',
+      ]),
+    ).rejects.toThrow(
+      /declares 2 local files \(assets\.logo, assets\.shots\[0\]\)\. Push with a key/,
     )
+    // Nothing was created and nothing was uploaded.
+    expect(seen).toEqual([])
+  })
+
+  it('a claimable push of hosted and URL files goes through', async () => {
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    const dir = mkdtempSync(join(tmpdir(), 'vos-manifest-'))
+    writeFileSync(
+      join(dir, 'config.json'),
+      JSON.stringify({
+        ...CONFIG,
+        assets: { hdr: CONFIG.assets.hdr },
+        elements: [],
+        createContent: CONFIG.createContent.replace(
+          'ctx.assets.shots.length',
+          'ctx.assets.hdr.length',
+        ),
+      }),
+    )
+    const code = await cmdPushProgram([
+      join(dir, 'config.json'),
+      '--origin',
+      origin,
+      '--claimable',
+    ])
+    expect(code).toBe(0)
+    expect(seen.map((s) => s.url)).toEqual(['/api/claim'])
   })
 })
 

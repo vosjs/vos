@@ -493,10 +493,12 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
         )
       }
     }
+    // A sound can be left out; a file the program reads cannot. Without it
+    // the claim link would show a program that fails to draw.
     const stay = localManifestRefs(config)
     if (stay.length) {
-      r.log(
-        `warning a claimable push carries no files, so ${stay.length} declared file${stay.length === 1 ? '' : 's'} (${stay.join(', ')}) will not load until the work is claimed and pushed again with a key`,
+      throw new UsageError(
+        `a claimable push carries no files, and this program declares ${stay.length} local file${stay.length === 1 ? '' : 's'} (${stay.join(', ')}). Push with a key instead (vos login, then vos push ${source}), which uploads ${stay.length === 1 ? 'it' : 'them'}`,
       )
     }
     const body: Record<string, unknown> = {
