@@ -346,6 +346,7 @@ export type {
   CameraModel,
   CardLayout,
   FocusBounds,
+  ZoomScreen,
   ZoomView,
 } from './layout'
 export {
