@@ -126,6 +126,22 @@ function studioAudio(config: unknown): { key: string }[] {
 }
 
 describe('vos push of a program document with its own sound', () => {
+  it('refuses --share on a keyed push: a key never publishes', async () => {
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    await expect(
+      cmdPushProgram([
+        join(programDir(), 'config.json'),
+        '--share',
+        '--origin',
+        origin,
+        '--key',
+        'vos_sk_test',
+      ]),
+    ).rejects.toThrow(/A key can never publish/)
+    expect(seen).toEqual([])
+  })
+
   it('uploads the local score and keys the hosted asset in the doc and the stored config', async () => {
     const seen: Seen[] = []
     const origin = await serve(seen)
@@ -178,6 +194,9 @@ describe('vos push of a program document with its own sound', () => {
     const code = await cmdPushProgram([
       join(dir, 'config.json'),
       '--claimable',
+      '--share',
+      '--prompt',
+      'make a 15-second showreel',
       '--origin',
       origin,
       '--json',
@@ -192,6 +211,8 @@ describe('vos push of a program document with its own sound', () => {
     expect(sent.every((s) => s.auth === 'Bearer vos_cu_test')).toBe(true)
     const claim = seen.find((s) => s.url === '/api/claim')
     expect(claim?.body?.uploadToken).toBe('vos_cu_test')
+    expect(claim?.body?.share).toBe(true)
+    expect(claim?.body?.prompt).toBe('make a 15-second showreel')
     expect(claim?.auth).toBe('')
     const stack = (claim?.body?.config as { stack?: { id: string }[] }).stack
     expect(stack?.some((e) => e.id === STUDIO_ENTRY_ID)).toBe(true)

@@ -66,6 +66,7 @@ const BOOLEAN_FLAGS = new Set([
   'check',
   'yes',
   'claimable',
+  'share',
   'no-browser',
   'wait',
 ])
@@ -353,6 +354,8 @@ export interface CreateProgramOptions {
   note?: string
   /** The program document riding along (overlays, objects, audio, speed, tween edits). */
   doc?: Record<string, unknown>
+  /** The prompt that made it, shown on its watch page (the person's words). */
+  prompt?: string
   log?: (msg: string) => void
 }
 
@@ -379,6 +382,7 @@ export async function createProgramVos(
       client: clientId(),
     }
     if (opts.description) body.description = opts.description
+    if (opts.prompt) body.prompt = opts.prompt
     if (opts.tags?.length) body.tags = opts.tags
     if (opts.folderId) body.folderId = opts.folderId
     if (opts.remixOfId) body.remixOfId = opts.remixOfId
@@ -417,7 +421,7 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
   const target = positionals[0]
   if (!target) {
     throw new UsageError(
-      'vos push <config.json|take> [--vos id] [--title t] [--slug s] [--desc d] [--tags a,b] [--folder <id|slug>] [--remix-of id] [--note n] [--label l] [--base versionId] [--override id]...',
+      'vos push <config.json|take> [--vos id] [--title t] [--slug s] [--desc d] [--tags a,b] [--folder <id|slug>] [--remix-of id] [--note n] [--label l] [--base versionId] [--override id]... [--prompt "<the prompt that made it>"] [--claimable [--share]]',
     )
   }
   const source = resolveConfigPath(target)
@@ -438,6 +442,14 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
   }
   const config = pre.config
   const state = readSyncState(dir)
+  // The prompt that made it, shown on the watch page: only what the person
+  // said may be shown, so it is never filled in for them.
+  const prompt = strFlag(flags, 'prompt')
+  if (flags.share === true && flags.claimable !== true) {
+    throw new UsageError(
+      '--share asks a claimable push to lead its claim page with "Claim and share". A key can never publish: open the watch page and set it to Unlisted or Public there',
+    )
+  }
   const vosFlag = strFlag(flags, 'vos')
   const explicitVosId = vosFlag ? parseVosId(vosFlag) : null
   // --still <t>: the program's cover, in output seconds. It is intent the
@@ -507,6 +519,8 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
       config: storedProgramConfig(config, programDoc),
     }
     if (uploadToken) body.uploadToken = uploadToken
+    if (prompt) body.prompt = prompt
+    if (flags.share === true) body.share = true
     const slug = strFlag(flags, 'slug')
     if (slug) body.slug = slug
     const res = await apiJson(origin, '/api/claim', { method: 'POST', body })
@@ -633,6 +647,14 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
     if (res.status !== 201)
       throw new Error(apiError(`push version to ${vosId}`, res))
     serverWarnings(res.body, say(r))
+    if (prompt) {
+      const set = await apiJson(origin, `/api/vos/${vosId}`, {
+        method: 'PATCH',
+        key,
+        body: { prompt },
+      })
+      if (set.status !== 200) r.warn(apiError('set the prompt', set))
+    }
     const version = (res.body.version ?? {}) as Record<string, unknown>
     // Track what we just made: the new version is the next push's base.
     if (typeof version.id === 'string') {
@@ -695,6 +717,7 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
     // (found seeding one-layer members: `--with` then said the vos carried
     // no doc).
     doc: programDoc ?? undefined,
+    prompt,
     title,
     slug: strFlag(flags, 'slug'),
     description: desc,
