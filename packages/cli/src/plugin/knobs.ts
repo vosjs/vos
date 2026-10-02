@@ -19,6 +19,9 @@ const KINDS = new Set([
   'asset',
 ])
 
+/** The kinds of file a file knob may take: the manifest's own kinds. */
+const FILE_KINDS = new Set(['image', 'video', 'audio', 'model', 'font', 'hdr'])
+
 const str = (v: unknown, max: number, min = 0) =>
   typeof v === 'string' && v.length >= min && v.length <= max
 
@@ -45,8 +48,12 @@ export function knobProblem(p: unknown): string | null {
   }
   if (k.accept !== undefined) {
     const accept = Array.isArray(k.accept) ? k.accept : [k.accept]
-    if (accept.length > 6 || accept.some((a) => !str(a, 16, 1)))
-      return 'accept: at most 6 kinds of file, each 1 to 16 characters'
+    if (
+      accept.length < 1 ||
+      accept.length > FILE_KINDS.size ||
+      accept.some((a) => typeof a !== 'string' || !FILE_KINDS.has(a))
+    )
+      return `accept: one or more of ${[...FILE_KINDS].join(', ')}`
   }
   // A file knob's value is the declared file's ref in "assets": it carries
   // no default of its own.

@@ -39,21 +39,19 @@ describe('what vos.so keeps of the knobs', () => {
     )
   })
 
-  it('refuses a file knob whose accept list is not a short list of kinds', () => {
-    const reason = 'accept: at most 6 kinds of file, each 1 to 16 characters'
+  it('refuses a file knob whose accept names anything but a kind of file', () => {
+    const reason =
+      'accept: one or more of image, video, audio, model, font, hdr'
+    for (const accept of [['picture'], [''], [3], [], 'picture']) {
+      expect(knobProblem({ key: 'logo', kind: 'asset', accept })).toBe(reason)
+    }
     expect(
       knobProblem({
         key: 'logo',
         kind: 'asset',
-        accept: ['a', 'b', 'c', 'd', 'e', 'f', 'g'],
+        accept: ['image', 'video', 'audio', 'model', 'font', 'hdr'],
       }),
-    ).toBe(reason)
-    expect(knobProblem({ key: 'logo', kind: 'asset', accept: [''] })).toBe(
-      reason,
-    )
-    expect(knobProblem({ key: 'logo', kind: 'asset', accept: [3] })).toBe(
-      reason,
-    )
+    ).toBeNull()
   })
 
   it('vos check reports it as a warning, and still passes', () => {
