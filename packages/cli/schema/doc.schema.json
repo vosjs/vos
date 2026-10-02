@@ -955,7 +955,7 @@
           },
           "text": {
             "type": "string",
-            "description": "content; \\n breaks lines. *Words between asterisks* are set in the emphasis weight (a two-weight caption: light words with bold ones), and a word-by-word reveal keeps each word in its own weight; \\* is a literal asterisk, a lone * stays as typed"
+            "description": "content; \\n breaks lines. With `emphasis` set (OPT-IN; {} is enough), *words between asterisks* are set in the emphasis weight (a two-weight caption: light words with bold ones), a word-by-word reveal keeps each word in its own weight, \\* is a literal asterisk and a lone * stays as typed. Without `emphasis`, asterisks are text as typed"
           },
           "emphasis": {
             "type": "object",
@@ -972,7 +972,7 @@
                 "description": "the colour of *marked* words (absent = the clip's colour)"
               }
             },
-            "description": "text kind: how *marked* words in text are set. Absent = the family's bold step in the clip's colour"
+            "description": "text kind: turns *markers* in text ON ({} is enough) and says how marked words are set. Absent = emphasis off: asterisks are text as typed"
           },
           "preset": {
             "enum": ["title", "caption", "label"],

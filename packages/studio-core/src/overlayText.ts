@@ -336,8 +336,12 @@ export function parseEmphasis(text: string): string | null {
 
 /** The text a layer paints: its emphasis marks applied, else its source. */
 export function overlayDisplayText(
-  clip: Pick<TextOverlayClip, 'text'>,
+  clip: Pick<TextOverlayClip, 'text' | 'emphasis'>,
 ): string {
+  // OPT-IN: asterisks mean emphasis only on a clip that carries `emphasis`
+  // (`{}` is enough). Anywhere else `*this*` is the text as typed, so no
+  // existing caption changes meaning and nobody gets bold by surprise.
+  if (!clip.emphasis) return clip.text
   return parseEmphasis(clip.text) ?? clip.text
 }
 
@@ -360,7 +364,7 @@ const EMPHASIS_WEIGHT = 700
 export function resolveEmphasis(
   clip: TextOverlayClip,
 ): ResolvedEmphasis | null {
-  if (parseEmphasis(clip.text) === null) return null
+  if (!clip.emphasis || parseEmphasis(clip.text) === null) return null
   const style = resolveOverlayStyle(clip)
   const entry = findFontFamily(
     clip.family ??

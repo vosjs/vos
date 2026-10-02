@@ -44,6 +44,10 @@ function clip(over: Partial<TextOverlayClip> = {}): TextOverlayClip {
   }
 }
 
+/** A clip with emphasis ON: its asterisks are markers. */
+const emClip = (over: Partial<TextOverlayClip> = {}) =>
+  clip({ emphasis: {}, ...over })
+
 function makeDoc(overlays: OverlayClip[]): ProjectDoc {
   return {
     source: {
@@ -107,6 +111,21 @@ describe('parsing the markers', () => {
   })
 })
 
+describe('emphasis is opt-in', () => {
+  it('without `emphasis`, asterisks are text as typed: no marks, no em', () => {
+    const c = clip({ text: 'Display *this* as typed' })
+    expect(resolveEmphasis(c)).toBeNull()
+    const { data } = lowerToComposition(makeDoc([c]))
+    const ol = (data as { overlays: Record<string, unknown>[] }).overlays[0]
+    expect(ol.lines).toEqual(['Display *this* as typed'])
+    expect('em' in ol).toBe(false)
+  })
+
+  it('`emphasis: {}` is enough to turn the markers on', () => {
+    expect(resolveEmphasis(emClip({ text: 'a *b*' }))).not.toBeNull()
+  })
+})
+
 describe('lowering', () => {
   it('an unmarked layer bakes exactly what it did', () => {
     const { data } = lowerToComposition(
@@ -119,7 +138,7 @@ describe('lowering', () => {
 
   it('a marked layer bakes its displayed lines and its emphasis weight', () => {
     const { data } = lowerToComposition(
-      makeDoc([clip({ text: 'Read *every candle*' })]),
+      makeDoc([emClip({ text: 'Read *every candle*' })]),
     )
     const ol = (data as { overlays: Record<string, unknown>[] }).overlays[0]
     expect(ol.lines).toEqual([`Read ${O}every${C} ${O}candle${C}`])
@@ -138,7 +157,7 @@ describe('lowering', () => {
 
   it('the emphasis face loads with the rest, so the first frame has it', () => {
     const faces = overlayFontFaces(
-      makeDoc([clip({ text: '*bold*', family: 'Sora' })]),
+      makeDoc([emClip({ text: '*bold*', family: 'Sora' })]),
     )
     expect(faces.some((f) => f.family === 'Sora' && f.weight === 700)).toBe(
       true,
@@ -241,7 +260,7 @@ describe('drawing (stub ON_FRAME)', () => {
   })
 
   it('draws the runs side by side, each in its weight', () => {
-    const t = draw([clip({ text: 'Set up *different purposes*' })], 1.5)
+    const t = draw([emClip({ text: 'Set up *different purposes*' })], 1.5)
     expect(t.map((r) => r.text)).toEqual([
       'Set up ',
       'different',
@@ -265,7 +284,7 @@ describe('drawing (stub ON_FRAME)', () => {
   })
 
   it('the host measures the width the painter draws (picking agrees)', () => {
-    const c = clip({ text: 'Set up *different purposes*' })
+    const c = emClip({ text: 'Set up *different purposes*' })
     const t = draw([c], 1.5)
     const painted = t.reduce((w, r) => w + widthIn(r.text, r.font), 0)
     const rect = overlayRect(c, (text, font) => widthIn(text, font), 1920)
@@ -281,7 +300,7 @@ describe('drawing (stub ON_FRAME)', () => {
   })
 
   it('a word-by-word reveal keeps each word in its weight', () => {
-    const c = clip({
+    const c = emClip({
       text: 'Read *every candle*',
       anim: { enter: { kind: 'fade', unit: 'word', stagger: 0.05 } },
     })
@@ -293,7 +312,7 @@ describe('drawing (stub ON_FRAME)', () => {
   })
 
   it('a char reveal inside a marked word is still bold', () => {
-    const c = clip({
+    const c = emClip({
       text: 'a *bc*',
       anim: { enter: { kind: 'fade', unit: 'char', stagger: 0.02 } },
     })

@@ -1282,10 +1282,11 @@ export interface TextOverlayClip extends OverlayClipBase {
   /** Weight override — snapped to the nearest weight the catalog hosts. */
   weight?: number
   /**
-   * How `*marked*` words in `text` are set: their weight (snapped like
-   * `weight`; absent = the family's bold step, 700 or the nearest hosted)
-   * and colour (absent = the clip's). The markers live in `text` itself
-   * (`\*` is a literal asterisk); a clip without them is unaffected.
+   * Turns emphasis ON for this clip (`{}` is enough), and says how
+   * `*marked*` words in `text` are set: their weight (snapped like `weight`;
+   * absent = the family's bold step, 700 or the nearest hosted) and colour
+   * (absent = the clip's). OPT-IN: without this field asterisks are text as
+   * typed. With it, `\*` is a literal asterisk.
    */
   emphasis?: { weight?: number; color?: string }
   /** Synthesized oblique (no italic files are hosted). */
