@@ -5,7 +5,7 @@ import { HOLD_DRIFT_MAX, ZOOM_STYLES } from '../zoomStyle'
 
 /**
  * A held zoom can keep moving: `holdDrift` pushes the level in through the
- * hold (linear from the landing to the span's end), so a long beat under a
+ * hold (eased in and out from the landing to the span's end), so a long beat under a
  * caption is a camera still travelling rather than a still. Absent or 0 the
  * camera parks exactly as before.
  */
@@ -41,7 +41,7 @@ describe('a camera that drifts through a hold', () => {
     expect(at(parked, 8)?.value[0]).toBe(2)
   })
 
-  it('pushes the level in, linearly, from the landing to the span end', () => {
+  it('pushes the level in, eased, from the landing to the span end', () => {
     const track = zoomTrackFromDoc([span('a', 2, 8)], segments, {
       ...glide,
       holdDrift: 0.01,
@@ -50,7 +50,7 @@ describe('a camera that drifts through a hold', () => {
     const landingIdx = track.keyframes.indexOf(end) - 1
     const landing = track.keyframes[landingIdx]
     expect(landing.value[0]).toBe(2)
-    expect(end.ease).toBe('linear')
+    expect(end.ease).toBe('sine.inOut')
     // clampZoomLevel keeps levels to hundredths.
     const expected = 2 * (1 + 0.01 * (8 - landing.t))
     expect(end.value[0]).toBeCloseTo(expected, 2)
