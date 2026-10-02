@@ -287,15 +287,52 @@ async function fetchHosted(
 }
 
 /**
- * Make every declared file reachable for a local page. Null when the config
- * declares none, so a caller can leave the engine's defaults alone.
+ * The faces an HTML layer brings (`fonts` on the document, lowered into the
+ * studio entry as `html.faces`), as refs a caller can re-point. The page
+ * fetches each `url` itself, so a path is resolved against the page.
+ */
+function htmlFaceRefs(
+  config: Record<string, unknown>,
+): { where: string; url: string; set: (next: string) => void }[] {
+  const out: { where: string; url: string; set: (next: string) => void }[] = []
+  const stack = Array.isArray(config.stack) ? config.stack : []
+  for (const entry of stack as Record<string, unknown>[]) {
+    const data = entry?.data as Record<string, unknown> | undefined
+    const overlays = Array.isArray(data?.overlays) ? data.overlays : []
+    for (const clip of overlays as Record<string, unknown>[]) {
+      const html = clip?.html as Record<string, unknown> | undefined
+      const faces = Array.isArray(html?.faces) ? html.faces : []
+      for (const face of faces as Record<string, unknown>[]) {
+        if (typeof face?.url !== 'string' || !face.url) continue
+        out.push({
+          where: `overlay ${String(clip.id)} font ${String(face.family)}`,
+          url: face.url,
+          set: (next) => {
+            face.url = next
+          },
+        })
+      }
+    }
+  }
+  return out
+}
+
+/**
+ * Make every declared file reachable for a local page: the manifest's, and
+ * the faces an HTML layer brings from beside its document (re-pointed in
+ * place, since the page fetches a face by its url). Null when there is
+ * none, so a caller can leave the engine's defaults alone.
  */
 export async function programAssets(
   config: Record<string, unknown>,
   opts: ProgramAssetsOptions,
 ): Promise<ProgramAssets | null> {
   const refs = manifestRefs(config)
-  if (refs.length === 0) return null
+  const faces = htmlFaceRefs(config).filter(
+    (f) =>
+      !isUrl(f.url) || hostedAssetId(f.url, opts.origin ? [opts.origin] : []),
+  )
+  if (refs.length === 0 && faces.length === 0) return null
   const files: Record<string, string> = {}
   const served = new Map<string, string>()
   const serve = (file: string): string => {
@@ -330,6 +367,8 @@ export async function programAssets(
     }
     return serve(local.file)
   }
+
+  for (const face of faces) face.set(await reach(face.url, face.where))
 
   const assets: Record<string, string | string[]> = {}
   for (const { name, index, ref } of refs) {

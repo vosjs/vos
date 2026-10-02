@@ -276,6 +276,29 @@ const isNum = (v: unknown): v is number =>
   typeof v === 'number' && Number.isFinite(v)
 const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null
 
+/**
+ * What an HTML layer's own face may be named by, or null when it is fine:
+ * a URL, a hosted file (`/api/assets/<id>/file`), or a `.woff2` beside the
+ * document, which `vos push` uploads and a local render serves. The page
+ * embeds every face as woff2, so another format would be drawn in a
+ * fallback face without a word; and a path stays inside the document's
+ * directory, like every file a program names.
+ */
+export function htmlFontUrlProblem(url: string): string | null {
+  if (/^https?:\/\//.test(url)) return null
+  if (/^\/api\/assets\/[^/]+\/file$/.test(url)) return null
+  if (/^(data:|blob:)/.test(url) || url.startsWith('/')) {
+    return `must be an https URL, a hosted file (/api/assets/<id>/file) or a .woff2 beside the document (got ${url})`
+  }
+  if (url.split(/[\\/]/).includes('..')) {
+    return `names ${url}, outside the document's directory: copy the font beside doc.json`
+  }
+  if (!/\.woff2$/i.test(url)) {
+    return `names ${url}: an HTML layer embeds its faces as woff2, so convert it (for example: pyftsubset or woff2_compress) and name the .woff2`
+  }
+  return null
+}
+
 /** Array field → object entries (non-arrays/non-objects handled by callers). */
 const entries = (v: unknown): Json[] =>
   Array.isArray(v) ? v.filter(isObj) : []
@@ -1491,11 +1514,15 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
               !isObj(f) ||
               typeof f.family !== 'string' ||
               typeof f.url !== 'string' ||
-              !/^https?:\/\//.test(f.url)
-            )
+              !f.url
+            ) {
               problems.push(
-                `${name}.fonts[${fi}] must be { family, url (https), weight?, style? }: a face the catalog does not host. A hosted family needs no entry; name it in the CSS`,
+                `${name}.fonts[${fi}] must be { family, url, weight?, style? }: a face the catalog does not host. A hosted family needs no entry; name it in the CSS`,
               )
+              return
+            }
+            const problem = htmlFontUrlProblem(f.url)
+            if (problem) problems.push(`${name}.fonts[${fi}].url ${problem}`)
           })
         }
       }
