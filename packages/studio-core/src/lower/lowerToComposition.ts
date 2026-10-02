@@ -101,7 +101,12 @@ import {
   docTransitions,
   restSpansThroughTransitions,
 } from './transitions'
-import { DEFAULT_ZOOM_STYLE, ZOOM_STYLES, resolveZoomStyle } from '../zoomStyle'
+import {
+  DEFAULT_ZOOM_STYLE,
+  HOLD_DRIFT_MAX,
+  ZOOM_STYLES,
+  resolveZoomStyle,
+} from '../zoomStyle'
 import { isRecordingDoc, programDuration } from '../doc/studioDoc'
 import { clipEnvelope } from './audioEnvelope'
 import { followFocusEvents } from './cursorFollow'
@@ -478,8 +483,28 @@ export function zoomTrackFromDoc(
       cur = next
     }
 
-    // Pin the hold to the span's end — the exit transition starts here.
-    push(tOut, cur, 'none')
+    // Pin the hold to the span's end — the exit transition starts here. A
+    // style with a hold drift pushes in through the hold instead of parking:
+    // linear from the landing to the span's end, so the exit (a pan or the
+    // zoom-out) leaves from where the drift arrived. A span that FOLLOWS
+    // the cursor never drifts: its recenters carry the level, and one whose
+    // pointer stayed in the safe zone bakes no recenter yet is still a
+    // follow camera, so the test is the span's intent, not its events.
+    const drift = Math.max(0, style.holdDrift ?? 0)
+    const landed = keyframes.at(-1)?.t
+    if (
+      drift > 0 &&
+      z.focusMode !== 'auto' &&
+      !(z.followEvents ?? []).length &&
+      landed !== undefined &&
+      tOut > landed
+    ) {
+      const grow = Math.min(HOLD_DRIFT_MAX, drift * (tOut - landed))
+      cur = [clampZoomLevel(cur[0] * (1 + grow)), cur[1], cur[2], cur[3]]
+      push(tOut, cur, 'linear')
+    } else {
+      push(tOut, cur, 'none')
+    }
 
     const next = mapped.at(i + 1)
     if (next && next.tIn - tOut <= style.chainGap) {

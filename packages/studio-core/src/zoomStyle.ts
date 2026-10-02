@@ -158,6 +158,14 @@ export interface ZoomStyleParams {
   ease: string
   /** connected-pan + follow-recenter ease. */
   panEase: string
+  /**
+   * A slow push through a held zoom: the level grows by this fraction per
+   * second of hold (a dolly, not a cut), so a long caption beat is a camera
+   * that is still moving rather than a still. Capped at HOLD_DRIFT_MAX of
+   * the landed level; a span that follows the cursor already moves and
+   * never drifts. Absent or 0 = the camera parks, byte-identically.
+   */
+  holdDrift?: number
   // ── cursor follow (followFocusEvents) ────────────────────────────────────
   /** recenter when the cursor exits this central fraction of the crop. */
   followSafeRatio: number
@@ -173,6 +181,9 @@ export interface ZoomStyleParams {
   /** The style's tilt personality — see TiltPersonality. */
   tilt: TiltPersonality
 }
+
+/** The most a hold's drift adds to the landed level, as a fraction of it. */
+export const HOLD_DRIFT_MAX = 0.15
 
 /**
  * The shortest rest between a zoom-out and the next zoom-in that reads as
