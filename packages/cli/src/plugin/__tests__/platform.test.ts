@@ -173,6 +173,31 @@ describe('preflightConfig', () => {
     expect(r.issues.length).toBeGreaterThan(0)
   })
 
+  it("sends the program's declared size", () => {
+    const r = preflightConfig({
+      version: 2,
+      duration: 5,
+      size: { width: 1080, height: 1350 },
+      camera: { preset: 'fullscreen' },
+      createContent: '() => ({})',
+      createTimeline: '() => gsap.timeline()',
+    })
+    expect(r.ok).toBe(true)
+    expect(r.config).toHaveProperty('size', { width: 1080, height: 1350 })
+  })
+
+  it('refuses a malformed size before it travels', () => {
+    const r = preflightConfig({
+      version: 2,
+      duration: 5,
+      size: { width: 1080, height: 0 },
+      camera: { preset: 'fullscreen' },
+      createContent: '() => ({})',
+      createTimeline: '() => gsap.timeline()',
+    })
+    expect(r.ok).toBe(false)
+  })
+
   it('refuses to push a config that declares no version', () => {
     // Migrating an absent version would stamp a GUESS about when the file was
     // authored, and a config.json outlives the era it was written in.

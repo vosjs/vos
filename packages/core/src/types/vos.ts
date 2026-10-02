@@ -296,6 +296,12 @@ export interface VosConfig {
    */
   duration: number
 
+  /**
+   * The canvas the program is designed for, in pixels: its aspect and the
+   * default output size. See `VosConfigJson.size`.
+   */
+  size?: { width: number; height: number }
+
   /** Scene configuration (background, fog) */
   scene?: SceneConfig
   /** Camera configuration */

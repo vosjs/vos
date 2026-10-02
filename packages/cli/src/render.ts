@@ -1,4 +1,4 @@
-import { compileVosConfig } from '@vosjs/core'
+import { compileVosConfig, programSize } from '@vosjs/core'
 import { generateRenderTemplate } from '@vosjs/core/runtime'
 import { elementsBundleCode } from '@vosjs/elements/bundle'
 import { tweenRuntimeCode } from '@vosjs/tween/bundle'
@@ -319,10 +319,16 @@ export function previewPages(config: Record<string, unknown>): PreviewPages {
     tweenBundleCode: tweenRuntimeCode,
   })
   const codeJson = JSON.stringify(code).replace(/<\//g, '<\\/')
+  // A program that declares its size plays letterboxed at that aspect, the
+  // frame it was designed for; one that declares none fills the window.
+  const size = programSize(config)
+  const frameCss = size
+    ? `iframe{position:absolute;inset:0;margin:auto;border:0;width:min(100vw,calc(100vh * ${size.width} / ${size.height}));height:min(100vh,calc(100vw * ${size.height} / ${size.width}))}`
+    : 'iframe{position:absolute;inset:0;width:100%;height:100%;border:0}'
   const hostHtml = `<!doctype html><html><head><meta charset="utf-8"><title>vos preview</title>
 <style>
   html,body{margin:0;height:100%;background:#000;overflow:hidden}
-  iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+  ${frameCss}
   #cover{position:fixed;inset:0;cursor:pointer}
   #hud{position:fixed;left:12px;bottom:10px;color:#fff;opacity:.75;font:12px/1.4 ui-monospace,monospace;
        background:rgba(0,0,0,.45);padding:4px 8px;border-radius:6px;pointer-events:none}

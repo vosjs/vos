@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { cameraSchema, postprocessingSchema, sceneSchema } from './shared'
+import { programSizeSchema } from './size'
 
 // ---------------------------------------------------------------------------
 // Elements — text is the first element type with a real schema. Every object
@@ -98,6 +99,8 @@ export const vosConfigJsonSchema = z.object({
   // migrates before parsing (that is where an absent version is stamped).
   version: z.number().int().positive(),
   duration: z.number().positive(),
+  // The canvas the program is designed for: its aspect and default pixels.
+  size: programSizeSchema.optional(),
   scene: sceneSchema,
   camera: cameraSchema,
   postprocessing: z.array(postprocessingSchema).optional(),

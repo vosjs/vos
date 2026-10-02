@@ -103,6 +103,27 @@ describe('runCheck', () => {
     ).toBe(true)
   })
 
+  it('keeps a declared size: a known key, never dropped on push', () => {
+    const r = runCheck({ ...VALID, size: { width: 1080, height: 1920 } })
+    expect(r.ok).toBe(true)
+    expect(r.issues.filter((i) => i.source === 'shape')).toHaveLength(0)
+    expect(r.config).toHaveProperty('size', { width: 1080, height: 1920 })
+  })
+
+  it('fails schema on a malformed size', () => {
+    const r = runCheck({ ...VALID, size: { width: 1080 } })
+    expect(r.ok).toBe(false)
+    expect(r.issues.some((i) => i.source === 'schema')).toBe(true)
+  })
+
+  it('warns on an odd edge an MP4 cannot carry', () => {
+    const r = runCheck({ ...VALID, size: { width: 1081, height: 1920 } })
+    expect(r.ok).toBe(true)
+    expect(
+      r.issues.some((i) => i.source === 'shape' && /1082x1920/.test(i.message)),
+    ).toBe(true)
+  })
+
   it('fails schema on a missing createTimeline', () => {
     const { createTimeline: _t, ...rest } = VALID
     const r = runCheck(rest)
