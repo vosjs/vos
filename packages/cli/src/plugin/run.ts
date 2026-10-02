@@ -112,6 +112,7 @@ import {
 import { cmdFolder } from './folder'
 import { cmdAsset } from './asset'
 import { cmdDelete } from './remove'
+import { cmdRestore, cmdTrash } from './trash'
 import { cmdBuild } from './buildProgram'
 import { cmdCompare } from './compare'
 import { cmdPort } from './port'
@@ -229,16 +230,29 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
             --override consents to touching
             protected (human-edited) nodes, ONLY when the user asked.
             Without --folder a new vos lands unfiled, at the root of your
-            shelf. A document's local sound (doc.json audio keys) uploads
-            with the push. --wait stays until the version's still has
+            shelf. A document's local files (doc.json: picture and video
+            overlays, 3D props, sound; a take's mic and cam too) upload
+            with the push, each once. --wait stays until the version's still has
             rendered and prints absolute still and preview links.
             --still <seconds> sets a PROGRAM's cover (doc.json "still", kept
             by every later push); without it the platform picks an early
             frame. A take's cover is its doc.json "still".
-  vos delete <vosId|watch-url|dir> [--yes] [--json]
-            take a vos off vos.so, every version of it, for good. Asks on a
-            terminal; headless it needs --yes. A dir that tracked it is
-            unlinked (its vos.json removed)
+  vos delete <vosId|watch-url|dir> [--yes] [--dry-run] [--json]
+            move a vos to Trash on vos.so. Nothing is erased: it stays
+            restorable until the date the delete prints (vos restore <id>).
+            Asks on a terminal; headless it needs --yes. --dry-run names
+            what would move and changes nothing. A dir that tracked it is
+            unlinked (its vos.json removed). Needs a key with the delete
+            scope; no key can delete forever, only the person can, on the
+            web
+  vos trash [--json]
+            what is in Trash on vos.so: what, moved by whom, restorable
+            until when
+  vos restore <id|watch-url> [...] [--json]
+            bring those back from Trash, as they were
+  vos trash restore --since <30m|1h|2d|ISO> [--by <key name>] [--json]
+            undo everything this key (or the named one) moved to Trash
+            since then
   vos pull  [dir|take] [--vos <id>] [--since versionId] [--check] [--media] [--json]
             what changed on vos.so since your base; syncs config.json (backup
             kept) or the take's doc.json. ALWAYS pull before editing pushed work.
@@ -2421,6 +2435,10 @@ export async function run(argv: string[]): Promise<number> {
       }
       case 'delete':
         return await cmdDelete(rest)
+      case 'trash':
+        return await cmdTrash(rest)
+      case 'restore':
+        return await cmdRestore(rest)
       case 'build':
         return await cmdBuild(rest)
       case 'compare':

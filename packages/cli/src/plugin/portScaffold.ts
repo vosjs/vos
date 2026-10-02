@@ -557,7 +557,7 @@ function reportText(
           '',
           '## Images and video',
           '',
-          'Not placed: upload each with `vos asset upload` and add an image or video element over its hosted URL.',
+          'Not placed: upload each with `vos asset push` and add an image or video element over its hosted URL.',
           '',
           ...inv.media
             .filter((m) => m.kind === 'image' || m.kind === 'video')
