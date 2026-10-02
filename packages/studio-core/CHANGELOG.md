@@ -1,5 +1,16 @@
 # @vosjs/studio-core
 
+## 0.34.0
+
+### Minor Changes
+
+- 4feac4f: The card can wait before it enters: `frame.anim.enter.at` (OUTPUT seconds, 0..30). The ground plays alone until then, so a film can open on its title over the ground, and the card arrives from nothing rather than from its softened first pose. Every head of the entrance (the tilt-in pose, the pull-out level, the camera's rest, the card-pose track and a slide's start in the transitions table) holds until `at` and moves over the step's seconds after it; the exit never begins before the card has arrived, and the cover moves past the arrival. Absent, every track lowers byte-identically. `vos validate` and the doc schema take `at` on the card's enter only and say why anywhere else.
+- 1579f50: A held zoom can keep moving: the camera style gains `holdDrift` (a fraction of the level per second of hold, set per document through `zoomParams`). Through a span's hold the level pushes in linearly from the landing to the span's end, capped at `HOLD_DRIFT_MAX` (15%) of the landed level, so a long beat under a caption reads as a camera still travelling rather than a still; the exit, a pan or the zoom-out, leaves from where the drift arrived. A span that follows the cursor never drifts, whether or not its pointer baked a recenter. No style carries a drift, so every existing track is byte-identical.
+
+### Patch Changes
+
+- 081ac42: The take's `frame.background` reads every CSS gradient stop. A stop with a position (`#2b6f64 40%`) was handed to canvas whole, which throws, so a background like `radial-gradient(ellipse at 88% 4%, #2b6f64 0%, #060808 80%)` took the whole frame down. Stops now keep their positions (unplaced ones spread evenly, the way CSS places them), every stop is kept rather than only the first and last, an `rgba()` stop is no longer split at its own commas, `linear-gradient(to right, …)` reads its direction, and a stop canvas still cannot parse falls back to the known ground instead of throwing.
+
 ## 0.33.3
 
 ### Patch Changes

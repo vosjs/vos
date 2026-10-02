@@ -1,5 +1,17 @@
 # @vosjs/cli
 
+## 0.58.1
+
+### Patch Changes
+
+- 4feac4f: The card can wait before it enters: `frame.anim.enter.at` (OUTPUT seconds, 0..30). The ground plays alone until then, so a film can open on its title over the ground, and the card arrives from nothing rather than from its softened first pose. Every head of the entrance (the tilt-in pose, the pull-out level, the camera's rest, the card-pose track and a slide's start in the transitions table) holds until `at` and moves over the step's seconds after it; the exit never begins before the card has arrived, and the cover moves past the arrival. Absent, every track lowers byte-identically. `vos validate` and the doc schema take `at` on the card's enter only and say why anywhere else.
+- de6a34b: `vos validate` tells a caption from a callout. The "not pinned" advice now fires only on a layer that is ABOUT a step: its words name what the step touched (the text a selector quotes, `has-text('OHLC Bars')` or `[aria-label='Save']`, never a test id), or its box sits beside the element as the camera shows it then. Sharing the step's window is no longer enough, since every caption in a product video shares one with something, and a step that touched a whole surface (a chart, a canvas) is beside everything on it, so only words count there. A strong lean is said once per document, listing its spans, rather than once per span. A layer that outlasts the footage no longer claims the frame is bare backdrop (the card holds its last frame), offers `frame.anim.exit: 'fade'` for a closing card on the ground, and is silent when the card already leaves with its footage.
+- Updated dependencies [081ac42]
+- Updated dependencies [4feac4f]
+- Updated dependencies [1579f50]
+  - @vosjs/studio-core@0.34.0
+  - @vosjs/render-core@0.3.15
+
 ## 0.58.0
 
 ### Minor Changes
