@@ -25,6 +25,35 @@ describe('what vos.so keeps of the knobs', () => {
     expect(knobProblem(knob('ok'))).toBeNull()
   })
 
+  it('keeps a file knob, which carries no default of its own', () => {
+    expect(knobProblem({ key: 'logo', kind: 'asset' })).toBeNull()
+    expect(
+      knobProblem({ key: 'logo', kind: 'asset', accept: ['image', 'video'] }),
+    ).toBeNull()
+    expect(
+      knobProblem({ key: 'logo', kind: 'asset', accept: 'image' }),
+    ).toBeNull()
+    // Every other kind still needs one.
+    expect(knobProblem({ key: 'title', kind: 'text' })).toBe(
+      'default must be a number, a boolean or at most 280 characters',
+    )
+  })
+
+  it('refuses a file knob whose accept names anything but a kind of file', () => {
+    const reason =
+      'accept: one or more of image, video, audio, model, font, hdr'
+    for (const accept of [['picture'], [''], [3], [], 'picture']) {
+      expect(knobProblem({ key: 'logo', kind: 'asset', accept })).toBe(reason)
+    }
+    expect(
+      knobProblem({
+        key: 'logo',
+        kind: 'asset',
+        accept: ['image', 'video', 'audio', 'model', 'font', 'hdr'],
+      }),
+    ).toBeNull()
+  })
+
   it('vos check reports it as a warning, and still passes', () => {
     const r = runCheck({
       version: 2,

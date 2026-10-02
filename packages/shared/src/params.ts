@@ -12,6 +12,15 @@
  * validated params at the storage boundary (the platform's server-side copy;
  * change both together) and
  * this module validates defensively.
+ *
+ * ONE kind is not a `ctx.data` key. An `asset` knob swaps a FILE, and a
+ * program's files live in `config.assets`, declared by name and read as
+ * `ctx.assets.<name>` or `"$assets.<name>"`. So an asset knob's `key` is a
+ * manifest name, its value is that entry's `ref`, and a commit writes the
+ * manifest, never `data`. That is what lets a swapped file get everything
+ * a declared file gets (a local path served by the CLI, uploaded by a push,
+ * resolved for every surface) instead of being a URL typed into data that
+ * nothing downstream knows is a file.
  */
 
 import { findFontFamily, fontFaceUrl } from './fonts'
@@ -31,7 +40,13 @@ export interface ParamSpec {
   group?: string
   /** Sort order within a group (falls back to declaration order). */
   order?: number
-  kind: 'number' | 'color' | 'select' | 'toggle' | 'text' | 'font'
+  kind: 'number' | 'color' | 'select' | 'toggle' | 'text' | 'font' | 'asset'
+  /**
+   * asset kind: the kinds of file the knob takes (a picker offers only
+   * these). Absent = the declared file's own `kind` hint, and when that is
+   * absent too, any file.
+   */
+  accept?: AssetParamKind[]
   /** number kind */
   min?: number
   max?: number
@@ -59,7 +74,64 @@ export interface LookPreset {
   values: Record<string, ParamValue>
 }
 
-const KINDS = new Set(['number', 'color', 'select', 'toggle', 'text', 'font'])
+/** The kinds of file a manifest entry's `kind` hint, and an asset knob, name. */
+export const ASSET_PARAM_KINDS = [
+  'image',
+  'video',
+  'audio',
+  'model',
+  'font',
+  'hdr',
+] as const
+export type AssetParamKind = (typeof ASSET_PARAM_KINDS)[number]
+
+const KINDS = new Set([
+  'number',
+  'color',
+  'select',
+  'toggle',
+  'text',
+  'font',
+  'asset',
+])
+
+/** A manifest ref is an address or a path: longer than other string values. */
+export const ASSET_REF_MAX = 2048
+
+/** `config.assets`, as a plain record or nothing. */
+function manifestOf(
+  config: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  const assets = config?.assets
+  return assets && typeof assets === 'object' && !Array.isArray(assets)
+    ? (assets as Record<string, unknown>)
+    : {}
+}
+
+/** The single file a manifest name declares, or null (undeclared, or a list). */
+function manifestRef(
+  manifest: Record<string, unknown>,
+  name: string,
+): string | null {
+  const decl = manifest[name]
+  if (!decl || typeof decl !== 'object') return null
+  const ref = (decl as { ref?: unknown }).ref
+  return typeof ref === 'string' ? ref : null
+}
+
+const isAssetKind = (v: unknown): v is AssetParamKind =>
+  typeof v === 'string' && (ASSET_PARAM_KINDS as readonly string[]).includes(v)
+
+/** What an asset knob takes: its own `accept`, else the file's `kind` hint. */
+function acceptOf(
+  raw: unknown,
+  declared: unknown,
+): AssetParamKind[] | undefined {
+  const list = (Array.isArray(raw) ? raw : [raw]).filter(isAssetKind)
+  if (list.length > 0) return [...new Set(list)]
+  const hint = (declared as { kind?: unknown } | null)?.kind
+  return isAssetKind(hint) ? [hint] : undefined
+}
 
 /**
  * Text params carry URLs (modelUrl knobs) and bound content
@@ -73,6 +145,7 @@ export function readParams(
 ): ParamSpec[] {
   const raw = config?.params
   if (!Array.isArray(raw)) return []
+  const manifest = manifestOf(config)
   const out: ParamSpec[] = []
   const seen = new Set<string>()
   for (const entry of raw) {
@@ -89,7 +162,23 @@ export function readParams(
       group: typeof p.group === 'string' ? p.group : undefined,
       order: typeof p.order === 'number' ? p.order : undefined,
     }
-    if (kind === 'number') {
+    if (kind === 'asset') {
+      // The key names a declared file. A name the manifest does not
+      // declare, or one that declares a LIST, is nothing a knob can swap.
+      const ref = manifestRef(manifest, key)
+      if (ref === null) continue
+      const accept = acceptOf(p.accept, manifest[key])
+      out.push({
+        key,
+        label,
+        ...meta,
+        kind,
+        ...(accept ? { accept } : {}),
+        // The value IS the manifest's ref; a `default` written on the param
+        // is not a second home for it and is not read.
+        default: ref,
+      })
+    } else if (kind === 'number') {
       if (typeof p.default !== 'number') continue
       const min = typeof p.min === 'number' ? p.min : 0
       const max = typeof p.max === 'number' ? p.max : 1
@@ -163,13 +252,35 @@ export function paramValues(
     config?.data && typeof config.data === 'object'
       ? (config.data as Record<string, unknown>)
       : {}
+  const manifest = manifestOf(config)
   const out: Record<string, ParamValue> = {}
   for (const spec of specs) {
+    if (spec.kind === 'asset') {
+      // A file knob's value is the manifest's ref, never a data key.
+      out[spec.key] = manifestRef(manifest, spec.key) ?? spec.default
+      continue
+    }
     const v = data[spec.key]
     out[spec.key] =
       typeof v === typeof spec.default ? (v as ParamValue) : spec.default
   }
   return out
+}
+
+/**
+ * The knob values a program reads from `ctx.data`: every knob but a file
+ * knob. A host that feeds live values to a running program uses this, never
+ * `paramValues`: a file knob's value is a ref in the manifest, and written
+ * into `data` it would shadow whatever the program keeps under that name.
+ */
+export function paramData(
+  config: Record<string, unknown> | null | undefined,
+  specs: readonly ParamSpec[],
+): Record<string, ParamValue> {
+  return paramValues(
+    config,
+    specs.filter((spec) => spec.kind !== 'asset'),
+  )
 }
 
 /**
@@ -234,6 +345,12 @@ export function applyParamValue(
         typeof entry === 'object' &&
         (entry as Record<string, unknown>).key === key
       ) {
+        if ((entry as Record<string, unknown>).kind === 'asset') {
+          // A file knob commits to the MANIFEST and nowhere else: the ref
+          // has one home, and `data` never learns the file exists.
+          applyAssetParam(cfg, key, value)
+          return
+        }
         ;(entry as Record<string, unknown>).default = value
       }
     }
@@ -245,6 +362,114 @@ export function applyParamValue(
   if (!cfg.data || typeof cfg.data !== 'object') cfg.data = {}
   ;(cfg.data as Record<string, unknown>)[key] = value
   syncDataFonts(cfg)
+}
+
+/**
+ * Swap the file a file knob names: write its ref into the manifest, in
+ * place. `kind` is what the new file IS, when the host knows (it picked the
+ * file); the entry's own `kind` hint follows it, and a hint nobody can
+ * vouch for any more is dropped rather than left to lie. A knob that takes
+ * ONE kind keeps its hint: the file can only be that.
+ *
+ * Refused, silently, like every knob write of the wrong type: a value that
+ * is not a ref, and a name the manifest does not declare as one file.
+ */
+export function applyAssetParam(
+  cfg: Record<string, unknown>,
+  name: string,
+  ref: unknown,
+  kind?: AssetParamKind,
+): void {
+  if (typeof ref !== 'string' || !ref || ref.length > ASSET_REF_MAX) return
+  const manifest = manifestOf(cfg)
+  const current = manifestRef(manifest, name)
+  if (current === null) return
+  const decl = manifest[name] as Record<string, unknown>
+  if (isAssetKind(kind)) {
+    if (decl.kind !== kind) decl.kind = kind
+  } else if (current !== ref && decl.kind !== undefined) {
+    const spec = Array.isArray(cfg.params)
+      ? cfg.params.find(
+          (p) =>
+            p &&
+            typeof p === 'object' &&
+            (p as Record<string, unknown>).key === name &&
+            (p as Record<string, unknown>).kind === 'asset',
+        )
+      : undefined
+    const accept = acceptOf(
+      (spec as Record<string, unknown> | undefined)?.accept,
+      decl,
+    )
+    if (!accept || accept.length !== 1 || accept[0] !== decl.kind) {
+      delete decl.kind
+    }
+  }
+  if (current !== ref) decl.ref = ref
+}
+
+/**
+ * What is wrong with the file knobs a config declares, in words: each is a
+ * knob `readParams` silently drops, or one that would change nothing.
+ * Empty when there is nothing to say. Pure, and tolerant of any shape.
+ */
+export function assetParamIssues(
+  config: Record<string, unknown> | null | undefined,
+): string[] {
+  const raw = config?.params
+  if (!Array.isArray(raw)) return []
+  const manifest = manifestOf(config)
+  // Every place a program can read a declared file by name.
+  const { params: _params, assets: _assets, ...rest } = config ?? {}
+  const body = JSON.stringify(rest)
+  const issues: string[] = []
+  raw.forEach((entry, i) => {
+    if (!entry || typeof entry !== 'object') return
+    const p = entry as Record<string, unknown>
+    if (p.kind !== 'asset' || typeof p.key !== 'string' || !p.key) return
+    const where = `params[${i}] ("${p.key}")`
+    const decl = manifest[p.key]
+    if (!decl || typeof decl !== 'object') {
+      issues.push(
+        `${where} is a file knob, but "assets" declares no "${p.key}". A file knob's key is the name of a declared file: add "assets": { "${p.key}": { "ref": "./file.png" } } and read it as ctx.assets.${p.key}.`,
+      )
+      return
+    }
+    if (typeof (decl as { ref?: unknown }).ref !== 'string') {
+      issues.push(
+        `${where} is a file knob over a LIST of files. A knob swaps one file: declare the one it swaps under its own name.`,
+      )
+      return
+    }
+    const given = Array.isArray(p.accept)
+      ? p.accept
+      : p.accept === undefined
+        ? []
+        : [p.accept]
+    const unknown = given.filter((k) => !isAssetKind(k))
+    if (!acceptOf(p.accept, decl)) {
+      issues.push(
+        `${where} does not say what kind of file it takes, so a person is offered every kind. Add "accept": ["image"] to the knob, or "kind" to the declared file.`,
+      )
+    }
+    if (unknown.length > 0) {
+      issues.push(
+        `${where} accepts ${unknown.map((k) => JSON.stringify(k)).join(', ')}, which is not a kind of file. The kinds are ${ASSET_PARAM_KINDS.join(', ')}.`,
+      )
+    }
+    // `$assets.<name>` contains `assets.<name>`, so one pattern reads both
+    // spellings, and a bracketed read inside an (escaped) function string.
+    const name = p.key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const read = new RegExp(
+      `assets(?:\\.${name}\\b|\\[\\\\?["']${name}\\\\?["']\\])`,
+    )
+    if (!read.test(body)) {
+      issues.push(
+        `${where} swaps a file the program never reads: nothing names ctx.assets.${p.key} or "$assets.${p.key}", so the knob would change nothing.`,
+      )
+    }
+  })
+  return issues
 }
 
 /** Hosted faces for a catalog family — one entry per weight (weights are
