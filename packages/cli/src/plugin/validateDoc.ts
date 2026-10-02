@@ -65,6 +65,61 @@ import type {
   OverlayPin,
 } from '@vosjs/studio-core'
 
+/** How close (a fraction of the frame's height) a layer's box may sit to a
+ * step's element, as the camera shows it, before it reads as ABOUT it. */
+const PIN_NEAR_FRACTION = 0.08
+
+/** A step's element larger than this share of the frame is a SURFACE, which
+ * every layer on it sits beside. */
+const PIN_SURFACE_AREA = 0.25
+
+const LABEL_STOPWORDS = new Set([
+  'the',
+  'and',
+  'for',
+  'with',
+  'your',
+  'you',
+  'this',
+  'that',
+  'from',
+  'into',
+  'button',
+  'link',
+])
+
+function wordsOf(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((x) => x.length >= 3 && !LABEL_STOPWORDS.has(x))
+}
+
+/** The words a person reads on a layer: an html layer's markup without its
+ * tags, a text layer's string. A media layer has none. */
+function layerWords(o: Record<string, unknown>): Set<string> {
+  const src =
+    typeof o.html === 'string'
+      ? o.html.replace(/<[^>]*>/g, ' ')
+      : typeof o.text === 'string'
+        ? o.text
+        : ''
+  return new Set(wordsOf(src))
+}
+
+/** The words a selector says the element READS as: the text and accessible
+ * names it quotes (`has-text('OHLC Bars')`, `[aria-label='Save']`), never a
+ * test id or a class, which name the element for code rather than people. */
+function selectorLabelWords(selector: string): string[] {
+  const out: string[] = []
+  const re =
+    /(?:has-text\(|text=|(?:aria-label|title|alt|placeholder|name)\s*[*^$~|]?=\s*)['"]([^'"]+)['"]/g
+  for (let m = re.exec(selector); m; m = re.exec(selector)) {
+    out.push(...wordsOf(m[1]))
+  }
+  return [...new Set(out)]
+}
+
 const STEP_KINDS_ALL = [
   'none',
   'fade',
@@ -662,6 +717,7 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
     }
     const tilt = entries(doc.tilt)
     checkByMedia(tilt, 'tilt')
+    const dramatic: string[] = []
     for (const t of tilt) {
       const name = spanName('tilt', t)
       for (const ax of ['rx', 'ry'] as const) {
@@ -674,8 +730,8 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       }
       checkTransition(t, name, problems)
       if (isNum(t.rx) && isNum(t.ry) && Math.abs(t.rx) + Math.abs(t.ry) > 25) {
-        warnings.push(
-          `${name}: combined lean ${(Math.abs(t.rx) + Math.abs(t.ry)).toFixed(0)}° reads dramatic — the premium band is ±5..18° per axis`,
+        dramatic.push(
+          `${name} ${(Math.abs(t.rx) + Math.abs(t.ry)).toFixed(0)}°`,
         )
       }
       if (
@@ -695,6 +751,13 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
           `${name}: span ${(t.out - t.in).toFixed(2)}s is under the ${TILT_SPAN_MIN}s minimum the studio enforces (a pose needs ~0.9s ramps to settle)`,
         )
       }
+    }
+    // Said ONCE: a strong lean is usually a choice made for the whole piece,
+    // and a line per span teaches the reader to skim the list.
+    if (dramatic.length) {
+      warnings.push(
+        `tilt: ${dramatic.length === 1 ? 'a span leans' : `${dramatic.length} spans lean`} past 25° combined (${dramatic.join(', ')}) and read${dramatic.length === 1 ? 's' : ''} dramatic — the premium band is ±5..18° per axis; keep it if the piece means it`,
+      )
     }
     // A retired camera style name still reads (its live style plus the tilt
     // intensity the name carried); say so rather than refuse an old take.
@@ -1088,11 +1151,23 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       isNum(o.duration)
     ) {
       const over = o.start + o.duration - footageEnd
-      if (over > 0.05) {
+      // A card that LEAVES when its footage ends is an ending on the ground,
+      // made on purpose: a layer past the footage is that ending's words.
+      const frameAnim =
+        isObj(docIn) && isObj(docIn.frame) && isObj(docIn.frame.anim)
+          ? docIn.frame.anim
+          : null
+      const exit = frameAnim
+        ? isObj(frameAnim.exit)
+          ? frameAnim.exit.kind
+          : frameAnim.exit
+        : undefined
+      const cardLeaves = exit !== undefined && exit !== 'none'
+      if (over > 0.05 && !cardLeaves) {
         warnings.push(
           o.start >= footageEnd
-            ? `${name} starts at ${o.start.toFixed(2)}s, after the footage ends (${footageEnd.toFixed(2)}s): it plays on bare backdrop and lengthens the output by ${over.toFixed(2)}s. A trim moves the footage, never an OUTPUT-anchored layer: re-place it (vos callout with the same --id), or put a freeze under it`
-            : `${name} ends ${over.toFixed(2)}s after the footage (${footageEnd.toFixed(2)}s): the output extends over bare backdrop. Shorten it, or put a freeze under it`,
+            ? `${name} starts at ${o.start.toFixed(2)}s, after the footage ends (${footageEnd.toFixed(2)}s): it plays over the card's held last frame and lengthens the output by ${over.toFixed(2)}s. A trim moves the footage, never an OUTPUT-anchored layer: re-place it (vos callout with the same --id), put a freeze under it, or, for a closing card on the ground, let the card leave (frame.anim.exit: 'fade')`
+            : `${name} ends ${over.toFixed(2)}s after the footage (${footageEnd.toFixed(2)}s): the card holds its last frame under it. Shorten it, put a freeze under it, or, for a closing card on the ground, let the card leave (frame.anim.exit: 'fade')`,
         )
       }
     }
@@ -1964,20 +2039,82 @@ function framingWarnings(
       const tf = isObj(o.transform) ? o.transform : null
       if (!tf || !isNum(tf.x) || !isNum(tf.y)) return
       const pinned = pins.get(String(o.id))
-      // An unpinned callout-shaped layer (html or media) whose window holds
-      // a step with an element: name the pin it could carry.
+      // An unpinned callout-shaped layer (html or media) that is ABOUT a
+      // step: its words name the step's element, or its box sits beside the
+      // element as the camera shows it then. Sharing the step's window is not
+      // enough: every caption in a product video shares one with something.
       if (
         !pinned &&
         o.pin === undefined &&
         (o.kind === 'html' || o.kind === 'image' || o.kind === 'video')
       ) {
-        const cands = pinCandidates(docIn, {
+        const words = layerWords(o)
+        let layerBox: { x: number; y: number; w: number; h: number } | null =
+          null
+        try {
+          const b = pinBox(o as unknown as OverlayClip, layout)
+          layerBox = {
+            x: tf.x * layout.W - b.w / 2,
+            y: tf.y * layout.H - b.h / 2,
+            w: b.w,
+            h: b.h,
+          }
+        } catch {
+          layerBox = null
+        }
+        const about: { step: string; why: string }[] = []
+        for (const c of pinCandidates(docIn, {
           start: o.start,
           duration: o.duration,
-        })
-        if (cands.length) {
+        })) {
+          const named = c.selector
+            ? selectorLabelWords(c.selector).filter((x) => words.has(x))
+            : []
+          if (named.length) {
+            about.push({
+              step: String(c.step),
+              why: `its words name ${c.step}'s element ("${named.join(' ')}")`,
+            })
+            continue
+          }
+          if (!layerBox) continue
+          let ref
+          try {
+            ref = pinReferent(docIn, { step: c.step } as OverlayPin)
+          } catch {
+            ref = null
+          }
+          // A SURFACE (a chart, a canvas, a panel) is beside everything on
+          // it, so nearness says nothing about what a layer is about; only
+          // its words can.
+          if (!ref || ref.rect.w * ref.rect.h > PIN_SURFACE_AREA) continue
+          const target = pinRectOnScreen(
+            ref.rect,
+            c.output.start,
+            layout,
+            camera,
+            zoomTrack,
+          )
+          const dx = Math.max(
+            0,
+            target.x - (layerBox.x + layerBox.w),
+            layerBox.x - (target.x + target.w),
+          )
+          const dy = Math.max(
+            0,
+            target.y - (layerBox.y + layerBox.h),
+            layerBox.y - (target.y + target.h),
+          )
+          if (Math.hypot(dx, dy) <= PIN_NEAR_FRACTION * layout.H) {
+            about.push({
+              step: String(c.step),
+              why: `it sits beside ${c.step}'s element`,
+            })
+          }
+        }
+        if (about.length) {
           warnings.push(
-            `overlays[${i}] is not pinned, and ${cands.length === 1 ? 'a step with an element sits' : 'steps with an element sit'} inside its window: ${cands.map((c) => `${String(c.step)} (${c.do}${c.selector ? ` ${c.selector}` : ''})`).join(', ')} — a callout about one of them says so: pin: { step: "${String(cands[0].step)}" }`,
+            `overlays[${i}] is not pinned, but ${about[0].why} — a callout about it says so, and follows it through the camera: pin: { step: "${about[0].step}" }`,
           )
         }
       }
