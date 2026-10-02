@@ -83,7 +83,14 @@ export interface UploadedAsset {
 
 export interface UploadTarget {
   origin: string
+  /** The bearer: a content key, or a claimable push's session token. */
   key: string
+  /**
+   * The door's path. The account's by default; a claimable push sends its
+   * files through `/api/claim/uploads/files`, which speaks the same
+   * protocol under its session token.
+   */
+  door?: string
 }
 
 export interface UploadOptions {
@@ -161,7 +168,8 @@ export async function uploadAsset(
   // Declare it first. Every quota is weighed here, before a byte moves, so
   // a refusal costs nothing and arrives in words — and the dedupe answers
   // here too, which is what makes re-pushing a hosted take free.
-  const begun = await apiJson(target.origin, '/api/assets/uploads', {
+  const door = target.door ?? '/api/assets/uploads'
+  const begun = await apiJson(target.origin, door, {
     method: 'POST',
     key: target.key,
     body: {
@@ -198,7 +206,7 @@ export async function uploadAsset(
         try {
           sent = await apiJson(
             target.origin,
-            `/api/assets/uploads/${uploadId}/parts/${part.partNumber}`,
+            `${door}/${uploadId}/parts/${part.partNumber}`,
             {
               method: 'PUT',
               key: target.key,
@@ -236,7 +244,7 @@ export async function uploadAsset(
     // back out.
     const sealed = await apiJson(
       target.origin,
-      `/api/assets/uploads/${uploadId}/complete`,
+      `${door}/${uploadId}/complete`,
       {
         method: 'POST',
         key: target.key,
@@ -254,7 +262,7 @@ export async function uploadAsset(
     return asAsset(sealed.body, sealed.body.reused === true)
   } catch (err) {
     // Hand the parts back rather than leaving them held server-side.
-    await apiJson(target.origin, `/api/assets/uploads/${uploadId}`, {
+    await apiJson(target.origin, `${door}/${uploadId}`, {
       method: 'DELETE',
       key: target.key,
     }).catch(() => undefined)

@@ -2,8 +2,8 @@
  * `vos push` of a PROGRAM directory whose document adds sound, against a
  * real in-process HTTP server. The contract under test: a score that is
  * still a local file is uploaded through the recording door and the pushed
- * document and composed config key the hosted asset; a claimable push, which
- * carries no files, leaves the local sound out and composes the rest.
+ * document and composed config key the hosted asset; a claimable push opens
+ * the claim's own upload session and carries the score the same way.
  */
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
@@ -21,6 +21,7 @@ interface Seen {
   method: string
   url: string
   body: Record<string, unknown> | null
+  auth: string
 }
 
 function serve(seen: Seen[]): Promise<string> {
@@ -37,7 +38,12 @@ function serve(seen: Seen[]): Promise<string> {
         // a raw media body is not JSON
       }
       const url = req.url ?? ''
-      seen.push({ method: req.method ?? '', url, body })
+      seen.push({
+        method: req.method ?? '',
+        url,
+        body,
+        auth: String(req.headers.authorization ?? ''),
+      })
       const send = (status: number, payload: Record<string, unknown>) => {
         res.writeHead(status, { 'content-type': 'application/json' })
         res.end(JSON.stringify(payload))
@@ -48,6 +54,8 @@ function serve(seen: Seen[]): Promise<string> {
         return send(201, {
           vos: { id: 'v-1', slug: 'reel', currentVersionId: 'ver-1' },
         })
+      if (url === '/api/claim/uploads' && req.method === 'POST')
+        return send(201, { uploadToken: 'vos_cu_test', expiresAt: 'later' })
       if (url === '/api/claim')
         return send(201, {
           claimUrl: 'https://vos.so/claim/t',
@@ -118,6 +126,22 @@ function studioAudio(config: unknown): { key: string }[] {
 }
 
 describe('vos push of a program document with its own sound', () => {
+  it('refuses --share on a keyed push: a key never publishes', async () => {
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    await expect(
+      cmdPushProgram([
+        join(programDir(), 'config.json'),
+        '--share',
+        '--origin',
+        origin,
+        '--key',
+        'vos_sk_test',
+      ]),
+    ).rejects.toThrow(/A key can never publish/)
+    expect(seen).toEqual([])
+  })
+
   it('uploads the local score and keys the hosted asset in the doc and the stored config', async () => {
     const seen: Seen[] = []
     const origin = await serve(seen)
@@ -163,22 +187,37 @@ describe('vos push of a program document with its own sound', () => {
     expect((create?.body?.doc as { still?: number }).still).toBe(2.5)
   })
 
-  it('a claimable push composes the document but leaves a local sound out', async () => {
+  it('a claimable push carries the local score through the claim upload session', async () => {
     const seen: Seen[] = []
     const origin = await serve(seen)
     const dir = programDir()
     const code = await cmdPushProgram([
       join(dir, 'config.json'),
       '--claimable',
+      '--share',
+      '--prompt',
+      'make a 15-second showreel',
       '--origin',
       origin,
       '--json',
     ])
     expect(code).toBe(0)
+    // No account door: the claim's own session, under its token.
     expect(seen.some((s) => s.url === '/api/assets/uploads')).toBe(false)
+    const sent = seen.filter((s) =>
+      s.url.startsWith('/api/claim/uploads/files'),
+    )
+    expect(sent.length).toBeGreaterThan(0)
+    expect(sent.every((s) => s.auth === 'Bearer vos_cu_test')).toBe(true)
     const claim = seen.find((s) => s.url === '/api/claim')
+    expect(claim?.body?.uploadToken).toBe('vos_cu_test')
+    expect(claim?.body?.share).toBe(true)
+    expect(claim?.body?.prompt).toBe('make a 15-second showreel')
+    expect(claim?.auth).toBe('')
     const stack = (claim?.body?.config as { stack?: { id: string }[] }).stack
     expect(stack?.some((e) => e.id === STUDIO_ENTRY_ID)).toBe(true)
-    expect(studioAudio(claim?.body?.config)).toEqual([])
+    expect(studioAudio(claim?.body?.config).map((a) => a.key)).toEqual([
+      '/api/assets/snd/file',
+    ])
   })
 })
