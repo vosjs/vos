@@ -10,7 +10,7 @@ units (render pixels, y down, degrees counter-clockwise).
 | root `data-width`, `data-height`, `data-duration` | render size; `config.duration` |
 | `data-composition-variables`, CSS custom properties on the root (`--bg`, `--accent`) | `data` keys and `params` (a colour variable is a `color` knob) |
 | a text node or heading | a `text` element, `content: { "$data": key }` |
-| inline `<svg>` / `<img>` | an `svg` element (`src` is the markup) / an `image` element, the file uploaded |
+| inline `<svg>` / `<img>` | an `svg` element (`src` is the markup) / an `image` element with `"src": "$assets.<name>"`, the file declared in `config.assets` by its path (`vos push` uploads it) |
 | `<video data-start data-media-start>` | a `video` element, windowed by opacity; no source in-point yet |
 | `<audio data-start data-duration data-volume>` | `doc.json` `audio: [{ key, start, in: 0, out: duration, duration, gain: volume, fadeIn, fadeOut }]` |
 | `gsap.timeline({ paused: true })` at `window.__timelines[id]` | `createTimeline` returns `ctx.gsap.timeline({ paused: true })`; vos drives it |

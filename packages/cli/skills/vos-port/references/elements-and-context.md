@@ -610,6 +610,11 @@ interface SetupContext {
      * Always defined (defaults to `{}`). Shape is the author's/app's, not vos's.
      */
     data: Readonly<Record<string, unknown>>;
+    /**
+     * The files the program declared in `config.assets`, by name, each as the
+     * URL (or URLs) the host resolved for this surface. Always defined.
+     */
+    assets: Readonly<Record<string, string | string[]>>;
 }
 
 /**
