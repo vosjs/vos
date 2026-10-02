@@ -27,7 +27,7 @@ rows name what has no element equivalent yet.
 | `charStyle` giving one letter a colour | GAP: segments carry no colour; a separate element or a painter |
 | `overflow: hidden` letter masks | GAP: no element masks; opacity approximates |
 | a string rebuilt per frame (`Scramble`, a counter) | `onFrame` writes `ctx.elements.get(id).props.content`; the element sized by the full words first |
-| `<Img src={staticFile('x.png')}>` | an `image` element; the file uploaded (`vos asset push x.png`) and its url in `data` |
+| `<Img src={staticFile('x.png')}>` | an `image` element with `"src": "$assets.x"`, and the file declared in the config: `"assets": { "x": { "ref": "./x.png", "kind": "image" } }`. `vos push` uploads it |
 | `<Audio src={staticFile('s.mp3')} />` | `doc.json` `audio: [{ key: 's.mp3', start, in, out, duration, gain, fadeIn, fadeOut }]` |
 | `<Video>` / `<OffthreadVideo>` | a `video` element, windowed by opacity; a source in-point is not supported yet |
 | `@remotion/google-fonts` `loadFont()` | `fonts: [{ family, weight, url }]` from `https://vos.so/api/fonts`; a face the catalog lacks is substituted and said |

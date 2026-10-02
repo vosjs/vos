@@ -1,5 +1,5 @@
 import { writeFile } from 'node:fs/promises'
-import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { createServer } from 'node:http'
 import { createRequire } from 'node:module'
@@ -37,6 +37,7 @@ import {
   ASSET_ROUTE,
   missingManifestFiles,
   programAssets,
+  serveFile,
 } from './programAssets'
 import type { ProgramAssets } from './programAssets'
 import {
@@ -111,7 +112,8 @@ function assetsFor(
   log: (line: string) => void,
 ): Promise<ProgramAssets | null> {
   return programAssets(config, {
-    baseDir: baseDirOf(source) ?? process.cwd(),
+    // A config loaded from a URL has no directory: it reads no local file.
+    baseDir: baseDirOf(source),
     origin: platformOrigin({}),
     key: resolveCredential(),
     log: (line) => log(line),
@@ -441,26 +443,27 @@ async function cmdPreview(argv: string[]): Promise<number> {
   const { hostHtml, playerHtml } = previewPages(config, assets)
   const server = createServer((req, res) => {
     const path = new URL(req.url ?? '/', 'http://x').pathname
-    // The program's declared files, streamed from disk under their route.
-    const file = path.startsWith(ASSET_ROUTE)
-      ? assets?.files[decodeURIComponent(path)]
-      : undefined
+    // The program's declared files, served from disk under their route.
     if (path.startsWith(ASSET_ROUTE)) {
+      const file = assets?.files[path]
       if (!file) {
         res.writeHead(404).end('no such declared file')
         return
       }
-      res.writeHead(200, { 'content-length': statSync(file).size })
-      createReadStream(file).pipe(res)
+      const answer = serveFile(file, req.headers.range)
+      res.writeHead(answer.status, answer.headers).end(answer.body)
       return
     }
     res.writeHead(200, { 'content-type': 'text/html' })
     res.end(path === '/player' ? playerHtml : hostHtml)
   })
   const port = numFlag(flags, 'port', 0)
-  await new Promise<void>((resolve) => server.listen(port, resolve))
+  // Loopback only: this server hands out the program's files.
+  await new Promise<void>((resolve) =>
+    server.listen(port, '127.0.0.1', resolve),
+  )
   const addr = server.address()
-  const url = `http://localhost:${typeof addr === 'object' && addr ? addr.port : port}/`
+  const url = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : port}/`
   process.stdout.write(`${url}\n`)
   r.log('Serving playback preview — Ctrl-C to stop.')
   await new Promise(() => {}) // keep alive until interrupted

@@ -175,20 +175,78 @@ describe('uploadManifest', () => {
     expect('assets' in config).toBe(false)
   })
 
-  it('leaves a path that names no file as it is, and says so', async () => {
-    const origin = await serve([])
+  it('refuses a path that names no file, before anything is sent', async () => {
+    const seen: Seen[] = []
+    const origin = await serve(seen)
     const config: Record<string, unknown> = {
       assets: { gone: { ref: './gone.png' } },
     }
-    const log: string[] = []
-    await uploadManifest(
-      config,
-      mkdtempSync(join(tmpdir(), 'vos-manifest-')),
-      { origin, key: 'k' },
-      (l) => log.push(l),
-    )
+    await expect(
+      uploadManifest(
+        config,
+        mkdtempSync(join(tmpdir(), 'vos-manifest-')),
+        { origin, key: 'k' },
+        () => {},
+      ),
+    ).rejects.toThrow(/assets\.gone names \.\/gone\.png, which is not a file/)
+    expect(seen).toEqual([])
     expect(config.assets).toEqual({ gone: { ref: './gone.png' } })
-    expect(log[0]).toContain('assets.gone')
+  })
+
+  it('says in words what a push cannot carry yet, before sending anything', async () => {
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    const dir = mkdtempSync(join(tmpdir(), 'vos-manifest-'))
+    writeFileSync(join(dir, 'studio.hdr'), 'x')
+    await expect(
+      uploadManifest(
+        { assets: { env: { ref: './studio.hdr' } } },
+        dir,
+        { origin, key: 'k' },
+        () => {},
+      ),
+    ).rejects.toThrow(
+      /assets\.env names \.\/studio\.hdr: a push cannot upload an HDR yet/,
+    )
+    expect(seen).toEqual([])
+  })
+
+  it('leaves the same path on another host a URL', async () => {
+    const origin = await serve([])
+    const other = `https://other.example/api/assets/${HOSTED}/file`
+    const config: Record<string, unknown> = {
+      assets: {
+        theirs: { ref: other },
+        ours: { ref: `https://vos.so/api/assets/${HOSTED}/file` },
+      },
+    }
+    await uploadManifest(config, '.', { origin, key: 'k' }, () => {})
+    expect(config.assets).toEqual({
+      theirs: { ref: other },
+      ours: { ref: `asset:${HOSTED}` },
+    })
+  })
+
+  it('never uploads a file outside the program’s directory', async () => {
+    // A config from somewhere else must not be able to name a file two
+    // directories up and have a push carry it into a library.
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    const root = mkdtempSync(join(tmpdir(), 'vos-manifest-'))
+    writeFileSync(join(root, 'secret.png'), PNG)
+    const dir = join(root, 'program')
+    mkdirSync(dir)
+    for (const ref of ['../secret.png', join(root, 'secret.png')]) {
+      await expect(
+        uploadManifest(
+          { assets: { leak: { ref } } },
+          dir,
+          { origin, key: 'k' },
+          () => {},
+        ),
+      ).rejects.toThrow(/outside the program's directory/)
+    }
+    expect(seen).toEqual([])
   })
 })
 
@@ -316,6 +374,67 @@ describe('pullManifest', () => {
     )
     expect(again!.files).toEqual(['assets/logo.png', 'assets/shots-0.png'])
     expect(seen.length).toBe(fetched)
+  })
+
+  it('fetches again when the name now means a different hosted file', async () => {
+    // Kept by name alone, the old picture stayed under the new manifest
+    // and the next push stored the old one again without a word.
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    const dir = mkdtempSync(join(tmpdir(), 'vos-pull-'))
+    await pullManifest(
+      { origin, key: 'k' },
+      dir,
+      { assets: { logo: { ref: `asset:${A}` } } },
+      () => {},
+    )
+    const before = seen.length
+    const got = await pullManifest(
+      { origin, key: 'k' },
+      dir,
+      { assets: { logo: { ref: `asset:${B}` } } },
+      () => {},
+    )
+    expect(seen.length).toBe(before + 1)
+    expect(seen.at(-1)?.url).toBe(`/api/assets/${B}/file`)
+    expect(got!.files).toEqual(['assets/logo.png'])
+    const index = JSON.parse(
+      readFileSync(join(dir, 'assets/.hosted.json'), 'utf8'),
+    ) as Record<string, string>
+    expect(index).toEqual({ 'logo.png': B })
+  })
+
+  it('a file put there by hand under a manifest name is not taken for the hosted one', async () => {
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    const dir = mkdtempSync(join(tmpdir(), 'vos-pull-'))
+    mkdirSync(join(dir, 'assets'))
+    writeFileSync(join(dir, 'assets/logo.png'), 'mine')
+    await pullManifest(
+      { origin, key: 'k' },
+      dir,
+      { assets: { logo: { ref: `asset:${A}` } } },
+      () => {},
+    )
+    expect(seen.map((s) => s.url)).toEqual([`/api/assets/${A}/file`])
+    expect(readFileSync(join(dir, 'assets/logo.png')).equals(PNG)).toBe(true)
+  })
+
+  it('a name that would climb out of assets/ brings nothing home', async () => {
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    const root = mkdtempSync(join(tmpdir(), 'vos-pull-'))
+    const dir = join(root, 'out')
+    mkdirSync(dir)
+    const got = await pullManifest(
+      { origin, key: 'k' },
+      dir,
+      { assets: { '../../planted': { ref: `asset:${A}` } } },
+      () => {},
+    )
+    expect(got).toBeNull()
+    expect(seen).toEqual([])
+    expect(existsSync(join(root, 'planted.png'))).toBe(false)
   })
 
   it('is null when nothing in the manifest is hosted', async () => {

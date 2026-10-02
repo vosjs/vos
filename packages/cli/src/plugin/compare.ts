@@ -106,8 +106,9 @@ export async function cmdCompare(argv: string[]): Promise<number> {
   const config = loaded.config as Record<string, unknown>
   const duration = configDuration(config) ?? 5
   const assets = await programAssets(config, {
-    baseDir:
-      existsSync(source) && statSync(source).isDirectory()
+    baseDir: /^https?:\/\//.test(source)
+      ? null
+      : existsSync(source) && statSync(source).isDirectory()
         ? source
         : dirname(source),
     origin: platformOrigin({}),

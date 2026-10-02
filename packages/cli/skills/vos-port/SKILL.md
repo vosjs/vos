@@ -42,7 +42,9 @@ not in `node_modules`.
 3. **Things are elements.** Text is a `text` element whose `content`,
    `font.family` and `font.color` take `{ "$data": "<key>" }` (they
    re-raster live on a data edit). Logos and shapes are `svg` or `image`
-   elements, footage a `video` element. Elements are what the studio selects
+   elements, footage a `video` element. A picture or video FILE is declared
+   in `config.assets` by its path and named `"$assets.<name>"` (cli 0.60+);
+   `vos push` uploads it. Never a file's URL or path typed into a function. Elements are what the studio selects
    and moves. **Every visible word is a bound element**, whatever animates
    it: a word whose letters rise one by one is ONE `split` element bound to
    its key, never a pool of per-letter elements filled from `onFrame` (a

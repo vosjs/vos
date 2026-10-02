@@ -14,6 +14,7 @@ Complete API reference for generating VosConfigJson configs.
 | `perLayerEffects` | `PostprocessingEffect[]` | No | — | Effects for objects with matching zIndex |
 | `dynamicLayers` | `boolean` | No | `false` | Rebuild render groups when zIndex changes at runtime |
 | `elements` | `ElementConfig[]` | No | — | 2D overlay elements |
+| `assets` | `{ [name]: { ref, kind? } }` | No | — | The files the program uses, by name (see Declared Files). Never type a file's URL or path inside a function |
 | `setup` | `string` | No | — | Async function for loading assets |
 | `createContent` | `string` | Yes | — | Function that builds scene content |
 | `createTimeline` | `string` | Yes | — | Function that creates GSAP timeline |
@@ -134,6 +135,7 @@ Objects without `userData.zIndex` stay on the default layer (no per-layer effect
 |----------|------|-------------|
 | `ctx.THREE` | `THREE` | Three.js library (r160+) |
 | `ctx.resolution` | `Resolution` | `{ width, height, pixelRatio, drawingBufferWidth, drawingBufferHeight }` |
+| `ctx.assets` | `{ [name]: string \| string[] }` | The URL (or URLs) of each file declared in `config.assets` |
 
 ### Available in setup
 
@@ -226,9 +228,45 @@ return { envMap: hdr }
 
 **GLTF Model:**
 ```javascript
-const gltf = await ctx.loaders.gltf.loadAsync(url)
+const gltf = await ctx.loaders.gltf.loadAsync(ctx.assets.product)
 return { model: gltf.scene, animations: gltf.animations }
 ```
+
+**Your own picture as a texture:**
+```javascript
+const map = await new ctx.loaders.TextureLoader().loadAsync(ctx.assets.cover)
+map.colorSpace = ctx.THREE.SRGBColorSpace
+return { map }
+```
+
+---
+
+## Declared Files (`assets`, `ctx.assets`)
+
+A file the program uses (a picture, a video, a model, a font file) is named in `config.assets` and read by name. This is the one rule for a program's own files, and it needs `@vosjs/cli` 0.60 or later.
+
+```json
+"assets": {
+  "cover":   { "ref": "./cover.png", "kind": "image" },
+  "shots":   { "ref": ["./shots/1.png", "./shots/2.png"], "kind": "image" },
+  "product": { "ref": "./product.glb", "kind": "model" }
+}
+```
+
+| Where | How it is read |
+|-------|----------------|
+| a function (`setup`, `createContent`, `createTimeline`, `onFrame`) | `ctx.assets.cover` is a URL; `ctx.assets.shots` is an array of URLs |
+| an element, object or font | the string `"$assets.cover"`, or `"$assets.shots[1]"` for one of a list |
+
+- `ref` is a path in the directory of `config.json` or below (or a list of them). `vos render`, `vos still` and `vos preview` serve the file to the page. A path that climbs out (`../`, an absolute path) is refused: copy the file into the program's directory.
+- `vos push` uploads each local file once and stores the program naming it `asset:<id>`. The config on disk keeps its paths, so do not write `asset:` yourself.
+- `kind` is a hint: `image`, `video`, `audio`, `model`, `font`, `hdr`.
+- A name is an identifier (`cover`, `shot_2`), because it is read as `ctx.assets.<name>`.
+- A file on `assets.vos.so` (the font and HDR catalogs) is a URL and may stay one: `"ref": "https://assets.vos.so/…"`.
+
+**Never type a file's URL or path inside a function string.** It renders on your machine and then fails where it matters: a server render of a private vos cannot fetch it, and a remix does not bring it along. `vos check` reports a `"$assets.<name>"` that names nothing, a declared path that is not a file, and a hosted file typed in code.
+
+A file a knob swaps (a `modelUrl` text param) is the one exception: it lives in `data` as a URL, because a person changes it.
 
 ---
 
@@ -300,7 +338,7 @@ Or pixel/percentage: `{ "x": 100, "y": 50 }` / `{ "x": "50%", "y": "25%" }`
 ```json
 {
   "type": "image",
-  "src": "https://example.com/img.png",
+  "src": "$assets.cover",
   "position": "center",
   "size": { "width": 400, "height": "auto", "fit": "contain" },
   "filters": { "brightness": 1, "contrast": 1, "saturate": 1, "blur": 0, "hueRotate": 0, "grayscale": 0 },
