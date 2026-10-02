@@ -189,7 +189,9 @@ describe('background fill', () => {
   })
 
   it('keeps EVERY stop, spreading unplaced ones evenly as CSS does', () => {
-    const { stops } = fillFor('linear-gradient(90deg, #111, #222, #333 60%, #444)')
+    const { stops } = fillFor(
+      'linear-gradient(90deg, #111, #222, #333 60%, #444)',
+    )
     expect(stops).toEqual([
       [0, '#111'],
       [0.3, '#222'],
