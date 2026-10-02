@@ -159,6 +159,9 @@ documents a `ctx.data` key the program reads:
 ```
 
 - kinds: `number` (min/max/step) | `color` | `select` (options) | `toggle`
+  | `text` | `font` | `asset` (a FILE knob: its `key` is a name in
+  `config.assets`, it has no `default`, and the person swaps the declared
+  file from the editor; see the vos-remix skill's `params-knobs.md`)
 - `hint`: ONE sentence on what visibly changes — write it
 - the program reads it where it animates:
   `const d = ctx.data || {}; if (typeof d.hue === 'number') u.uHue.value = d.hue`

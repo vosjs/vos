@@ -17,6 +17,7 @@ just an artifact.**
 ```
 
 - kinds: `number` (min/max/step) | `color` | `select` (options) | `toggle`
+  | `text` | `font` | `asset` (a file knob, below)
 - `hint`: ONE sentence on what visibly changes — always write it
 - `unit` shows inside the number field (`px` `%` `s` `×` `°`);
   `group`/`order` cluster related knobs into their own panel card
@@ -37,6 +38,41 @@ directions, zero extra render cost):
 Values must reference declared param keys with matching types (anything
 else is dropped on save; max 8 Looks, names ≤24 chars). Ship 2–3 Looks
 whenever the program has 4+ params.
+
+## File knobs
+
+A file a person should be able to swap (the logo, the product shot, the
+model) is a knob of kind `asset` over a DECLARED file. Its `key` is the
+file's name in `config.assets`; it has no `default` and nothing in `data`,
+because its value is that file's `ref`. Needs `@vosjs/cli` 0.65 or later.
+
+```json
+"assets": { "logo": { "ref": "./logo.png", "kind": "image" } },
+"params": [{ "key": "logo", "label": "Logo", "kind": "asset",
+             "hint": "The mark in the corner" }]
+```
+
+- The program reads it like any declared file: `ctx.assets.logo`, or
+  `"src": "$assets.logo"` on an element. No `onFrame` read is needed: a
+  swap recompiles the program once, it is never a live data edit.
+- `accept` lists the kinds it takes (`image`, `video`, `audio`, `model`,
+  `font`, `hdr`), e.g. `"accept": ["image", "video"]`. Without it the knob
+  takes the declared file's own `kind`, so write `kind` on the file.
+- One knob, one file: a name declared as a list cannot be a file knob.
+- In the editor the person sees the file with a **Replace** control and
+  picks from their own files or their device. The swap rewrites the
+  manifest entry, so the new file is declared like the old one: `vos push`
+  uploads it, and a server render of a private vos can fetch it.
+- To swap it yourself, change the file's `ref` in `assets` and push. A
+  Look can swap it too: `"values": { "logo": "asset:<id>" }`.
+- `vos check` warns when a file knob would do nothing: the name is not
+  declared, it is a list, nothing reads `ctx.assets.<name>`, or no kind is
+  said anywhere.
+
+A `text` knob holding a URL in `data` (a `modelUrl` param) is the older
+spelling. It still plays, but the person gets a box to paste an address
+into, and `vos push` does not upload a local file named there. Write new
+programs with a file knob.
 
 ## The five rules
 
