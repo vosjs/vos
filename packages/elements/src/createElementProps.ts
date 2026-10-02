@@ -52,6 +52,12 @@ export interface SplitGroup {
   /** The word's centre where the layout put it, in props space (y down). */
   x0: number
   y0: number
+  /**
+   * The committed `transform.scale`: the word's size before any props write,
+   * multiplied under `props.scale` exactly as a plain element bakes it into
+   * its mesh, so a drag's `props.scale` stays relative to it.
+   */
+  baseScale: number
   state: {
     x: number
     y: number
@@ -73,10 +79,13 @@ export function createSplitGroup(
   x0: number,
   y0: number,
   zIndex = 100,
+  /** The committed `transform.scale` and rotation (degrees). */
+  base: { scale?: number; rotation?: number } = {},
 ): SplitGroup {
   return {
     x0,
     y0,
+    baseScale: base.scale && base.scale > 0 ? base.scale : 1,
     state: {
       x: x0,
       y: y0,
@@ -85,7 +94,9 @@ export function createSplitGroup(
       scale: 1,
       scaleX: 1,
       scaleY: 1,
-      rotation: 0,
+      // The committed rotation seeds the word's absolute `props.rotation`,
+      // the same absolute a plain element's proxy writes over.
+      rotation: base.rotation ?? 0,
       rotationX: 0,
       rotationY: 0,
       zIndex,
@@ -187,8 +198,9 @@ export function createElementProps(
       return
     }
     const g = group.state
-    const ox = (state.x - group.x0) * g.scale * g.scaleX
-    const oy = -(state.y - group.y0) * g.scale * g.scaleY
+    const k = group.baseScale
+    const ox = (state.x - group.x0) * k * g.scale * g.scaleX
+    const oy = -(state.y - group.y0) * k * g.scale * g.scaleY
     const r = (g.rotation * Math.PI) / 180
     const c = Math.cos(r)
     const s = Math.sin(r)
@@ -199,9 +211,16 @@ export function createElementProps(
 
   const updateMeshTransform = () => {
     const g = group?.state
+    const k = group ? group.baseScale : 1
     mesh.scale.set(
-      baseScaleX * state.scale * state.scaleX * (g ? g.scale * g.scaleX : 1),
-      baseScaleY * state.scale * state.scaleY * (g ? g.scale * g.scaleY : 1),
+      baseScaleX *
+        state.scale *
+        state.scaleX *
+        (g ? k * g.scale * g.scaleX : 1),
+      baseScaleY *
+        state.scale *
+        state.scaleY *
+        (g ? k * g.scale * g.scaleY : 1),
       1,
     )
     mesh.rotation.set(

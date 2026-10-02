@@ -104,3 +104,65 @@ describe('a split word moves as a word', () => {
     near((m.material as THREE.MeshBasicMaterial).opacity, 0.3)
   })
 })
+
+// The same three letters, under a committed transform (a resize or a rotate
+// the editor saved into `config.transform`).
+const committedWord = (base: { scale?: number; rotation?: number }) => {
+  const group = createSplitGroup(0, 0, 100, base)
+  const meshes = [-100, 0, 100].map((x) => {
+    const m = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({ transparent: true }),
+    )
+    m.position.set(x, 0, 0)
+    return m
+  })
+  meshes.map((m) =>
+    createElementProps(
+      THREE,
+      m,
+      m.position.x,
+      -m.position.y,
+      1,
+      null,
+      null,
+      null,
+      null,
+      null,
+      group,
+    ),
+  )
+  for (const recompose of group.members) recompose()
+  const props = createSplitGroupProps(group, () => meshes)
+  return { meshes, props }
+}
+
+describe('a split word keeps its committed transform', () => {
+  it('wears a committed scale on every letter, about the word centre', () => {
+    const { meshes } = committedWord({ scale: 1.5 })
+    expect(meshes.map((m) => m.position.x)).toEqual([-150, 0, 150])
+    near(meshes[0].scale.x, 1.5)
+    near(meshes[2].scale.y, 1.5)
+  })
+
+  it('a later props.scale stays relative to the committed scale', () => {
+    const { meshes, props } = committedWord({ scale: 2 })
+    props.scale = 0.5 // a timeline or a drag preview
+    near(meshes[2].position.x, 100)
+    near(meshes[2].scale.x, 1)
+  })
+
+  it('wears a committed rotation, the absolute props.rotation starts there', () => {
+    const { meshes, props } = committedWord({ rotation: 90 })
+    near(meshes[2].position.x, 0)
+    near(meshes[2].position.y, 100)
+    near(meshes[2].rotation.z, Math.PI / 2)
+    expect(props.rotation).toBe(90)
+  })
+
+  it('without a committed transform the word is unchanged', () => {
+    const { meshes } = committedWord({})
+    expect(meshes.map((m) => m.position.x)).toEqual([-100, 0, 100])
+    near(meshes[1].scale.x, 1)
+  })
+})

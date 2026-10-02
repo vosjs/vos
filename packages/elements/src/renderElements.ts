@@ -148,7 +148,13 @@ export async function renderElements(
         const centreX = basePosX + transformX
         const centreY = -(basePosY + transformY)
         if (splitGroup) relayoutSplitGroup(splitGroup, centreX, centreY)
-        else splitGroup = createSplitGroup(centreX, centreY, zIndex)
+        else
+          // A split word wears its committed scale and rotation like a plain
+          // element does; only its translate is applied per unit above.
+          splitGroup = createSplitGroup(centreX, centreY, zIndex, {
+            scale: config.transform?.scale,
+            rotation: config.transform?.rotateZ ?? config.transform?.rotation,
+          })
         const group = splitGroup
 
         segments = splitResult.meshes.map((item: any, si: number) => {
