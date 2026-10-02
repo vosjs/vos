@@ -3,6 +3,9 @@ import { mapTime, totalDuration } from '@vosjs/timeline'
 import {
   END_CARD_FROM,
   cardPoseTrack,
+  docStillTime,
+  entranceAt,
+  entranceEnd,
   entranceTiltKeyframes,
   entranceZoomKeyframes,
   expandEndCard,
@@ -12,6 +15,7 @@ import {
   withHolds,
 } from '../lower/motion'
 import { lowerToComposition, ratedSegments } from '../lower/lowerToComposition'
+import { docTransitions } from '../lower/transitions'
 import { docOutputDuration } from '../audioBeds'
 import { lastLayerEnd } from '../anim'
 import {
@@ -437,5 +441,81 @@ describe('lowering', () => {
     expect((b.fx as { k: string; u: string }).u).toBe('char')
     expect((c.fx as { k: string; u: string; dur: number }).u).toBe('block')
     expect((c.fx as { dur: number }).dur).toBeCloseTo(0.8, 6)
+  })
+})
+
+describe('a card that waits (`at`)', () => {
+  const late = { kind: 'tilt-in' as const, seconds: 1.5, at: 2 }
+
+  it('starts when it says and ends a length later; absent or on no entrance it is 0', () => {
+    expect(entranceAt(late)).toBe(2)
+    expect(entranceEnd(late)).toBeCloseTo(3.5, 6)
+    expect(entranceAt({ kind: 'tilt-in' })).toBe(0)
+    expect(entranceAt({ kind: 'none', at: 2 } as never)).toBe(0)
+    expect(entranceAt({ kind: 'rise', at: 99 })).toBe(30)
+    expect(entranceAt({ kind: 'rise', at: -1 })).toBe(0)
+  })
+
+  it('holds the opening pose until it arrives, then moves', () => {
+    expect(entranceTiltKeyframes(late).map((k) => k.t)).toEqual([0, 2, 3.5])
+    expect(entranceTiltKeyframes(late)[1].value).toEqual(
+      entranceTiltKeyframes(late)[0].value,
+    )
+    const pull = entranceZoomKeyframes({ kind: 'pull-out', seconds: 1, at: 2 })
+    expect(pull.map((k) => k.t)).toEqual([0, 2, 3])
+    // Any other kind keeps the camera at rest until the card has arrived.
+    expect(entranceZoomKeyframes(late).map((k) => k.t)).toEqual([0, 3.5])
+  })
+
+  it('is gone until it arrives, and arrives from nothing', () => {
+    const pose = cardPoseTrack(late, undefined, 10)!
+    expect(pose.keyframes.map((k) => k.t)).toEqual([0, 2, 3.5])
+    expect(pose.keyframes[0].value[2]).toBe(0)
+    expect(pose.keyframes[1].value[2]).toBe(0)
+    expect(pose.keyframes[2].value).toEqual([1, 0, 1])
+  })
+
+  it('never begins its exit before it has arrived', () => {
+    const pose = cardPoseTrack(
+      { kind: 'rise', seconds: 1, at: 4 },
+      { kind: 'fade', seconds: 3 },
+      6,
+    )!
+    const exitStart = pose.keyframes.find(
+      (k, i) => i > 0 && k.t >= 5 && k.value[2] === 1,
+    )
+    expect(exitStart?.t).toBe(5)
+  })
+
+  it('pushes the cover past its arrival', () => {
+    const now = docStillTime(
+      doc({ frame: { ...doc().frame, anim: { enter: { kind: 'rise' } } } }),
+    )
+    const waited = docStillTime(
+      doc({
+        frame: { ...doc().frame, anim: { enter: { kind: 'rise', at: 3 } } },
+      }),
+    )
+    expect(waited).toBeCloseTo(now + 3, 6)
+  })
+
+  it('slides in when it arrives, not at the open', () => {
+    const d = doc({
+      frame: {
+        ...doc().frame,
+        anim: { enter: { kind: 'slide', seconds: 0.6, at: 2 } },
+      },
+    })
+    expect(docTransitions(d)[0].t).toBe(2)
+  })
+
+  it('a card that does not wait lowers byte-identically', () => {
+    const plain = { kind: 'tilt-in' as const, seconds: 1.5 }
+    const zero = { ...plain, at: 0 }
+    expect(entranceTiltKeyframes(zero)).toEqual(entranceTiltKeyframes(plain))
+    expect(entranceZoomKeyframes(zero)).toEqual(entranceZoomKeyframes(plain))
+    expect(cardPoseTrack(zero, undefined, 10)).toEqual(
+      cardPoseTrack(plain, undefined, 10),
+    )
   })
 })

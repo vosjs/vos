@@ -1201,3 +1201,52 @@ describe('pinned layers', () => {
     expect(w).toContain('pinned right')
   })
 })
+
+describe('a card that waits (frame.anim.enter.at)', () => {
+  const withEnter = (enter: unknown, exit?: unknown) =>
+    makeDoc({
+      frame: {
+        ...makeDoc().frame,
+        anim: { enter, ...(exit !== undefined ? { exit } : {}) },
+      } as ProjectDoc['frame'],
+    })
+  const about = (r: ReturnType<typeof lintDoc>) =>
+    r.problems.filter((p) => p.includes('.at'))
+
+  it("takes OUTPUT seconds on the card's enter", () => {
+    expect(about(lintDoc(withEnter({ kind: 'tilt-in', at: 2.5 })))).toEqual([])
+  })
+
+  it('refuses a time outside 0..30, in words', () => {
+    const [p] = about(lintDoc(withEnter({ kind: 'rise', at: 45 })))
+    expect(p).toContain('frame.anim.enter.at must be OUTPUT seconds in 0..30')
+  })
+
+  it('refuses it on an exit, and on a card with no entrance to delay', () => {
+    expect(
+      about(lintDoc(withEnter('rise', { kind: 'fade', at: 1 })))[0],
+    ).toContain("is the card's own")
+    expect(about(lintDoc(withEnter({ kind: 'none', at: 1 })))[0]).toContain(
+      'has nothing to delay',
+    )
+  })
+
+  it("refuses it on a clip's step: a clip starts at its own start", () => {
+    const r = lintDoc(
+      makeDoc({
+        overlays: [
+          {
+            id: 't0',
+            kind: 'text',
+            start: 1,
+            duration: 3,
+            text: 'Hello',
+            transform: { x: 0.5, y: 0.5, scale: 1, rotation: 0 },
+            anim: { enter: { kind: 'fade', at: 2 } },
+          },
+        ] as unknown as ProjectDoc['overlays'],
+      }),
+    )
+    expect(about(r)[0]).toContain("is the card's own")
+  })
+})

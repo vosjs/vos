@@ -97,7 +97,7 @@ export function docStillTime(doc: ProjectDoc): number {
     }
   }
   if (!(footage > 0)) return r3(clampOut(STILL_DEFAULT))
-  let hero = entranceSeconds(cardEnter(doc.frame))
+  let hero = entranceEnd(cardEnter(doc.frame))
   for (const clip of doc.overlays ?? []) {
     if (clip.start > OPENING_WINDOW) continue
     const step = enterOf(clip.anim)
@@ -193,7 +193,7 @@ export const END_CARD_FROM = 'endcard'
 const HOLD_SOURCE_SPAN = 0.002
 
 /** A step with a kind and optional seconds: the card's, or a legacy entrance. */
-type Step = { kind: string; seconds?: number } | null | undefined
+type Step = { kind: string; seconds?: number; at?: number } | null | undefined
 
 /** The card's enter step, from its `anim` (a migrated doc carries nothing else). */
 export function cardEnter(frame: Pick<FrameStyle, 'anim'>): AnimStep | null {
@@ -208,6 +208,22 @@ export function cardExit(frame: Pick<FrameStyle, 'anim'>): AnimStep | null {
 export function entranceSeconds(e: Step): number {
   if (!e || e.kind === 'none') return 0
   return Math.max(0.2, Math.min(3, e.seconds ?? ENTRANCE_SECONDS))
+}
+
+/**
+ * When the card's entrance BEGINS, output seconds: its `at`, clamped to
+ * 0..30. The ground plays alone until then. 0 for a card with no entrance,
+ * whose `at` would have nothing to delay.
+ */
+export function entranceAt(e: Step): number {
+  if (!entranceSeconds(e)) return 0
+  const at = e?.at
+  return typeof at === 'number' && at > 0 ? Math.min(30, at) : 0
+}
+
+/** When the card has finished entering, output seconds: `at` plus its length. */
+export function entranceEnd(e: Step): number {
+  return entranceAt(e) + entranceSeconds(e)
 }
 
 /** The exit's length: its own seconds, else the house length of its kind. */
@@ -333,9 +349,11 @@ export function withHolds(
 export function entranceTiltKeyframes(e: Step): Keyframe<number[]>[] {
   const s = entranceSeconds(e)
   if (!s || e?.kind !== 'tilt-in') return []
+  const a = entranceAt(e)
   return [
     { t: 0, value: [...TILT_IN_POSE], ease: 'none' },
-    { t: s, value: [0, 0], ease: 'power3.out' },
+    ...(a ? [{ t: a, value: [...TILT_IN_POSE], ease: 'none' as const }] : []),
+    { t: a + s, value: [0, 0], ease: 'power3.out' },
   ]
 }
 
@@ -349,14 +367,18 @@ export function entranceTiltKeyframes(e: Step): Keyframe<number[]>[] {
 export function entranceZoomKeyframes(e: Step): Keyframe<number[]>[] {
   const s = entranceSeconds(e)
   if (!s) return []
+  const a = entranceAt(e)
   if (e?.kind === 'pull-out')
     return [
       { t: 0, value: [PULL_OUT_LEVEL, 0.5, 0.42], ease: 'none' },
-      { t: s, value: [1, 0.5, 0.5], ease: 'power3.out' },
+      ...(a
+        ? [{ t: a, value: [PULL_OUT_LEVEL, 0.5, 0.42], ease: 'none' as const }]
+        : []),
+      { t: a + s, value: [1, 0.5, 0.5], ease: 'power3.out' },
     ]
   return [
     { t: 0, value: [1, 0.5, 0.5], ease: 'none' },
-    { t: s, value: [1, 0.5, 0.5], ease: 'none' },
+    { t: a + s, value: [1, 0.5, 0.5], ease: 'none' },
   ]
 }
 
@@ -401,12 +423,14 @@ export function cardPoseTrack(
 ): KeyframeTrack<number[]> | undefined {
   const keyframes: Keyframe<number[]>[] = []
   const s = entranceSeconds(enter)
+  const a = entranceAt(enter)
   if (s) {
     // The first frame is what a feed shows: the card is VISIBLE at t = 0
     // (the references open in perspective, never on nothing), so the pose
     // settles from a smaller, lower, softened card, not from a blank.
     // A slide moves the plane, not the pose (the transitions table carries
-    // it), so its track holds the rest.
+    // it), so its track holds the rest. A card that waits (`at`) is the
+    // exception: the ground opens alone, so the card arrives from nothing.
     const from =
       enter?.kind === 'rise'
         ? [0.96, 0.08, 0.7]
@@ -417,8 +441,10 @@ export function cardPoseTrack(
             ? [1, 0, 0]
             : [1, 0, 1]
           : [0.94, 0.05, 0.7]
+    if (a) from[2] = 0
     keyframes.push({ t: 0, value: from, ease: 'none' })
-    keyframes.push({ t: s, value: [1, 0, 1], ease: 'power3.out' })
+    if (a) keyframes.push({ t: a, value: [...from], ease: 'none' })
+    keyframes.push({ t: a + s, value: [1, 0, 1], ease: 'power3.out' })
   }
   // The exit plays over the last seconds of the card's clip and ends gone
   // at the clip's end (the footage, freezes included), the contract every
@@ -426,7 +452,7 @@ export function cardPoseTrack(
   const x = exitSeconds(exit)
   let last = [1, 0, 1]
   if (x > 0 && footageEnd > 0) {
-    const t0 = round3(Math.max(s, footageEnd - x))
+    const t0 = round3(Math.max(a + s, footageEnd - x))
     const t1 = round3(Math.max(t0 + 0.05, footageEnd))
     last = exitPose(exit)
     keyframes.push({ t: t0, value: [1, 0, 1], ease: 'none' })

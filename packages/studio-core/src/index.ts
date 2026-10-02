@@ -376,6 +376,8 @@ export {
   STILL_DEFAULT,
   endCardClips,
   entranceSeconds,
+  entranceAt,
+  entranceEnd,
   exitSeconds,
   expandEndCard,
   freezeOutputExtents,

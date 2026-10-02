@@ -95,6 +95,8 @@ function lintAnim(
     exit: readonly string[]
     idle: readonly string[] | null
     words: boolean
+    /** The card's own anim: its enter may wait (`at`). */
+    card?: boolean
   },
   problems: string[],
 ): void {
@@ -162,6 +164,25 @@ function lintAnim(
         (typeof obj.stagger !== 'number' || obj.stagger < 0 || obj.stagger > 2)
       )
         problems.push(`${name}.anim.${side}.stagger must be seconds in 0..2`)
+    }
+    if (obj.at !== undefined) {
+      if (!kinds.card || side !== 'enter')
+        problems.push(
+          `${name}.anim.${side}.at is the card's own: frame.anim.enter.at delays the card's entrance; a clip already starts at its own start`,
+        )
+      else if (
+        typeof obj.at !== 'number' ||
+        !Number.isFinite(obj.at) ||
+        obj.at < 0 ||
+        obj.at > 30
+      )
+        problems.push(
+          `${name}.anim.enter.at must be OUTPUT seconds in 0..30 (when the card arrives; the ground plays alone until then)`,
+        )
+      else if (kind === 'none')
+        problems.push(
+          `${name}.anim.enter.at has nothing to delay: the enter is "none", so the card is on screen from the first frame`,
+        )
     }
     if (obj.side !== undefined) {
       if (kind !== 'slide')
@@ -944,6 +965,7 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
           exit: CARD_EXIT_KINDS,
           idle: null,
           words: false,
+          card: true,
         },
         problems,
       )
