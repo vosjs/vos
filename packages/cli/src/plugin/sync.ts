@@ -25,7 +25,13 @@ import { basename, join } from 'node:path'
 import { lowerToComposition, migrateHostedDoc } from '@vosjs/studio-core'
 import { RECORDING_NAME, loadTake, takeMediaFile, writeJson } from './take'
 import { lintDoc } from './validateDoc'
-import { docMediaRefs, pullMedia, uploadDocRefs } from './media'
+import {
+  docMediaRefs,
+  isTakeRelativeKey,
+  pullMedia,
+  sourceSidecarRefs,
+  uploadDocRefs,
+} from './media'
 import { MEDIA_HEAD_BYTES, nameForType, resolveMediaType } from './container'
 import { listFolders, resolveFolder } from './folder'
 import { uploadAsset } from './uploadAsset'
@@ -365,19 +371,20 @@ export async function pushTake(
   //    pipeline so the hosted program is exactly what renders locally.
   const docForPush: ProjectDoc = structuredClone(take.doc)
   docForPush.source.videoKey = assetUrl
-  if (
-    docForPush.source.camKey &&
-    !/^(https?:)?\//.test(docForPush.source.camKey)
-  ) {
-    r.log('  cam track is local-only — dropped from the push')
-    delete docForPush.source.camKey
-  }
-  if (
-    docForPush.source.micKey &&
-    !/^(https?:)?\//.test(docForPush.source.micKey)
-  ) {
-    r.log('  mic track is local-only — dropped from the push')
-    delete docForPush.source.micKey
+  // The voice and the webcam ride the same content-addressed door as the
+  // recording. They used to be dropped here as "local-only", which made
+  // fetch-then-push lose them from the hosted take without a word a person
+  // would notice. A sidecar whose FILE is missing is the one case left to
+  // drop, and it is said.
+  await uploadDocRefs(sourceSidecarRefs(docForPush), dir, ctx, (l) => r.log(l))
+  for (const field of ['micKey', 'camKey'] as const) {
+    const key = docForPush.source[field]
+    if (key && isTakeRelativeKey(key)) {
+      r.log(
+        `  ${field === 'micKey' ? 'mic' : 'cam'} track ${key} is not beside the take — left out of the push`,
+      )
+      delete docForPush.source[field]
+    }
   }
   // The document's other media, keyed beside the recording (a poster's
   // mark in brand/, a pasted ground, an added score): each file rides the

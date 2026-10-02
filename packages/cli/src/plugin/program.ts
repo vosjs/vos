@@ -38,10 +38,15 @@ import {
 } from './platform'
 import { programPushTarget } from './sync'
 import { listFolders, resolveFolder } from './folder'
-import { docAudioRefs, pullMedia, uploadDocRefs } from './media'
+import { docAudioRefs, docLayerRefs, pullMedia, uploadDocRefs } from './media'
 import { lintDoc } from './validateDoc'
 import { landedLines, waitForLanded } from './landed'
-import type { AudioClip, ProjectDoc } from '@vosjs/studio-core'
+import type {
+  AudioClip,
+  ObjectClip,
+  OverlayClip,
+  ProjectDoc,
+} from '@vosjs/studio-core'
 import type { VersionChange } from './platform'
 import type { Reporter } from './output'
 
@@ -481,11 +486,14 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
   // A take's first push asks; a program's never does (it holds no
   // recording), so --yes is accepted and has nothing to answer.
   void flags.yes
-  // The sound the document adds, still local files: upload them first, so
-  // the stored config and the document both key hosted assets.
+  // The files the document's layers name, still local: its picture and
+  // video overlays, its 3D props and its sound. Upload them first, so the
+  // stored config and the document both key hosted assets. Only the sound
+  // used to go; a program with a logo overlay or a prop pushed a document
+  // that keyed files only the pusher's disk held.
   if (programDoc) {
     await uploadDocRefs(
-      docAudioRefs(soundOf(programDoc)),
+      docLayerRefs(layersOf(programDoc)),
       dir,
       { origin, key },
       (l) => r.log(l),
@@ -952,6 +960,21 @@ export function isTakeDir(target: string): boolean {
 /** A program document's added sound, typed (the document itself is read loosely). */
 function soundOf(doc: Record<string, unknown>): { audio?: AudioClip[] } {
   return { audio: Array.isArray(doc.audio) ? (doc.audio as AudioClip[]) : [] }
+}
+
+/** The shared layers of a program document, as the file walker reads them. */
+function layersOf(doc: Record<string, unknown>): {
+  overlays?: OverlayClip[]
+  objects?: ObjectClip[]
+  audio?: AudioClip[]
+} {
+  return {
+    ...soundOf(doc),
+    overlays: Array.isArray(doc.overlays)
+      ? (doc.overlays as OverlayClip[])
+      : [],
+    objects: Array.isArray(doc.objects) ? (doc.objects as ObjectClip[]) : [],
+  }
 }
 
 export function storedProgramConfig(

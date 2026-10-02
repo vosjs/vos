@@ -174,6 +174,7 @@ export const RULES_BODY = `## Product videos (vosso)
 - Look before you cut: vos frames take --at-zooms; edit take/doc.json and re-render, never re-record
 - Hand back: vos open take serves the take into the studio at vos.so, doc.json intact
 - Local by default: vos push only when asked for a link, the shelf or a cloud render
+- Deleting: vos delete moves a vos to Trash and vos restore brings it back; if you deleted by mistake, restore it and say so. Only the person can delete forever, at vos.so/app/trash
 - Credentials: VOS_API_KEY, then ~/.config/vos/credentials, then vos login; never print one
 - Reference: https://vos.so/llms-full.txt`
 

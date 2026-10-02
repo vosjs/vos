@@ -13,6 +13,7 @@ import { UsageError } from '../args'
 import type { Server } from 'node:http'
 
 let server: Server | undefined
+const clients: (string | string[] | undefined)[] = []
 
 function serve(seen: string[]): Promise<string> {
   server = createServer((req, res) => {
@@ -20,10 +21,16 @@ function serve(seen: string[]): Promise<string> {
     res.writeHead(req.url === '/api/vos/v-9' ? 200 : 404, {
       'content-type': 'application/json',
     })
+    if (req.method === 'DELETE') clients.push(req.headers['x-vos-client'])
     res.end(
       JSON.stringify(
         req.method === 'DELETE'
-          ? { ok: true }
+          ? {
+              success: true,
+              trashed: true,
+              restoreUntil: '2026-11-01T07:00:00.000Z',
+              restore: '/api/vos/v-9/restore',
+            }
           : { vos: { id: 'v-9', title: 'Motion reel' } },
       ),
     )
@@ -64,6 +71,25 @@ describe('vos delete', () => {
     expect(code).toBe(0)
     expect(seen).toContain('DELETE /api/vos/v-9')
     expect(existsSync(join(dir, 'vos.json'))).toBe(false)
+  })
+
+  it('says who is deleting, so Trash can name the tool', async () => {
+    clients.length = 0
+    const origin = await serve([])
+    await cmdDelete(['v-9', '--yes', '--origin', origin, ...KEY])
+    expect(String(clients[0])).toMatch(/vos-cli/)
+  })
+
+  it('--dry-run names what would move and moves nothing', async () => {
+    const seen: string[] = []
+    const origin = await serve(seen)
+    const dir = mkdtempSync(join(tmpdir(), 'vos-delete-'))
+    writeFileSync(join(dir, 'vos.json'), JSON.stringify({ vosId: 'v-9' }))
+    const code = await cmdDelete([dir, '--dry-run', '--origin', origin, ...KEY])
+    expect(code).toBe(0)
+    expect(seen.some((s) => s.startsWith('DELETE'))).toBe(false)
+    // The directory still tracks it: nothing happened.
+    expect(existsSync(join(dir, 'vos.json'))).toBe(true)
   })
 
   it('a directory that tracks nothing is a usage error', async () => {

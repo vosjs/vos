@@ -34,7 +34,12 @@ import {
 } from './container'
 import { uploadAsset } from './uploadAsset'
 import type { UploadTarget, UploadedAsset } from './uploadAsset'
-import type { AudioClip, ProjectDoc } from '@vosjs/studio-core'
+import type {
+  AudioClip,
+  ObjectClip,
+  OverlayClip,
+  ProjectDoc,
+} from '@vosjs/studio-core'
 
 /** The names the recorders write their sidecars under. */
 export const MIC_NAME = 'mic.webm'
@@ -74,10 +79,102 @@ export interface DocMediaRef {
 }
 
 /**
+ * A take's own sidecars, when they are local files: the voice (`micKey`)
+ * and the webcam (`camKey`). A push used to DROP them ("local-only"), while
+ * `vos fetch --media` writes them beside the take as `mic.webm` and
+ * `cam.webm`: fetch, then push, and the voice and the webcam were gone from
+ * the hosted take, in one log line nobody reads.
+ */
+export function sourceSidecarRefs(
+  doc: ProjectDoc,
+  keep: (key: string | undefined) => boolean = isTakeRelativeKey,
+): DocMediaRef[] {
+  const out: DocMediaRef[] = []
+  for (const [field, where] of [
+    ['micKey', 'mic track'],
+    ['camKey', 'cam track'],
+  ] as const) {
+    const key = doc.source[field]
+    if (!key || !keep(key)) continue
+    out.push({
+      where,
+      key,
+      set: (next) => {
+        doc.source[field] = next
+      },
+    })
+  }
+  return out
+}
+
+/** The 3D props a document places: each names a model file (a GLB). */
+export function docObjectRefs(
+  doc: { objects?: ObjectClip[] },
+  keep: (key: string | undefined) => boolean = isTakeRelativeKey,
+): DocMediaRef[] {
+  const out: DocMediaRef[] = []
+  for (const clip of doc.objects ?? []) {
+    const asset = clip.asset as { kind?: string; key?: string }
+    if (asset.kind !== 'gltf' || !keep(asset.key)) continue
+    out.push({
+      where: `object ${clip.id}`,
+      key: asset.key as string,
+      set: (next) => {
+        asset.key = next
+      },
+    })
+  }
+  return out
+}
+
+/** The picture and video layers a document places, by key. */
+export function docOverlayRefs(
+  doc: { overlays?: OverlayClip[] },
+  keep: (key: string | undefined) => boolean = isTakeRelativeKey,
+): DocMediaRef[] {
+  const out: DocMediaRef[] = []
+  for (const clip of doc.overlays ?? []) {
+    // An HTML layer has no key: its content IS its source, so there is no file
+    // to walk, rewrite or bring home.
+    if (!isKeyedOverlay(clip) || !keep(clip.key)) continue
+    out.push({
+      where: `overlay ${clip.id}`,
+      key: clip.key,
+      set: (next) => {
+        clip.key = next
+      },
+    })
+  }
+  return out
+}
+
+/**
+ * The shared layers either kind of document carries, as files: picture and
+ * video overlays, 3D props, and added sound. A program document has no
+ * recording, frame or end card, so this is all it can name; a take reads
+ * the same three through `docMediaRefs`.
+ */
+export function docLayerRefs(
+  doc: {
+    overlays?: OverlayClip[]
+    objects?: ObjectClip[]
+    audio?: AudioClip[]
+  },
+  keep: (key: string | undefined) => boolean = isTakeRelativeKey,
+): DocMediaRef[] {
+  return [
+    ...docOverlayRefs(doc, keep),
+    ...docObjectRefs(doc, keep),
+    ...docAudioRefs(doc, keep),
+  ]
+}
+
+/**
  * Every media key a document carries beside its recording, mic and cam:
- * image and video overlay clips (a poster's mark), the end card's mark, a
- * background image or loop. The recording's own keys are `KEYS` and
- * handled by their own path. A push rehosts these; a pull brings them home.
+ * image and video overlay clips (a poster's mark), 3D props, the end card's
+ * mark, a background image or loop, added sound. The recording's own keys
+ * are `KEYS` and handled by their own path. A push rehosts these; a pull
+ * brings them home.
  */
 export function docMediaRefs(
   doc: ProjectDoc,
@@ -114,18 +211,10 @@ export function docMediaRefs(
         },
       })
   }
-  for (const clip of doc.overlays ?? []) {
-    // An HTML layer has no key: its content IS its source, so there is no file
-    // to walk, rewrite or bring home.
-    if (!isKeyedOverlay(clip) || !keep(clip.key)) continue
-    out.push({
-      where: `overlay ${clip.id}`,
-      key: clip.key,
-      set: (next) => {
-        clip.key = next
-      },
-    })
-  }
+  out.push(...docOverlayRefs(doc, keep))
+  // A prop's model was never walked: a take with a GLB pushed a document
+  // whose object keyed a file only the pusher's disk held.
+  out.push(...docObjectRefs(doc, keep))
   const mark = doc.endCard?.mark
   if (mark && keep(mark.key))
     out.push({

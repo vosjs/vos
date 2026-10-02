@@ -132,3 +132,20 @@ describe('containerMismatch', () => {
     expect(containerMismatch('mark.svg', head('<svg'))).toBeNull()
   })
 })
+
+describe('a GLB is a file a document names', () => {
+  it('is known by its bytes and by its name', async () => {
+    const { resolveMediaType, extensionFor, nameForType } =
+      await import('../container')
+    const glb = new Uint8Array([0x67, 0x6c, 0x54, 0x46, 2, 0, 0, 0, 0, 0, 0, 0])
+    expect(resolveMediaType({ head: glb, filename: 'model.bin' })).toEqual({
+      type: 'model/gltf-binary',
+      from: 'bytes',
+    })
+    expect(resolveMediaType({ filename: 'chair.glb' }).type).toBe(
+      'model/gltf-binary',
+    )
+    expect(extensionFor('model/gltf-binary')).toBe('.glb')
+    expect(nameForType('chair.glb', 'model/gltf-binary')).toBe('chair.glb')
+  })
+})
