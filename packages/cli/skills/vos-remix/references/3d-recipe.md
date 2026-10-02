@@ -6,10 +6,13 @@ Reveal: https://vos.so/gallery?tag=3d) are built to take a model swap.
 ## Steps
 
 1. **Fetch** a 3d-tagged program: `vos fetch <its watch URL>`.
-2. **Point it at the model**, either way:
-   - Add or replace the async `setup` field to load a GLB by URL:
-     ```js
-     "setup": "async (ctx) => { const gltf = await new ctx.loaders.GLTFLoader().loadAsync('https://…/model.glb'); return { model: gltf.scene } }"
+2. **Give it the model**, either way:
+   - Put the `.glb` beside `config.json`, declare it, and read it by name
+     (the one rule for a program's own files; see the vos-authoring
+     skill's Declared Files):
+     ```json
+     "assets": { "product": { "ref": "./chair.glb", "kind": "model" } },
+     "setup": "async (ctx) => { const gltf = await new ctx.loaders.GLTFLoader().loadAsync(ctx.assets.product); return { model: gltf.scene } }"
      ```
      then replace the `buildProduct()` body — it is commented as **THE SWAP
      POINT** in these programs — with the loaded `setupData.model`,
@@ -17,12 +20,15 @@ Reveal: https://vos.so/gallery?tag=3d) are built to take a model swap.
      ship the normalization snippet; keep it so `scale` knobs stay
      model-independent).
    - Or keep the template's own product and only retune params.
-3. **The model URL must be CORS-clean and absolute `https`.** Assets
-   uploaded to vos.so (`POST /api/assets/upload`, browser-session auth,
-   `.glb`/`.gltf` ≤50MB) serve public+immutable with `ACAO: *` at
-   `/api/assets/{id}/file` — bake that absolute URL into the config so the
-   platform's preview render can fetch it. Any other host must send
-   `Access-Control-Allow-Origin` and be publicly reachable.
+3. **Never type the model's URL or path inside a function string.**
+   `vos render` and `vos preview` serve the declared file to the page;
+   `vos push` uploads it once and stores the program naming it
+   `asset:<id>`, which is what lets the platform's own render of a PRIVATE
+   program fetch it. A URL baked into `setup` plays on your machine and
+   then draws nothing there. A file is never readable by its address
+   alone: it is served to whoever can open a program that uses it. A
+   `.glb` only (a `.gltf` with files beside it is refused: export one
+   `.glb`), up to 50 MB.
 4. **Knob honesty on GLBs**: the template's material knobs (hue, finish) do
    nothing on a GLB's own materials — declare only params that act
    (backdrop, light mood, camera pace, and whatever you wire yourself).

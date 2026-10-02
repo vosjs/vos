@@ -907,7 +907,7 @@
           },
           "html": {
             "type": "string",
-            "description": "html kind: the layer's MARKUP, well-formed XML (foreignObject is XML, not HTML: <br />, &amp;, quoted attributes). A UI component authored as DOM, laid out and painted by the browser and composited over the footage sharp at any export size. Required for html. No script runs. An image it names by URL is inlined for you when the URL is on https://assets.vos.so/ (upload it with vos asset upload); any other host paints blank, so inline it as a data: URI. Faces are found from the CSS"
+            "description": "html kind: the layer's MARKUP, well-formed XML (foreignObject is XML, not HTML: <br />, &amp;, quoted attributes). A UI component authored as DOM, laid out and painted by the browser and composited over the footage sharp at any export size. Required for html. No script runs. An image it names by URL is inlined for you when the URL is on https://assets.vos.so/ (the platform's own catalogs); any other address paints blank, a file of your own on vos.so included, so inline it as a data: URI. Faces are found from the CSS"
           },
           "css": {
             "type": "string",
