@@ -278,7 +278,9 @@ export async function uploadDocRefs(
   for (const ref of refs) {
     const file = join(dir, takeRelativeFile(ref.key))
     if (!existsSync(file)) {
-      log(`  ${ref.where}: ${ref.key} is not beside the document — left as is`)
+      log(
+        `warning ${ref.where}: ${ref.key} is not beside the document, so it was not uploaded`,
+      )
       continue
     }
     const media = await readFile(file)

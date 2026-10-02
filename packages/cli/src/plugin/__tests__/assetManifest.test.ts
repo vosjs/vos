@@ -87,6 +87,8 @@ function serve(seen: Seen[]): Promise<string> {
         return send(201, {
           vos: { id: 'v-1', slug: 'reel', currentVersionId: 'ver-1' },
         })
+      if (url === '/api/claim/uploads' && req.method === 'POST')
+        return send(201, { uploadToken: 'vos_cu_test', expiresAt: 'later' })
       if (url === '/api/claim')
         return send(201, {
           claimUrl: 'https://vos.so/claim/t',
@@ -302,22 +304,74 @@ describe('vos push of a program that declares files', () => {
     expect(own.assets.logo.ref).toBe(`asset:${A}`)
   })
 
-  it('a claimable push is refused, in words, when the program declares local files', async () => {
+  it("a claimable push carries the manifest's local files through its session", async () => {
     const seen: Seen[] = []
     const origin = await serve(seen)
     const dir = programDir()
-    await expect(
-      cmdPushProgram([
-        join(dir, 'config.json'),
-        '--origin',
-        origin,
-        '--claimable',
-      ]),
-    ).rejects.toThrow(
-      /declares 2 local files \(assets\.logo, assets\.shots\[0\]\)\. Push with a key/,
+    const code = await cmdPushProgram([
+      join(dir, 'config.json'),
+      '--origin',
+      origin,
+      '--claimable',
+    ])
+    expect(code).toBe(0)
+    // The claim's own session opened, the two local files crossed its door,
+    // and the account door was never asked.
+    expect(seen.some((s) => s.url === '/api/claim/uploads')).toBe(true)
+    expect(
+      seen.filter(
+        (s) => s.url === '/api/claim/uploads/files' && s.method === 'POST',
+      ),
+    ).toHaveLength(2)
+    expect(seen.some((s) => s.url === '/api/assets/uploads')).toBe(false)
+    const claim = seen.find((s) => s.url === '/api/claim')
+    expect(claim?.body?.uploadToken).toBe('vos_cu_test')
+    const sent = claim?.body?.config as {
+      assets: Record<string, { ref: string | string[] }>
+    }
+    expect(sent.assets.logo.ref).toBe(`asset:${A}`)
+    expect((sent.assets.shots.ref as string[])[0]).toBe(`asset:${B}`)
+    // The file on disk keeps its paths.
+    const onDisk = JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8'))
+    expect(onDisk.assets.logo.ref).toBe('./logo.png')
+  })
+
+  it("lifts an element's file and a font's file into the manifest, and carries them", async () => {
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    const dir = programDir()
+    writeFileSync(join(dir, 'face.woff2'), Buffer.from('wOF2fake'))
+    writeFileSync(
+      join(dir, 'config.json'),
+      JSON.stringify({
+        ...CONFIG,
+        assets: {},
+        elements: [{ id: 'mark', type: 'image', src: 'logo.png' }],
+        fonts: [{ family: 'Mine', url: 'face.woff2', weight: 400 }],
+        createContent: CONFIG.createContent.replace(
+          'ctx.assets.shots.length',
+          '0',
+        ),
+      }),
     )
-    // Nothing was created and nothing was uploaded.
-    expect(seen).toEqual([])
+    const code = await cmdPushProgram([
+      join(dir, 'config.json'),
+      '--origin',
+      origin,
+      '--claimable',
+    ])
+    expect(code).toBe(0)
+    const claim = seen.find((s) => s.url === '/api/claim')
+    const sent = claim?.body?.config as {
+      assets: Record<string, { ref: string; kind?: string }>
+      elements: { src: string }[]
+      fonts: { url: string }[]
+    }
+    expect(sent.elements[0].src).toBe('$assets.logo')
+    expect(sent.fonts[0].url).toBe('$assets.face')
+    expect(sent.assets.logo.ref).toMatch(/^asset:/)
+    expect(sent.assets.face).toMatchObject({ kind: 'font' })
+    expect(sent.assets.face.ref).toMatch(/^asset:/)
   })
 
   it('a claimable push of hosted and URL files goes through', async () => {

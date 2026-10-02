@@ -79,6 +79,7 @@ function capture(): {
     r: {
       json: true,
       log: (m) => logs.push(m),
+      warn: (m) => events.push({ event: 'warning', message: m }),
       event: (o) => events.push(o),
       done: (o) => events.push({ event: 'done', ...o }),
     },

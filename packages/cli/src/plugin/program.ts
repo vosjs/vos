@@ -39,7 +39,8 @@ import {
 import { programPushTarget } from './sync'
 import { hostedAssetId, manifestRefs } from '../programAssets'
 import { listFolders, resolveFolder } from './folder'
-import { docAudioRefs, docLayerRefs, pullMedia, uploadDocRefs } from './media'
+import { docLayerRefs, pullMedia, uploadDocRefs } from './media'
+import { codeFileWarnings, liftNamedFiles, localDataRefs } from './programFiles'
 import {
   hostedLiteralWarnings,
   localManifestRefs,
@@ -56,6 +57,7 @@ import type {
 } from '@vosjs/studio-core'
 import type { VersionChange } from './platform'
 import type { Reporter } from './output'
+import type { UploadTarget } from './uploadAsset'
 
 const BOOLEAN_FLAGS = new Set([
   'json',
@@ -451,14 +453,15 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
   }
   // A program document beside the config: the shared layers, the tween
   // overlay, the anchor's own length. Lint-gated like a take's doc.
-  for (const w of hostedLiteralWarnings(config)) r.log(`warning ${w}`)
+  for (const w of hostedLiteralWarnings(config)) r.warn(w)
+  for (const w of codeFileWarnings(config, dir)) r.warn(w)
   const programDoc = await readProgramDoc(dir, config)
   if (programDoc) {
     const lint = lintDoc(programDoc as never)
     if (lint.problems.length) {
       throw new Error(`doc.json fails lint:\n  ${lint.problems.join('\n  ')}`)
     }
-    for (const w of lint.warnings) r.log(`warning doc.json: ${w}`)
+    for (const w of lint.warnings) r.warn(`doc.json: ${w}`)
   }
 
   // --claimable: the credential-free rung. Creates a NEW claimable vos (72h
@@ -476,45 +479,50 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
       : basename(source).replace(/\.json$/i, '') || 'vos program'
     const title = (strFlag(flags, 'title') ?? fallback).slice(0, 100)
     // The COMPOSED config, like every other push, so the document's layers
-    // ride the claim. A claim carries no files, so a sound that is still a
-    // local file cannot come along: it is left out, and said.
-    let claimDoc = programDoc
-    if (programDoc) {
-      const sound = soundOf(programDoc)
-      const local = docAudioRefs(sound)
-      if (local.length) {
-        const dropped = new Set(local.map((ref) => ref.key))
-        claimDoc = {
-          ...programDoc,
-          audio: (sound.audio ?? []).filter((a) => !dropped.has(a.key)),
-        }
-        r.log(
-          `warning a claimable push carries no files, so ${local.length} local sound${local.length === 1 ? '' : 's'} (${[...dropped].join(', ')}) ${local.length === 1 ? 'was' : 'were'} left out. After the claim, push again with a key to add ${local.length === 1 ? 'it' : 'them'}`,
-        )
+    // ride the claim, and every file the program names rides with it: the
+    // claim's own upload session carries them through the same door a key
+    // uses, under the claim's caps (12 files, 50 MB). The session token is
+    // the bearer and the claim spends it.
+    const files = await collectFiles(config, programDoc, dir, r)
+    let uploadToken: string | undefined
+    if (files.count > 0) {
+      const opened = await apiJson(origin, '/api/claim/uploads', {
+        method: 'POST',
+      })
+      if (opened.status !== 201) {
+        throw new Error(apiError('open a claim upload session', opened))
       }
-    }
-    // A sound can be left out; a file the program reads cannot. Without it
-    // the claim link would show a program that fails to draw.
-    const stay = localManifestRefs(config)
-    if (stay.length) {
-      throw new UsageError(
-        `a claimable push carries no files, and this program declares ${stay.length} local file${stay.length === 1 ? '' : 's'} (${stay.join(', ')}). Push with a key instead (vos login, then vos push ${source}), which uploads ${stay.length === 1 ? 'it' : 'them'}`,
+      uploadToken = String(opened.body.uploadToken)
+      r.log(
+        `uploading ${files.count} file${files.count === 1 ? '' : 's'} with the claim`,
       )
+      await files.upload({
+        origin,
+        key: uploadToken,
+        door: '/api/claim/uploads/files',
+      })
     }
     const body: Record<string, unknown> = {
       title,
-      config: storedProgramConfig(config, claimDoc),
+      config: storedProgramConfig(config, programDoc),
     }
+    if (uploadToken) body.uploadToken = uploadToken
     const slug = strFlag(flags, 'slug')
     if (slug) body.slug = slug
     const res = await apiJson(origin, '/api/claim', { method: 'POST', body })
     if (res.status !== 201) throw new Error(apiError('claimable push', res))
-    serverWarnings(res.body, (l) => r.log(l))
+    serverWarnings(res.body, say(r))
     const claimUrl = String(res.body.claimUrl ?? '')
     const expiresAt = String(res.body.expiresAt ?? '')
     const created = (res.body.vos ?? {}) as Record<string, unknown>
     r.done(
-      { id: created.id ?? null, title, claimUrl, expiresAt },
+      {
+        id: created.id ?? null,
+        title,
+        claimUrl,
+        expiresAt,
+        ...(uploadToken ? { files: files.count } : {}),
+      },
       `Claimable push created (${title})\n` +
         `  claim:   ${claimUrl}\n` +
         `  expires: ${expiresAt} — unclaimed work is deleted after 72h\n` +
@@ -529,24 +537,13 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
   // A take's first push asks; a program's never does (it holds no
   // recording), so --yes is accepted and has nothing to answer.
   void flags.yes
-  // The files the document's layers name, still local: its picture and
-  // video overlays, its 3D props and its sound. Upload them first, so the
-  // stored config and the document both key hosted assets. Only the sound
-  // used to go; a program with a logo overlay or a prop pushed a document
-  // that keyed files only the pusher's disk held.
-  if (programDoc) {
-    await uploadDocRefs(
-      docLayerRefs(layersOf(programDoc)),
-      dir,
-      { origin, key },
-      (l) => r.log(l),
-    )
-  }
-  // The files the program itself declares (config.assets): uploaded the
-  // same way, and named on the platform as asset:<id>. The config object is
-  // the one the document carries, so both leave with the hosted refs; the
-  // file on disk keeps its paths.
-  await uploadManifest(config, dir, { origin, key }, (l) => r.log(l))
+  // Every file the program names, still local: the document's layers
+  // (picture and video overlays, 3D props, sound), the manifest, and what
+  // elements, fonts and data name, lifted or rewritten so one upload
+  // carries them. The config object and the document leave with hosted
+  // refs; the files on disk keep their paths.
+  const files = await collectFiles(config, programDoc, dir, r)
+  await files.upload({ origin, key })
   // Accept both the repeatable --override id and the legacy --overrides id,id.
   // multi's index access is typed present but runtime-optional — hence the cast.
   const overrides = [
@@ -635,7 +632,7 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
     }
     if (res.status !== 201)
       throw new Error(apiError(`push version to ${vosId}`, res))
-    serverWarnings(res.body, (l) => r.log(l))
+    serverWarnings(res.body, say(r))
     const version = (res.body.version ?? {}) as Record<string, unknown>
     // Track what we just made: the new version is the next push's base.
     if (typeof version.id === 'string') {
@@ -650,7 +647,7 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
             key,
             vosId,
             versionId: typeof version.id === 'string' ? version.id : null,
-            log: (l) => r.log(l),
+            log: say(r),
           })
         : null
     r.done(
@@ -729,7 +726,7 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
           key,
           vosId: created.id,
           versionId: created.currentVersionId,
-          log: (l) => r.log(l),
+          log: say(r),
         })
       : null
   r.done(
@@ -1005,6 +1002,42 @@ export function isTakeDir(target: string): boolean {
  * already write `config.json` from the document's own config, so the round
  * trip is unchanged.
  */
+/** A reporter's log, with the lines that are warnings sent as warnings. */
+function say(r: Reporter): (line: string) => void {
+  return (line) => {
+    const m = /^\s*warning\s+(.*)$/s.exec(line)
+    if (m) r.warn(m[1])
+    else r.log(line)
+  }
+}
+
+/**
+ * Every local file a program names, ready to upload through one target:
+ * the document's layers, the manifest (with what elements and fonts name
+ * lifted into it), and the paths in `data`. `count` is how many files
+ * will cross; `upload` sends them and rewrites the refs in place.
+ */
+async function collectFiles(
+  config: Record<string, unknown>,
+  programDoc: Record<string, unknown> | null,
+  dir: string,
+  r: Reporter,
+): Promise<{ count: number; upload: (target: UploadTarget) => Promise<void> }> {
+  for (const line of liftNamedFiles(config, dir)) r.log(`  ${line}`)
+  const docRefs = programDoc ? docLayerRefs(layersOf(programDoc)) : []
+  const dataRefs = localDataRefs(config, dir)
+  const count =
+    docRefs.length + localManifestRefs(config).length + dataRefs.length
+  return {
+    count,
+    upload: async (target) => {
+      await uploadDocRefs(docRefs, dir, target, say(r))
+      await uploadManifest(config, dir, target, say(r))
+      await uploadDocRefs(dataRefs, dir, target, say(r))
+    },
+  }
+}
+
 /** A program document's added sound, typed (the document itself is read loosely). */
 function soundOf(doc: Record<string, unknown>): { audio?: AudioClip[] } {
   return { audio: Array.isArray(doc.audio) ? (doc.audio as AudioClip[]) : [] }
