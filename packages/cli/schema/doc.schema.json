@@ -116,6 +116,16 @@
                 "enum": ["manual", "auto"],
                 "description": "'auto' = camera follows the cursor through the span (needs a cursor track); absent/'manual' = fixed cx/cy"
               },
+              "screen": {
+                "type": "object",
+                "required": ["x", "y"],
+                "additionalProperties": false,
+                "properties": {
+                  "x": { "type": "number", "minimum": 0, "maximum": 1 },
+                  "y": { "type": "number", "minimum": 0, "maximum": 1 }
+                },
+                "description": "where the target lands ON SCREEN at the apex, as FRACTIONS of the frame (0.35, 0.5 = a third of the way across, centred), under the stage camera (frame.camera: 'stage'). Absent = the centre. A placed span is the author's composition, ground beside the card included, so the stage camera's cover band does not clamp it. Ignored on a span that follows the cursor (focusMode 'auto')"
+              },
               "source": {
                 "enum": ["auto", "manual"],
                 "description": "'auto' = planner suggestion, replaced by re-plan; 'manual' = user/agent work, always preserved"

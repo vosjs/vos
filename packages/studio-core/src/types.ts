@@ -484,6 +484,16 @@ export interface ZoomSpan {
    */
   focusMode?: 'manual' | 'auto'
   /**
+   * Where the target lands ON SCREEN at the apex, as fractions of the frame
+   * (0.35, 0.5 = a third of the way across, centred vertically), under the
+   * stage camera. Absent = the centre. A placed span is a composition the
+   * author chose (ground beside the card included), so the stage camera's
+   * cover band does not clamp it. A span that follows the cursor
+   * (`focusMode: 'auto'`) ignores it, and the magnifier camera has no use
+   * for it (its focus never moves on screen).
+   */
+  screen?: { x: number; y: number }
+  /**
    * 'auto' = planner suggestion — regenerate replaces these freely, never
    * 'manual' ones. Any edit gesture promotes the span to 'manual' (OpenScreen's
    * contract: suggestions are disposable, user work is sacred).

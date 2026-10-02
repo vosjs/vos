@@ -271,7 +271,16 @@ export function focusBounds(
   level: number,
   layout: CardLayout,
   camera: CameraModel = 'card',
+  /**
+   * The span's place on SCREEN (stage camera only). A placed target is a
+   * composition the author chose, ground beside it included, so the cover
+   * band does not apply: only the video's own edges bound the focus.
+   */
+  screen?: ZoomScreen,
 ): FocusBounds {
+  if (camera === 'stage' && screen && level > 1.001) {
+    return { minX: 0, maxX: 1, minY: 0, maxY: 1 }
+  }
   if (level <= 1.001) {
     // Identity transform — focus is irrelevant; pin to center like OpenScreen
     // (margin = min(0.5, ratio/2L) also collapses to [0.5, 0.5] at L = 1).
@@ -378,8 +387,9 @@ export function clampFocus(
   level: number,
   layout: CardLayout,
   camera: CameraModel = 'card',
+  screen?: ZoomScreen,
 ): { cx: number; cy: number } {
-  const b = focusBounds(level, layout, camera)
+  const b = focusBounds(level, layout, camera, screen)
   return {
     cx: Math.min(b.maxX, Math.max(b.minX, cx)),
     cy: Math.min(b.maxY, Math.max(b.minY, cy)),
@@ -388,6 +398,28 @@ export function clampFocus(
 
 function clamp01(v: number): number {
   return Math.max(0, Math.min(1, v))
+}
+
+/**
+ * Where a zoom's target lands ON SCREEN under the stage camera, as
+ * fractions of the frame (absent = the centre, 0.5/0.5). The camera solves
+ * for this point instead of the centre; the magnifier ignores it (its
+ * focus stays where it is on screen by construction).
+ */
+export interface ZoomScreen {
+  x: number
+  y: number
+}
+
+/** The screen point in canvas px a stage camera lands its focus on. */
+function screenPoint(
+  layout: CardLayout,
+  camera: CameraModel,
+  screen?: ZoomScreen,
+): { ox: number; oy: number } {
+  return camera === 'stage' && screen
+    ? { ox: screen.x * layout.W, oy: screen.y * layout.H }
+    : { ox: layout.W / 2, oy: layout.H / 2 }
 }
 
 /**
@@ -461,12 +493,15 @@ export function zoomView(
    * stored focus describes; always 0 under the magnifier.
    */
   centring?: number,
+  /** The span's place on screen (stage camera); absent = the centre. */
+  screen?: ZoomScreen,
 ): ZoomView {
   const L = Math.max(1, level)
   const fx = layout.dx + cx * layout.dw
   const fy = layout.dy + cy * layout.dh
-  const ox = layout.W / 2
-  const oy = layout.H / 2
+  // The point the focus lands on at an apex. At rest the pull fades and the
+  // transform is a scale about the focus whatever `o` is (it cancels).
+  const { ox, oy } = screenPoint(layout, camera, screen)
   const t = camera === 'stage' ? clamp01(centring ?? 1) : 0
   const wcx = fx + ((ox - fx) / L) * (1 - t)
   const wcy = fy + ((oy - fy) / L) * (1 - t)
@@ -487,12 +522,17 @@ export function zoomViewport(
   layout: CardLayout,
   camera: CameraModel = 'card',
   centring?: number,
+  screen?: ZoomScreen,
 ): { x: number; y: number; w: number; h: number } {
-  const v = zoomView(level, cx, cy, layout, camera, centring)
+  const v = zoomView(level, cx, cy, layout, camera, centring, screen)
   const size = 1 / v.level
+  // The content point at the frame's centre: wc, offset by how far the
+  // screen point sits from the centre (zero for a centred camera).
+  const mx = v.wcx + (layout.W / 2 - v.ox) / v.level
+  const my = v.wcy + (layout.H / 2 - v.oy) / v.level
   return {
-    x: (v.wcx - layout.W / (2 * v.level)) / layout.W,
-    y: (v.wcy - layout.H / (2 * v.level)) / layout.H,
+    x: (mx - layout.W / (2 * v.level)) / layout.W,
+    y: (my - layout.H / (2 * v.level)) / layout.H,
     w: size,
     h: size,
   }
@@ -511,13 +551,17 @@ export function focusForViewportCentre(
   layout: CardLayout,
   camera: CameraModel = 'card',
   centring?: number,
+  screen?: ZoomScreen,
 ): { cx: number; cy: number } {
   const L = Math.max(1, level)
   const t = camera === 'stage' ? clamp01(centring ?? 1) : 0
   const a = 1 - (1 - t) / L
   if (a <= 1e-6) return { cx: 0.5, cy: 0.5 }
-  const fx = (cX * layout.W - ((layout.W / 2) * (1 - t)) / L) / a
-  const fy = (cY * layout.H - ((layout.H / 2) * (1 - t)) / L) / a
+  // Solve the window centre `wc + (C − o)/L` for the focus, with
+  // `wc = f + (o − f)(1 − t)/L`; o = C gives the centred camera's inverse.
+  const { ox, oy } = screenPoint(layout, camera, screen)
+  const fx = (cX * layout.W - (ox * (1 - t)) / L - (layout.W / 2 - ox) / L) / a
+  const fy = (cY * layout.H - (oy * (1 - t)) / L - (layout.H / 2 - oy) / L) / a
   return { cx: (fx - layout.dx) / layout.dw, cy: (fy - layout.dy) / layout.dh }
 }
 
