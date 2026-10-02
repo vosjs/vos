@@ -1,5 +1,11 @@
 # @vosjs/studio-core
 
+## 0.35.1
+
+### Patch Changes
+
+- 3000d61: Admits `@vosjs/core` 0.27 as a peer. Nothing studio-core consumes changed in that release.
+
 ## 0.35.0
 
 ### Minor Changes
