@@ -95,6 +95,72 @@ describe('runCheck', () => {
     expect(r.config).toHaveProperty('presets')
   })
 
+  it('passes a file knob over a declared file the program reads', () => {
+    const r = runCheck({
+      ...VALID,
+      assets: {
+        logo: {
+          ref: 'https://assets.vos.so/doors/record.webp',
+          kind: 'image',
+        },
+      },
+      elements: [{ type: 'image', id: 'mark', props: { src: '$assets.logo' } }],
+      params: [{ key: 'logo', label: 'Logo', kind: 'asset' }],
+    })
+    expect(r.ok).toBe(true)
+    expect(
+      r.issues.filter((i) => /params\[0\]|knob/.test(i.message)),
+    ).toHaveLength(0)
+  })
+
+  it('warns on a file knob that names no kind of file', () => {
+    const r = runCheck({
+      ...VALID,
+      assets: { logo: { ref: 'https://assets.vos.so/doors/record.webp' } },
+      elements: [{ type: 'image', id: 'mark', props: { src: '$assets.logo' } }],
+      params: [{ key: 'logo', label: 'Logo', kind: 'asset' }],
+    })
+    expect(r.ok).toBe(true)
+    expect(
+      r.issues.some(
+        (i) =>
+          i.level === 'warn' &&
+          /does not say what kind of file it takes/.test(i.message),
+      ),
+    ).toBe(true)
+  })
+
+  it('warns on a file knob that names no declared file', () => {
+    const r = runCheck({
+      ...VALID,
+      params: [{ key: 'logo', label: 'Logo', kind: 'asset' }],
+    })
+    expect(r.ok).toBe(true)
+    expect(
+      r.issues.some(
+        (i) =>
+          i.level === 'warn' &&
+          /is a file knob, but "assets" declares no "logo"/.test(i.message),
+      ),
+    ).toBe(true)
+  })
+
+  it('warns on a file knob over a file nothing reads', () => {
+    const r = runCheck({
+      ...VALID,
+      assets: { logo: { ref: 'https://assets.vos.so/doors/record.webp' } },
+      params: [{ key: 'logo', label: 'Logo', kind: 'asset' }],
+    })
+    expect(r.ok).toBe(true)
+    expect(
+      r.issues.some(
+        (i) =>
+          i.level === 'warn' &&
+          /swaps a file the program never reads/.test(i.message),
+      ),
+    ).toBe(true)
+  })
+
   it('warns on unknown top-level keys the platform would drop', () => {
     const r = runCheck({ ...VALID, myExtra: true })
     expect(r.ok).toBe(true)

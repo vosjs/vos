@@ -19,6 +19,7 @@ import {
   lintVosPostprocessing,
 } from '@vosjs/core/lint'
 import { STUDIO_ENTRY_ID } from '@vosjs/studio-core'
+import { assetParamIssues } from '@vosjs/shared/params'
 import { knobWarnings } from './plugin/knobs'
 
 export interface CheckIssue {
@@ -150,6 +151,11 @@ export function runCheck(parsed: unknown): CheckResult {
 
   // Knobs and Looks vos.so would drop (the push still saves, without them).
   for (const message of knobWarnings(migrated as Record<string, unknown>)) {
+    issues.push({ level: 'warn', source: 'shape', message })
+  }
+  // A file knob that names no declared file, or one nothing reads, is a
+  // knob that does nothing: said here, because nothing later will say it.
+  for (const message of assetParamIssues(migrated as Record<string, unknown>)) {
     issues.push({ level: 'warn', source: 'shape', message })
   }
 

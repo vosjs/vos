@@ -9,7 +9,15 @@
 export const MAX_PARAMS = 12
 export const MAX_LOOKS = 8
 
-const KINDS = new Set(['number', 'color', 'select', 'toggle', 'text', 'font'])
+const KINDS = new Set([
+  'number',
+  'color',
+  'select',
+  'toggle',
+  'text',
+  'font',
+  'asset',
+])
 
 const str = (v: unknown, max: number, min = 0) =>
   typeof v === 'string' && v.length >= min && v.length <= max
@@ -35,6 +43,14 @@ export function knobProblem(p: unknown): string | null {
     if (k.options.some((o) => !str(o, 40, 1)))
       return 'options: each 1 to 40 characters'
   }
+  if (k.accept !== undefined) {
+    const accept = Array.isArray(k.accept) ? k.accept : [k.accept]
+    if (accept.length > 6 || accept.some((a) => !str(a, 16, 1)))
+      return 'accept: at most 6 kinds of file, each 1 to 16 characters'
+  }
+  // A file knob's value is the declared file's ref in "assets": it carries
+  // no default of its own.
+  if (k.kind === 'asset' && k.default === undefined) return null
   const d = k.default
   if (
     !(
