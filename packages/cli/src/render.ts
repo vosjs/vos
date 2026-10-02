@@ -3,7 +3,7 @@ import { generateRenderTemplate } from '@vosjs/core/runtime'
 import { elementsBundleCode } from '@vosjs/elements/bundle'
 import { tweenRuntimeCode } from '@vosjs/tween/bundle'
 import type { Browser, Page } from 'playwright'
-import { ASSET_ROUTE } from './programAssets'
+import { ASSET_ROUTE, serveFile } from './programAssets'
 import type { ProgramAssets } from './programAssets'
 
 /** Fake secure origin the render page is served from (WebCodecs needs one). */
@@ -165,11 +165,14 @@ async function runCapturePage(
     // page route on purpose: the newest matching route answers first.
     const files = opts.files ?? {}
     if (Object.keys(files).length > 0) {
-      await page.route(`${RENDER_ORIGIN}${ASSET_ROUTE}**`, (route) => {
-        const file = files[new URL(route.request().url()).pathname]
-        return file
-          ? route.fulfill({ status: 200, path: file })
-          : route.fulfill({ status: 404, body: 'no such declared file' })
+      await page.route(`${RENDER_ORIGIN}${ASSET_ROUTE}**`, async (route) => {
+        const request = route.request()
+        const file = files[new URL(request.url()).pathname]
+        if (!file) {
+          return route.fulfill({ status: 404, body: 'no such declared file' })
+        }
+        const answer = serveFile(file, await request.headerValue('range'))
+        return route.fulfill(answer)
       })
     }
     await page.goto(`${RENDER_ORIGIN}/render`, {

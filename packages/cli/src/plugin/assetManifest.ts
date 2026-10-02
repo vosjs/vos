@@ -9,9 +9,15 @@
  * never collected. A push is the crossing one way, `vos fetch --media` the
  * other; neither rewrites the other side's spelling in place.
  */
-import { existsSync, readdirSync } from 'node:fs'
-import { isAbsolute, join, relative, resolve } from 'node:path'
-import { hostedAssetId, manifestRefs } from '../programAssets'
+import {
+  existsSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { extname, join, relative } from 'node:path'
+import { hostedAssetId, localFile, manifestRefs } from '../programAssets'
 import { downloadMedia, uploadDocRefs } from './media'
 import type { DocMediaRef } from './media'
 import type { UploadTarget } from './uploadAsset'
@@ -19,6 +25,30 @@ import type { UploadTarget } from './uploadAsset'
 type Manifest = Record<string, { ref: string | string[] }>
 
 const isUrl = (ref: string) => /^(https?:|data:|blob:)/.test(ref)
+
+/** The origins whose `/api/assets/<id>/file` is a hosted file of ours. */
+const homeOrigins = (origin: string) => [
+  origin,
+  'https://vos.so',
+  'https://www.vos.so',
+]
+
+/**
+ * Kinds a push cannot carry yet: the upload door takes pictures, video,
+ * sound and a GLB. Said before anything is sent, with what to do instead.
+ */
+const NOT_UPLOADABLE: Record<string, string> = {
+  '.woff2': 'a font',
+  '.woff': 'a font',
+  '.ttf': 'a font',
+  '.otf': 'a font',
+  '.hdr': 'an HDR',
+  '.exr': 'an EXR',
+  '.gltf': 'a .gltf (export it as one .glb)',
+}
+
+/** `assets/.hosted.json`: which hosted file each file brought home is. */
+const HOME_INDEX = '.hosted.json'
 
 /** A deep copy of the manifest, so a caller's rewrite never reaches disk. */
 function cloneManifest(config: Record<string, unknown>): Manifest {
@@ -57,19 +87,30 @@ export async function uploadManifest(
   const manifest = cloneManifest(config)
   const local: DocMediaRef[] = []
   for (const { name, index, ref } of refs) {
-    const hosted = hostedAssetId(ref)
+    const hosted = hostedAssetId(ref, homeOrigins(target.origin))
     if (hosted) {
       setRef(manifest, name, index, `asset:${hosted}`)
       continue
     }
     if (isUrl(ref)) continue
-    const file = isAbsolute(ref) ? ref : resolve(dir, ref)
+    const kind = NOT_UPLOADABLE[extname(ref).toLowerCase()]
+    if (kind) {
+      throw new Error(
+        `${where(name, index)} names ${ref}: a push cannot upload ${kind} yet (pictures, video, sound and .glb models go). Host it at a URL and name the URL; the font and HDR catalogs are on assets.vos.so (GET /api/fonts)`,
+      )
+    }
+    // A push uploads what the manifest names, so it holds the same line a
+    // render does: only a file inside the program's own directory.
+    const found = localFile(ref, dir)
+    if ('refused' in found) {
+      throw new Error(`${where(name, index)} names ${ref}, ${found.refused}`)
+    }
     local.push({
       where: where(name, index),
       // The upload helper reads keys against the directory.
-      key: relative(dir, file),
+      key: relative(realpathSync(dir), found.file),
       set: (url) => {
-        const id = hostedAssetId(url)
+        const id = hostedAssetId(url, homeOrigins(target.origin))
         setRef(manifest, name, index, id ? `asset:${id}` : url)
       },
     })
@@ -82,14 +123,21 @@ export async function uploadManifest(
 /** The manifest entries that are still files on this machine. */
 export function localManifestRefs(config: Record<string, unknown>): string[] {
   return manifestRefs(config)
-    .filter(({ ref }) => !isUrl(ref) && !hostedAssetId(ref))
+    .filter(({ ref }) => !isUrl(ref) && !hostedAssetId(ref, homeOrigins('')))
     .map(({ name, index }) => where(name, index))
 }
 
 /**
  * Bring a fetched program's hosted files home: each `asset:<id>` lands as
  * `assets/<name>.<ext>` beside the config (the bytes choose the extension)
- * and its entry is re-pointed at that file. A file already there is kept.
+ * and its entry is re-pointed at that file.
+ *
+ * A file already there is kept only when it IS that hosted file
+ * (`assets/.hosted.json` remembers which id each one came from). Kept by
+ * name alone, a second fetch after someone changed `logo` left the old
+ * picture under the new manifest, and the next push stored the old one
+ * again without a word.
+ *
  * Returns the rewritten manifest, or null when nothing in it is hosted.
  */
 export async function pullManifest(
@@ -98,38 +146,61 @@ export async function pullManifest(
   config: Record<string, unknown>,
   log: (line: string) => void,
 ): Promise<{ assets: Manifest; files: string[] } | null> {
-  const hosted = manifestRefs(config).filter(({ ref }) => hostedAssetId(ref))
+  const home = homeOrigins(ctx.origin)
+  const hosted = manifestRefs(config).filter(({ ref }) =>
+    hostedAssetId(ref, home),
+  )
   if (hosted.length === 0) return null
   const manifest = cloneManifest(config)
+  const indexPath = join(dir, 'assets', HOME_INDEX)
+  let index: Record<string, string> = {}
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(indexPath, 'utf8'))
+    if (parsed && typeof parsed === 'object') {
+      index = parsed as Record<string, string>
+    }
+  } catch {
+    // no index yet: nothing here is known to be a hosted file
+  }
   const files: string[] = []
-  for (const { name, index, ref } of hosted) {
-    const id = hostedAssetId(ref)!
-    const stem = index === null ? name : `${name}-${index}`
-    const present = existsSync(join(dir, 'assets'))
-      ? readdirSync(join(dir, 'assets')).find(
-          (f) => f === stem || f.startsWith(`${stem}.`),
-        )
-      : undefined
+  for (const { name, index: at, ref } of hosted) {
+    const id = hostedAssetId(ref, home)!
+    const stem = at === null ? name : `${name}-${at}`
+    const known = Object.keys(index).find(
+      (f) => f === stem || f.startsWith(`${stem}.`),
+    )
     let file: string
-    if (present) {
-      file = `assets/${present}`
+    if (
+      known &&
+      index[known] === id &&
+      existsSync(join(dir, 'assets', known))
+    ) {
+      file = `assets/${known}`
     } else {
+      // A different hosted file under this name: the old copy goes first,
+      // or a changed extension would leave both lying side by side.
+      if (known) {
+        rmSync(join(dir, 'assets', known), { force: true })
+        delete index[known]
+      }
       const got = await downloadMedia(ctx, `/api/assets/${id}/file`, {
         dir,
         subdir: 'assets',
         stem,
         fallbackExt: '',
-        describe: `${where(name, index)} (asset ${id})`,
+        describe: `${where(name, at)} (asset ${id})`,
         notFoundHint: 'a private file needs a content key of its owner',
       })
       file = got.file
+      index[file.slice('assets/'.length)] = id
       log(
-        `  ${file} ← ${where(name, index)}, asset ${id} (${Math.round(got.bytes / 1024)} kB)`,
+        `  ${file} ← ${where(name, at)}, asset ${id} (${Math.round(got.bytes / 1024)} kB)`,
       )
     }
     files.push(file)
-    setRef(manifest, name, index, `./${file}`)
+    setRef(manifest, name, at, `./${file}`)
   }
+  writeFileSync(indexPath, JSON.stringify(index, null, 2) + '\n')
   return { assets: manifest, files }
 }
 

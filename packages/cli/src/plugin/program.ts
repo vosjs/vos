@@ -247,7 +247,7 @@ export async function cmdFetch(argv: string[]): Promise<number> {
       unknown
     >
     const hostedCount = manifestRefs(written).filter(({ ref }) =>
-      hostedAssetId(ref),
+      hostedAssetId(ref, [origin, 'https://vos.so', 'https://www.vos.so']),
     ).length
     if (hostedCount && flags.media === true) {
       const pulled = await pullManifest({ origin, key }, out, written, r.log)
