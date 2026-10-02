@@ -134,8 +134,22 @@ export function docOverlayRefs(
 ): DocMediaRef[] {
   const out: DocMediaRef[] = []
   for (const clip of doc.overlays ?? []) {
-    // An HTML layer has no key: its content IS its source, so there is no file
-    // to walk, rewrite or bring home.
+    // An HTML layer has no key: its content IS its source. Its only files are
+    // the faces it brings (`fonts`), each a url the page fetches, so a face
+    // still beside the document crosses like any other layer file.
+    if (clip.kind === 'html') {
+      for (const [i, font] of (clip.fonts ?? []).entries()) {
+        if (!keep(font.url)) continue
+        out.push({
+          where: `overlay ${clip.id} font ${i}`,
+          key: font.url,
+          set: (next) => {
+            font.url = next
+          },
+        })
+      }
+      continue
+    }
     if (!isKeyedOverlay(clip) || !keep(clip.key)) continue
     out.push({
       where: `overlay ${clip.id}`,
