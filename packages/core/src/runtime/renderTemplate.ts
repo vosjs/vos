@@ -401,15 +401,38 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
         let __tweenEdits = null;
         let __stackUnsub = null;
 
+        // The transport reports the LIVE timeline. A data swap can rebuild the
+        // content and its timeline in place (a bound split text, a program
+        // without onFrame), and the rebuild carries this callback over to the
+        // new timeline: read through the closure, it reported the killed one,
+        // frozen where it stopped, while every seek moved the new one.
+        const __liveTimeline = (fallback) => (__current && __current.timeline) || fallback;
+        const __postUpdate = (tl) => {
+            // Seconds are the transport currency; progress kept for legacy hosts.
+            __post({ type: 'UPDATE', progress: tl.progress(), time: tl.time(), duration: __finiteDuration(tl) });
+        };
         const __attachProgress = (tl, myEpoch) => {
             if (!tl) return;
             const existing = tl.eventCallback('onUpdate');
             tl.eventCallback('onUpdate', () => {
                 if (existing) existing();
                 if (myEpoch !== __epoch) return;
-                // Seconds are the transport currency; progress kept for legacy hosts.
-                __post({ type: 'UPDATE', progress: tl.progress(), time: tl.time(), duration: __finiteDuration(tl) });
+                __postUpdate(__liveTimeline(tl));
             });
+        };
+
+        // After a data swap: a rebuilt timeline is a fresh recording, so the
+        // host's tween edits are applied to it again (as a warm load does), and
+        // the host hears where it is and how long it now runs.
+        const __afterDataSwap = (before) => {
+            const tl = __current && __current.timeline;
+            if (!tl || tl === before) return;
+            if (__tweenEdits && __tweenEdits.length && typeof tl.applyEdits === 'function') {
+                try { tl.applyEdits(__tweenEdits); } catch (e) {}
+                const dur = __finiteDuration(tl);
+                tl.seek(Math.max(0, Math.min(tl.time(), dur)), false);
+            }
+            __postUpdate(tl);
         };
 
         // Warm load / swap. Preserves transport (playhead, playing, rate) across swaps so
@@ -485,15 +508,18 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
             const msg = e.data || {};
             switch (msg.type) {
                 case 'LOAD': __load(msg); break;
-                case 'SET_DATA':
+                case 'SET_DATA': {
+                    const before = __current && __current.timeline;
                     if (msg.target != null) {
                         __stackData = Object.assign({}, __stackData || {}, { [msg.target]: msg.data });
                         if (__current && __current.setData) __current.setData(msg.data, msg.target);
-                        break;
+                    } else {
+                        __data = msg.data;
+                        if (__current && __current.setData) __current.setData(msg.data);
                     }
-                    __data = msg.data;
-                    if (__current && __current.setData) __current.setData(msg.data);
+                    __afterDataSwap(before);
                     break;
+                }
                 case 'GET_STACK_STATE':
                     __post({ type: 'STACK_STATE', requestId: msg.requestId, entries: (__current && __current.stack) ? __current.stack.state() : [] });
                     break;
