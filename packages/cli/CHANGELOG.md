@@ -1,5 +1,11 @@
 # @vosjs/cli
 
+## 0.65.1
+
+### Patch Changes
+
+- 8f4dd62: The bundled skills say how to declare a file knob: a control of kind `asset` over a name in `config.assets`, which a person swaps from the editor.
+
 ## 0.65.0
 
 ### Minor Changes
