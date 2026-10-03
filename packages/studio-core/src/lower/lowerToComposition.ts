@@ -391,6 +391,68 @@ function trackEmitter(): {
 }
 
 /**
+ * Where a CONNECTED transition runs: the tilt swing, the zoom pan and the
+ * cam morph that carry one span's state straight into the next's. It wants
+ * its full duration and to land by `landBy`. When the gap between the spans
+ * holds that duration it leaves at the outgoing span's end, as it always
+ * did; when the gap is SHORT it leaves earlier, borrowing the time from the
+ * outgoing hold, the way a ramp-in starts before its span. Confined to the
+ * gap, two spans 0.1 s apart swung the card 37° in 0.14 s, a whip at every
+ * seam that no transition speed could slow. It never leaves before the
+ * outgoing state has landed (`arrived`), and when even that leaves too
+ * little room it spills into the next span, never past `latest`.
+ */
+export function connectedWindow(o: {
+  /** When the outgoing span's state was reached (its hold begins). */
+  arrived: number
+  /** The outgoing span's end. */
+  tOut: number
+  /** Where the next state should be reached. */
+  landBy: number
+  /** The latest the next state may be reached. */
+  latest: number
+  /** The transition's full duration. */
+  dur: number
+  /** The shortest transition drawn (0 keeps an instant jump a jump). */
+  floor: number
+}): { start: number; land: number } {
+  const start = Math.max(o.arrived, Math.min(o.tOut, o.landBy - o.dur))
+  const land = Math.max(
+    start + o.floor,
+    Math.min(start + o.dur, Math.max(o.latest, o.landBy)),
+  )
+  return { start, land }
+}
+
+/** What a span→track expansion is told about the time around it. */
+export interface TrackOptions {
+  /**
+   * No span motion before this output time: the card's entrance owns it
+   * (`prependEntrance` drops what the track put there). A span already
+   * under way at it ramps in FROM it, at its full duration where the span
+   * has the room, instead of losing its ramp and creeping from the
+   * entrance's last pose to the span's end in one straight line.
+   */
+  notBefore?: number
+}
+
+/**
+ * A span track behind the card's entrance: the track is built knowing where
+ * the entrance ends (`notBefore`), so a span under way there ramps in from
+ * it, and the entrance's head is prepended. One function for the zoom and
+ * the tilt, so the two can never disagree about the entrance's end.
+ */
+function withEntrance(
+  head: Keyframe<number[]>[],
+  build: (opts: TrackOptions) => KeyframeTrack<number[]> | undefined,
+): KeyframeTrack<number[]> | undefined {
+  return prependEntrance(build({ notBefore: head.at(-1)?.t }), head)
+}
+
+/** How far a connected transition may spill into the next span: half of it. */
+const spillLimit = (tIn: number, tOut: number) => tIn + (tOut - tIn) / 2
+
+/**
  * Expand the doc's source-anchored zoom spans into a standard @vosjs/timeline
  * keyframe track in OUTPUT time (values are [level, cx, cy] vectors):
  *
@@ -412,7 +474,9 @@ export function zoomTrackFromDoc(
   zoom: LoweredZoomSpan[],
   segments: Segment[],
   style: ZoomStyleParams = ZOOM_STYLES[DEFAULT_ZOOM_STYLE],
+  opts: TrackOptions = {},
 ): KeyframeTrack<number[]> {
+  const notBefore = opts.notBefore ?? -Infinity
   const panEase = style.panEase as NonNullable<Keyframe['ease']>
   const mapped = [...zoom]
     .sort((a, b) => a.in - b.in)
@@ -456,16 +520,43 @@ export function zoomTrackFromDoc(
     const m = transitionMult(z.transition)
 
     if (!chained) {
+      // A span the entrance covers whole is the entrance's; the next one
+      // ramps in on its own.
+      if (tOut <= notBefore + RAMP_FLOOR) continue
       // Rest until the ramp starts; scale in place around this span's focus
       // (level 1 renders identically for any focus, so the rest focus is free).
       const startWanted = tIn - (style.rampIn - style.rampInOverlap) * m
-      const start = push(startWanted, [1, z.cx, z.cy, 0, ...sc(z)], 'none')
+      const start = push(
+        Math.max(startWanted, notBefore),
+        [1, z.cx, z.cy, 0, ...sc(z)],
+        'none',
+      )
       push(
         rampLanding(start, startWanted, style.rampIn * m, tOut),
         entry,
         spanEase(z.ease, style.ease),
       )
     }
+    const arrived = keyframes.at(-1)?.t ?? tIn
+
+    // The connected pan, decided before the hold: when the gap to the next
+    // span is short the pan borrows the end of this hold, so the follow
+    // recenters and the drift below stop where it begins.
+    const next = mapped.at(i + 1)
+    const pan =
+      next && next.tIn - tOut <= style.chainGap
+        ? connectedWindow({
+            arrived,
+            tOut,
+            landBy:
+              next.tIn +
+              style.rampInOverlap * transitionMult(next.z.transition),
+            latest: spillLimit(next.tIn, next.tOut),
+            dur: style.pan * transitionMult(next.z.transition),
+            floor: RAMP_FLOOR,
+          })
+        : null
+    const holdEnd = pan ? pan.start : tOut
 
     // Cursor-follow recenters (focusMode 'auto', baked by the lowering): hold
     // at the current focus, glide to the recentered one over the style's
@@ -473,11 +564,11 @@ export function zoomTrackFromDoc(
     let inPath = false
     for (const e of z.followEvents ?? []) {
       const eOut = sourceToTimeline(segments, e.t)
-      if (eOut === null || eOut <= tIn || eOut >= tOut) continue
+      if (eOut === null || eOut <= tIn || eOut >= holdEnd) continue
       // A recenter with less than RAMP_FLOOR of room after the arrival or
       // before the exit would compress into a jump (the focus freezes for
       // the zoom-out anyway); it is dropped, and the next one glides.
-      if (eOut - tIn < RAMP_FLOOR || tOut - eOut < RAMP_FLOOR) continue
+      if (eOut - tIn < RAMP_FLOOR || holdEnd - eOut < RAMP_FLOOR) continue
       const next = [cur[0], e.cx, e.cy, 1, ...cur.slice(4)]
       if (e.path) {
         // A path sample: the camera is HERE at this time. The first sample
@@ -494,14 +585,15 @@ export function zoomTrackFromDoc(
       } else {
         inPath = false
         push(eOut, cur, 'none')
-        push(Math.min(eOut + style.followRecenter, tOut), next, panEase)
+        push(Math.min(eOut + style.followRecenter, holdEnd), next, panEase)
       }
       cur = next
     }
 
-    // Pin the hold to the span's end — the exit transition starts here. A
+    // Pin the hold to where the exit starts: the span's end, or earlier when
+    // a connected pan borrows the hold's tail. A
     // style with a hold drift pushes in through the hold instead of parking:
-    // EASED in and out from the landing to the span's end (sine.inOut), so it
+    // EASED in and out from the landing to the hold's end (sine.inOut), so it
     // starts and ends still and meets the arrival and the exit without the
     // jolt a constant rate makes at both joints; the exit (a pan or the
     // zoom-out) leaves from where the drift arrived. A span that FOLLOWS
@@ -515,9 +607,9 @@ export function zoomTrackFromDoc(
       z.focusMode !== 'auto' &&
       !(z.followEvents ?? []).length &&
       landed !== undefined &&
-      tOut > landed
+      holdEnd > landed
     ) {
-      const grow = Math.min(HOLD_DRIFT_MAX, drift * (tOut - landed))
+      const grow = Math.min(HOLD_DRIFT_MAX, drift * (holdEnd - landed))
       cur = [
         clampZoomLevel(cur[0] * (1 + grow)),
         cur[1],
@@ -525,17 +617,16 @@ export function zoomTrackFromDoc(
         cur[3],
         ...cur.slice(4),
       ]
-      push(tOut, cur, 'sine.inOut')
+      push(holdEnd, cur, 'sine.inOut')
     } else {
-      push(tOut, cur, 'none')
+      push(holdEnd, cur, 'none')
     }
 
-    const next = mapped.at(i + 1)
-    if (next && next.tIn - tOut <= style.chainGap) {
-      // Connected zooms: pan straight to the next state. Adjacent spans still
-      // get a real pan by letting it land up to rampInOverlap into the next.
-      // The pan is the NEXT span's arrival, so its transition speed governs.
-      const mNext = transitionMult(next.z.transition)
+    if (next && pan) {
+      // Connected zooms: pan straight to the next state, at the pan's full
+      // length (connectedWindow): adjacent spans borrow it from this hold
+      // and land up to rampInOverlap into the next. The pan is the NEXT
+      // span's arrival, so its transition speed governs.
       const nextValue = [
         clampZoomLevel(next.z.level),
         next.z.cx,
@@ -543,17 +634,7 @@ export function zoomTrackFromDoc(
         1,
         ...sc(next.z),
       ]
-      push(
-        Math.max(
-          tOut + RAMP_FLOOR,
-          Math.min(
-            tOut + style.pan * mNext,
-            next.tIn + style.rampInOverlap * mNext,
-          ),
-        ),
-        nextValue,
-        panEase,
-      )
+      push(pan.land, nextValue, panEase)
       chained = true
     } else {
       // Focus FREEZES for the zoom-out (Recordly's rule): the camera pulls
@@ -602,7 +683,9 @@ export function tiltTrackFromDoc(
     chainGap?: number
     pan?: number
   } = {},
+  opts: TrackOptions = {},
 ): KeyframeTrack<number[]> {
+  const notBefore = opts.notBefore ?? -Infinity
   const rampInDur = motion.rampIn ?? TILT_RAMP_IN
   const rampOutDur = motion.rampOut ?? TILT_RAMP_OUT
   const chainGap = motion.chainGap ?? TILT_CHAIN_GAP
@@ -626,30 +709,43 @@ export function tiltTrackFromDoc(
     const m = transitionMult(z.transition)
 
     if (!chained) {
+      // A span the entrance covers whole is the entrance's.
+      if (tOut <= notBefore + RAMP_FLOOR) continue
       // Rest until the ramp starts; arrive settled exactly at the span start.
       const startWanted = tIn - rampInDur * m
-      const start = push(startWanted, rest, 'none')
+      const start = push(Math.max(startWanted, notBefore), rest, 'none')
       push(
         rampLanding(start, startWanted, rampInDur * m, tOut),
         pose,
         spanEase(z.ease, TILT_EASE),
       )
     }
+    const arrived = keyframes.at(-1)?.t ?? tIn
 
-    // Pin the hold to the span's end — the exit transition starts here.
-    push(tOut, pose, 'none')
-
+    // Connected tilts swing straight to the next pose, settled by its start
+    // and at the swing's full length: a short gap borrows the time from
+    // this hold (connectedWindow). The swing is the next span's arrival,
+    // so its transition speed governs.
     const next = mapped.at(i + 1)
-    if (next && next.tIn - tOut <= chainGap) {
-      // Connected tilts: swing straight to the next pose, landing by its
-      // start — the next span's arrival, so its transition speed governs.
-      const nextPose = [clampTiltDeg(next.z.rx), clampTiltDeg(next.z.ry)]
+    const swing =
+      next && next.tIn - tOut <= chainGap
+        ? connectedWindow({
+            arrived,
+            tOut,
+            landBy: next.tIn,
+            latest: spillLimit(next.tIn, next.tOut),
+            dur: panDur * transitionMult(next.z.transition),
+            floor: RAMP_FLOOR,
+          })
+        : null
+
+    // Pin the hold to where the exit starts.
+    push(swing ? swing.start : tOut, pose, 'none')
+
+    if (next && swing) {
       push(
-        Math.max(
-          tOut + RAMP_FLOOR,
-          Math.min(tOut + panDur * transitionMult(next.z.transition), next.tIn),
-        ),
-        nextPose,
+        swing.land,
+        [clampTiltDeg(next.z.rx), clampTiltDeg(next.z.ry)],
         panEase,
       )
       chained = true
@@ -723,18 +819,30 @@ export function camTrackFromDoc(
       push(start + CAM_RAMP_IN * m, pose, spanEase(z.ease, CAM_EASE))
     }
 
-    // Pin the hold to the span's end — the exit transition starts here.
-    push(tOut, pose, 'none')
+    const arrived = keyframes.at(-1)?.t ?? tIn
 
+    // Connected moves morph straight to the next pose, landing by its start
+    // at the morph's full length, a short gap borrowing it from this hold
+    // (connectedWindow); 'instant' stays the jump-cut. The next span's
+    // arrival, so its transition speed governs.
     const next = mapped.at(i + 1)
-    if (next && next.tIn - tOut <= CAM_CHAIN_GAP) {
-      // Connected moves: morph straight to the next pose, landing by its
-      // start — the next span's arrival, so its transition speed governs.
-      push(
-        Math.min(tOut + CAM_PAN * transitionMult(next.z.transition), next.tIn),
-        poseOf(next.z),
-        panEase,
-      )
+    const morph =
+      next && next.tIn - tOut <= CAM_CHAIN_GAP
+        ? connectedWindow({
+            arrived,
+            tOut,
+            landBy: next.tIn,
+            latest: spillLimit(next.tIn, next.tOut),
+            dur: CAM_PAN * transitionMult(next.z.transition),
+            floor: 0,
+          })
+        : null
+
+    // Pin the hold to where the exit starts.
+    push(morph ? morph.start : tOut, pose, 'none')
+
+    if (next && morph) {
+      push(morph.land, poseOf(next.z), panEase)
       chained = true
     } else {
       push(tOut + CAM_RAMP_OUT * m, rest, spanEase(z.ease, CAM_EASE))
@@ -3096,9 +3204,9 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
     zoomStyle,
   )
   // The OUTPUT-time zoom track; a pull-out entrance writes its head.
-  const zoomTrack = prependEntrance(
-    zoomTrackFromDoc(zoomSpans, rated, zoomStyle),
+  const zoomTrack = withEntrance(
     entranceZoomKeyframes(cardEnter(doc.frame)),
+    (opts) => zoomTrackFromDoc(zoomSpans, rated, zoomStyle, opts),
   )
   // Pinned layers: each resolved beside its referent through this camera.
   const pins = resolvePins(doc, layout, camera, zoomTrack)
@@ -3215,9 +3323,10 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
           )
         : []
       const spans = tilts.length
-        ? tiltTrackFromDoc(tilts, rated, zoomStyle.tilt)
-        : undefined
-      const track = prependEntrance(spans, head)
+        ? (opts: TrackOptions) =>
+            tiltTrackFromDoc(tilts, rated, zoomStyle.tilt, opts)
+        : () => undefined
+      const track = withEntrance(head, spans)
       return track ? { tiltTrack: track } : {}
     })(),
     // The card's pose through its enter and its exit: [scale, dy, opacity]
@@ -3340,9 +3449,8 @@ export function docZoomTrack(
     camera,
     zoomStyle,
   )
-  return prependEntrance(
-    zoomTrackFromDoc(spans, rated, zoomStyle),
-    entranceZoomKeyframes(cardEnter(doc.frame)),
+  return withEntrance(entranceZoomKeyframes(cardEnter(doc.frame)), (opts) =>
+    zoomTrackFromDoc(spans, rated, zoomStyle, opts),
   )
 }
 
