@@ -25,8 +25,9 @@ import type { ProjectDoc, TiltSpan, ZoomSpan } from '../types'
 // 0.1 s apart swung the card 37° in 0.14 s, 8° in a single frame.
 
 const FULL: Segment[] = [{ in: 0, out: 40 }]
-const at = (track: KeyframeTrack<number[]>, t: number): number[] =>
-  [...sample(track, t, lerpArray)]
+const at = (track: KeyframeTrack<number[]>, t: number): number[] => [
+  ...sample(track, t, lerpArray),
+]
 
 /** The largest per-frame (60 fps) change of the first two components. */
 function peakStep(track: KeyframeTrack<number[]>, t0: number, t1: number) {
