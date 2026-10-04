@@ -1,5 +1,13 @@
 # @vosjs/cli
 
+## 0.65.2
+
+### Patch Changes
+
+- Updated dependencies [d5f0a8b]
+  - @vosjs/studio-core@0.36.0
+  - @vosjs/render-core@0.3.18
+
 ## 0.65.1
 
 ### Patch Changes
