@@ -1025,7 +1025,8 @@ export function objectMotionPoseAt(
 // harness and the paint can never disagree on a target. `stepPaused` asks a
 // WebCodecs provider (capture pages) by PTS at decode speed, else seeks the
 // element and puts its 'seeked' promise (250ms fallback) on pendingDecodes for
-// the export loop to await. `stepBg` is the background loop's seek, COALESCED:
+// the export loop to await. `stepBg` is the background loop's step: the same
+// provider ask when the loop has one (capture pages), else a seek, COALESCED:
 // a scrub moves t every frame and re-assigning currentTime ABORTS the in-flight
 // seek — on a remote (assets.vos.so) source that keeps the element mid-seek for
 // the whole drag, so no frame ever decodes and the background pops in seconds
@@ -1066,6 +1067,21 @@ export const FRAME_STEP_SRC = `
   }
   function stepBg(bgEl, bgT) {
     if (!bgEl.paused) bgEl.pause()
+    // Capture pages: the loop's frame by PTS from its own provider, like the
+    // footage. The loop clock only moves forward between wraps, so the walk
+    // stays sequential and a wrap is one re-seek to the keyframe at 0.
+    var bwc = bgEl.__voilaWc
+    if (bwc) {
+      var bwT = Math.min(bgT, bwc.duration || bgT)
+      if (bwc.req !== bwT) {
+        var bwp = bwc.seek(bwT)
+        if (ns.pendingDecodes) {
+          ns.pendingDecodes.add(bwp)
+          bwp.finally(function () { ns.pendingDecodes.delete(bwp) })
+        }
+      }
+      return
+    }
     var bgTarget = Math.min(bgT, bgEl.duration || bgT)
     if (bgEl.readyState >= 1 && !bgEl.seeking && Math.abs(bgEl.currentTime - bgTarget) > 0.02) {
       if (ns.pendingDecodes) {
@@ -1159,6 +1175,7 @@ const SETUP = `async (ctx) => {
   // page has a memory budget) and FAIL-OPEN: any fetch trouble degrades to
   // the plain network element, never a dead LOAD.
   const BLOB_FETCH_MAX = 400 * 1024 * 1024
+  const BG_BLOB_MAX = 64 * 1024 * 1024
   const toBlobUrl = async (src) => {
     const resp = await fetch(src)
     if (!resp.ok) throw new Error('[voila] blob fetch HTTP ' + resp.status)
@@ -1359,8 +1376,47 @@ const SETUP = `async (ctx) => {
   if (bgm && bgm.key) {
     try {
       if (bgm.kind === 'image') await loadImage(bgm.key)
-      else (await load(bgm.key, true)).loop = true
+      else {
+        const bgV = await load(bgm.key, true)
+        bgV.loop = true
+        // Capture pages: the loop gets its own provider. An element seek
+        // decodes from the previous keyframe on EVERY frame (a baked loop
+        // has one every few seconds), and the capture waits for it; the
+        // sequential walk decodes each packet once. The whole loop is read
+        // into a Blob first when it is small enough (one request instead
+        // of ranged reads against a CDN). FAIL-OPEN to the element at
+        // every step, like the footage.
+        if (ctx.data.videoDecodeMode === 'webcodecs' && !bgV.__voilaWc) {
+          try {
+            if (!(ns.videoBlobs && ns.videoBlobs.get(bgm.key)) && bgm.key.indexOf('blob:') !== 0 && bgm.key.indexOf('data:') !== 0) {
+              try {
+                const bgResp = await fetch(bgm.key)
+                const bgLen = Number(bgResp.headers.get('content-length') || 0)
+                if (bgResp.ok && bgLen <= BG_BLOB_MAX) {
+                  ;(ns.videoBlobs || (ns.videoBlobs = new Map())).set(bgm.key, await bgResp.blob())
+                } else {
+                  try { if (bgResp.body) await bgResp.body.cancel() } catch (e) { void e }
+                }
+              } catch (e) { void e }
+            }
+            const bgWc = await makeWcProvider(bgm.key)
+            if (bgWc && (!bgV.videoWidth || (bgWc.width === bgV.videoWidth && bgWc.height === bgV.videoHeight))) bgV.__voilaWc = bgWc
+          } catch (e) {
+            console.warn('[voila] webcodecs provider unavailable for the background, seeks stay html5', e)
+          }
+        }
+      }
     } catch (e) { console.warn('[voila] background media failed to load', e) }
+  }
+  // Which path decodes what, for a host's telemetry: 'provider' is the
+  // sequential WebCodecs walk, 'element' an HTMLVideoElement seek per frame.
+  ns.voilaDecode = {
+    recording: ctx.data.isImage ? 'none' : video.__voilaWc ? 'provider' : 'element',
+    backdrop: (function () {
+      if (!bgm || !bgm.key || bgm.kind === 'image') return 'none'
+      const bgHit = cache.get(bgm.key)
+      return bgHit && bgHit.__voilaWc ? 'provider' : 'element'
+    })(),
   }
   // Frame prep: a capture harness calls every ns.framePrep hook right after
   // seeking the timeline and before the first paint, then awaits
@@ -2013,7 +2069,14 @@ const ON_FRAME = `(ctx, content, dt) => {
       // Blur: softens the media behind the card (design px × s).
       var bgBlur = bgm.blur || 0
       if (bgBlur > 0 && bgC.filter !== undefined) bgC.filter = 'blur(' + bgBlur * s + 'px)'
-      try { bgC.drawImage(bgEl, (W - bgDw) / 2 + bgOx, (H - bgDh) / 2 + bgOy, bgDw, bgDh) } catch (e) {}
+      // The loop's provider draws its current sample (paused capture
+      // pages); false ⇒ the element (playback, or before the first ask).
+      try {
+        var bgWcp = !bgIsImg && !playing ? bgEl.__voilaWc : null
+        if (!(bgWcp && bgWcp.draw(bgC, null, (W - bgDw) / 2 + bgOx, (H - bgDh) / 2 + bgOy, bgDw, bgDh))) {
+          bgC.drawImage(bgEl, (W - bgDw) / 2 + bgOx, (H - bgDh) / 2 + bgOy, bgDw, bgDh)
+        }
+      } catch (e) {}
       if (bgBlur > 0 && bgC.filter !== undefined) bgC.filter = 'none'
       var bgDim = bgm.dim || 0
       if (bgDim > 0) {

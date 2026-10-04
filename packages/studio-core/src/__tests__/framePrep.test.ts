@@ -170,4 +170,58 @@ describe('the paused step', () => {
     expect(idle.currentTime).toBe(0.7)
     expect(ns.pendingDecodes.size).toBe(1)
   })
+
+  it("asks the background loop's provider by PTS and never seeks its element", async () => {
+    const ns = { pendingDecodes: new Set<Promise<void>>() }
+    const { stepBg } = steps(ns)
+    const seeks: number[] = []
+    const wcp = {
+      req: -1,
+      duration: 12,
+      seek(t: number) {
+        this.req = t
+        seeks.push(t)
+        return Promise.resolve()
+      },
+    }
+    const bg = videoStub({ seeking: false, currentTime: 0, __voilaWc: wcp })
+    stepBg(bg, 0.5)
+    // The paint's own call finds the target met: one ask per frame.
+    stepBg(bg, 0.5)
+    // A loop wrap is a backwards ask; the provider re-seeks by itself.
+    stepBg(bg, 11.9)
+    stepBg(bg, 0.1)
+    expect(seeks).toEqual([0.5, 11.9, 0.1])
+    expect(bg.currentTime).toBe(0)
+    expect(ns.pendingDecodes.size).toBe(3)
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(ns.pendingDecodes.size).toBe(0)
+  })
+})
+
+describe('the background loop on a capture page', () => {
+  const config = lowerToComposition(makeDoc()).config as unknown as {
+    setup: string
+    onFrame: string
+  }
+
+  it('gets a provider in setup under the webcodecs mode only, fail-open', () => {
+    expect(config.setup).toContain(
+      "if (ctx.data.videoDecodeMode === 'webcodecs' && !bgV.__voilaWc)",
+    )
+    expect(config.setup).toContain('const bgWc = await makeWcProvider(bgm.key)')
+    expect(config.setup).toContain('seeks stay html5')
+  })
+
+  it("draws the provider's sample while paused, the element otherwise", () => {
+    expect(config.onFrame).toContain(
+      'var bgWcp = !bgIsImg && !playing ? bgEl.__voilaWc : null',
+    )
+    expect(config.onFrame).toContain('bgWcp.draw(bgC, null,')
+  })
+
+  it('reports which path decodes the recording and the backdrop', () => {
+    expect(config.setup).toContain('ns.voilaDecode = {')
+  })
 })
