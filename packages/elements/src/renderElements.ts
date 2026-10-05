@@ -20,13 +20,17 @@ import { renderVideoElement } from './renderers/video'
 import type * as THREE_NS from 'three'
 
 /**
- * Calculate position from config
+ * The box's top-left corner, in render px. A preset places the whole box;
+ * an `{x, y}` position names the point `anchor` picks on the box (its
+ * top-left corner when no anchor is set, so a program that never set one
+ * keeps its place).
  */
-function calculatePosition(
+export function calculatePosition(
   position: any,
   resolution: any,
   elementWidth: number,
   elementHeight: number,
+  anchor?: string,
 ) {
   const { width, height } = resolution
   const halfW = elementWidth / 2
@@ -65,7 +69,14 @@ function calculatePosition(
     typeof position.y === 'string'
       ? (parseFloat(position.y) / 100) * height
       : position.y
-  return { x, y }
+  if (!anchor) return { x, y }
+  const fx = anchor.includes('left') ? 0 : anchor.includes('right') ? 1 : 0.5
+  const fy = anchor.startsWith('top')
+    ? 0
+    : anchor.startsWith('bottom')
+      ? 1
+      : 0.5
+  return { x: x - fx * elementWidth, y: y - fy * elementHeight }
 }
 
 // Design resolution baseline
@@ -132,6 +143,7 @@ export async function renderElements(
           resolution,
           scaledWidth,
           scaledHeight,
+          config.anchor,
         )
         const basePosX = x - resolution.width / 2 + scaledWidth / 2
         const basePosY = -(y - resolution.height / 2 + scaledHeight / 2)
@@ -265,6 +277,7 @@ export async function renderElements(
           resolution,
           scaledWidth,
           scaledHeight,
+          config.anchor,
         )
 
         const posX = x - resolution.width / 2 + scaledWidth / 2
@@ -333,6 +346,7 @@ export async function renderElements(
           resolution,
           scaledWidth,
           scaledHeight,
+          config.anchor,
         )
         let posX = x - resolution.width / 2 + scaledWidth / 2
         let posY = -(y - resolution.height / 2 + scaledHeight / 2)

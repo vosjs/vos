@@ -26,10 +26,12 @@ import type { DocMediaRef } from './media'
  * written (a URL, a hosted file, a binding resolved later). A path that
  * starts with `/` is an app path on a hosted page, unless it names a file
  * on this disk, which is what an agent writing an absolute path meant.
+ * Inline SVG markup is the picture itself, never a name.
  */
 function isLocalName(value: string): boolean {
   if (/^(https?:|data:|blob:|asset:|media:)/.test(value)) return false
   if (value.startsWith('$')) return false
+  if (value.startsWith('<svg') || value.startsWith('<?xml')) return false
   if (value.startsWith('/')) return existsSync(value)
   return true
 }

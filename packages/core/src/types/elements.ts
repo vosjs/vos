@@ -73,7 +73,10 @@ export interface BaseElement {
 
   /** Position on screen */
   position: ElementPosition
-  /** Transform origin */
+  /**
+   * The point of the box an `{x, y}` position names (absent: its top-left
+   * corner). Ignored for a preset position, which places the whole box.
+   */
   anchor?: Anchor
   /** Layer order (higher = on top, default: 100) */
   zIndex?: number
