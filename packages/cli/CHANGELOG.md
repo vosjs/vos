@@ -1,5 +1,17 @@
 # @vosjs/cli
 
+## 0.65.4
+
+### Patch Changes
+
+- 5ea7f55: A refused request prints why. Every vos.so verb (push, claim, asset, folder, delete and the rest) prints the issues behind a generic `Invalid input` on the lines below it, path and message, where before it printed only the two words. `vos delete <id>` also unlinks the working directory when its `vos.json` tracks that vos, as deleting by directory already did, so the next push no longer aims at a vos in Trash.
+- 5ea7f55: An element's `anchor` is read. With an `{x, y}` position it names the point of the box that sits there (`anchor: 'center'` centres a caption on `x: '50%'`; `'bottom-right'`, `'top'` and the rest likewise); a preset position ignores it, and an element without one keeps its box's top-left corner on the point, as before. The bundled skills say so, where one called the default `center` and another said the field was not read.
+- Updated dependencies [2a65524]
+- Updated dependencies [5ea7f55]
+  - @vosjs/render-core@0.3.20
+  - @vosjs/elements@0.10.3
+  - @vosjs/core@0.27.1
+
 ## 0.65.3
 
 ### Patch Changes
