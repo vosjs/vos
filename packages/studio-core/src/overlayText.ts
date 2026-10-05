@@ -23,11 +23,13 @@ import {
   nearestFontWeight,
 } from '@vosjs/shared'
 import { htmlLayerPictureBox, htmlLayerWidth } from './htmlLayer'
+import { layoutText } from './richText/layout'
 import {
   OVERLAY_LINE_HEIGHT,
   OVERLAY_MEDIA_DEFAULT_WIDTH,
   OVERLAY_TRANSITION_DUR,
 } from './types'
+import type { LayoutRun } from './richText/layout'
 import type {
   OverlayClip,
   ProjectDoc,
@@ -391,30 +393,68 @@ export function resolveEmphasis(
   }
 }
 
-/**
- * The width of a displayed text with emphasis marks, measured run by run
- * in the normal and the emphasis font. MIRRORS ON_FRAME's `olMeasure`
- * (change together). `bold` is the state the text starts in.
- */
-export function measureEmphasized(
-  text: string,
-  measure: (run: string, font: string) => number,
-  font: string,
-  emFont: string,
-  bold = false,
-): number {
-  let w = 0
-  let run = ''
-  let b = bold
-  for (const c of text) {
-    if (c === EM_OPEN || c === EM_CLOSE) {
-      if (run) w += measure(run, b ? emFont : font)
-      run = ''
-      b = c === EM_OPEN
-    } else run += c
+/** The styled payload a text layer bakes: what the layout module lays out. */
+export interface StyledText {
+  /** Source lines, each a list of runs (`f` indexes `fs`). */
+  l: LayoutRun[][]
+  /** The fonts the runs are set in; 0 is the layer's own. */
+  fs: { w: number }[]
+  /** Hosted faces to load beyond the layer's own. */
+  faces?: { f: string; w: number; u: string }[]
+  /** A hash of `l` and `fs`: the layout's cache key and the dirty signature. */
+  h: string
+}
+
+/** FNV-1a, base 36: short, stable, good enough to tell two payloads apart. */
+function hashOf(text: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
   }
-  if (run) w += measure(run, b ? emFont : font)
-  return w
+  return (h >>> 0).toString(36)
+}
+
+/**
+ * A text layer as STYLED text (lines of runs), or null when it is set in
+ * one style throughout and takes the plain painter. Today the one source of
+ * a second style is emphasis: each marked word is a run in font 1, in the
+ * emphasis colour when the clip names one.
+ */
+export function styledTextOf(clip: TextOverlayClip): StyledText | null {
+  const em = resolveEmphasis(clip)
+  if (!em) return null
+  const l = overlayLines(overlayDisplayText(clip)).map((line) => {
+    const runs: LayoutRun[] = []
+    let run = ''
+    let bold = false
+    const flush = () => {
+      if (!run) return
+      runs.push(
+        bold
+          ? { t: run, f: 1, ...(em.color ? { c: em.color } : {}) }
+          : { t: run },
+      )
+      run = ''
+    }
+    for (const c of line) {
+      if (c === EM_OPEN || c === EM_CLOSE) {
+        flush()
+        bold = c === EM_OPEN
+      } else run += c
+    }
+    flush()
+    return runs
+  })
+  const fs = [{ w: resolveOverlayStyle(clip).weight }, { w: em.weight }]
+  return {
+    l,
+    fs,
+    ...(em.face
+      ? { faces: [{ f: em.face.family, w: em.face.weight, u: em.face.url }] }
+      : {}),
+    h: hashOf(JSON.stringify([l, fs])),
+  }
 }
 
 /**
@@ -535,8 +575,8 @@ export function resolveOverlayFx(
   const spec = overlayFxSpec(clip) ?? clip.fx ?? null
   if (!spec) return null
   const unit = spec.unit ?? 'block'
-  // The DISPLAYED text: emphasis marks ride inside the units (zero-width).
-  const text = overlayDisplayText(clip)
+  // The words a person reads: a unit is never a mark.
+  const text = stripEmphasis(overlayDisplayText(clip))
   const units = overlaySegments(text, unit)
   const n =
     unit === 'block' ? 1 : units.reduce((sum, line) => sum + line.length, 0)
@@ -640,25 +680,32 @@ export function overlayRect(
   const style = resolveOverlayStyle(clip)
   const font = overlayFontString(style, scale, 1)
   const ls = style.letterSpacing * scale
-  // Emphasized words measure in their own weight, run by run (the
-  // painter's olMeasure); a clip with no markers measures as it always did.
-  const em = resolveEmphasis(clip)
-  const emFont = em
-    ? overlayFontString({ ...style, weight: em.weight }, scale, 1)
-    : ''
-  const width = (t: string) =>
-    em
-      ? measureEmphasized(t, (run, f) => measure(run, f, ls), font, emFont)
-      : measure(t, font, ls)
-  const text = overlayDisplayText(clip)
-  // Wrap BEFORE measuring the block — mirrors ON_FRAME's wrap (maxWidth is
-  // a frame-width fraction; this rect works in design px, so the budget is
-  // maxWidth × frameW directly).
-  const lines = clip.maxWidth
-    ? wrapOverlayLines(overlayLines(text), width, clip.maxWidth * frameW)
-    : overlayLines(text)
+  // A styled layer is measured by the layout module, the painter's own; a
+  // plain one wraps and measures as it always did.
+  const styled = styledTextOf(clip)
   let w = 0
-  for (const line of lines) w = Math.max(w, width(line))
+  let lineCount = 0
+  if (styled) {
+    const fonts = styled.fs.map((f) =>
+      overlayFontString({ ...style, weight: f.w }, scale, 1),
+    )
+    const laid = layoutText(
+      { lines: styled.l, maxWidth: clip.maxWidth ? clip.maxWidth * frameW : 0 },
+      (t, f) => measure(t, fonts[f], ls),
+    )
+    w = laid.width
+    lineCount = laid.lines.length
+  } else {
+    const width = (t: string) => measure(t, font, ls)
+    // Wrap BEFORE measuring the block — mirrors ON_FRAME's wrap (maxWidth is
+    // a frame-width fraction; this rect works in design px, so the budget is
+    // maxWidth × frameW directly).
+    const lines = clip.maxWidth
+      ? wrapOverlayLines(overlayLines(clip.text), width, clip.maxWidth * frameW)
+      : overlayLines(clip.text)
+    for (const line of lines) w = Math.max(w, width(line))
+    lineCount = lines.length
+  }
   const lineH = style.size * scale * style.lineHeight
   // The background pill extends the drawn (and thus pickable) bounds —
   // mirrors ON_FRAME's pill geometry exactly.
@@ -668,7 +715,7 @@ export function overlayRect(
   return {
     ...base,
     w: Math.max(w, style.size * scale * 0.6) + padX * 2, // empty text still selectable
-    h: lines.length * lineH + padY * 2,
+    h: lineCount * lineH + padY * 2,
   }
 }
 
