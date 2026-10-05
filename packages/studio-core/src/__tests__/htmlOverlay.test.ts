@@ -379,10 +379,10 @@ describe('a kind:html layer, painted', () => {
   })
 
   it('repaints while pending, paints once landed, and stays quiet outside its span', () => {
-    // The overlay canvas repaints every frame a clip is VISIBLE (the
-    // entry's `ov.active`), text and html alike; what an html layer adds is
-    // that a pending picture forces the repaint so the landing shows, and
-    // that a pending picture dirties nothing while the clip is off screen.
+    // A held layer repaints nothing. What an html layer adds is that a
+    // pending picture forces the repaint so the landing shows, that the
+    // frame after it lands draws it, and that a pending picture dirties
+    // nothing while the clip is off screen.
     const doc = makeDoc({ overlays: [htmlClip()] })
     const pending = makeRunner(doc)
     pending.frame(2)
@@ -394,8 +394,22 @@ describe('a kind:html layer, painted', () => {
     const landed = makeRunner(doc, new Map([[keyOf(doc), picture(660, 510)]]))
     landed.frame(2)
     expect(landed.pictures()).toHaveLength(1)
+    landed.ovTex.needsUpdate = false
     landed.frame(2.1)
-    expect(landed.pictures()).toHaveLength(1)
+    expect(landed.ovTex.needsUpdate).toBe(false) // a hold: the texture keeps it
+
+    // The picture lands BETWEEN two frames: the next frame draws it, once.
+    const cache = new Map<string, unknown>()
+    const lands = makeRunner(doc, cache)
+    lands.frame(2)
+    cache.set(keyOf(doc), picture(660, 510))
+    lands.ovTex.needsUpdate = false
+    lands.frame(2.1)
+    expect(lands.ovTex.needsUpdate).toBe(true)
+    expect(lands.pictures()).toHaveLength(1)
+    lands.ovTex.needsUpdate = false
+    lands.frame(2.2)
+    expect(lands.ovTex.needsUpdate).toBe(false)
 
     const off = makeRunner(doc) // pending, but the clip starts at 1s
     off.frame(0.5)

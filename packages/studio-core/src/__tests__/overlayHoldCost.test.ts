@@ -1,24 +1,29 @@
+import { createHash } from 'node:crypto'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { lerpArray, mapTime, sample } from '@vosjs/timeline'
+import { lowerToComposition } from '../lower/lowerToComposition'
+import { STUDIO_ENTRY_ID } from '../lower/studioEntry'
+import { TEXT_LAYOUT_SOURCE_HASH, textLayoutCode } from '../richText/layoutCode'
 import {
   BASE_FRAME_STYLE,
   DEFAULT_BROWSER_BAR,
   DEFAULT_CAM_STYLE,
   DEFAULT_CURSOR_STYLE,
 } from '../types'
-import { bothFrames, lowerMerged } from './helpers/studio'
+import { studioEntryOf } from './helpers/studio'
 import type { OverlayClip, ProjectDoc, TextOverlayClip } from '../types'
 
 /**
  * What a text layer costs per frame, counted on the overlay canvas: texture
  * uploads, `measureText` calls and `fillText` calls.
  *
- * These are the numbers AS THEY ARE, pinned so a change to them is a
- * decision: while any overlay is visible the layer repaints and uploads
- * every frame, held or not, and wrap and per-unit placement measure again
- * inside each of those frames. A layout cache and real dirty tracking
- * should take a hold to no upload and no measure; when they land, these
- * expectations change with them.
+ * The budget: a HOLD costs nothing (no paint, no upload, no measure), and a
+ * styled layer is measured once, when it is laid out, never inside a frame
+ * that only moves, fades or reveals it. The layer repaints when what it
+ * shows changed, while something on it animates, once after an animation's
+ * last frame, and once when a font face lands.
  */
 
 function clip(over: Partial<TextOverlayClip> = {}): TextOverlayClip {
@@ -65,6 +70,13 @@ interface FrameCost {
   measures: number
   fills: number
 }
+const QUIET: FrameCost = { uploaded: false, measures: 0, fills: 0 }
+
+const EM_WRAP = clip({
+  text: 'Set up *different purposes* for every page of the product you ship',
+  emphasis: {},
+  maxWidth: 0.2,
+})
 
 describe('what a text layer costs per frame', () => {
   const g = globalThis as Record<string, unknown>
@@ -73,65 +85,57 @@ describe('what a text layer costs per frame', () => {
     delete g.__vosTimeline
   })
 
-  /** One set of refs driven across frames, so dirty state carries. */
+  /**
+   * The studio entry alone, on its own refs as at runtime, driven across
+   * frames so its dirty state carries. `setData` swaps the entry's data the
+   * way a live edit does.
+   */
   function makeRunner(overlays: OverlayClip[]) {
-    const { config, data } = lowerMerged(makeDoc(overlays))
-    const onFrame = bothFrames(config)
-    g.window = {
-      __vos__: {
-        isPaused: true,
-        videoCache: new Map(),
-        pendingDecodes: new Set(),
-      },
+    const lower = (o: OverlayClip[]) => {
+      const lowered = lowerToComposition(makeDoc(o))
+      return {
+        entry: studioEntryOf(lowered.config),
+        data: lowered.stack[STUDIO_ENTRY_ID],
+      }
     }
+    const first = lower(overlays)
+    let data = first.data
+    const onFrame = new Function(`return (${first.entry.onFrame})`)() as (
+      ctx: unknown,
+      content: unknown,
+      dt: number,
+    ) => void
+    const vos: Record<string, unknown> = {
+      isPaused: true,
+      videoCache: new Map(),
+      pendingDecodes: new Set(),
+    }
+    g.window = { __vos__: vos }
     g.__vosTimeline = { mapTime, sample, lerpArray }
     const count = { measures: 0, fills: 0 }
-    const mk = (tag: string) =>
-      new Proxy(
-        {},
-        {
-          get: (_t, key: string) => {
-            if (key === 'measureText')
-              return (text: string) => {
-                if (tag === 'ov') count.measures++
-                return { width: text.length * 10 }
-              }
-            if (key === 'createLinearGradient')
-              return () => ({ addColorStop: () => {} })
-            if (key === 'fillText')
-              return () => {
-                if (tag === 'ov') count.fills++
-              }
-            return () => undefined
-          },
-          set: () => true,
+    const c2d = new Proxy(
+      {},
+      {
+        get: (_t, key: string) => {
+          if (key === 'measureText')
+            return (text: string) => {
+              count.measures++
+              return { width: text.length * 10 }
+            }
+          if (key === 'fillText') return () => count.fills++
+          return () => undefined
         },
-      )
-    const layer = (tag: string) => ({
-      c2d: mk(tag),
+        set: () => true,
+      },
+    )
+    const ov = {
+      c2d,
       canvas: { width: 1920, height: 1080 },
       texture: { needsUpdate: false, dispose: () => undefined },
       mesh: null,
-    })
-    const refs = {
-      bg: layer('bg'),
-      card: layer('card'),
-      ov: layer('ov'),
-      video: {
-        videoWidth: 1600,
-        videoHeight: 900,
-        readyState: 2,
-        paused: true,
-        currentTime: 0,
-        play: () => undefined,
-        pause: () => undefined,
-        addEventListener: () => undefined,
-        removeEventListener: () => undefined,
-      },
-      cam: null,
     }
-    return (time: number): FrameCost => {
-      refs.ov.texture.needsUpdate = false
+    const frame = (time: number): FrameCost => {
+      ov.texture.needsUpdate = false
       count.measures = 0
       count.fills = 0
       onFrame(
@@ -146,55 +150,149 @@ describe('what a text layer costs per frame', () => {
             drawingBufferHeight: 1080,
           },
         },
-        { refs },
+        { refs: { ov, objects: null } },
         1 / 30,
       )
       return {
-        uploaded: refs.ov.texture.needsUpdate,
+        uploaded: ov.texture.needsUpdate,
         measures: count.measures,
         fills: count.fills,
       }
+    }
+    return {
+      frame,
+      vos,
+      program: first.entry.onFrame,
+      setData: (o: OverlayClip[]) => {
+        const next = lower(o)
+        data = next.data
+        return next.entry.onFrame
+      },
     }
   }
 
   // The clip runs 0.5..3.5 s; its entrance and exit windows are 0.35 s, so
   // 1.5..2.5 s is a hold: nothing on the layer changes between these frames.
-  const HOLD = [1.5, 1.6, 1.7, 1.8]
+  const HOLD = [1.6, 1.7, 1.8]
 
-  it('a held caption', () => {
-    const frame = makeRunner([clip({ text: 'Ship it faster' })])
-    const costs = HOLD.map(frame)
-    for (const c of costs)
-      expect(c).toEqual({ uploaded: true, measures: 0, fills: 1 })
+  it('a held caption paints once and then costs nothing', () => {
+    const run = makeRunner([clip({ text: 'Ship it faster' })])
+    expect(run.frame(1.5)).toEqual({ uploaded: true, measures: 0, fills: 1 })
+    for (const t of HOLD) expect(run.frame(t)).toEqual(QUIET)
   })
 
-  it('a held wrapped caption with emphasis', () => {
-    const frame = makeRunner([
-      clip({
-        text: 'Set up *different purposes* for every page of the product you ship',
-        emphasis: {},
-        maxWidth: 0.2,
-      }),
-    ])
-    const costs = HOLD.map(frame)
-    for (const c of costs) {
-      expect(c.uploaded).toBe(true)
-      // Wrap re-measures a growing string per token, run by run.
-      expect(c.measures).toBe(46)
-    }
+  it('a held styled, wrapped caption is measured once, at its layout', () => {
+    const run = makeRunner([EM_WRAP])
+    const first = run.frame(1.5)
+    expect(first.uploaded).toBe(true)
+    expect(first.measures).toBeGreaterThan(0)
+    expect(first.fills).toBeGreaterThan(0)
+    for (const t of HOLD) expect(run.frame(t)).toEqual(QUIET)
   })
 
-  it('a per-word entrance, mid-animation', () => {
-    const frame = makeRunner([
+  it('a styled layer that moves or reveals measures nothing after its layout', () => {
+    const run = makeRunner([
       clip({
-        text: 'Set up different purposes for every page',
+        ...EM_WRAP,
         anim: { enter: { kind: 'rise', unit: 'word' } },
       }),
     ])
-    const costs = [0.55, 0.6, 0.65, 0.7].map(frame)
-    for (const c of costs) expect(c.measures).toBe(8)
-    // Settled, the entrance is over and the words still place by measuring.
-    for (const c of HOLD.map(frame))
-      expect(c).toEqual({ uploaded: true, measures: 8, fills: 7 })
+    expect(run.frame(0.55).measures).toBeGreaterThan(0)
+    for (const t of [0.6, 0.65, 0.7, 0.75]) {
+      const c = run.frame(t)
+      expect(c.uploaded).toBe(true)
+      expect(c.measures).toBe(0)
+    }
+  })
+
+  it('paints once more after an animation ends, then holds', () => {
+    // The entrance window is 0.35 s: 0.84 is its last frame, drawn a moment
+    // short of settled; the next frame settles it and the one after is quiet.
+    const run = makeRunner([clip({ text: 'Ship it faster' })])
+    expect(run.frame(0.84).uploaded).toBe(true)
+    expect(run.frame(0.9).uploaded).toBe(true)
+    expect(run.frame(0.95)).toEqual(QUIET)
+  })
+
+  it('an edit repaints a held layer, whatever field it touched', () => {
+    const base = clip({ text: 'Ship it faster' })
+    const run = makeRunner([base])
+    run.frame(1.5)
+    const edits: Partial<TextOverlayClip>[] = [
+      { text: 'Ship it now' },
+      { weight: 600 },
+      { align: 'left' },
+      { letterSpacing: 2 },
+      { lineHeight: 1.5 },
+      { italic: true },
+      { shadow: 0 },
+      { stroke: { color: '#000000', width: 2 } },
+      { box: { color: '#111111' } },
+      { family: 'Sora' },
+      { text: 'Ship it *faster*', emphasis: {} },
+      { text: 'Ship it *faster*', emphasis: { color: '#ff0000' } },
+    ]
+    for (const e of edits) {
+      run.setData([{ ...base, ...e }])
+      expect(run.frame(1.6).uploaded, JSON.stringify(e)).toBe(true)
+      expect(run.frame(1.7), JSON.stringify(e)).toEqual(QUIET)
+      run.setData([base])
+      run.frame(1.8)
+    }
+  })
+
+  it('a face landing repaints a held layer once, and lays a styled one out again', () => {
+    const run = makeRunner([EM_WRAP])
+    run.frame(1.5)
+    expect(run.frame(1.6)).toEqual(QUIET)
+    run.vos.fontEpoch = ((run.vos.fontEpoch as number) || 0) + 1
+    const landed = run.frame(1.7)
+    expect(landed.uploaded).toBe(true)
+    expect(landed.measures).toBeGreaterThan(0)
+    expect(run.frame(1.8)).toEqual(QUIET)
+  })
+
+  it('a clip leaving clears the layer once', () => {
+    const run = makeRunner([clip({ text: 'Ship it faster' })])
+    run.frame(3.4)
+    expect(run.frame(3.6).uploaded).toBe(true)
+    expect(run.frame(3.7)).toEqual(QUIET)
+  })
+
+  it('a cached layout leaves with its clip', () => {
+    const run = makeRunner([EM_WRAP])
+    run.frame(1.5)
+    expect(Object.keys(run.vos.textLayouts as object)).toEqual(['o1'])
+    run.setData([])
+    run.frame(1.6)
+    expect(Object.keys(run.vos.textLayouts as object)).toEqual([])
+  })
+
+  it('the first styled run is data: the program does not change', () => {
+    const run = makeRunner([clip({ text: 'Ship it faster' })])
+    expect(run.setData([EM_WRAP])).toBe(run.program)
+  })
+})
+
+describe('the generated layout code', () => {
+  it('is regenerated whenever layout.ts changes', () => {
+    const source = readFileSync(join(process.cwd(), 'src/richText/layout.ts'))
+    expect(TEXT_LAYOUT_SOURCE_HASH).toBe(
+      createHash('sha256').update(source).digest('hex'),
+    )
+  })
+
+  it('holds nothing that would end or open a template in a compiled module', () => {
+    expect(textLayoutCode.includes('`')).toBe(false)
+    expect(textLayoutCode.includes('${')).toBe(false)
+  })
+
+  it('declares the layout the page installs', () => {
+    const api = new Function(`${textLayoutCode}; return __vosTextLayout`)() as {
+      layoutText: unknown
+      decorationRect: unknown
+    }
+    expect(typeof api.layoutText).toBe('function')
+    expect(typeof api.decorationRect).toBe('function')
   })
 })

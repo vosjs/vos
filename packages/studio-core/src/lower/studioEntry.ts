@@ -1,6 +1,7 @@
 import { timelineRuntimeCode } from '@vosjs/timeline/bundle'
 import { HTML_LAYER_LIVE_HZ } from '../htmlLayer'
 import { OVERLAY_FONT_FACES } from '../overlayText'
+import { textLayoutCode } from '../richText/layoutCode'
 import { CARD_FOV, CARD_Z } from '../stage'
 import {
   LAYER_CARD_SHADOW,
@@ -455,6 +456,18 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
   var s = H / 1080 // scale design-px controls to comp px
   var ns = window.__vos__ || {}
   var playing = ns.isPaused === false
+  // The styled-text layout (richText/layout.ts, generated), installed once:
+  // the page lays a text layer out with the code the host picks with.
+  if (!ns.textLayout) { ${textLayoutCode}; ns.textLayout = __vosTextLayout }
+  var TXL = ns.textLayout
+  // The font epoch counts faces landing. A face changes what text measures
+  // and what it paints, so the epoch is part of every layout's key and of
+  // the layer's signature: a late face repaints a held layer once.
+  var ofBump = function () { ns.fontEpoch = (ns.fontEpoch || 0) + 1 }
+  if (!ns.fontWatch && typeof document !== 'undefined' && document.fonts && document.fonts.addEventListener) {
+    ns.fontWatch = 1
+    document.fonts.addEventListener('loadingdone', ofBump)
+  }
 
   // --- audio clips (music/SFX): Web Audio scheduler against the transport ---
   // Buffer sources are one-shot: (re)schedule everything on play / clip-data change
@@ -582,7 +595,19 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
     if (t < ol0.start || t > ol0.start + ol0.dur) continue
     // A page that taints on foreignObject draws no HTML layer (setup's probe).
     if (ol0.html && ns.htmlSafe === false) continue
-    olVisSig += ol0.id + ':' + (ol0.text || ol0.key) + ':' + ol0.x + ',' + ol0.y + ',' + ol0.scale + ',' + ol0.rot + ',' + (ol0.fs || ol0.w) + ',' + (ol0.color || ol0.radius) + ',' + (ol0.opacity == null ? 1 : ol0.opacity) + (ol0.fx ? ',' + ol0.fx.k + ol0.fx.u + ol0.fx.d + ol0.fx.st : '') + (ol0.mw ? ',w' + ol0.mw : '') + ';'
+    olVisSig += ol0.id + ':' + (ol0.text || ol0.key) + ':' + ol0.x + ',' + ol0.y + ',' + ol0.scale + ',' + ol0.rot + ',' + (ol0.fs || ol0.w) + ',' + (ol0.color || ol0.radius) + ',' + (ol0.opacity == null ? 1 : ol0.opacity) + (ol0.fx ? ',' + ol0.fx.k + ol0.fx.u + ol0.fx.d + ol0.fx.st : '') + (ol0.mw ? ',w' + ol0.mw : '')
+    // Everything else a held layer's pixels depend on. The signature is the
+    // ONLY thing that repaints a hold, so a field missing here is an edit
+    // that does not show until something else moves.
+    if (ol0.lines) {
+      olVisSig += '|' + ol0.lines.join('\\n') + '|' + ol0.weight + '|' + ol0.stack + '|' + (ol0.sty || '') + '|' + (ol0.ls || 0) + '|' + (ol0.lh || 0) + '|' + (ol0.align || '') + '|' + ol0.shadow
+        + (ol0.stroke ? '|s' + ol0.stroke.c + ol0.stroke.w : '')
+        + (ol0.box ? '|b' + ol0.box.c + ol0.box.o + ',' + ol0.box.px + ',' + ol0.box.py + ',' + ol0.box.r : '')
+        + (ol0.rt ? '|r' + ol0.rt.h : '')
+    } else {
+      olVisSig += '|' + (ol0.shadow || '') + (ol0.border ? '|' + ol0.border.width + ol0.border.color : '') + (ol0.crop ? '|c' + ol0.crop.x + ',' + ol0.crop.y + ',' + ol0.crop.w + ',' + ol0.crop.h : '')
+    }
+    olVisSig += ';'
     // fx widens the entrance window to the whole staggered span (tt);
     // without fx it is the legacy enter transition window.
     var olEW = ol0.fx ? ol0.fx.tt : olTD
@@ -620,8 +645,20 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
       if (ns.htmlErrors) delete ns.htmlErrors[hlK]
     }
   }
-  var ovSig = W + 'x' + H + '|' + olVisSig
-  var ovDirty = ov.sig !== ovSig || ov.active || olAnim
+  // A styled layer's cached layout leaves with its clip.
+  if (ns.textLayouts) {
+    for (var tlK in ns.textLayouts) {
+      var tlSeen = false
+      for (var tlI = 0; tlI < ols.length; tlI++) if (ols[tlI].id === tlK) { tlSeen = true; break }
+      if (!tlSeen) delete ns.textLayouts[tlK]
+    }
+  }
+  var ovSig = W + 'x' + H + '|' + (ns.fontEpoch || 0) + '|' + (ns.htmlSafe === false ? 0 : 1) + '|' + olVisSig
+  // The layer repaints when what it shows changed (the signature), while
+  // something on it animates, and ONCE more after an animation's last frame:
+  // that frame was drawn a moment short of settled, and a picture that
+  // landed between two frames is drawn by it too. A hold costs nothing.
+  var ovDirty = ov.sig !== ovSig || olAnim || ov.wasAnim
   // The layer cards visible this frame, with their pose, for the card
   // planes below (the overlay loop collects them instead of painting).
   var lcList = []
@@ -850,7 +887,7 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
         try {
           var ofBF = new FontFace(ofB.family, 'url(' + ofB.url + ')', { weight: String(ofB.weight) })
           document.fonts.add(ofBF)
-          ofBF.load().catch(function () {})
+          ofBF.load().then(ofBump, function () {})
         } catch (e) {}
       }
       if (ol.face) {
@@ -860,20 +897,22 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
           try {
             var ofFace = new FontFace(ol.face.f, 'url(' + ol.face.u + ')', { weight: String(ol.face.w) })
             document.fonts.add(ofFace)
-            ofFace.load().catch(function () {})
+            ofFace.load().then(ofBump, function () {})
           } catch (e) {}
         }
       }
-      // The emphasis weight's face, the same way (a live edit that adds the
-      // first *marked* word paints without a LOAD).
-      if (ol.em && ol.em.face) {
-        var oeKey = ol.em.face.f + '|' + ol.em.face.w
-        if (!ofSet[oeKey]) {
-          ofSet[oeKey] = 1
+      // A styled layer's other faces, the same way (a live edit that styles
+      // its first run paints without a LOAD).
+      if (ol.rt && ol.rt.faces) {
+        for (var rfj = 0; rfj < ol.rt.faces.length; rfj++) {
+          var rtF = ol.rt.faces[rfj]
+          var rtFK = rtF.f + '|' + rtF.w
+          if (ofSet[rtFK]) continue
+          ofSet[rtFK] = 1
           try {
-            var oeFace = new FontFace(ol.em.face.f, 'url(' + ol.em.face.u + ')', { weight: String(ol.em.face.w) })
-            document.fonts.add(oeFace)
-            oeFace.load().catch(function () {})
+            var rtFace = new FontFace(rtF.f, 'url(' + rtF.u + ')', { weight: String(rtF.w) })
+            document.fonts.add(rtFace)
+            rtFace.load().then(ofBump, function () {})
           } catch (e) {}
         }
       }
@@ -892,68 +931,143 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
     ovC.textAlign = 'center'
     ovC.textBaseline = 'middle'
     ovC.letterSpacing = ((ol.ls || 0) * olMS * s) + 'px'
-    // Emphasis (ol.em, baked only when the text marks a word): the lines
-    // carry \\u0001/\\u0002 around every emphasized word, and the normal and
-    // emphasis fonts alternate at them, run by run. MIRRORS measureEmphasized
-    // in overlayText.ts — change together. A clip without ol.em never reaches
-    // these helpers: it keeps its plain measureText/fillText calls.
-    var olEm = ol.em || null
-    var olFN = ovC.font
-    var olFB = olEm ? (ol.sty ? ol.sty + ' ' : '') + olEm.w + ' ' + olPx + 'px ' + ol.stack : ''
-    var olMeasure = function (t, b0) {
-      if (!olEm) return ovC.measureText(t).width
-      var mw = 0, mrun = '', mb = !!b0
-      for (var mi = 0; mi < t.length; mi++) {
-        var mc = t.charAt(mi)
-        if (mc === '\\u0001' || mc === '\\u0002') {
-          if (mrun) { ovC.font = mb ? olFB : olFN; mw += ovC.measureText(mrun).width }
-          mrun = ''
-          mb = mc === '\\u0001'
-        } else mrun += mc
+    // A STYLED layer (ol.rt: lines of runs, each set its own way) is laid
+    // out by the layout module, ONCE: the layout is kept per clip under a
+    // key of everything it was measured with, so a frame that only moves,
+    // fades or reveals the layer measures nothing. Fragments draw left to
+    // right from each line's left edge; a per-unit entrance animates the
+    // layout's units, each a few parts of fragments.
+    if (ol.rt) {
+      var rtFonts = [ovC.font]
+      for (var rfi = 1; rfi < ol.rt.fs.length; rfi++) {
+        rtFonts.push((ol.sty ? ol.sty + ' ' : '') + ol.rt.fs[rfi].w + ' ' + olPx + 'px ' + ol.stack)
       }
-      if (mrun) { ovC.font = mb ? olFB : olFN; mw += ovC.measureText(mrun).width }
-      ovC.font = olFN
-      return mw
-    }
-    // The emphasis state after a run of text (a char unit starts in it).
-    var olStateAfter = function (t, b0) {
-      var sb = !!b0
-      for (var si = 0; si < t.length; si++) {
-        var sc = t.charAt(si)
-        if (sc === '\\u0001') sb = true
-        else if (sc === '\\u0002') sb = false
+      var rtFx = ol.fx && ol.fx.units.length ? ol.fx : null
+      var rtMax = ol.mw ? ol.mw * W : 0
+      var rtKey = ol.rt.h + '|' + rtFonts[0] + '|' + ((ol.ls || 0) * olMS * s) + '|' + rtMax + '|' + (rtFx ? rtFx.u : '') + '|' + (ns.fontEpoch || 0)
+      var rtAll = ns.textLayouts || (ns.textLayouts = {})
+      var rtHit = rtAll[ol.id]
+      if (!rtHit || rtHit.k !== rtKey) {
+        rtHit = rtAll[ol.id] = {
+          k: rtKey,
+          L: TXL.layoutText(
+            { lines: ol.rt.l, maxWidth: rtMax, unit: rtFx ? rtFx.u : undefined },
+            function (mt, mf) { ovC.font = rtFonts[mf]; return ovC.measureText(mt).width }
+          )
+        }
+        ovC.font = rtFonts[0]
       }
-      return sb
-    }
-    // Draw t LEFT-aligned from x, run by run: the font switches at the
-    // marks, an emphasized run takes ol.em.c when set, stroke under fill.
-    var olDraw = function (t, x, y, b0) {
-      var drun = '', db = !!b0, dx = x
-      var dflush = function () {
-        if (!drun) return
-        ovC.font = db ? olFB : olFN
-        var dfs = ovC.fillStyle
-        if (db && olEm.c) ovC.fillStyle = olEm.c
+      var rtL = rtHit.L
+      var rtN = rtL.lines.length
+      var rtLH = olPx * (ol.lh || ${OVERLAY_LINE_HEIGHT})
+      var rtY0 = -((rtN - 1) * rtLH) / 2
+      // A line's left edge: lines sit centred on the anchor and align
+      // against the widest, as the plain layer's do.
+      var rtLeft = function (lw) {
+        var xo = ol.align === 'left' ? (lw - rtL.width) / 2 : ol.align === 'right' ? (rtL.width - lw) / 2 : 0
+        return xo - lw / 2
+      }
+      if (ol.box) {
+        var rbPX = ol.box.px * olMS * s
+        var rbPY = ol.box.py * olMS * s
+        var rbW = rtL.width + rbPX * 2
+        var rbH = rtN * rtLH + rbPY * 2
+        ovC.save()
+        ovC.globalAlpha = olA * ol.box.o
+        ovC.fillStyle = ol.box.c
+        rr(-rbW / 2, -rbH / 2, rbW, rbH, Math.min(ol.box.r * olMS * s, rbH / 2), ovC)
+        ovC.fill()
+        ovC.restore()
+      }
+      // Highlights sit behind the words and take no legibility shadow.
+      for (var rhi = 0; rhi < rtN; rhi++) {
+        var rhLine = rtL.lines[rhi]
+        for (var rhj = 0; rhj < rhLine.frags.length; rhj++) {
+          var rhF = rhLine.frags[rhj]
+          if (!rhF.h) continue
+          var rhR = TXL.decorationRect('h', rtLeft(rhLine.w) + rhF.x, rhF.w, rtY0 + rhi * rtLH, olPx)
+          ovC.fillStyle = rhF.h
+          ovC.fillRect(rhR.x, rhR.y, rhR.w, rhR.h)
+        }
+      }
+      if (ol.shadow > 0) {
+        ovC.shadowColor = 'rgba(0,0,0,' + ol.shadow + ')'
+        ovC.shadowBlur = olPx * 0.25
+        ovC.shadowOffsetY = olPx * 0.04
+      }
+      ovC.textAlign = 'left'
+      // One fragment (or the part of one a unit holds): the underline under
+      // the glyphs, stroke under fill, the strikethrough over them.
+      var rtPart = function (p, bx, y) {
+        ovC.font = rtFonts[p.f || 0]
+        ovC.fillStyle = p.c || ol.color
+        if (p.u) {
+          var ru = TXL.decorationRect('u', bx + p.x, p.w, y, olPx)
+          ovC.fillRect(ru.x, ru.y, ru.w, ru.h)
+        }
         if (ol.stroke) {
           ovC.strokeStyle = ol.stroke.c
           ovC.lineWidth = ol.stroke.w * olMS * s
           ovC.lineJoin = 'round'
-          ovC.strokeText(drun, dx, y)
+          ovC.strokeText(p.t, bx + p.x, y)
         }
-        ovC.fillText(drun, dx, y)
-        dx += ovC.measureText(drun).width
-        ovC.fillStyle = dfs
-        drun = ''
+        ovC.fillText(p.t, bx + p.x, y)
+        if (p.s) {
+          var rs = TXL.decorationRect('s', bx + p.x, p.w, y, olPx)
+          ovC.fillRect(rs.x, rs.y, rs.w, rs.h)
+        }
       }
-      for (var di = 0; di < t.length; di++) {
-        var dc = t.charAt(di)
-        if (dc === '\\u0001' || dc === '\\u0002') {
-          dflush()
-          db = dc === '\\u0001'
-        } else drun += dc
+      if (!rtFx) {
+        for (var rli = 0; rli < rtN; rli++) {
+          var rLine = rtL.lines[rli]
+          var rBX = rtLeft(rLine.w)
+          for (var rfk = 0; rfk < rLine.frags.length; rfk++) rtPart(rLine.frags[rfk], rBX, rtY0 + rli * rtLH)
+        }
+      } else {
+        // Per-unit entrance, the plain layer's own arithmetic over the
+        // layout's units: delay = order(index) x st, eased over dur.
+        var rtCount = 0
+        for (var rci = 0; rci < rtN; rci++) rtCount += rtL.lines[rci].units.length
+        var rtIdx = 0
+        for (var rui = 0; rui < rtN; rui++) {
+          var rULine = rtL.lines[rui]
+          var rUBX = rtLeft(rULine.w)
+          var rUY = rtY0 + rui * rtLH
+          for (var ruj = 0; ruj < rULine.units.length; ruj++, rtIdx++) {
+            var rU = rULine.units[ruj]
+            var rOrd = rtFx.d === 1 ? (rtCount - 1 - rtIdx) : rtFx.d === 2 ? Math.abs(rtIdx - (rtCount - 1) / 2) : rtIdx
+            var rT2 = olT - rOrd * rtFx.st
+            var rUA = 1, rUu = 1
+            if (rtFx.k === 'typewriter') {
+              rUA = rT2 >= 0 ? 1 : 0
+            } else {
+              rUu = Math.max(0, Math.min(1, rT2 / rtFx.dur))
+              var rUE = 1 - Math.pow(1 - rUu, 3)
+              rUA = rtFx.k === 'pop' ? Math.min(1, rUu * 2) : rUE
+            }
+            if (rUA <= 0.004) continue
+            ovC.save()
+            ovC.globalAlpha = olA * rUA
+            if (rUu < 1) {
+              if (rtFx.k === 'rise') {
+                ovC.translate(0, (1 - (1 - Math.pow(1 - rUu, 3))) * 24 * s)
+              } else if (rtFx.k === 'pop') {
+                var rPS = 1 + 2.70158 * Math.pow(rUu - 1, 3) + 1.70158 * Math.pow(rUu - 1, 2)
+                var rCX = rUBX + rU.x + rU.w / 2
+                ovC.translate(rCX, rUY)
+                ovC.scale(rPS, rPS)
+                ovC.translate(-rCX, -rUY)
+              } else if (rtFx.k === 'blur') {
+                ovC.filter = 'blur(' + ((1 - rUu) * olPx * 0.12).toFixed(2) + 'px)'
+              }
+            }
+            for (var rpk = 0; rpk < rU.parts.length; rpk++) rtPart(rU.parts[rpk], rUBX, rUY)
+            ovC.restore()
+          }
+        }
       }
-      dflush()
-      ovC.font = olFN
+      ovC.restore()
+      continue
     }
     var olLines = ol.lines || ['']
     // maxWidth wrap (ol.mw = frame-width fraction): greedy over word tokens
@@ -966,7 +1080,7 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
       var olWrapped = []
       for (var olwl = 0; olwl < olLines.length; olwl++) {
         var olWLine = olLines[olwl]
-        if (!olWLine || olMeasure(olWLine) <= olWMax) {
+        if (!olWLine || ovC.measureText(olWLine).width <= olWMax) {
           olWrapped.push(olWLine)
           continue
         }
@@ -974,7 +1088,7 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
         var olCur = ''
         for (var olti = 0; olti < olToks.length; olti++) {
           if (!olCur) { olCur = olToks[olti]; continue }
-          if (olMeasure(olCur + olToks[olti]) <= olWMax) {
+          if (ovC.measureText(olCur + olToks[olti]).width <= olWMax) {
             olCur += olToks[olti]
           } else {
             olWrapped.push(olCur)
@@ -1024,10 +1138,10 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
       olFx = { k: olFx.k, u: olFx.u, d: olFx.d, st: olFx.st, dur: olFx.dur, tt: olFx.tt, units: olRe, n: olReN }
     }
     var olLWs = null, olMaxW = 0
-    if (ol.box || ol.align || olFx || olEm) {
+    if (ol.box || ol.align || olFx) {
       olLWs = []
       for (var olwi = 0; olwi < olLines.length; olwi++) {
-        var olw = olMeasure(olLines[olwi])
+        var olw = ovC.measureText(olLines[olwi]).width
         olLWs.push(olw)
         if (olw > olMaxW) olMaxW = olw
       }
@@ -1063,12 +1177,6 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
             : (olMaxW - olLWs[ok]) / 2
         }
         var olLY = olY0 + ok * olLH
-        if (olEm) {
-          // Runs draw LEFT-aligned from the centred line's left edge.
-          ovC.textAlign = 'left'
-          olDraw(olLines[ok], olXof - olLWs[ok] / 2, olLY, false)
-          continue
-        }
         if (ol.stroke) {
           ovC.strokeStyle = ol.stroke.c
           ovC.lineWidth = ol.stroke.w * olMS * s
@@ -1105,10 +1213,7 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
               : olIdx
           var olT2 = olT - olOrd * olFx.st
           var olNext = olPref + olUs[ou]
-          var olNW = olMeasure(olNext)
-          // The emphasis state this unit starts in (a char unit inside a
-          // marked word carries no mark of its own).
-          var olUB = olEm ? olStateAfter(olPref) : false
+          var olNW = ovC.measureText(olNext).width
           var olUW = olNW - olPW
           var olUX = olXb + olPW
           var olUA = 1, olUu = 1
@@ -1137,11 +1242,6 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
               ovC.filter = 'blur(' + ((1 - olUu) * olPx * 0.12).toFixed(2) + 'px)'
             }
           }
-          if (olEm) {
-            olDraw(olUnit, olUX, olLY2, olUB)
-            ovC.restore()
-            continue
-          }
           if (ol.stroke) {
             ovC.strokeStyle = ol.stroke.c
             ovC.lineWidth = ol.stroke.w * olMS * s
@@ -1156,7 +1256,7 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
     ovC.restore()
   }
   ov.sig = ovSig
-  ov.active = olVisSig !== ''
+  ov.wasAnim = olAnim
   if (ov.texture) ov.texture.needsUpdate = true
   }
 

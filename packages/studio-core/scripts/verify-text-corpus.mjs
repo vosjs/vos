@@ -18,7 +18,7 @@
  * moved and by how much. `--diff <dir>` writes the new picture of every
  * case that differs, to look at beside the old one.
  */
-/* global process, console, document, window, Image */
+/* global process, console, Buffer */
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
@@ -68,7 +68,8 @@ const clip = (over = {}) => ({
   ...over,
 })
 const LONG = 'Set up different purposes for every page of the product you ship'
-const EM = 'Set up *different purposes* for every page of the *product* you ship'
+const EM =
+  'Set up *different purposes* for every page of the *product* you ship'
 const HOLD = 2
 const MID = 0.72
 
@@ -76,50 +77,270 @@ const MID = 0.72
 const CASES = [
   ['title', [clip()], HOLD],
   ['caption', [clip({ preset: 'caption' })], HOLD],
-  ['label-mono', [clip({ preset: 'label', text: 'npm i -D @vosjs/cli' })], HOLD],
+  [
+    'label-mono',
+    [clip({ preset: 'label', text: 'npm i -D @vosjs/cli' })],
+    HOLD,
+  ],
   ['lines-center', [clip({ text: 'Ship it\nfaster than\nyou think' })], HOLD],
-  ['lines-left', [clip({ text: 'Ship it\nfaster than\nyou think', align: 'left' })], HOLD],
-  ['lines-right', [clip({ text: 'Ship it\nfaster than\nyou think', align: 'right' })], HOLD],
+  [
+    'lines-left',
+    [clip({ text: 'Ship it\nfaster than\nyou think', align: 'left' })],
+    HOLD,
+  ],
+  [
+    'lines-right',
+    [clip({ text: 'Ship it\nfaster than\nyou think', align: 'right' })],
+    HOLD,
+  ],
   ['wrap', [clip({ preset: 'caption', text: LONG, maxWidth: 0.3 })], HOLD],
-  ['wrap-left', [clip({ preset: 'caption', text: LONG, maxWidth: 0.3, align: 'left' })], HOLD],
-  ['wrap-leading-space', [clip({ preset: 'caption', text: '  ' + LONG, maxWidth: 0.3 })], HOLD],
-  ['pill', [clip({ preset: 'caption', box: { color: '#111827', opacity: 0.9 } })], HOLD],
-  ['pill-wrap-left', [clip({ preset: 'caption', text: LONG, maxWidth: 0.3, align: 'left', box: { color: '#ce5d42' } })], HOLD],
+  [
+    'wrap-left',
+    [clip({ preset: 'caption', text: LONG, maxWidth: 0.3, align: 'left' })],
+    HOLD,
+  ],
+  [
+    'wrap-leading-space',
+    [clip({ preset: 'caption', text: '  ' + LONG, maxWidth: 0.3 })],
+    HOLD,
+  ],
+  [
+    'pill',
+    [clip({ preset: 'caption', box: { color: '#111827', opacity: 0.9 } })],
+    HOLD,
+  ],
+  [
+    'pill-wrap-left',
+    [
+      clip({
+        preset: 'caption',
+        text: LONG,
+        maxWidth: 0.3,
+        align: 'left',
+        box: { color: '#ce5d42' },
+      }),
+    ],
+    HOLD,
+  ],
   ['stroke', [clip({ stroke: { color: '#000000', width: 6 } })], HOLD],
   ['no-shadow', [clip({ shadow: 0 })], HOLD],
   ['italic', [clip({ italic: true })], HOLD],
-  ['spacing', [clip({ letterSpacing: 6, lineHeight: 1.6, text: 'Ship it\nfaster' })], HOLD],
-  ['family', [clip({ family: 'Playfair Display', weight: 700, color: '#fde68a' })], HOLD],
+  [
+    'spacing',
+    [clip({ letterSpacing: 6, lineHeight: 1.6, text: 'Ship it\nfaster' })],
+    HOLD,
+  ],
+  [
+    'family',
+    [clip({ family: 'Playfair Display', weight: 700, color: '#fde68a' })],
+    HOLD,
+  ],
   ['size-color', [clip({ size: 120, color: '#93c5fd' })], HOLD],
-  ['posed', [clip({ transform: { x: 0.4, y: 0.6, scale: 1.6, rotation: -8 } })], HOLD],
+  [
+    'posed',
+    [clip({ transform: { x: 0.4, y: 0.6, scale: 1.6, rotation: -8 } })],
+    HOLD,
+  ],
   ['enter-mid', [clip()], 0.62],
   ['exit-mid', [clip()], 3.38],
   ['em', [clip({ preset: 'caption', text: EM, emphasis: {} })], HOLD],
-  ['em-color', [clip({ preset: 'caption', text: EM, emphasis: { color: '#ce5d42', weight: 800 } })], HOLD],
-  ['em-wrap', [clip({ preset: 'caption', text: EM, emphasis: {}, maxWidth: 0.3 })], HOLD],
-  ['em-wrap-left-pill', [clip({ preset: 'caption', text: EM, emphasis: {}, maxWidth: 0.3, align: 'left', box: { color: '#111827' } })], HOLD],
-  ['em-stroke', [clip({ text: 'Ship it *faster*', emphasis: {}, stroke: { color: '#000000', width: 6 } })], HOLD],
-  ['em-lines', [clip({ text: 'Ship *it*\n*faster* than\nyou think', emphasis: {}, align: 'right' })], HOLD],
+  [
+    'em-color',
+    [
+      clip({
+        preset: 'caption',
+        text: EM,
+        emphasis: { color: '#ce5d42', weight: 800 },
+      }),
+    ],
+    HOLD,
+  ],
+  [
+    'em-wrap',
+    [clip({ preset: 'caption', text: EM, emphasis: {}, maxWidth: 0.3 })],
+    HOLD,
+  ],
+  [
+    'em-wrap-left-pill',
+    [
+      clip({
+        preset: 'caption',
+        text: EM,
+        emphasis: {},
+        maxWidth: 0.3,
+        align: 'left',
+        box: { color: '#111827' },
+      }),
+    ],
+    HOLD,
+  ],
+  [
+    'em-stroke',
+    [
+      clip({
+        text: 'Ship it *faster*',
+        emphasis: {},
+        stroke: { color: '#000000', width: 6 },
+      }),
+    ],
+    HOLD,
+  ],
+  [
+    'em-lines',
+    [
+      clip({
+        text: 'Ship *it*\n*faster* than\nyou think',
+        emphasis: {},
+        align: 'right',
+      }),
+    ],
+    HOLD,
+  ],
   ['em-title-weight', [clip({ text: 'Ship it *faster*', emphasis: {} })], HOLD],
-  ['fx-word-mid', [clip({ preset: 'caption', text: LONG, anim: { enter: { kind: 'rise', unit: 'word' } } })], MID],
-  ['fx-word-settled', [clip({ preset: 'caption', text: LONG, anim: { enter: { kind: 'rise', unit: 'word' } } })], HOLD],
-  ['fx-char-pop-mid', [clip({ anim: { enter: { kind: 'pop', unit: 'char' } } })], MID],
-  ['fx-char-settled', [clip({ anim: { enter: { kind: 'pop', unit: 'char' } } })], HOLD],
-  ['fx-line-wrap-mid', [clip({ preset: 'caption', text: LONG, maxWidth: 0.3, anim: { enter: { kind: 'fade', unit: 'line' } } })], MID],
-  ['fx-typewriter-mid', [clip({ anim: { enter: { kind: 'typewriter', unit: 'char' } } })], MID],
-  ['fx-blur-word-mid', [clip({ anim: { enter: { kind: 'blur', unit: 'word' } } })], 0.6],
-  ['fx-word-wrap-left-mid', [clip({ preset: 'caption', text: LONG, maxWidth: 0.3, align: 'left', anim: { enter: { kind: 'rise', unit: 'word', direction: 'center' } } })], MID],
-  ['fx-block-pop-mid', [clip({ anim: { enter: { kind: 'pop', unit: 'block' } } })], 0.6],
-  ['em-fx-word-mid', [clip({ preset: 'caption', text: EM, emphasis: {}, anim: { enter: { kind: 'rise', unit: 'word' } } })], MID],
-  ['em-fx-word-settled', [clip({ preset: 'caption', text: EM, emphasis: {}, anim: { enter: { kind: 'rise', unit: 'word' } } })], HOLD],
-  ['em-fx-word-wrap-settled', [clip({ preset: 'caption', text: EM, emphasis: {}, maxWidth: 0.3, anim: { enter: { kind: 'fade', unit: 'word' } } })], HOLD],
-  ['em-fx-char-settled', [clip({ text: 'Ship it *faster*', emphasis: {}, anim: { enter: { kind: 'fade', unit: 'char' } } })], HOLD],
-  ['em-fx-line-wrap-settled', [clip({ preset: 'caption', text: EM, emphasis: {}, maxWidth: 0.3, anim: { enter: { kind: 'fade', unit: 'line' } } })], HOLD],
+  [
+    'fx-word-mid',
+    [
+      clip({
+        preset: 'caption',
+        text: LONG,
+        anim: { enter: { kind: 'rise', unit: 'word' } },
+      }),
+    ],
+    MID,
+  ],
+  [
+    'fx-word-settled',
+    [
+      clip({
+        preset: 'caption',
+        text: LONG,
+        anim: { enter: { kind: 'rise', unit: 'word' } },
+      }),
+    ],
+    HOLD,
+  ],
+  [
+    'fx-char-pop-mid',
+    [clip({ anim: { enter: { kind: 'pop', unit: 'char' } } })],
+    MID,
+  ],
+  [
+    'fx-char-settled',
+    [clip({ anim: { enter: { kind: 'pop', unit: 'char' } } })],
+    HOLD,
+  ],
+  [
+    'fx-line-wrap-mid',
+    [
+      clip({
+        preset: 'caption',
+        text: LONG,
+        maxWidth: 0.3,
+        anim: { enter: { kind: 'fade', unit: 'line' } },
+      }),
+    ],
+    MID,
+  ],
+  [
+    'fx-typewriter-mid',
+    [clip({ anim: { enter: { kind: 'typewriter', unit: 'char' } } })],
+    MID,
+  ],
+  [
+    'fx-blur-word-mid',
+    [clip({ anim: { enter: { kind: 'blur', unit: 'word' } } })],
+    0.6,
+  ],
+  [
+    'fx-word-wrap-left-mid',
+    [
+      clip({
+        preset: 'caption',
+        text: LONG,
+        maxWidth: 0.3,
+        align: 'left',
+        anim: { enter: { kind: 'rise', unit: 'word', direction: 'center' } },
+      }),
+    ],
+    MID,
+  ],
+  [
+    'fx-block-pop-mid',
+    [clip({ anim: { enter: { kind: 'pop', unit: 'block' } } })],
+    0.6,
+  ],
+  [
+    'em-fx-word-mid',
+    [
+      clip({
+        preset: 'caption',
+        text: EM,
+        emphasis: {},
+        anim: { enter: { kind: 'rise', unit: 'word' } },
+      }),
+    ],
+    MID,
+  ],
+  [
+    'em-fx-word-settled',
+    [
+      clip({
+        preset: 'caption',
+        text: EM,
+        emphasis: {},
+        anim: { enter: { kind: 'rise', unit: 'word' } },
+      }),
+    ],
+    HOLD,
+  ],
+  [
+    'em-fx-word-wrap-settled',
+    [
+      clip({
+        preset: 'caption',
+        text: EM,
+        emphasis: {},
+        maxWidth: 0.3,
+        anim: { enter: { kind: 'fade', unit: 'word' } },
+      }),
+    ],
+    HOLD,
+  ],
+  [
+    'em-fx-char-settled',
+    [
+      clip({
+        text: 'Ship it *faster*',
+        emphasis: {},
+        anim: { enter: { kind: 'fade', unit: 'char' } },
+      }),
+    ],
+    HOLD,
+  ],
+  [
+    'em-fx-line-wrap-settled',
+    [
+      clip({
+        preset: 'caption',
+        text: EM,
+        emphasis: {},
+        maxWidth: 0.3,
+        anim: { enter: { kind: 'fade', unit: 'line' } },
+      }),
+    ],
+    HOLD,
+  ],
   [
     'two-clips',
     [
       clip({ id: 'a', transform: { x: 0.5, y: 0.3, scale: 1, rotation: 0 } }),
-      clip({ id: 'b', preset: 'caption', text: EM, emphasis: {}, transform: { x: 0.5, y: 0.7, scale: 1, rotation: 0 } }),
+      clip({
+        id: 'b',
+        preset: 'caption',
+        text: EM,
+        emphasis: {},
+        transform: { x: 0.5, y: 0.7, scale: 1, rotation: 0 },
+      }),
     ],
     HOLD,
   ],
@@ -129,7 +350,15 @@ const makeDoc = (overlays) => ({
   source: {
     videoKey: 'blob:video',
     cursor: [{ t: 0, x: 100, y: 100, type: 'move' }],
-    meta: { dpr: 2, zoom: 1, t0: 0, durationMs: 4000, width: 1600, height: 900, fps: 30 },
+    meta: {
+      dpr: 2,
+      zoom: 1,
+      t0: 0,
+      durationMs: 4000,
+      width: 1600,
+      height: 900,
+      fps: 30,
+    },
   },
   segments: [{ in: 0, out: 4 }],
   zoom: [],
@@ -235,9 +464,13 @@ if (OUT) {
   console.log(`\n${CASES.length} pictures written to ${OUT}`)
 } else if (blank > 0) {
   // A corpus of empty canvases agrees with anything.
-  console.error(`\nINCONCLUSIVE: ${blank} case(s) painted nothing on either side.`)
+  console.error(
+    `\nINCONCLUSIVE: ${blank} case(s) painted nothing on either side.`,
+  )
   process.exit(1)
 } else if (failed.length) {
-  console.error(`\nFAILED: ${failed.length} case(s) differ: ${failed.join(', ')}`)
+  console.error(
+    `\nFAILED: ${failed.length} case(s) differ: ${failed.join(', ')}`,
+  )
   process.exit(1)
 } else console.log('\nPASS: every case paints as it did.')

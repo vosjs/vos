@@ -68,7 +68,8 @@ import {
   overlayFontFaces,
   overlayLines,
   overlayDisplayText,
-  resolveEmphasis,
+  stripEmphasis,
+  styledTextOf,
   resolveOverlayBox,
   resolveOverlayFx,
   resolveOverlayStyle,
@@ -3137,31 +3138,16 @@ export function studioLayerData(
             }
             const st = resolveOverlayStyle(o)
             const bx = resolveOverlayBox(o)
-            const em = resolveEmphasis(o)
+            const rt = styledTextOf(o)
             return {
               ...base,
               text: o.text,
-              // The DISPLAYED lines: emphasis marks inline, else the source.
-              lines: overlayLines(overlayDisplayText(o)),
-              // Emphasis set (weight, colour, face to lazy-load), only when
-              // the text marks a word: an unmarked clip's data is unchanged.
-              ...(em
-                ? {
-                    em: {
-                      w: em.weight,
-                      ...(em.color ? { c: em.color } : {}),
-                      ...(em.face
-                        ? {
-                            face: {
-                              f: em.face.family,
-                              w: em.face.weight,
-                              u: em.face.url,
-                            },
-                          }
-                        : {}),
-                    },
-                  }
-                : {}),
+              // The lines a person reads. A styled layer (rt) is painted from
+              // its runs; these are then its words, for the signature.
+              lines: overlayLines(stripEmphasis(overlayDisplayText(o))),
+              // The styled payload, only when the layer is set in more than
+              // one style: a plain clip's data is unchanged.
+              ...(rt ? { rt } : {}),
               fs: st.size,
               weight: st.weight,
               stack: st.stack,

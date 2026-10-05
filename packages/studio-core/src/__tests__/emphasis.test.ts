@@ -3,12 +3,12 @@ import { lerpArray, mapTime, sample } from '@vosjs/timeline'
 import {
   EM_CLOSE,
   EM_OPEN,
-  measureEmphasized,
   overlayFontFaces,
   overlayRect,
   parseEmphasis,
   resolveEmphasis,
   stripEmphasis,
+  styledTextOf,
 } from '../overlayText'
 import {
   BASE_FRAME_STYLE,
@@ -141,8 +141,41 @@ describe('lowering', () => {
       makeDoc([emClip({ text: 'Read *every candle*' })]),
     )
     const ol = (data as { overlays: Record<string, unknown>[] }).overlays[0]
-    expect(ol.lines).toEqual([`Read ${O}every${C} ${O}candle${C}`])
-    expect(ol.em).toMatchObject({ w: 700 })
+    // The lines are the words; the styling is the runs beside them.
+    expect(ol.lines).toEqual(['Read every candle'])
+    expect(ol.em).toBeUndefined()
+    expect(ol.rt).toMatchObject({
+      l: [
+        [
+          { t: 'Read ' },
+          { t: 'every', f: 1 },
+          { t: ' ' },
+          { t: 'candle', f: 1 },
+        ],
+      ],
+      fs: [{ w: 400 }, { w: 700 }],
+    })
+  })
+
+  it('a marked clip is styled text, each marked word a run in the emphasis font', () => {
+    const styled = styledTextOf(
+      emClip({ text: 'a *b c*\nd', emphasis: { color: '#ff0000' } }),
+    )!
+    expect(styled.l).toEqual([
+      [
+        { t: 'a ' },
+        { t: 'b', f: 1, c: '#ff0000' },
+        { t: ' ' },
+        { t: 'c', f: 1, c: '#ff0000' },
+      ],
+      [{ t: 'd' }],
+    ])
+    expect(styled.fs).toEqual([{ w: 400 }, { w: 700 }])
+    expect(styledTextOf(clip({ text: 'plain *as typed*' }))).toBeNull()
+    // The hash follows the runs, so an edit to them is a new layout.
+    expect(styledTextOf(emClip({ text: 'a *b*' }))!.h).not.toBe(
+      styledTextOf(emClip({ text: 'a *c*' }))!.h,
+    )
   })
 
   it('the emphasis weight and colour are the clip’s to set', () => {
@@ -289,14 +322,8 @@ describe('drawing (stub ON_FRAME)', () => {
     const painted = t.reduce((w, r) => w + widthIn(r.text, r.font), 0)
     const rect = overlayRect(c, (text, font) => widthIn(text, font), 1920)
     expect(rect.w).toBeCloseTo(painted, 6)
-    expect(
-      measureEmphasized(
-        parseEmphasis(c.text)!,
-        widthIn,
-        '400 32px x',
-        '700 32px x',
-      ),
-    ).toBe(painted)
+    // 'Set up ' at 10 a char, the two marked words at 13, the space at 10.
+    expect(painted).toBe(70 + 9 * 13 + 10 + 8 * 13)
   })
 
   it('a word-by-word reveal keeps each word in its weight', () => {

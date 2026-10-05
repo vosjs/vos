@@ -449,11 +449,40 @@ export {
   overlayDisplayText,
   stripEmphasis,
   resolveEmphasis,
-  measureEmphasized,
+  styledTextOf,
   overlayRect,
   resolveOverlayBox,
   resolveOverlayStyle,
 } from './overlayText'
+export {
+  layoutText,
+  decorationRect,
+  tokenRanges,
+  UNDERLINE_OFFSET_EM,
+  STRIKE_OFFSET_EM,
+  DECORATION_THICKNESS_EM,
+  HIGHLIGHT_HALF_EM,
+} from './richText/layout'
+export type {
+  Fragment,
+  LayoutInput,
+  LayoutLine,
+  LayoutRun,
+  LayoutUnit,
+  Measure as TextMeasure,
+  RunStyle,
+  TextLayout,
+  Unit as LayoutUnitBox,
+} from './richText/layout'
+export {
+  caretAt,
+  caretStops,
+  lineOfOffset,
+  offsetAtX,
+  rangeRects,
+} from './richText/caret'
+export type { CaretStop } from './richText/caret'
+export type { StyledText } from './overlayText'
 export type {
   OverlayFontFace,
   OverlayPresetStyle,
