@@ -940,7 +940,7 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
     if (ol.rt) {
       var rtFonts = [ovC.font]
       for (var rfi = 1; rfi < ol.rt.fs.length; rfi++) {
-        rtFonts.push((ol.sty ? ol.sty + ' ' : '') + ol.rt.fs[rfi].w + ' ' + olPx + 'px ' + ol.stack)
+        rtFonts.push((ol.rt.fs[rfi].i ? 'italic ' : '') + ol.rt.fs[rfi].w + ' ' + olPx + 'px ' + ol.stack)
       }
       var rtFx = ol.fx && ol.fx.units.length ? ol.fx : null
       var rtMax = ol.mw ? ol.mw * W : 0

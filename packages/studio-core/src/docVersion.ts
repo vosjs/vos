@@ -10,10 +10,13 @@
  * pull`) run through migrateHostedDoc before trusting a hosted doc.
  */
 import { migrateMotion } from './lower/motion'
+import { migrateText } from './richText/migrateEmphasis'
 import { RETIRED_ZOOM_STYLES } from './zoomStyle'
 import type { ProjectDoc } from './types'
 
 /**
+ * 6 = the runs era: a text layer's `emphasis` and its `*marked*` words are
+ * read into runs (`migrateText`); a layer without `emphasis` is untouched.
  * 5 = the six-style era: the retired camera styles `keynote` and `drift`
  * are read into their live style plus the tilt intensity the name carried
  * (`glide` + medium, `cinema` + subtle; an explicit `tiltStyle` wins). The
@@ -27,7 +30,7 @@ import type { ProjectDoc } from './types'
  * document); a v1 doc IS a recording document, so 1 → 2 was a stamp, and
  * 0 → 1 was a stamp too.
  */
-export const DOC_SCHEMA_VERSION = 5
+export const DOC_SCHEMA_VERSION = 6
 
 /**
  * Upgrade a hosted doc.json payload to the current schema version.
@@ -53,6 +56,11 @@ export function migrateHostedDoc(
     >
   }
   if (version < 5) doc = migrateZoomStyle(doc)
+  if (version < 6)
+    doc = migrateText(doc as Pick<ProjectDoc, 'overlays'>) as Record<
+      string,
+      unknown
+    >
   return { ...doc, docSchemaVersion: DOC_SCHEMA_VERSION }
 }
 

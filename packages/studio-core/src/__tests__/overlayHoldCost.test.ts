@@ -73,8 +73,11 @@ interface FrameCost {
 const QUIET: FrameCost = { uploaded: false, measures: 0, fills: 0 }
 
 const EM_WRAP = clip({
-  text: 'Set up *different purposes* for every page of the product you ship',
-  emphasis: {},
+  text: [
+    { text: 'Set up ' },
+    { text: 'different purposes', weight: 700 },
+    { text: ' for every page of the product you ship' },
+  ],
   maxWidth: 0.2,
 })
 
@@ -229,8 +232,14 @@ describe('what a text layer costs per frame', () => {
       { stroke: { color: '#000000', width: 2 } },
       { box: { color: '#111111' } },
       { family: 'Sora' },
-      { text: 'Ship it *faster*', emphasis: {} },
-      { text: 'Ship it *faster*', emphasis: { color: '#ff0000' } },
+      { text: [{ text: 'Ship it ' }, { text: 'faster', weight: 700 }] },
+      { text: [{ text: 'Ship it ' }, { text: 'faster', color: '#ff0000' }] },
+      { text: [{ text: 'Ship it ' }, { text: 'faster', underline: true }] },
+      { text: [{ text: 'Ship it ' }, { text: 'faster', strike: true }] },
+      {
+        text: [{ text: 'Ship it ' }, { text: 'faster', highlight: '#333333' }],
+      },
+      { text: [{ text: 'Ship it ' }, { text: 'faster', italic: true }] },
     ]
     for (const e of edits) {
       run.setData([{ ...base, ...e }])

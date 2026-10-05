@@ -67,13 +67,13 @@ import {
   overlayFaceFor,
   overlayFontFaces,
   overlayLines,
-  overlayDisplayText,
-  stripEmphasis,
+  overlayPlainText,
   styledTextOf,
   resolveOverlayBox,
   resolveOverlayFx,
   resolveOverlayStyle,
 } from '../overlayText'
+import { migrateText } from '../richText/migrateEmphasis'
 import { resolveText3dAsset } from '../text3d'
 import {
   CARD_EDGE_OVERDRAW,
@@ -3141,10 +3141,10 @@ export function studioLayerData(
             const rt = styledTextOf(o)
             return {
               ...base,
-              text: o.text,
+              text: overlayPlainText(o),
               // The lines a person reads. A styled layer (rt) is painted from
               // its runs; these are then its words, for the signature.
-              lines: overlayLines(stripEmphasis(overlayDisplayText(o))),
+              lines: overlayLines(overlayPlainText(o)),
               // The styled payload, only when the layer is set in more than
               // one style: a plain clip's data is unchanged.
               ...(rt ? { rt } : {}),
@@ -3208,7 +3208,7 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
   // One vocabulary first: a legacy entrance, end card or clip spelling is
   // read into `anim` (the end card into clips after the footage plus a
   // card exit), so every track below is laid out against one shape.
-  const doc = migrateMotion(input)
+  const doc = migrateText(migrateMotion(input))
   const rated = ratedSegments(doc)
   // The boundaries that move (a clip's enter or exit, the card's slide at
   // the open), in output seconds; the camera rests through each window.
@@ -3484,7 +3484,7 @@ function loweredZoomSpans(
 export function docZoomTrack(
   input: ProjectDoc,
 ): KeyframeTrack<number[]> | undefined {
-  const doc = migrateMotion(input)
+  const doc = migrateText(migrateMotion(input))
   const rated = ratedSegments(doc)
   const transitions = docTransitions(doc)
   const layout = docCardLayout(doc)

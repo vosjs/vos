@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { lerpArray, sample } from '@vosjs/timeline'
-import { migrateHostedDoc, migrateZoomStyle } from '../docVersion'
+import {
+  DOC_SCHEMA_VERSION,
+  migrateHostedDoc,
+  migrateZoomStyle,
+} from '../docVersion'
 import {
   RAMP_FLOOR,
   tiltTrackFromDoc,
@@ -232,7 +236,7 @@ describe('retired names on read', () => {
       zoomStyle: 'drift',
     }
     const out = migrateHostedDoc(v4)
-    expect(out.docSchemaVersion).toBe(5)
+    expect(out.docSchemaVersion).toBe(DOC_SCHEMA_VERSION)
     expect(out.zoomStyle).toBe('cinema')
     expect(out.tiltStyle).toBe('subtle')
     expect(out.zoom).toEqual([]) // never re-planned
