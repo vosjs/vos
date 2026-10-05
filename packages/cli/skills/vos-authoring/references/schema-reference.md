@@ -307,7 +307,7 @@ Elements are 2D content rendered as textured planes in the WebGL scene. They are
 | `type` | `"text" \| "image" \| "svg" \| "video"` | Yes | — | Element type |
 | `position` | `string \| {x, y}` | Yes | — | Position preset or coordinates |
 | `id` | `string` | No | — | ID for referencing in createTimeline |
-| `anchor` | `string` | No | `"center"` | Anchor point for positioning |
+| `anchor` | `string` | No | box top-left | The point of the box an `{x, y}` position names: `center`, `top`, `bottom-right`, … (a preset position ignores it) |
 | `zIndex` | `number` | No | `100` | Layer order (higher = on top of 3D) |
 | `opacity` | `number` | No | `1` | Opacity 0-1 |
 | `transform` | `Transform` | No | — | 3D transform overrides |

@@ -73,6 +73,34 @@ describe('vos delete', () => {
     expect(existsSync(join(dir, 'vos.json'))).toBe(false)
   })
 
+  it('deleting by id unlinks the working directory when it tracks that vos', async () => {
+    const origin = await serve([])
+    const dir = mkdtempSync(join(tmpdir(), 'vos-delete-cwd-'))
+    writeFileSync(join(dir, 'vos.json'), JSON.stringify({ vosId: 'v-9' }))
+    const prev = process.cwd()
+    process.chdir(dir)
+    try {
+      await cmdDelete(['v-9', '--yes', '--origin', origin, ...KEY])
+    } finally {
+      process.chdir(prev)
+    }
+    expect(existsSync(join(dir, 'vos.json'))).toBe(false)
+  })
+
+  it('deleting by id leaves a working directory that tracks another vos', async () => {
+    const origin = await serve([])
+    const dir = mkdtempSync(join(tmpdir(), 'vos-delete-other-'))
+    writeFileSync(join(dir, 'vos.json'), JSON.stringify({ vosId: 'v-other' }))
+    const prev = process.cwd()
+    process.chdir(dir)
+    try {
+      await cmdDelete(['v-9', '--yes', '--origin', origin, ...KEY])
+    } finally {
+      process.chdir(prev)
+    }
+    expect(existsSync(join(dir, 'vos.json'))).toBe(true)
+  })
+
   it('says who is deleting, so Trash can name the tool', async () => {
     clients.length = 0
     const origin = await serve([])

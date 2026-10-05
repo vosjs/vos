@@ -44,6 +44,7 @@ import {
   requireCredential,
   serverWarnings,
   writeSyncState,
+  detailLine,
 } from './platform'
 import type { UploadedAsset } from './uploadAsset'
 import type { MediaPullResult } from './media'
@@ -79,21 +80,6 @@ async function api(
 ): Promise<{ status: number; json: Record<string, unknown> }> {
   const r = await apiJson(ctx.origin, `/api${path}`, { ...init, key: ctx.key })
   return { status: r.status, json: r.body }
-}
-
-/**
- * A 400's zod issues, in words an agent can act on (`label: String must
- * contain at most 60 character(s)`). A bare "Invalid input" cost a real push
- * a round trip (DF1, 2026-08-25).
- */
-function detailLine(body: Record<string, unknown>): string {
-  const details = body.details
-  if (!Array.isArray(details) || !details.length) return ''
-  const lines = (details as Record<string, unknown>[]).map((d) => {
-    const path = Array.isArray(d.path) ? d.path.join('.') : ''
-    return `${path ? `${path}: ` : ''}${String(d.message ?? JSON.stringify(d))}`
-  })
-  return `\n  ${lines.join('\n  ')}`
 }
 
 /** Print a /changes payload's summaries — the human's half of the loop. */

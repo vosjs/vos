@@ -177,11 +177,31 @@ export async function apiJson(
   return { status: res.status, body }
 }
 
-/** Human-readable error line for a failed platform response. Never echoes credentials. */
+/**
+ * A refusal's issue list (`details: [{ path, message }]`, the shape every
+ * vos.so route answers a failed schema with), one indented line per issue.
+ * Empty when the body carries none.
+ */
+export function detailLine(body: Record<string, unknown>): string {
+  const details = body.details
+  if (!Array.isArray(details) || !details.length) return ''
+  const lines = (details as Record<string, unknown>[]).map((d) => {
+    const path = Array.isArray(d.path) ? d.path.join('.') : ''
+    return `${path ? `${path}: ` : ''}${String(d.message ?? JSON.stringify(d))}`
+  })
+  return `\n  ${lines.join('\n  ')}`
+}
+
+/**
+ * Human-readable error line for a failed platform response, with the
+ * issues behind a generic `error` ("Invalid input") on the lines below it,
+ * because the generic word alone names nothing to fix. Never echoes
+ * credentials.
+ */
 export function apiError(what: string, r: ApiResult): string {
   const detail =
     typeof r.body.error === 'string'
-      ? r.body.error
+      ? r.body.error + detailLine(r.body)
       : r.body.details !== undefined
         ? JSON.stringify(r.body.details)
         : ''

@@ -13,7 +13,8 @@
  * `--yes` said out loud. `--dry-run` names what would move and moves
  * nothing, so an agent asked to clean up can show the list first. A
  * directory that tracked the vos is unlinked (its vos.json removed), or the
- * next push would iterate a vos that is in Trash.
+ * next push would iterate a vos that is in Trash: the one named, or, for a
+ * delete by id or URL, the working directory when its vos.json tracks it.
  */
 import { existsSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
@@ -93,15 +94,18 @@ export async function cmdDelete(argv: string[]): Promise<number> {
   })
   if (res.status !== 200 && res.status !== 204)
     throw new Error(apiError(`delete ${vosId}`, res))
+  const tracking = dir ?? trackingCwd(vosId)
   let unlinked = false
-  if (dir) {
-    rmSync(join(dir, SYNC_STATE_NAME), { force: true })
+  if (tracking) {
+    rmSync(join(tracking, SYNC_STATE_NAME), { force: true })
     unlinked = true
   }
   const trashed = res.body.trashed === true
   const restoreUntil =
     typeof res.body.restoreUntil === 'string' ? res.body.restoreUntil : null
-  const tail = unlinked ? `; ${dir} no longer tracks it` : ''
+  const tail = unlinked
+    ? `; ${dir ?? 'this directory'} no longer tracks it`
+    : ''
   r.done(
     {
       id: vosId,
@@ -120,4 +124,11 @@ export async function cmdDelete(argv: string[]): Promise<number> {
         `deleted "${title}" (${vosId})${tail}`,
   )
   return EXIT_OK
+}
+
+/** The working directory, when its own vos.json tracks `vosId`. */
+function trackingCwd(vosId: string): string | null {
+  const cwd = process.cwd()
+  if (!existsSync(join(cwd, SYNC_STATE_NAME))) return null
+  return readSyncState(cwd)?.vosId === vosId ? cwd : null
 }

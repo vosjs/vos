@@ -166,7 +166,10 @@ and `shadow.blur` are design pixels (a 1080-high frame). There is no
 - a preset (`'center'`, `'top-left'`, … `'bottom-right'`) sets the box
   flush against the frame's edges or centre, with no margin;
 - `{ x: '10%', y: '20%' }` (strings) puts the box's TOP-LEFT corner at
-  that fraction of the frame, the same at every output size;
+  that fraction of the frame, the same at every output size; add
+  `anchor` (`'center'`, `'top'`, `'bottom-right'`, …) to put that point
+  of the box there instead (`anchor: 'center'` centres a caption on
+  `x: '50%'`). A preset ignores `anchor`;
 - `{ x: 120, y: 80 }` (numbers) is RENDER pixels of that corner, never
   scaled, so it moves when the output size changes: use a percentage or a
   preset plus `transform` instead.
@@ -174,9 +177,9 @@ and `shadow.blur` are design pixels (a 1080-high frame). There is no
 Then `transform.translateX` / `translateY` (design px, y down) move it.
 `transform.scale`, `translateZ` and `rotation` / `rotateZ` (degrees,
 about the box's centre) apply to a whole element, and a `split` element
-takes only the translate. `anchor`, `transform.origin`, `scaleX`,
-`scaleY`, `rotateX`, `rotateY` and `perspective` are not read: the
-origin is always the box's centre. A config `rotation` is lost the first
+takes only the translate. `transform.origin`, `scaleX`, `scaleY`,
+`rotateX`, `rotateY` and `perspective` are not read: the origin is always
+the box's centre. A config `rotation` is lost the first
 time a tween writes `props.scale*` or `props.rotation*` (the props start at
 rotation 0), so an element that is both tilted and animated takes its tilt
 as `props.rotation` in the timeline (a `tl.set` at 0), never in the config.

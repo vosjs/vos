@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  apiError,
   clientId,
   parseVosId,
   platformOrigin,
@@ -11,6 +12,30 @@ import {
 } from '../platform'
 import { preflightConfig } from '../program'
 import { UsageError } from '../args'
+
+describe('apiError', () => {
+  it('prints the issues behind a generic error, one per line', () => {
+    const line = apiError('push vos', {
+      status: 400,
+      body: {
+        error: 'Invalid input',
+        details: [
+          { path: ['config'], message: 'elements[0].src names "logo.png"' },
+          { path: [], message: 'Missing "version"' },
+        ],
+      },
+    })
+    expect(line).toBe(
+      'push vos → 400: Invalid input\n  config: elements[0].src names "logo.png"\n  Missing "version"',
+    )
+  })
+
+  it('keeps a bare error to one line', () => {
+    expect(
+      apiError('read v-1', { status: 404, body: { error: 'Not found' } }),
+    ).toBe('read v-1 → 404: Not found')
+  })
+})
 
 describe('platformOrigin', () => {
   const saved = { ...process.env }
