@@ -202,6 +202,9 @@ importers:
       '@vosjs/core':
         specifier: workspace:^
         version: link:../core
+      esbuild:
+        specifier: ^0.27.0
+        version: 0.27.7
       three:
         specifier: ^0.182.0
         version: 0.182.0

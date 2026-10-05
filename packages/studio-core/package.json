@@ -44,6 +44,7 @@
   "devDependencies": {
     "@types/three": "^0.182.0",
     "@vosjs/core": "workspace:^",
+    "esbuild": "^0.27.0",
     "three": "^0.182.0",
     "tsup": "^8.5.0",
     "typescript": "^5",
