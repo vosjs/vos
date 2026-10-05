@@ -1,7 +1,7 @@
 /**
  * The text layer's pixels, as a corpus: every way a text layer is set
- * (presets, alignment, wrap, pill, stroke, emphasis, each per-unit entrance,
- * mid-animation and settled), painted by the studio entry's own ON_FRAME on a
+ * (presets, alignment, wrap, pill, stroke, the retired emphasis, runs in every
+ * style, each per-unit entrance, mid-animation and settled), painted by the studio entry's own ON_FRAME on a
  * real 2D canvas in a real browser, with the hosted faces loaded.
  *
  * It exists to hold a change to the painter against what the painter drew
@@ -340,6 +340,150 @@ const CASES = [
         text: EM,
         emphasis: {},
         transform: { x: 0.5, y: 0.7, scale: 1, rotation: 0 },
+      }),
+    ],
+    HOLD,
+  ],
+  // Runs: every style, alone and together, where a style starts and ends
+  // anywhere (mid-word, across a line break), wrapped, and revealed by unit.
+  [
+    'runs-styles',
+    [
+      clip({
+        preset: 'caption',
+        text: [
+          { text: 'Plain ' },
+          { text: 'bold', weight: 700 },
+          { text: ' ' },
+          { text: 'italic', italic: true },
+          { text: ' ' },
+          { text: 'under', underline: true },
+          { text: ' ' },
+          { text: 'struck', strike: true },
+          { text: ' ' },
+          { text: 'colour', color: '#e37358' },
+          { text: ' ' },
+          { text: 'marked', highlight: '#3b4a6b' },
+        ],
+      }),
+    ],
+    HOLD,
+  ],
+  [
+    'runs-together',
+    [
+      clip({
+        text: [
+          { text: 'Ship it ' },
+          {
+            text: 'faster',
+            weight: 700,
+            italic: true,
+            underline: true,
+            color: '#e37358',
+            highlight: '#2a2a33',
+          },
+        ],
+      }),
+    ],
+    HOLD,
+  ],
+  [
+    'runs-midword-lines',
+    [
+      clip({
+        text: [
+          { text: 'unbe' },
+          { text: 'liev\nab', weight: 700, underline: true },
+          { text: 'le speed' },
+        ],
+        align: 'left',
+      }),
+    ],
+    HOLD,
+  ],
+  [
+    'runs-wrap-pill',
+    [
+      clip({
+        preset: 'caption',
+        maxWidth: 0.3,
+        align: 'left',
+        box: { color: '#111827' },
+        text: [
+          { text: 'Set up ' },
+          { text: 'different purposes for every', underline: true },
+          { text: ' page of the ' },
+          { text: 'product', strike: true, color: '#9ca3af' },
+          { text: ' you ship' },
+        ],
+      }),
+    ],
+    HOLD,
+  ],
+  [
+    'runs-stroke-highlight',
+    [
+      clip({
+        stroke: { color: '#000000', width: 6 },
+        text: [
+          { text: 'Ship ' },
+          { text: 'faster', highlight: '#ce5d42', underline: true },
+        ],
+      }),
+    ],
+    HOLD,
+  ],
+  [
+    'runs-fx-word-mid',
+    [
+      clip({
+        preset: 'caption',
+        anim: { enter: { kind: 'rise', unit: 'word' } },
+        text: [
+          { text: 'Set up ' },
+          { text: 'different purposes', highlight: '#3b4a6b', underline: true },
+          { text: ' for every page of the product' },
+        ],
+      }),
+    ],
+    MID,
+  ],
+  [
+    'runs-fx-char-settled',
+    [
+      clip({
+        anim: { enter: { kind: 'fade', unit: 'char' } },
+        text: [
+          { text: 'Ship it ' },
+          { text: 'faster', weight: 700, underline: true },
+        ],
+      }),
+    ],
+    HOLD,
+  ],
+  [
+    'runs-italic-layer',
+    [
+      clip({
+        italic: true,
+        text: [
+          { text: 'All italic but ' },
+          { text: 'this', italic: false, weight: 700 },
+        ],
+      }),
+    ],
+    HOLD,
+  ],
+  [
+    'runs-one-weight-family',
+    [
+      clip({
+        family: 'Bebas Neue',
+        text: [
+          { text: 'ONE WEIGHT ' },
+          { text: 'BOLD', weight: 700, underline: true },
+        ],
       }),
     ],
     HOLD,

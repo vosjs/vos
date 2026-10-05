@@ -48,7 +48,12 @@ import {
   pinCandidates,
   pinRectOnScreen,
   pinReferent,
-  parseEmphasis,
+  marksEmphasis,
+  migrateTextClip,
+  plainText,
+  resolveOverlayStyle,
+  snapRunWeight,
+  RUN_STYLE_KEYS,
   ratedSegments,
   recommendedExportResolution,
   resolvePins,
@@ -58,6 +63,7 @@ import {
   unionFitLevel,
 } from '@vosjs/studio-core'
 import { TYPEFACE_CATALOG, findFontFamily, findTypeface } from '@vosjs/shared'
+import type { RichText, TextOverlayClip } from '@vosjs/studio-core'
 import type {
   ExportResolution,
   ProjectDoc,
@@ -102,8 +108,8 @@ function layerWords(o: Record<string, unknown>): Set<string> {
   const src =
     typeof o.html === 'string'
       ? o.html.replace(/<[^>]*>/g, ' ')
-      : typeof o.text === 'string'
-        ? o.text
+      : typeof o.text === 'string' || Array.isArray(o.text)
+        ? plainText(o.text as RichText)
         : ''
   return new Set(wordsOf(src))
 }
@@ -1222,34 +1228,90 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
     }
     checkPin(o, name, docIn, recording, problems, warnings)
     if (o.kind === 'text') {
-      if (typeof o.text !== 'string')
-        problems.push(`${name}.text must be a string`)
+      // The words: a string, or runs (a piece of text and how it departs
+      // from the layer's style). An unknown run field is an ERROR that
+      // names it: a typo there paints nothing and says nothing.
+      if (Array.isArray(o.text)) {
+        const HINTS: Record<string, string> = {
+          bold: 'weight: 700',
+          fontWeight: 'weight',
+          strikethrough: 'strike: true',
+          background: 'highlight',
+          colour: 'color',
+        }
+        o.text.forEach((run: unknown, ri: number) => {
+          const at = `${name}.text[${ri}]`
+          if (!run || typeof run !== 'object' || Array.isArray(run)) {
+            problems.push(
+              `${at} must be a run: { text, weight?, italic?, color?, underline?, strike?, highlight? }`,
+            )
+            return
+          }
+          const r = run as Record<string, unknown>
+          if (typeof r.text !== 'string')
+            problems.push(`${at}.text must be a string`)
+          else if (!r.text)
+            warnings.push(`${at} has no text and paints nothing; drop it`)
+          for (const k of Object.keys(r)) {
+            if (
+              k === 'text' ||
+              (RUN_STYLE_KEYS as readonly string[]).includes(k)
+            )
+              continue
+            problems.push(
+              `${at}.${k} is not a run field (${RUN_STYLE_KEYS.join(', ')})${HINTS[k] ? `: write ${HINTS[k]}` : ''}`,
+            )
+          }
+          if (
+            r.weight !== undefined &&
+            (!isNum(r.weight) || r.weight < 100 || r.weight > 900)
+          )
+            problems.push(`${at}.weight must be 100..900`)
+          for (const k of ['italic', 'underline', 'strike'] as const) {
+            if (r[k] !== undefined && typeof r[k] !== 'boolean')
+              problems.push(`${at}.${k} must be true or false`)
+          }
+          for (const k of ['color', 'highlight'] as const) {
+            if (r[k] !== undefined && typeof r[k] !== 'string')
+              problems.push(`${at}.${k} must be a CSS colour`)
+          }
+          // A weight the family cannot offer paints as the layer's own.
+          if (isNum(r.weight) && r.weight >= 100 && r.weight <= 900) {
+            const layer = o as unknown as TextOverlayClip
+            const own = resolveOverlayStyle({ ...layer, text: '' }).weight
+            if (r.weight !== own && snapRunWeight(layer, r.weight) === own)
+              warnings.push(
+                `${at}.weight ${r.weight} paints no differently: the layer's family hosts no weight nearer to it than the layer's own ${own}`,
+              )
+          }
+        })
+      } else if (typeof o.text !== 'string') {
+        problems.push(
+          `${name}.text must be a string, or a list of runs ([{ text, weight?, italic?, color?, underline?, strike?, highlight? }])`,
+        )
+      }
       if (typeof o.preset === 'string' && !PRESETS.includes(o.preset)) {
         warnings.push(
           `${name}.preset "${String(o.preset)}" is not a known preset (${PRESETS.join('|')}) — falls back to "title"`,
         )
       }
-      // Emphasis is OPT-IN: asterisks are markers only on a clip carrying
-      // `emphasis`. A pair on a clip without it shows as typed, which is
-      // right for a literal `*`, so say it rather than refuse it.
-      if (o.emphasis !== undefined) {
-        const em = o.emphasis as Record<string, unknown> | null
-        if (!em || typeof em !== 'object' || Array.isArray(em)) {
-          problems.push(
-            `${name}.emphasis must be { weight?, color? } ({} turns *markers* on)`,
-          )
-        } else {
-          if (
-            em.weight !== undefined &&
-            (!isNum(em.weight) || em.weight < 100 || em.weight > 900)
-          )
-            problems.push(`${name}.emphasis.weight must be 100..900`)
-          if (em.color !== undefined && typeof em.color !== 'string')
-            problems.push(`${name}.emphasis.color must be a CSS colour`)
-        }
-      } else if (typeof o.text === 'string' && parseEmphasis(o.text) !== null) {
+      // `emphasis` and its *markers* are RETIRED. A layer that still carries
+      // the field is read into runs on its way to a render, so it paints as
+      // it did; say what to write instead, in full. Without the field,
+      // asterisks are text as typed, and a pair of them is usually someone
+      // reaching for bold.
+      if (o.emphasis !== undefined && typeof o.text === 'string') {
+        const runs = migrateTextClip(o as unknown as TextOverlayClip).text
         warnings.push(
-          `${name}.text has *marked* words but no emphasis, so the asterisks show as typed; add emphasis: {} to set them bold (\\* keeps one literal)`,
+          `${name}.emphasis is retired (styled words are runs now, with no markers in the text). It is still read, but write it as: "text": ${JSON.stringify(runs)} and drop "emphasis"`,
+        )
+      } else if (typeof o.text === 'string' && marksEmphasis(o.text)) {
+        const runs = migrateTextClip({
+          ...(o as unknown as TextOverlayClip),
+          emphasis: {},
+        } as unknown as TextOverlayClip).text
+        warnings.push(
+          `${name}.text has words between asterisks, which show as typed. To set them bold write runs: "text": ${JSON.stringify(runs)}`,
         )
       }
       if (
