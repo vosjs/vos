@@ -47,8 +47,16 @@ export function migrateHostedDoc(
 ): Record<string, unknown> {
   const version =
     typeof raw.docSchemaVersion === 'number' ? raw.docSchemaVersion : 0
-  if (version >= DOC_SCHEMA_VERSION) return raw
-  let doc = raw
+  // The retired emphasis is read whatever the stamp says: a client older
+  // than the runs era can still write it into a document a newer writer
+  // stamps, and a layer that carries the field must never reach a reader
+  // that no longer knows it. Idempotent; a document without it is untouched.
+  const read = migrateText(raw as Pick<ProjectDoc, 'overlays'>) as Record<
+    string,
+    unknown
+  >
+  if (version >= DOC_SCHEMA_VERSION) return read
+  let doc = read
   if (version < 4 && doc.source && typeof doc.source === 'object') {
     doc = migrateMotion(doc as unknown as ProjectDoc) as unknown as Record<
       string,
@@ -56,11 +64,6 @@ export function migrateHostedDoc(
     >
   }
   if (version < 5) doc = migrateZoomStyle(doc)
-  if (version < 6)
-    doc = migrateText(doc as Pick<ProjectDoc, 'overlays'>) as Record<
-      string,
-      unknown
-    >
   return { ...doc, docSchemaVersion: DOC_SCHEMA_VERSION }
 }
 

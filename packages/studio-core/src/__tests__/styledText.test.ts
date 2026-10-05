@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { lerpArray, mapTime, sample } from '@vosjs/timeline'
 import { DOC_SCHEMA_VERSION, migrateHostedDoc } from '../docVersion'
+import { lowerProgramDoc } from '../lower/lowerStudioDoc'
 import { lowerToComposition } from '../lower/lowerToComposition'
 import { STUDIO_ENTRY_ID } from '../lower/studioEntry'
 import {
@@ -25,6 +26,7 @@ import {
   DEFAULT_CURSOR_STYLE,
 } from '../types'
 import { studioEntryOf } from './helpers/studio'
+import type { ProgramAnchorDoc } from '../doc/studioDoc'
 import type { OverlayClip, ProjectDoc, TextOverlayClip } from '../types'
 
 /**
@@ -247,6 +249,18 @@ describe('lowering', () => {
     ).overlays[0]
     expect('rt' in ol).toBe(false)
     expect(ol.lines).toEqual(['Plain'])
+  })
+
+  it('reads the retired spelling in a program document too', () => {
+    const lowered = lowerProgramDoc({
+      program: { config: { version: 2, duration: 4 } },
+      overlays: [legacy('Read *every* candle')],
+    } as unknown as ProgramAnchorDoc)
+    const ol = (
+      lowered.stack[STUDIO_ENTRY_ID] as { overlays: Record<string, unknown>[] }
+    ).overlays[0]
+    expect(ol.lines).toEqual(['Read every candle'])
+    expect(ol.rt).toBeDefined()
   })
 
   it('reads the retired spelling on its way in', () => {
@@ -530,5 +544,21 @@ describe('the retired emphasis, read into runs', () => {
     const o = (hosted.overlays as TextOverlayClip[])[0]
     expect(o.text).toEqual([{ text: 'a ' }, { text: 'b', weight: 700 }])
     expect('emphasis' in o).toBe(false)
+  })
+
+  it('is read even under a current stamp (an older client can still write it)', () => {
+    const hosted = migrateHostedDoc({
+      ...makeDoc([legacy('a *b*')]),
+      docSchemaVersion: DOC_SCHEMA_VERSION,
+    } as unknown as Record<string, unknown>)
+    expect((hosted.overlays as TextOverlayClip[])[0].text).toEqual([
+      { text: 'a ' },
+      { text: 'b', weight: 700 },
+    ])
+    const current = {
+      ...makeDoc([clip()]),
+      docSchemaVersion: DOC_SCHEMA_VERSION,
+    } as unknown as Record<string, unknown>
+    expect(migrateHostedDoc(current)).toBe(current)
   })
 })

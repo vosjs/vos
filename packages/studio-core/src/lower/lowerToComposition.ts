@@ -2905,7 +2905,7 @@ const ON_FRAME = `(ctx, content, dt) => {
  * call this with their own output duration.
  */
 export function studioLayerData(
-  layers: {
+  input: {
     overlays?: OverlayClip[]
     objects?: ObjectClip[]
     audio?: AudioClip[]
@@ -2919,6 +2919,10 @@ export function studioLayerData(
    */
   pins?: ReadonlyMap<string, PinPlacement>,
 ): Record<string, unknown> {
+  // Both anchors bake their layers here, so this is where the retired text
+  // spelling is read: a layer that still carries `emphasis` paints as runs
+  // whichever kind of document holds it.
+  const layers = migrateText(input)
   // A media layer resolves against the RECORDING it rides (a program
   // document has no media to show).
   const rec = 'source' in layers ? (layers as unknown as ProjectDoc) : null
