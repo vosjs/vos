@@ -57,3 +57,25 @@ export {
   toggleStyle,
 } from './runs'
 export type { RichText, RunStyleKey, TextRun, TextRunStyle } from './runs'
+export {
+  canvasTextProbe,
+  layoutTextElement,
+  resolveTextFont,
+  textElementPadding,
+  textElementSource,
+  textFontString,
+} from './element'
+export type {
+  FontVariant,
+  ResolvedTextFont,
+  TextElementLayout,
+  TextElementSource,
+  TextProbe,
+} from './element'
+export { middleAboveBaseline } from '../textLayout'
+export type {
+  BlockLine,
+  LineMetrics,
+  TextAlign,
+  TextBlockLayout,
+} from '../textLayout'

@@ -11,7 +11,7 @@
  * content is styled or not.
  */
 import { graphemesOf, layoutText } from './text/layout'
-import type { Fragment, LayoutRun, Measure } from './text/layout'
+import type { Fragment, LayoutLine, LayoutRun, Measure } from './text/layout'
 
 /** Design resolution baseline: element layout lives in 1080p design px. */
 export const DESIGN_HEIGHT = 1080
@@ -153,11 +153,12 @@ const lineText = (frags: readonly { t: string }[]) => {
 // The block: what a text element draws as ONE picture.
 // ---------------------------------------------------------------------------
 
-export interface BlockLine {
-  /** Same-style stretches, each at its left edge from the line's start. */
-  frags: Fragment[]
-  /** Ink width of the line. */
-  width: number
+/**
+ * One line of a block: a layout line (its stretches, each at its left edge
+ * from the line's start, and where the line sits in the whole text) whose
+ * `w` is its INK width, and where it starts inside the block.
+ */
+export interface BlockLine extends LayoutLine {
   /** Where the line starts inside the block, by `align`. */
   indent: number
 }
@@ -190,8 +191,8 @@ export function layoutTextBlock(
   const width = widths.length ? Math.max(...widths) : 0
   return {
     lines: laid.lines.map((l, i) => ({
-      frags: l.frags,
-      width: widths[i],
+      ...l,
+      w: widths[i],
       indent:
         align === 'center'
           ? (width - widths[i]) / 2
@@ -315,8 +316,8 @@ export function layoutSplitUnits(
       align === 'left'
         ? -block.width / 2
         : align === 'right'
-          ? block.width / 2 - line.width
-          : -line.width / 2
+          ? block.width / 2 - line.w
+          : -line.w / 2
     const baselineDown = metrics.ascent + lineIndex * metrics.advance
     const centerDown = baselineDown - middleAboveBaseline(metrics)
     for (const [a, b] of unitRanges(lineText(line.frags), type)) {

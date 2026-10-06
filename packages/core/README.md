@@ -178,7 +178,7 @@ The whole overlay, every time: it applies from the recording, never on top of th
 
 ## The bridge protocol
 
-A `playback` page speaks `VOS_BRIDGE_PROTOCOL` (currently 9) over `postMessage`. Commands: `LOAD` (a program, its `data`, `stack` data and `tweenEdits`), `PLAY`, `PAUSE`, `SEEK_TIME`, `PLAY_SPEED`, `SET_DURATION`, `SET_DATA`, `SET_TWEEN_EDITS`, `SET_MUTED`, `GET_STACK_STATE`, and in editor mode `HIT_TEST`, `GET_ELEMENT_RECTS`, `SET_ELEMENT_PROPS`, `OBJECT_BOUNDS`. Events: `BRIDGE_READY`, `READY` (with `canSetDuration`, `canRetimeTweens`, `retime`, `stack`), `UPDATE { progress, time, duration }`, `PRELOAD_PROGRESS`, `STACK_ERROR`, `STACK_STATE`, `OBJECT_RECT`. The `VosBridgeCommand` and `VosBridgeEvent` types are exported from `@vosjs/core/runtime`; `@vosjs/editor` is the host-side client.
+A `playback` page speaks `VOS_BRIDGE_PROTOCOL` (currently 9) over `postMessage`. Commands: `LOAD` (a program, its `data`, `stack` data and `tweenEdits`), `PLAY`, `PAUSE`, `SEEK_TIME`, `PLAY_SPEED`, `SET_DURATION`, `SET_DATA`, `SET_TWEEN_EDITS`, `SET_MUTED`, `GET_STACK_STATE`, and in editor mode `HIT_TEST`, `GET_ELEMENT_RECTS` (each rect with the `quad` of an element drawn as one plane: its corners on screen through any rotation or scale), `SET_ELEMENT_PROPS` (a text element's `content` as a string or a list of runs), `OBJECT_BOUNDS`. Events: `BRIDGE_READY`, `READY` (with `canSetDuration`, `canRetimeTweens`, `retime`, `stack`), `UPDATE { progress, time, duration }`, `PRELOAD_PROGRESS`, `STACK_ERROR`, `STACK_STATE`, `OBJECT_RECT`. The `VosBridgeCommand` and `VosBridgeEvent` types are exported from `@vosjs/core/runtime`; `@vosjs/editor` is the host-side client.
 
 ## Render audio
 

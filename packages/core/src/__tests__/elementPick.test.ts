@@ -63,6 +63,7 @@ function editorApi(elements: Map<string, Inst>, scene: THREE.Scene) {
       width: number
       height: number
       visible: boolean
+      quad?: [number, number][]
     }[]
   }
 }
@@ -113,6 +114,45 @@ describe('editor bridge picking', () => {
     )
     expect(api.hitTest(...at(60, 30))).toBeNull()
     expect(api.getRects()[0].visible).toBe(false)
+  })
+
+  it('says where one plane’s corners are, through its rotation and scale', () => {
+    const scene = new THREE.Scene()
+    const m = plane(80, 20, 20, 10)
+    const api = editorApi(new Map([['cap', { config: {}, mesh: m }]]), scene)
+    // Unposed: the corners are the box's, top-left first and clockwise.
+    // (World (20, 10) is viewport (120, 40); y runs down on screen.)
+    const flat = api.getRects()[0].quad!
+    expect(flat.map(([x, y]) => [Math.round(x), Math.round(y)])).toEqual([
+      [80, 30],
+      [160, 30],
+      [160, 50],
+      [80, 50],
+    ])
+    // Turned a quarter and doubled: the box grows to bound it, and the
+    // corners say which way it faces and how large it is.
+    m.rotation.z = Math.PI / 2
+    m.scale.set(2, 2, 1)
+    const r = api.getRects()[0]
+    expect([r.width, r.height].map(Math.round)).toEqual([40, 160])
+    const [tl, tr, , bl] = r.quad!
+    expect(Math.hypot(tr[0] - tl[0], tr[1] - tl[1])).toBeCloseTo(160)
+    expect(Math.hypot(bl[0] - tl[0], bl[1] - tl[1])).toBeCloseTo(40)
+    // Counter-clockwise in the world is counter-clockwise on screen: the
+    // top edge now runs straight up.
+    expect(tr[0] - tl[0]).toBeCloseTo(0)
+    expect(tr[1] - tl[1]).toBeCloseTo(-160)
+  })
+
+  it('a split word is many planes and has no corners of its own', () => {
+    const scene = new THREE.Scene()
+    const a = plane(20, 10, -60, 30)
+    const b = plane(20, 10, 60, 30)
+    const api = editorApi(
+      new Map([['word', { config: {}, mesh: a, meshes: () => [a, b] }]]),
+      scene,
+    )
+    expect(api.getRects()[0].quad).toBeUndefined()
   })
 
   it('an instance without meshes() still picks by its mesh', () => {

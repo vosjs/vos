@@ -15,11 +15,13 @@ A text element's words can be styled in parts. `content` is a string, or a list 
 - A run's `text` may be `{ "$data": "key" }`: a knob edits plain words under a fixed style, and a data edit redraws in place.
 - `props.content` and `setContent` take a string or runs.
 - New entry `@vosjs/elements/text`: the runs and their operations, the layout and the caret helpers, pure (no DOM, no three). They moved here from `@vosjs/studio-core`, which re-exports them unchanged.
+- `layoutTextElement(element, probe)` in that entry is a text element's measured layout as a pure function: its lines, where each stretch stands, its padding and its box. The renderer paints from it over a probe on its raster canvas (`canvasTextProbe`), and a host that stands a caret on an element calls the same function over a canvas of its own.
 
 **`@vosjs/core`**
 
 - `TextRun` and `TextElementRun` types; `TextElement.content`, `ElementProps.content` and `setContent` take runs; `textRunSchema`.
 - `VOS_BRIDGE_PROTOCOL` is 9: `SET_ELEMENT_PROPS` may carry `content` as a list of runs. An engine before it draws a list as text, so a host sends one only to an engine that advertises 9.
+- `ELEMENT_RECTS` gives an element drawn as one plane its `quad`: its four corners on screen, top-left first and clockwise. The box only bounds a rotated or scaled element; the corners say where it is.
 - `lintVosText` (`@vosjs/core/lint`): a run with no words (an error: the renderer skips it), a field that is not a run's, with the one that was meant (`bold` → `weight: 700`), a field of the wrong type, and a run weight no declared face of its family holds.
 
 **`@vosjs/editor`**: `setElementProps` and `setTextContentRecipe` take runs. Runs written to a content bound to data land in its knob as their words.

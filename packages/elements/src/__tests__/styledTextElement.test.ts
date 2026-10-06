@@ -11,6 +11,7 @@ import {
   renderSplitTextElement,
   renderTextElement,
 } from '../renderers/text'
+import { layoutTextElement } from '../text/element'
 import { layoutLines, toRichText } from '../text/runs'
 import {
   layoutSplitUnits,
@@ -18,6 +19,7 @@ import {
   plainLines,
   spacedAdvance,
 } from '../textLayout'
+import type { TextProbe } from '../text/element'
 import type { LayoutRun, Measure } from '../text/layout'
 
 /**
@@ -227,11 +229,16 @@ describe('the block', () => {
     )
     expect(b.width).toBe(70)
     expect(b.height).toBe(30 + 20 + 5)
-    expect(b.lines.map((l) => [l.width, l.indent])).toEqual([
+    expect(b.lines.map((l) => [l.w, l.indent])).toEqual([
       [70, 0],
       [30, 20],
     ])
     expect(b.lines[0].frags).toEqual([{ t: 'Ship it', x: 0, w: 70, o: 0 }])
+    // A block line is a layout line: it knows where it sits in the text.
+    expect(b.lines.map((l) => [l.a, l.n])).toEqual([
+      [0, 7],
+      [8, 3],
+    ])
   })
 
   it('places a styled stretch by the advance of what precedes it', () => {
@@ -259,7 +266,7 @@ describe('the block', () => {
       spaced,
     )
     // 30 + two gaps between three graphemes; an empty line is 0, never -4.
-    expect(b.lines.map((l) => l.width)).toEqual([38, 0])
+    expect(b.lines.map((l) => l.w)).toEqual([38, 0])
   })
 })
 
@@ -422,6 +429,59 @@ describe('the painter', () => {
     } finally {
       native = true
     }
+  })
+})
+
+describe('the measured layout, as a host reads it', () => {
+  // A host stands a caret on an element with a probe over a canvas of its
+  // own: the same function the renderer measures with, so the same box.
+  const probe = (nativeSpacing: boolean): TextProbe => ({
+    nativeSpacing,
+    advance: (t, font, ls) =>
+      widthIn(t, font) + (nativeSpacing ? ls * t.length : 0),
+    lineBox: () => ({ fontBoundingBoxAscent: 20, fontBoundingBoxDescent: 5 }),
+  })
+
+  it('is the box the renderer draws in', () => {
+    for (const content of ['Ship it\nnow', RUNS]) {
+      const config = el({ content, stroke: { color: '#000', width: 3 } })
+      const laid = layoutTextElement(config, probe(true))
+      const drawn = draw(config)
+      expect([laid.designWidth, laid.designHeight]).toEqual([
+        drawn.width,
+        drawn.height,
+      ])
+      expect(laid.padding).toBe(16)
+    }
+  })
+
+  it('names each stretch, its font and where its line sits in the text', () => {
+    const laid = layoutTextElement(el({ content: RUNS }), probe(true))
+    expect(laid.variants).toEqual([
+      { weight: 400, style: 'normal' },
+      { weight: 700, style: 'normal' },
+      { weight: 400, style: 'italic' },
+    ])
+    expect(laid.block.lines[0].frags.map((f) => [f.t, f.f ?? 0, f.x])).toEqual([
+      ['Ship ', 0, 0],
+      ['faster', 1, 50],
+      [' now', 2, 128],
+    ])
+    expect(laid.block.lines[0]).toMatchObject({ a: 0, n: 15 })
+  })
+
+  it('adds letter-spacing where the probe has none, to the same ink width less the last gap', () => {
+    const font = { size: 24, family: 'Lexend', weight: 400, letterSpacing: 4 }
+    const withNative = layoutTextElement(
+      el({ content: 'abcd', font }),
+      probe(true),
+    )
+    const byHand = layoutTextElement(
+      el({ content: 'abcd', font }),
+      probe(false),
+    )
+    expect(withNative.block.width).toBe(40 + 16)
+    expect(byHand.block.width).toBe(40 + 12)
   })
 })
 

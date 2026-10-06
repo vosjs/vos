@@ -35,6 +35,14 @@ export interface ElementRect {
   width: number
   height: number
   visible: boolean
+  /**
+   * Protocol 9: the corners of an element drawn as ONE plane, in viewport
+   * CSS px, top-left first and clockwise. The box above only bounds the
+   * element; this is where it is once a transform or a tween has rotated or
+   * scaled it, which is what a host needs to stand a caret on its text.
+   * Absent for an element of several planes (split text).
+   */
+  quad?: [number, number][]
 }
 
 /**

@@ -92,6 +92,7 @@ import {
 - **Runs** (`TextRun`, `RichText`): `normalizeRuns`, `plainText`, `replaceRange`, `setStyle`, `toggleStyle`, `clearStyle`, `commonStyle`, `styleAt`, `sliceRuns`, `diffInput`, and `toRichText`, the guard for text arriving from outside. Offsets are into the plain words, and a style never splits a grapheme.
 - **Layout** (`layoutText`): lines of runs into visual lines, same-style fragments at measured positions, and the units a per-unit animation moves. Measurement is handed in, so a page, a host and a node test run the same function.
 - **Caret** (`caretStops`, `caretAt`, `offsetAtX`, `rangeRects`): where a caret stands on what was laid out.
+- **A text element, measured** (`layoutTextElement(element, probe)`): the element's lines, where each stretch stands and the box it is drawn in, as a pure function of its config and a probe that measures. The renderer calls it over its raster canvas (`canvasTextProbe(ctx)`); a host calls it over a canvas of its own and gets the same box, so a caret it draws stands on the painted glyphs.
 
 ### `@vosjs/elements/bundle`: the injectable string
 

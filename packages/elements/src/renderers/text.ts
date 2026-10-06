@@ -1,82 +1,30 @@
+import {
+  canvasTextProbe,
+  layoutTextElement,
+  resolveTextFont,
+  textElementPadding,
+  textElementSource,
+  textFontString,
+} from '../text/element'
 import { decorationRect } from '../text/layout'
-import { layoutLines, toRichText } from '../text/runs'
+import { toRichText } from '../text/runs'
 import {
   clampRasterScale,
   graphemes,
   layoutSplitUnits,
-  layoutTextBlock,
   lineMetricsFrom,
   middleAboveBaseline,
   rasterScaleFor,
-  spacedAdvance,
   type LineMetrics,
   type RasterResolution,
-  type TextAlign,
-  type TextBlockLayout,
 } from '../textLayout'
-import type { Fragment, LayoutRun, Measure } from '../text/layout'
+import type {
+  FontVariant,
+  ResolvedTextFont,
+  TextElementLayout,
+} from '../text/element'
+import type { Fragment, Measure } from '../text/layout'
 import type * as THREE_NS from 'three'
-
-interface ResolvedFont {
-  size: number
-  family: string
-  weight: number | string
-  style: string
-  color: string
-  align: TextAlign
-  letterSpacing: number
-  lineHeight: number
-}
-
-function resolveFont(font: any): ResolvedFont {
-  return {
-    size: font.size ?? 24,
-    family: font.family ?? 'Inter, system-ui, sans-serif',
-    weight: font.weight ?? 'normal',
-    style: font.style ?? 'normal',
-    color: font.color ?? '#ffffff',
-    align: font.align ?? 'left',
-    letterSpacing: font.letterSpacing ?? 0,
-    lineHeight: font.lineHeight ?? 1.2,
-  }
-}
-
-/** A weight and a slant: what a run may set differently from its element. */
-interface FontVariant {
-  weight: number | string
-  style: string
-}
-
-function fontString(f: ResolvedFont, v: FontVariant, scale: number): string {
-  return `${v.style} ${v.weight} ${f.size * scale}px ${f.family}`
-}
-
-/**
- * A text element's content as the layout takes it: lines of runs, and the
- * fonts they are set in (0 is the element's own; a run adds one only where
- * it departs in weight or slant). A string is one run a line in font 0, so
- * plain and styled content are one path from here on.
- */
-interface TextSource {
-  lines: LayoutRun[][]
-  variants: FontVariant[]
-}
-
-function textSource(content: unknown, f: ResolvedFont): TextSource {
-  const variants: FontVariant[] = [{ weight: f.weight, style: f.style }]
-  const lines = layoutLines(toRichText(content), (run) => {
-    const weight = run.weight ?? f.weight
-    const style =
-      run.italic === undefined ? f.style : run.italic ? 'italic' : 'normal'
-    let at = variants.findIndex((v) => v.weight === weight && v.style === style)
-    if (at < 0) {
-      variants.push({ weight, style })
-      at = variants.length - 1
-    }
-    return at
-  })
-  return { lines, variants }
-}
 
 /** `ctx.letterSpacing` is Baseline 2025; older engines get the manual path. */
 function supportsLetterSpacing(ctx: CanvasRenderingContext2D): boolean {
@@ -111,7 +59,7 @@ function applyShadow(
 interface Paint {
   ctx: CanvasRenderingContext2D
   element: any
-  f: ResolvedFont
+  f: ResolvedTextFont
   /** The block's fonts at the raster scale. */
   fonts: string[]
   scale: number
@@ -202,7 +150,7 @@ function beginRaster(
   ctx: CanvasRenderingContext2D,
   designWidth: number,
   designHeight: number,
-  f: ResolvedFont,
+  f: ResolvedTextFont,
   scale: number,
   native: boolean,
 ) {
@@ -237,15 +185,6 @@ function makeTextTexture(
 
 /** Hysteresis so live-preview window drags don't thrash re-rasters. */
 const RERASTER_THRESHOLD = 0.05
-
-interface TextLayoutState {
-  f: ResolvedFont
-  variants: FontVariant[]
-  block: TextBlockLayout
-  padding: number
-  designWidth: number
-  designHeight: number
-}
 
 /**
  * Map a props-proxy raster prop write (SET_ELEMENT_PROPS / timeline) to a
@@ -333,42 +272,14 @@ export function renderTextElement(
   const native = supportsLetterSpacing(ctx)
 
   // --- Measure in design px -------------------------------------------------
-  const measureLayout = (): TextLayoutState => {
-    const f = resolveFont(element.font ?? {})
-    const { lines, variants } = textSource(element.content, f)
-    const fonts = variants.map((v) => fontString(f, v, 1))
-    ctx.font = fonts[0]
-    if (native) {
-      ;(ctx as any).letterSpacing = `${f.letterSpacing}px`
-    }
-    const metrics = lineMetricsFrom(ctx.measureText('Mg'), f.size, f.lineHeight)
-    // With the native property the measure already holds the spacing; without
-    // it the layout adds it, and takes the gap after a line's last grapheme
-    // back off.
-    const raw = measurer(ctx, fonts)
-    const block = layoutTextBlock(
-      lines,
-      {
-        align: f.align,
-        metrics,
-        trailingGap: native ? 0 : f.letterSpacing,
-      },
-      native ? raw : spacedAdvance(raw, f.letterSpacing),
-    )
-    const padding =
-      Math.max(element.stroke?.width ?? 0, element.shadow?.blur ?? 0) * 2 + 10
-    return {
-      f,
-      variants,
-      block,
-      padding,
-      designWidth: Math.ceil(block.width + padding * 2),
-      designHeight: Math.ceil(block.height + padding * 2),
-    }
-  }
+  // The element's measured layout is a pure function (`text/element.ts`),
+  // here over a probe on this raster's own canvas. A probe is made per
+  // measure: a resized canvas forgets the font the last one set.
+  const measureLayout = (): TextElementLayout =>
+    layoutTextElement(element, canvasTextProbe(ctx))
 
   // --- Raster at buffer texel density --------------------------------------
-  const scaleFor = (res: RasterResolution | undefined, l: TextLayoutState) =>
+  const scaleFor = (res: RasterResolution | undefined, l: TextElementLayout) =>
     clampRasterScale(
       rasterScaleFor(res),
       l.designWidth,
@@ -376,14 +287,14 @@ export function renderTextElement(
       res?.maxTextureSize,
     )
 
-  const draw = (l: TextLayoutState, rs: number) => {
+  const draw = (l: TextElementLayout, rs: number) => {
     beginRaster(canvas, ctx, l.designWidth, l.designHeight, l.f, rs, native)
     const { metrics } = l.block
     const paint: Paint = {
       ctx,
       element,
       f: l.f,
-      fonts: l.variants.map((v) => fontString(l.f, v, rs)),
+      fonts: l.variants.map((v) => textFontString(l.f, v, rs)),
       scale: rs,
       native,
       middle: middleAboveBaseline(metrics) * rs,
@@ -474,7 +385,7 @@ export function renderTextElement(
 function renderTextSegment(
   parts: Fragment[],
   textWidth: number,
-  f: ResolvedFont,
+  f: ResolvedTextFont,
   variants: FontVariant[],
   metrics: LineMetrics,
   element: any,
@@ -485,8 +396,7 @@ function renderTextSegment(
   const ctx = canvas.getContext('2d')!
   const native = supportsLetterSpacing(ctx)
 
-  const padding =
-    Math.max(element.stroke?.width ?? 0, element.shadow?.blur ?? 0) * 2 + 4
+  const padding = textElementPadding(element, 4)
   const designWidth = Math.ceil(textWidth + padding * 2)
   const designHeight = Math.ceil(metrics.ascent + metrics.descent + padding * 2)
 
@@ -504,7 +414,7 @@ function renderTextSegment(
       ctx,
       element,
       f,
-      fonts: variants.map((v) => fontString(f, v, rs)),
+      fonts: variants.map((v) => textFontString(f, v, rs)),
       scale: rs,
       native,
       middle: middleAboveBaseline(metrics) * rs,
@@ -562,13 +472,13 @@ export function renderSplitTextElement(
   THREE: typeof THREE_NS,
 ) {
   const splitType = element.split?.type ?? 'chars'
-  const f = resolveFont(element.font ?? {})
-  const { lines, variants } = textSource(element.content, f)
+  const f = resolveTextFont(element.font ?? {})
+  const { lines, variants } = textElementSource(element.content, f)
 
   // Raw design-px measurer (NO letter-spacing): the layout adds spacing
   // itself so the math is identical on every engine.
   const measureCtx = document.createElement('canvas').getContext('2d')!
-  const fonts = variants.map((v) => fontString(f, v, 1))
+  const fonts = variants.map((v) => textFontString(f, v, 1))
   measureCtx.font = fonts[0]
   const metrics = lineMetricsFrom(
     measureCtx.measureText('Mg'),
