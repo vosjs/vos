@@ -6,7 +6,11 @@ import {
   relayoutSplitGroup,
 } from './createElementProps'
 import type { SplitGroup } from './createElementProps'
-import { extractTextBindings, resolveTextElement } from './dataBinding'
+import {
+  extractTextBindings,
+  resolveBoundRuns,
+  resolveTextElement,
+} from './dataBinding'
 import { renderAudioElement } from './renderers/audio'
 import { renderImageElement } from './renderers/image'
 import { renderSVGElement } from './renderers/svg'
@@ -122,6 +126,19 @@ export async function renderElements(
       let textRerender:
         | ((patch: any) => { width: number; height: number })
         | null = null
+      // What the bound runs resolved to last, to tell a data edit that
+      // changed their words from one that did not.
+      let boundRuns = bindings?.runs ? JSON.stringify(config.content) : ''
+      const nextBoundRuns = (
+        next: Record<string, unknown> | null | undefined,
+      ): unknown[] | null => {
+        if (!bindings?.runs) return null
+        const v = resolveBoundRuns(rawConfig.content, bindings.runs, next)
+        const key = JSON.stringify(v)
+        if (key === boundRuns) return null
+        boundRuns = key
+        return v
+      }
 
       // Split text: one mesh and one props proxy per unit. Built by a
       // function so a data edit to a bound split element can build it again
@@ -403,7 +420,7 @@ export async function renderElements(
         node: null,
         props,
         segments,
-        setContent: (content: string) => {
+        setContent: (content: unknown) => {
           if (config.type === 'text' && textRerender) {
             queueRaster('content', content)
           } else if (config.type === 'text') {
@@ -448,6 +465,11 @@ export async function renderElements(
                 changed = true
               }
             }
+            const runs = nextBoundRuns(next)
+            if (runs) {
+              config.content = runs
+              changed = true
+            }
             if (bindings.family) {
               const v = next?.[bindings.family]
               if (typeof v === 'string' && v && v !== config.font?.family) {
@@ -482,6 +504,11 @@ export async function renderElements(
               queueRaster('content', v)
               changed = true
             }
+          }
+          const runs = nextBoundRuns(next)
+          if (runs) {
+            queueRaster('content', runs)
+            changed = true
           }
           if (bindings.family) {
             const v = next?.[bindings.family]

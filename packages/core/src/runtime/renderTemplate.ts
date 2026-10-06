@@ -672,6 +672,20 @@ export function editorExtension(editor: boolean): string {
                 return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
             };
 
+            // One plane's corners on screen, top-left first and clockwise:
+            // where the element really is when it is rotated or scaled (the
+            // box only bounds it).
+            const meshQuad = (mesh, cam, rect) => {
+                if (!mesh.geometry.boundingBox) mesh.geometry.computeBoundingBox();
+                const bb = mesh.geometry.boundingBox;
+                mesh.updateWorldMatrix(true, false);
+                const at = (x, y) => {
+                    v3.set(x, y, 0).applyMatrix4(mesh.matrixWorld).project(cam);
+                    return [rect.left + ((v3.x + 1) / 2) * rect.width, rect.top + ((1 - v3.y) / 2) * rect.height];
+                };
+                return [at(bb.min.x, bb.max.y), at(bb.max.x, bb.max.y), at(bb.max.x, bb.min.y), at(bb.min.x, bb.min.y)];
+            };
+
             const getRects = () => {
                 const cam = __current && __current.overlayCamera;
                 if (!cam) return [];
@@ -690,11 +704,15 @@ export function editorExtension(editor: boolean): string {
                         if (r.x + r.width > maxX) maxX = r.x + r.width;
                         if (r.y + r.height > maxY) maxY = r.y + r.height;
                     }
-                    return {
+                    const out = {
                         id,
                         x: minX, y: minY, width: maxX - minX, height: maxY - minY,
                         visible: meshes.some(__meshSeen),
                     };
+                    // An element drawn as ONE plane also says where its
+                    // corners are; a split word is many planes and has none.
+                    if (meshes.length === 1) out.quad = meshQuad(meshes[0], cam, rect);
+                    return out;
                 });
             };
 

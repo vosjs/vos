@@ -34,6 +34,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./text": {
+      "types": "./dist/text/index.d.ts",
+      "import": "./dist/text/index.js"
+    },
     "./bundle": {
       "types": "./dist/bundle.d.ts",
       "import": "./dist/bundle.js"

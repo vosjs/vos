@@ -17,6 +17,7 @@ import {
   lintVosAssets,
   lintVosFonts,
   lintVosPostprocessing,
+  lintVosText,
 } from '@vosjs/core/lint'
 import { STUDIO_ENTRY_ID } from '@vosjs/studio-core'
 import { assetParamIssues } from '@vosjs/shared/params'
@@ -32,6 +33,7 @@ export interface CheckIssue {
     | 'dialect'
     | 'shape'
     | 'fonts'
+    | 'text'
     | 'assets'
     | 'postprocessing'
   message: string
@@ -238,6 +240,13 @@ export function runCheck(parsed: unknown): CheckResult {
     issues.push({
       level: 'warn',
       source: 'fonts',
+      message: `[${i.rule}] ${i.message}`,
+    })
+  }
+  for (const i of lintVosText(migrated as never)) {
+    issues.push({
+      level: i.severity === 'error' ? 'error' : 'warn',
+      source: 'text',
       message: `[${i.rule}] ${i.message}`,
     })
   }

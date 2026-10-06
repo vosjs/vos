@@ -27,7 +27,7 @@ import {
   lowerMerged as lowerToComposition,
   studioEntryOf,
 } from './helpers/studio'
-import { layoutText } from '../richText/layout'
+import { layoutText } from '@vosjs/elements/text'
 import type { OverlayClip, ProjectDoc, TextOverlayClip } from '../types'
 
 function clip(over: Partial<TextOverlayClip> = {}): TextOverlayClip {

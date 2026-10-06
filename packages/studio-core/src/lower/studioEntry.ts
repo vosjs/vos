@@ -456,7 +456,7 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
   var s = H / 1080 // scale design-px controls to comp px
   var ns = window.__vos__ || {}
   var playing = ns.isPaused === false
-  // The styled-text layout (richText/layout.ts, generated), installed once:
+  // The styled-text layout (the engine's text/layout.ts, generated), installed once:
   // the page lays a text layer out with the code the host picks with.
   if (!ns.textLayout) { ${textLayoutCode}; ns.textLayout = __vosTextLayout }
   var TXL = ns.textLayout

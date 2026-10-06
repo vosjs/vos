@@ -452,6 +452,11 @@ export {
   resolveOverlayBox,
   resolveOverlayStyle,
 } from './overlayText'
+// Styled text is the engine's (`@vosjs/elements/text`): the runs, the
+// layout and the caret a text layer and an engine text element share. They
+// are re-exported from the copy this package was BUILT with, the one its
+// own painter is generated from, so a host that picks a layer measures with
+// exactly what painted it.
 export {
   layoutText,
   decorationRect,
@@ -460,27 +465,11 @@ export {
   STRIKE_OFFSET_EM,
   DECORATION_THICKNESS_EM,
   HIGHLIGHT_HALF_EM,
-} from './richText/layout'
-export type {
-  Fragment,
-  LayoutInput,
-  LayoutLine,
-  LayoutRun,
-  LayoutUnit,
-  Measure as TextMeasure,
-  RunStyle,
-  TextLayout,
-  Unit as LayoutUnitBox,
-} from './richText/layout'
-export {
   caretAt,
   caretStops,
   lineOfOffset,
   offsetAtX,
   rangeRects,
-} from './richText/caret'
-export type { CaretStop } from './richText/caret'
-export {
   MIXED,
   RUN_STYLE_KEYS,
   clearStyle,
@@ -496,13 +485,23 @@ export {
   styleAt,
   styleOf,
   toggleStyle,
-} from './richText/runs'
+} from '@vosjs/elements/text'
 export type {
+  CaretStop,
+  Fragment,
+  LayoutInput,
+  LayoutLine,
+  LayoutRun,
+  LayoutUnit,
+  Measure as TextMeasure,
   RichText,
+  RunStyle,
   RunStyleKey,
+  TextLayout,
   TextRun,
   TextRunStyle,
-} from './richText/runs'
+  Unit as LayoutUnitBox,
+} from '@vosjs/elements/text'
 export {
   marksEmphasis,
   migrateText,

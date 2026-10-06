@@ -14,9 +14,9 @@
  * same object, so identity checks hold.
  */
 import { boldWeightFor, snapRunWeight } from '../overlayText'
-import { normalizeRuns } from './runs'
+import { normalizeRuns } from '@vosjs/elements/text'
 import type { ProjectDoc, TextOverlayClip } from '../types'
-import type { TextRun } from './runs'
+import type { TextRun } from '@vosjs/elements/text'
 
 /** A text layer as it was written before runs. */
 type LegacyTextClip = Omit<TextOverlayClip, 'text'> & {

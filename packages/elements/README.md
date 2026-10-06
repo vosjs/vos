@@ -25,6 +25,31 @@ pnpm add @vosjs/elements three
 
 Element positions and sizes are in design pixels on a 1080-high frame (`DESIGN_HEIGHT`), so a program looks the same at every output resolution. Text `content`, `font.family` and `font.color` accept `{ $data: key }` bindings, resolved against the program's `data` and re-rasterized on `SET_DATA`.
 
+## Styled text
+
+A text element's `content` is a string, or a list of runs where parts of it are set differently. A run is a piece of text and the fields in which it departs from the element's `font`; a field left out is the element's own:
+
+```json
+{
+  "type": "text",
+  "content": [
+    { "text": "Ship it " },
+    { "text": "faster", "weight": 700, "color": "#e37358", "underline": true },
+    { "text": " today", "italic": true }
+  ],
+  "font": { "family": "Lexend", "size": 72, "weight": 400 }
+}
+```
+
+A run takes `weight`, `italic`, `color`, `underline`, `strike` and `highlight`. There is no markup in the words, a style may start and end inside a word, and a run's `text` may hold line breaks. Size, family and letter-spacing are the element's and one for the whole text.
+
+- A run's `text` may be `{ "$data": "key" }`: a knob keeps editing plain words and the run keeps its style.
+- With `split`, a unit draws the styles of the characters it holds; a word set half in bold is still one unit.
+- `props.content` and `setContent` take a string or a list of runs. A string written over styled words replaces them whole.
+- Declare a face in the program's `fonts` for every weight a run uses, or the browser fakes it from another weight (`lintVosText` in `@vosjs/core/lint` says so).
+
+Plain and styled content are one layout and one painter: a string is one run a line.
+
 ## Two entry points
 
 ### `@vosjs/elements`: the typed factory
@@ -48,7 +73,26 @@ elements.updateData(map, nextData)
 elements.disposeElements(map)
 ```
 
-`createVosElements` returns `renderElements`, `disposeElements`, `updateResolution`, `updateData` and `rerasterAll`. The root also exports the text layout helpers (`layoutSplitUnits`, `segmentText`, `graphemes`, `rasterScaleFor`, `clampRasterScale`, `lineMetricsFrom`, `lineWidthWithSpacing`) and the binding helpers (`extractTextBindings`, `resolveTextElement`, `isDataRef`).
+`createVosElements` returns `renderElements`, `disposeElements`, `updateResolution`, `updateData` and `rerasterAll`. The root also exports the text layout helpers (`layoutTextBlock`, `layoutSplitUnits`, `segmentText`, `graphemes`, `rasterScaleFor`, `clampRasterScale`, `lineMetricsFrom`, `lineWidthWithSpacing`) and the binding helpers (`extractTextBindings`, `resolveTextElement`, `resolveBoundRuns`, `isDataRef`).
+
+### `@vosjs/elements/text`: styled text, pure
+
+What a run is and everything done to a list of them, with no DOM and no three: a host that edits text imports this entry alone.
+
+```ts
+import {
+  layoutText,
+  caretStops,
+  toggleStyle,
+  replaceRange,
+  toRichText,
+} from '@vosjs/elements/text'
+```
+
+- **Runs** (`TextRun`, `RichText`): `normalizeRuns`, `plainText`, `replaceRange`, `setStyle`, `toggleStyle`, `clearStyle`, `commonStyle`, `styleAt`, `sliceRuns`, `diffInput`, and `toRichText`, the guard for text arriving from outside. Offsets are into the plain words, and a style never splits a grapheme.
+- **Layout** (`layoutText`): lines of runs into visual lines, same-style fragments at measured positions, and the units a per-unit animation moves. Measurement is handed in, so a page, a host and a node test run the same function.
+- **Caret** (`caretStops`, `caretAt`, `offsetAtX`, `rangeRects`): where a caret stands on what was laid out.
+- **A text element, measured** (`layoutTextElement(element, probe)`): the element's lines, where each stretch stands and the box it is drawn in, as a pure function of its config and a probe that measures. The renderer calls it over its raster canvas (`canvasTextProbe(ctx)`); a host calls it over a canvas of its own and gets the same box, so a caret it draws stands on the painted glyphs.
 
 ### `@vosjs/elements/bundle`: the injectable string
 

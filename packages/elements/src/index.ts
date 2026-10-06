@@ -98,6 +98,7 @@ export { renderElements } from './renderElements'
 export {
   extractTextBindings,
   isDataRef,
+  resolveBoundRuns,
   resolveTextElement,
 } from './dataBinding'
 export type { DataRef, TextBindings } from './dataBinding'
@@ -105,9 +106,23 @@ export {
   clampRasterScale,
   graphemes,
   layoutSplitUnits,
+  layoutTextBlock,
   lineMetricsFrom,
   lineWidthWithSpacing,
+  middleAboveBaseline,
+  plainLines,
   rasterScaleFor,
   segmentText,
+  spacedAdvance,
   DESIGN_HEIGHT,
 } from './textLayout'
+export type {
+  BlockLine,
+  LineMetrics,
+  SplitLayout,
+  TextBlockLayout,
+  UnitPlacement,
+} from './textLayout'
+// Styled text (runs, layout, caret) is at `@vosjs/elements/text`, the pure
+// entry a host imports without the renderers; this entry is also the
+// bundle a render page carries, and stays the renderer alone.

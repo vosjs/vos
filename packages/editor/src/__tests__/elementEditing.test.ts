@@ -218,6 +218,27 @@ describe('text edits write through a data binding', () => {
     expect(next.data).toEqual(config.data)
   })
 
+  it('styled words are written as runs, in place', () => {
+    const config = bound()
+    const runs = [{ text: 'Good' }, { text: 'bye', weight: 700 }]
+    const next = produce(config, setTextContentRecipe(config, 'plain', runs)!)
+    expect(next.elements[1].content).toEqual(runs)
+    expect(next.data).toEqual(config.data)
+  })
+
+  it('runs written to a bound text land in its knob as their words', () => {
+    const config = bound()
+    const next = produce(
+      config,
+      setTextContentRecipe(config, 'title', [
+        { text: 'VOS' },
+        { text: 'SO', weight: 700 },
+      ])!,
+    )
+    expect(next.elements[0].content).toEqual({ $data: 'headline' })
+    expect(next.data.headline).toBe('VOSSO')
+  })
+
   it('a bound colour writes data; unbound style fields merge as before', () => {
     const config = bound()
     const next = produce(

@@ -23,14 +23,20 @@ import {
   nearestFontWeight,
 } from '@vosjs/shared'
 import { htmlLayerPictureBox, htmlLayerWidth } from './htmlLayer'
-import { graphemesOf, layoutText, tokenRanges } from './richText/layout'
-import { normalizeRuns, plainText } from './richText/runs'
+import {
+  graphemesOf,
+  layoutLines,
+  layoutText,
+  normalizeRuns,
+  plainText,
+  tokenRanges,
+} from '@vosjs/elements/text'
 import {
   OVERLAY_LINE_HEIGHT,
   OVERLAY_MEDIA_DEFAULT_WIDTH,
   OVERLAY_TRANSITION_DUR,
 } from './types'
-import type { LayoutRun } from './richText/layout'
+import type { LayoutRun } from '@vosjs/elements/text'
 import type {
   OverlayClip,
   ProjectDoc,
@@ -266,7 +272,7 @@ export function overlayLines(text: string): string[] {
 
 // ---------------------------------------------------------------------------
 // Styled text. A layer's `text` is a string, or a list of runs that each
-// override the layer's style (richText/runs.ts). Everything that reads WORDS
+// override the layer's style (`@vosjs/elements/text`). Everything that reads WORDS
 // goes through `overlayPlainText`; everything that paints or measures a
 // layer goes through the layout module, over `textRunsOf`.
 // ---------------------------------------------------------------------------
@@ -356,24 +362,13 @@ export function styledTextOf(clip: TextOverlayClip): StyledText | null {
     }
     return at
   }
-  const l: LayoutRun[][] = [[]]
-  for (const run of runs) {
-    const f = fontOf(
+  // The engine's own walk from runs to lines; this names each run's font.
+  const l = layoutLines(runs, (run) =>
+    fontOf(
       run.weight !== undefined ? snapRunWeight(clip, run.weight) : style.weight,
       run.italic ?? italic,
-    )
-    const set: Omit<LayoutRun, 't'> = {
-      ...(f ? { f } : {}),
-      ...(run.color ? { c: run.color } : {}),
-      ...(run.underline ? { u: 1 as const } : {}),
-      ...(run.strike ? { s: 1 as const } : {}),
-      ...(run.highlight ? { h: run.highlight } : {}),
-    }
-    run.text.split('\n').forEach((part, i) => {
-      if (i > 0) l.push([])
-      if (part) l[l.length - 1].push({ t: part, ...set })
-    })
-  }
+    ),
+  )
   // The faces behind the other weights, where the catalog hosts them (an
   // italic is synthesized, like the layer's own).
   const entry = familyEntryOf(clip)

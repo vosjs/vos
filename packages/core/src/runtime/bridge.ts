@@ -15,8 +15,10 @@
  * host (a T3 warm swap on gesture release).
  */
 
+import type { TextRun } from '../types/elements'
+
 /** Bumped whenever the message set changes. Advertised in `BRIDGE_READY`. */
-export const VOS_BRIDGE_PROTOCOL = 8
+export const VOS_BRIDGE_PROTOCOL = 9
 
 /** One stack entry's live state, as `STACK_STATE` reports it. */
 export interface StackEntryReport {
@@ -33,6 +35,14 @@ export interface ElementRect {
   width: number
   height: number
   visible: boolean
+  /**
+   * Protocol 9: the corners of an element drawn as ONE plane, in viewport
+   * CSS px, top-left first and clockwise. The box above only bounds the
+   * element; this is where it is once a transform or a tween has rotated or
+   * scaled it, which is what a host needs to stand a caret on its text.
+   * Absent for an element of several planes (split text).
+   */
+  quad?: [number, number][]
 }
 
 /**
@@ -104,11 +114,14 @@ export type VosBridgeCommand =
    * Editor mode: ephemeral element property override (via the props proxy).
    * Protocol 4: values may be strings — text raster props (content, font
    * family/style, colors) re-render the element's canvas in place.
+   * Protocol 9: `content` may be a list of runs (styled words); an engine
+   * before it draws a list as the text of its serialization, so a host
+   * sends one only to an engine that advertises 9.
    */
   | {
       type: 'SET_ELEMENT_PROPS'
       id: string
-      props: Record<string, number | boolean | string>
+      props: Record<string, number | boolean | string | TextRun[]>
     }
   /** Editor mode: ephemeral world-space object prop override (protocol 3). */
   | {

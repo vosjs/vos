@@ -13,8 +13,8 @@ import {
   snapOffset,
   styleAt,
   toggleStyle,
-} from '../richText/runs'
-import type { RichText, TextRun } from '../richText/runs'
+} from '../text/runs'
+import type { RichText, TextRun } from '../text/runs'
 
 const SHIP: TextRun[] = [
   { text: 'Ship ' },

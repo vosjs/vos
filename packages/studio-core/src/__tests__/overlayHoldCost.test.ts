@@ -327,7 +327,9 @@ describe('what a text layer costs per frame', () => {
 
 describe('the generated layout code', () => {
   it('is regenerated whenever layout.ts changes', () => {
-    const source = readFileSync(join(process.cwd(), 'src/richText/layout.ts'))
+    const source = readFileSync(
+      join(process.cwd(), '../elements/src/text/layout.ts'),
+    )
     expect(TEXT_LAYOUT_SOURCE_HASH).toBe(
       createHash('sha256').update(source).digest('hex'),
     )

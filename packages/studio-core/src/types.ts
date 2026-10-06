@@ -5,7 +5,7 @@
  * and the lowering. Branding lives at the app layer;
  * these types are intentionally generic so the core stays extraction-ready.
  */
-import type { RichText } from './richText/runs'
+import type { RichText } from '@vosjs/elements/text'
 import type { Segment } from '@vosjs/timeline'
 import type { ZoomStyleName, ZoomStyleParams } from './zoomStyle'
 import type { SpeedParams } from './planner/autoSpeed'

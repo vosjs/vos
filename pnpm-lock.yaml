@@ -189,6 +189,9 @@ importers:
       '@vosjs/editor':
         specifier: workspace:^
         version: link:../editor
+      '@vosjs/elements':
+        specifier: workspace:^
+        version: link:../elements
       '@vosjs/shared':
         specifier: workspace:^
         version: link:../shared

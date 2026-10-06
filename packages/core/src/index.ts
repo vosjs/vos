@@ -80,6 +80,8 @@ export type {
   Transform,
   BaseElement,
   TextElement,
+  TextElementRun,
+  TextRun,
   ImageElement,
   SVGElement,
   VideoElement,

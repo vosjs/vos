@@ -5,7 +5,13 @@
  * alignment, the metrics-true line box, and raster-scale selection are
  * unit-testable in plain node. The canvas renderers in `renderers/text.ts`
  * stay a thin raster pass over these rules.
+ *
+ * Text is lines of RUNS (`text/layout.ts`): a plain string is one run a
+ * line, so the block and the split units below are one layout whether the
+ * content is styled or not.
  */
+import { graphemesOf, layoutText } from './text/layout'
+import type { Fragment, LayoutLine, LayoutRun, Measure } from './text/layout'
 
 /** Design resolution baseline: element layout lives in 1080p design px. */
 export const DESIGN_HEIGHT = 1080
@@ -90,20 +96,20 @@ export function lineMetricsFrom(
   return { ascent, descent, advance: fontSize * lineHeight }
 }
 
+/**
+ * The middle of the line box above its baseline: where the layout module's
+ * decorations are measured from (it draws on the middle; this renderer draws
+ * on the alphabetic baseline).
+ */
+export function middleAboveBaseline(metrics: LineMetrics): number {
+  return (metrics.ascent - metrics.descent) / 2
+}
+
 export type SplitType = 'chars' | 'words' | 'lines'
 export type TextAlign = 'left' | 'center' | 'right'
 
 /** Grapheme-cluster segmentation (emoji / combining-mark safe). */
-export function graphemes(text: string): string[] {
-  if (typeof Intl !== 'undefined' && (Intl as any).Segmenter) {
-    const seg = new (Intl as any).Segmenter(undefined, {
-      granularity: 'grapheme',
-    })
-    return [...seg.segment(text)].map((s: any) => s.segment)
-  }
-  // Code-point fallback: still surrogate-pair safe.
-  return Array.from(text)
-}
+export const graphemes = graphemesOf
 
 /**
  * Width of a line with manual letter-spacing: spacing goes BETWEEN grapheme
@@ -120,11 +126,122 @@ export function lineWidthWithSpacing(
   return measure(line) + letterSpacing * gaps
 }
 
+/**
+ * An advance that adds letter-spacing itself: one gap after EVERY grapheme,
+ * so stretches measured apart add up to the line. `raw` measures without
+ * spacing. The gap after a line's or a unit's last grapheme is not ink; the
+ * layouts below take it back off (`lineWidthWithSpacing`'s n - 1 gaps).
+ */
+export function spacedAdvance(raw: Measure, letterSpacing: number): Measure {
+  if (!letterSpacing) return raw
+  return (text, font) =>
+    text ? raw(text, font) + letterSpacing * graphemes(text).length : 0
+}
+
+/** A plain string as lines of runs: one unstyled run a line. */
+export function plainLines(content: string): LayoutRun[][] {
+  return content.split('\n').map((t) => (t ? [{ t }] : []))
+}
+
+const lineText = (frags: readonly { t: string }[]) => {
+  let out = ''
+  for (const f of frags) out += f.t
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// The block: what a text element draws as ONE picture.
+// ---------------------------------------------------------------------------
+
+/**
+ * One line of a block: a layout line (its stretches, each at its left edge
+ * from the line's start, and where the line sits in the whole text) whose
+ * `w` is its INK width, and where it starts inside the block.
+ */
+export interface BlockLine extends LayoutLine {
+  /** Where the line starts inside the block, by `align`. */
+  indent: number
+}
+
+export interface TextBlockLayout {
+  lines: BlockLine[]
+  /** The widest line. */
+  width: number
+  /** `(lines - 1)` advances plus one metrics-true line box. */
+  height: number
+  metrics: LineMetrics
+}
+
+/**
+ * Lay a block out: lines of fragments, each line placed by `align` against
+ * the widest. `advance(text, font)` is the advance of a stretch in a font;
+ * where it already holds a gap after the last grapheme that is not ink (the
+ * manual letter-spacing of `spacedAdvance`), `trailingGap` takes it off each
+ * line's width.
+ */
+export function layoutTextBlock(
+  lines: LayoutRun[][],
+  opts: { align: TextAlign; metrics: LineMetrics; trailingGap?: number },
+  advance: Measure,
+): TextBlockLayout {
+  const { align, metrics } = opts
+  const gap = opts.trailingGap ?? 0
+  const laid = layoutText({ lines }, advance)
+  const widths = laid.lines.map((l) => (l.frags.length ? l.w - gap : 0))
+  const width = widths.length ? Math.max(...widths) : 0
+  return {
+    lines: laid.lines.map((l, i) => ({
+      ...l,
+      w: widths[i],
+      indent:
+        align === 'center'
+          ? (width - widths[i]) / 2
+          : align === 'right'
+            ? width - widths[i]
+            : 0,
+    })),
+    width,
+    height:
+      (laid.lines.length - 1) * metrics.advance +
+      metrics.ascent +
+      metrics.descent,
+    metrics,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Split units: what a text element draws as one picture PER char, word or
+// line, for a timeline to animate apart.
+// ---------------------------------------------------------------------------
+
 export interface TextUnit {
   text: string
   lineIndex: number
   /** Character offset of the unit within its line (for prefix measurement). */
   charOffset: number
+}
+
+/** `[start, end)` of each unit in one line: ink only, never bare whitespace. */
+function unitRanges(line: string, type: SplitType): [number, number][] {
+  const out: [number, number][] = []
+  if (type === 'lines') {
+    if (line.length > 0) out.push([0, line.length])
+    return out
+  }
+  if (type === 'words') {
+    const re = /\S+/g
+    let m: RegExpExecArray | null
+    while ((m = re.exec(line)) !== null) {
+      out.push([m.index, m.index + m[0].length])
+    }
+    return out
+  }
+  let offset = 0
+  for (const g of graphemes(line)) {
+    if (g.length > 0 && !/^\s+$/.test(g)) out.push([offset, offset + g.length])
+    offset += g.length
+  }
+  return out
 }
 
 /**
@@ -139,24 +256,8 @@ export function segmentText(
   const lines = content.split('\n')
   const units: TextUnit[] = []
   lines.forEach((line, lineIndex) => {
-    if (type === 'lines') {
-      if (line.length > 0) units.push({ text: line, lineIndex, charOffset: 0 })
-      return
-    }
-    if (type === 'words') {
-      const re = /\S+/g
-      let m: RegExpExecArray | null
-      while ((m = re.exec(line)) !== null) {
-        units.push({ text: m[0], lineIndex, charOffset: m.index })
-      }
-      return
-    }
-    let offset = 0
-    for (const g of graphemes(line)) {
-      if (g.length > 0 && !/^\s+$/.test(g)) {
-        units.push({ text: g, lineIndex, charOffset: offset })
-      }
-      offset += g.length
+    for (const [a, b] of unitRanges(line, type)) {
+      units.push({ text: line.slice(a, b), lineIndex, charOffset: a })
     }
   })
   return { lines, units }
@@ -170,6 +271,11 @@ export interface UnitPlacement {
   offsetY: number
   /** Measured ink advance of the unit (spacing-inclusive), design px. */
   width: number
+  /**
+   * What the unit draws: its same-style stretches, each at its left edge
+   * from the UNIT's left. One for a unit set in one style.
+   */
+  parts: Fragment[]
 }
 
 export interface SplitLayout {
@@ -185,44 +291,65 @@ export interface SplitLayout {
  * letter-spacing applied — spacing is added here so the math is identical in
  * every browser (and honest: per-unit rasters lose cross-boundary kerning by
  * construction; prefix measurement keeps cumulative drift bounded).
+ *
+ * `content` is a string or lines of runs. A unit that crosses a style
+ * boundary (a word set half in bold) carries one part per stretch, each
+ * measured in its own font and placed after the one before it.
  */
 export function layoutSplitUnits(
-  content: string,
+  content: string | LayoutRun[][],
   type: SplitType,
   opts: { letterSpacing: number; align: TextAlign; metrics: LineMetrics },
-  measure: (text: string) => number,
+  measure: Measure,
 ): SplitLayout {
-  const { lines, units } = segmentText(content, type)
   const { letterSpacing: ls, align, metrics } = opts
+  const advance = spacedAdvance(measure, ls)
+  const block = layoutTextBlock(
+    typeof content === 'string' ? plainLines(content) : content,
+    { align, metrics, trailingGap: ls },
+    advance,
+  )
 
-  const widths = lines.map((line) => lineWidthWithSpacing(line, ls, measure))
-  const blockWidth = widths.length ? Math.max(...widths) : 0
-  const blockHeight =
-    (lines.length - 1) * metrics.advance + metrics.ascent + metrics.descent
-
-  const placed = units.map((u): UnitPlacement => {
-    const line = lines[u.lineIndex]
-    const prefix = line.slice(0, u.charOffset)
-    const advanceBefore =
-      measure(prefix) + ls * (prefix.length ? graphemes(prefix).length : 0)
-    const width = lineWidthWithSpacing(u.text, ls, measure)
-    const lineW = widths[u.lineIndex]
+  const units: UnitPlacement[] = []
+  block.lines.forEach((line, lineIndex) => {
     const lineStart =
       align === 'left'
-        ? -blockWidth / 2
+        ? -block.width / 2
         : align === 'right'
-          ? blockWidth / 2 - lineW
-          : -lineW / 2
-    const baselineDown = metrics.ascent + u.lineIndex * metrics.advance
-    const centerDown = baselineDown + (metrics.descent - metrics.ascent) / 2
-    return {
-      text: u.text,
-      lineIndex: u.lineIndex,
-      offsetX: lineStart + advanceBefore + width / 2,
-      offsetY: blockHeight / 2 - centerDown,
-      width,
+          ? block.width / 2 - line.w
+          : -line.w / 2
+    const baselineDown = metrics.ascent + lineIndex * metrics.advance
+    const centerDown = baselineDown - middleAboveBaseline(metrics)
+    for (const [a, b] of unitRanges(lineText(line.frags), type)) {
+      // The unit's stretches, each measured ALONE in its font (a unit is its
+      // own raster) and set one after the other.
+      const parts: Fragment[] = []
+      let left = 0
+      let width = 0
+      for (const fr of line.frags) {
+        const from = Math.max(a, fr.o)
+        const to = Math.min(b, fr.o + fr.t.length)
+        if (to <= from) continue
+        const f = fr.f || 0
+        if (!parts.length) left = fr.x + advance(fr.t.slice(0, from - fr.o), f)
+        const t = fr.t.slice(from - fr.o, to - fr.o)
+        const w = advance(t, f)
+        parts.push({ ...fr, t, x: width, w, o: from - a })
+        width += w
+      }
+      if (!parts.length) continue
+      // The gap after the unit's last grapheme is not ink.
+      width -= ls
+      units.push({
+        text: lineText(parts),
+        lineIndex,
+        offsetX: lineStart + left + width / 2,
+        offsetY: block.height / 2 - centerDown,
+        width,
+        parts,
+      })
     }
   })
 
-  return { units: placed, width: blockWidth, height: blockHeight, metrics }
+  return { units, width: block.width, height: block.height, metrics }
 }

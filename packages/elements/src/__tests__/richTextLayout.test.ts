@@ -5,9 +5,9 @@ import {
   lineOfOffset,
   offsetAtX,
   rangeRects,
-} from '../richText/caret'
-import { decorationRect, layoutText, tokenRanges } from '../richText/layout'
-import type { LayoutRun, Measure } from '../richText/layout'
+} from '../text/caret'
+import { decorationRect, layoutText, tokenRanges } from '../text/layout'
+import type { LayoutRun, Measure } from '../text/layout'
 
 /** 10 px a character in font 0, 13 in font 1: a bold run cannot hide. */
 const measure: Measure = (t, f) => t.length * (f === 1 ? 13 : 10)

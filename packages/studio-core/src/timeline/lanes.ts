@@ -28,7 +28,7 @@ import {
 import { mediaAtOutput, mediaDuration, mediaSource } from '../media'
 import { docOutputDuration, voiceKey } from '../audioBeds'
 import { htmlLayerLabel } from '../htmlLayer'
-import { plainText } from '../richText/runs'
+import { plainText } from '@vosjs/elements/text'
 import { anchorSourceDuration } from '../doc/studioDoc'
 import {
   CAM_SPAN_MIN,

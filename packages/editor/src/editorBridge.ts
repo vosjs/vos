@@ -9,6 +9,7 @@
  * Requests resolve with a fallback (null / []) after `timeoutMs` so a player
  * that is not in editor mode (or mid-reload) can never hang the UI.
  */
+import type { TextRun } from '@vosjs/core'
 import type { ElementRect } from '@vosjs/core/runtime'
 
 export type { ElementRect }
@@ -26,7 +27,7 @@ export interface EditorBridgeClient {
    */
   setElementProps: (
     id: string,
-    props: Record<string, number | boolean | string>,
+    props: Record<string, number | boolean | string | TextRun[]>,
   ) => void
   /** Rect pushes (the player posts them on resize) + rect responses. */
   onRects: (fn: (rects: ElementRect[]) => void) => () => void
