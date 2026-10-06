@@ -212,6 +212,17 @@ export function apiError(what: string, r: ApiResult): string {
   return `${what} → ${r.status}${detail ? `: ${detail}` : ''}${hint}`
 }
 
+/**
+ * The next step a push without `--prompt` prints: the prompt that made a
+ * vos is shown on its watch page by default, in the person's own words.
+ * An agent reads a command's output and acts on it, so the push says the
+ * command outright. The vos lands private, so its owner sees the prompt
+ * before anyone else can.
+ */
+export function promptHint(target: string, vosId: string): string {
+  return `vos push ${target} --vos ${vosId} --prompt "<the person's prompt, as they wrote it>"`
+}
+
 // ---------------------------------------------------------------------------
 // Sync state — ONE file (vos.json) for both artifact kinds, legacy-read
 // compatible with the two files it replaces: push.json (take dirs) and

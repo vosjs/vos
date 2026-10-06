@@ -29,6 +29,7 @@ import {
   formatChanges,
   parseVosId,
   platformOrigin,
+  promptHint,
   readSyncState,
   requireCredential,
   resolveCredential,
@@ -763,6 +764,8 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
       currentVersionId: created.currentVersionId,
       watchUrl,
       studioUrl,
+      prompt: prompt ?? null,
+      ...(prompt ? {} : { promptHint: promptHint(source, created.id) }),
       ...(landed
         ? {
             still: landed.still,
@@ -776,6 +779,9 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
       (landed ? `${landedLines(landed)}\n` : '') +
       `  shelf:  ${folderRef ? `in ${folderRef}` : `unfiled, at the root of your shelf (file it: vos folder move ${created.id} --to <slug>)`}\n` +
       `  cover:  ${typeof programDoc?.still === 'number' ? `${String(programDoc.still)}s` : 'the platform picks an early frame; choose one with --still <seconds>'}\n` +
+      (prompt
+        ? `  prompt: shown on the watch page\n`
+        : `  prompt: none shown; show the one that made it: ${promptHint(source, created.id)}\n`) +
       `Iterate with: vos push ${source} --vos ${created.id}`,
   )
   return EXIT_OK

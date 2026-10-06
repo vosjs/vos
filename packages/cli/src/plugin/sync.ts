@@ -225,6 +225,8 @@ export async function pushTake(
     note?: string
     folder?: string
     overrides?: string[]
+    /** The prompt that made it, shown on its watch page (the person's words). */
+    prompt?: string
   },
   r: Reporter,
 ): Promise<{ vosId: string; versionId: string; versionNumber: number }> {
@@ -405,6 +407,7 @@ export async function pushTake(
         ...(folderId ? { folderId } : {}),
         ...(flags.label ? { label: flags.label } : {}),
         ...(flags.note ? { note: flags.note } : {}),
+        ...(flags.prompt ? { prompt: flags.prompt } : {}),
       },
     })
     if (created.status !== 201) {
@@ -461,6 +464,16 @@ export async function pushTake(
     )
   }
   serverWarnings(pushed.json, (l) => r.log(l))
+  if (flags.prompt) {
+    const set = await api(ctx, `/vos/${state.vosId}`, {
+      method: 'PATCH',
+      body: { prompt: flags.prompt },
+    })
+    if (set.status !== 200)
+      r.warn(
+        `could not set the prompt (${set.status}): ${String(set.json.error ?? '')}${detailLine(set.json)}`,
+      )
+  }
   const version = pushed.json.version as { id: string; versionNumber: number }
   writeSyncState(dir, {
     vosId: state.vosId,

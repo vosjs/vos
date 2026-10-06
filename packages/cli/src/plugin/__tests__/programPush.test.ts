@@ -75,6 +75,22 @@ function serve(seen: Seen[]): Promise<string> {
   })
 }
 
+/** Run a push under --json and answer the `done` line it printed. */
+async function doneOf(run: () => Promise<number>): Promise<any> {
+  const lines: string[] = []
+  const write = process.stdout.write.bind(process.stdout)
+  process.stdout.write = ((chunk: string | Uint8Array) => {
+    lines.push(String(chunk))
+    return true
+  }) as typeof process.stdout.write
+  try {
+    expect(await run()).toBe(0)
+  } finally {
+    process.stdout.write = write
+  }
+  return JSON.parse(lines.join('').trim().split('\n').at(-1) ?? '{}')
+}
+
 afterEach(() => {
   server?.close()
   server = undefined
@@ -163,6 +179,51 @@ describe('vos push of a program document with its own sound', () => {
     expect(studioAudio(create?.body?.config).map((a) => a.key)).toEqual([
       '/api/assets/snd/file',
     ])
+  })
+
+  it('a keyed push with no --prompt says how to show the one that made it', async () => {
+    const origin = await serve([])
+    const dir = mkdtempSync(join(tmpdir(), 'vos-program-'))
+    writeFileSync(join(dir, 'config.json'), JSON.stringify(CONFIG))
+    const config = join(dir, 'config.json')
+    const done = await doneOf(() =>
+      cmdPushProgram([
+        config,
+        '--origin',
+        origin,
+        '--key',
+        'vos_sk_test',
+        '--json',
+      ]),
+    )
+    expect(done.prompt).toBeNull()
+    expect(done.promptHint).toBe(
+      `vos push ${config} --vos v-1 --prompt "<the person's prompt, as they wrote it>"`,
+    )
+  })
+
+  it('a keyed push carries --prompt and prints no hint', async () => {
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    const dir = mkdtempSync(join(tmpdir(), 'vos-program-'))
+    writeFileSync(join(dir, 'config.json'), JSON.stringify(CONFIG))
+    const done = await doneOf(() =>
+      cmdPushProgram([
+        join(dir, 'config.json'),
+        '--prompt',
+        'make a 15-second showreel',
+        '--origin',
+        origin,
+        '--key',
+        'vos_sk_test',
+        '--json',
+      ]),
+    )
+    expect(seen.find((s) => s.url === '/api/vos')?.body?.prompt).toBe(
+      'make a 15-second showreel',
+    )
+    expect(done.prompt).toBe('make a 15-second showreel')
+    expect(done.promptHint).toBeUndefined()
   })
 
   it('--still writes the cover into doc.json and the push carries it', async () => {

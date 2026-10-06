@@ -195,7 +195,8 @@ approximation.
 6. **Knob honesty**: one `--set data.<key>=<value>` still per param.
 7. **Push** with the score: `vos push config.json --folder <slug> --label
    "port of <source>" --note "<what was substituted, what is a painter>"
-   --wait`, and hand over the watch and studio links.
+   --prompt "<the person's prompt, as they wrote it>" --wait`, and hand over
+   the watch and studio links. `--prompt` shows the person's prompt on the watch page by default: their words as they wrote them, never yours, with no file path, key or email they did not mean to publish. Say it is shown, and that they can take it off from the watch page.
 
 ## The honest gaps (say them in the push note)
 

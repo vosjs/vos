@@ -69,8 +69,11 @@ sliced to the window); the editorial cut still trims `segments`.
 ## 4. The shelf is the record — push BEFORE the handoff
 
 ```bash
-vos push take --label "footage handoff" --note "<what it shows; which composition it feeds>"
+vos push take --label "footage handoff" --note "<what it shows; which composition it feeds>" \
+  --prompt "<the person's prompt, as they wrote it>"
 ```
+
+`--prompt` shows the person's prompt on the watch page by default: their words as they wrote them, never yours, with no file path, key or email they did not mean to publish. Say it is shown, and that they can take it off from the watch page.
 
 The take goes to the maker's shelf first, so the clip is never the only
 copy of the work. Two cases where you ASK before pushing instead: there is

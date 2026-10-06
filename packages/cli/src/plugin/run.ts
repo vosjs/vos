@@ -56,6 +56,7 @@ import { digestTake, parseTranscript } from './digestTake'
 import {
   apiJson,
   platformOrigin,
+  promptHint,
   readSyncState,
   requireCredential,
   resolveCredential,
@@ -2246,7 +2247,7 @@ async function cmdPush(argv: string[]): Promise<number> {
   const dir = positionals[0]
   if (!dir)
     throw new UsageError(
-      'vos push <take> [--vos|--title|--label|--note|--folder|--override|--yes|--key|--api]',
+      'vos push <take> [--vos|--title|--label|--note|--prompt|--folder|--override|--yes|--key|--api]',
     )
   const refusal = takePushRefusal({
     vos: strFlag(flags, 'vos'),
@@ -2272,6 +2273,7 @@ async function cmdPush(argv: string[]): Promise<number> {
       note: strFlag(flags, 'note'),
       folder: strFlag(flags, 'folder'),
       overrides,
+      prompt: strFlag(flags, 'prompt'),
     },
     r,
   )
@@ -2295,9 +2297,15 @@ async function cmdPush(argv: string[]): Promise<number> {
     result.versionNumber === 1
       ? `\n  shelf:  ${strFlag(flags, 'folder') ? `in ${strFlag(flags, 'folder')}` : `unfiled, at the root of your shelf (file it: vos folder move ${result.vosId} --to <slug>)`}`
       : ''
+  // A new vos shows the prompt that made it by default: say how, when none
+  // was given, because an agent acts on what a push prints.
+  const prompt = strFlag(flags, 'prompt')
+  const hint =
+    result.versionNumber === 1 && !prompt ? promptHint(dir, result.vosId) : null
   r.done(
     {
       ...result,
+      ...(hint ? { promptHint: hint } : {}),
       ...(landed
         ? {
             still: landed.still,
@@ -2308,6 +2316,9 @@ async function cmdPush(argv: string[]): Promise<number> {
     },
     `pushed v${result.versionNumber} → vos ${result.vosId}\n  review: ${pushedTo}/vos/${result.vosId}\n  studio: ${pushedTo}/studio?vos=${result.vosId}` +
       filed +
+      (hint
+        ? `\n  prompt: none shown; show the one that made it: ${hint}`
+        : '') +
       (landed ? `\n${landedLines(landed)}` : ''),
   )
   return EXIT_OK
