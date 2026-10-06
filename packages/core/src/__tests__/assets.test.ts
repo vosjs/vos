@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { compileVosConfig } from '../compiler/compileVosConfig'
 import { bakedAssetDefaults, generateAssetsSetup } from '../compiler/generators'
 import { hasAssetErrors, lintVosAssets } from '../lint'
+import { codeMask } from '../lint/assets'
 import { generateRenderTemplate } from '../runtime'
 import { vosConfigJsonSchema } from '../schema/configJsonSchema'
 import type { VosConfigJson } from '../types'
@@ -274,5 +275,136 @@ describe('lintVosAssets', () => {
         stack: [{ id: 'layers', createContent: '(ctx) => ctx.assets.bed' }],
       }),
     ).toEqual([])
+  })
+
+  describe('only code is a read', () => {
+    it('a URL on a host named assets. is text, in any kind of string', () => {
+      expect(
+        lint({
+          setup: `async (ctx) => {
+            const a = 'https://assets.vos.so/fonts/lexend/400.woff2'
+            const b = "https://assets.vos.so/fonts/lexend/600.woff2"
+            const c = \`https://assets.vos.so/fonts/\${ctx.data.slug}/400.woff2\`
+            const d = [{"family":"Lexend","url":"https://assets.vos.so/x.woff2"}]
+            return { a, b, c, d }
+          }`,
+        }),
+      ).toEqual([])
+    })
+
+    it('a comment is not a read', () => {
+      expect(
+        lint({
+          onFrame: `(ctx) => {
+            // loops on assets.vos.so are fetched whole
+            /* and so is anything under assets.cdn */
+            return 1
+          }`,
+        }),
+      ).toEqual([])
+    })
+
+    it('a template’s interpolation is code', () => {
+      const issues = lint({
+        setup: '(ctx) => `url(${ctx.assets.hero}) and assets.text`',
+      })
+      expect(issues.map((i) => i.name)).toEqual(['hero'])
+    })
+
+    it('a quote inside a regex does not hide what follows it', () => {
+      const issues = lint({
+        setup: `(ctx) => {
+          const clean = (t) => t.replace(/["']/g, '')
+          if (/'/.test(ctx.data.t)) return clean(ctx.assets.hero)
+          return ctx.data.w / 2 / ctx.assets.count
+        }`,
+      })
+      expect(issues.map((i) => i.name).sort()).toEqual(['count', 'hero'])
+    })
+
+    it('a local named assets is not the manifest', () => {
+      expect(
+        lint({
+          setup: `async (ctx) => {
+            const assets = []
+            for (const u of ctx.data.uris) assets.push({ url: u })
+            return { n: assets.length, first: assets[0] }
+          }`,
+        }),
+      ).toEqual([])
+    })
+
+    it('a local that IS the manifest still reads it', () => {
+      const issues = lint({
+        assets: { logo: { ref: './logo.png' } },
+        setup: `(ctx) => {
+          const assets = ctx.assets
+          const { bed } = assets
+          return [assets.logo, assets.hero, bed]
+        }`,
+      })
+      expect(issues.map((i) => i.name).sort()).toEqual(['bed', 'hero'])
+    })
+
+    it('another object’s assets property is still reported, beside a local', () => {
+      const issues = lint({
+        setup: `(ctx) => {
+          const assets = []
+          assets.push(ctx.assets.hero)
+          return assets
+        }`,
+      })
+      expect(issues.map((i) => i.name)).toEqual(['hero'])
+    })
+
+    it('a name read only in a comment leaves its declaration unused', () => {
+      const issues = lint({
+        assets: { logo: { ref: './logo.png' } },
+        setup: '(ctx) => { /* ctx.assets.logo, later */ return 1 }',
+      })
+      expect(issues).toEqual([
+        expect.objectContaining({ rule: 'unused-asset', name: 'logo' }),
+      ])
+    })
+  })
+
+  describe('codeMask', () => {
+    const code = (src: string) => {
+      const mask = codeMask(src)
+      return [...src].map((c, i) => (mask[i] ? c : '·')).join('')
+    }
+
+    it('keeps code and blanks strings, comments and regexes', () => {
+      expect(code(`a = 'x' + "y" // z`)).toBe('a = ··· + ··· ····')
+      expect(code('a /* b */ c')).toBe('a ······· c')
+      expect(code('t.replace(/a[/]b/g, 1)')).toBe('t.replace(········, 1)')
+      expect(code('w / 2 / h')).toBe('w / 2 / h')
+    })
+
+    it('keeps a template’s interpolations, nested ones too', () => {
+      expect(code('`a ${b + `c ${d}`} e`')).toBe('·····b + ·····d······')
+      expect(code('`${ {k: 1}.k }` + x')).toBe('··· {k: 1}.k ·· + x')
+    })
+
+    it('an unterminated string ends at its line', () => {
+      expect(code(`a = 'oops\nb = 1`)).toBe('a = ·····\nb = 1')
+    })
+
+    it('costs the length of what it is given', () => {
+      // Shapes that would cost a rescan each if a failed match were retried.
+      const hostile = [
+        '= /'.repeat(100_000),
+        "'".repeat(300_000),
+        '`${'.repeat(100_000),
+        '/[' + '/'.repeat(300_000),
+        'assets.'.repeat(50_000),
+      ]
+      for (const src of hostile) {
+        const t0 = performance.now()
+        codeMask(src)
+        lintVosAssets({ ...base, setup: src } as VosConfigJson)
+        expect(performance.now() - t0).toBeLessThan(1500)
+      }
+    })
   })
 })
