@@ -15,8 +15,10 @@
  * host (a T3 warm swap on gesture release).
  */
 
+import type { TextRun } from '../types/elements'
+
 /** Bumped whenever the message set changes. Advertised in `BRIDGE_READY`. */
-export const VOS_BRIDGE_PROTOCOL = 8
+export const VOS_BRIDGE_PROTOCOL = 9
 
 /** One stack entry's live state, as `STACK_STATE` reports it. */
 export interface StackEntryReport {
@@ -104,11 +106,14 @@ export type VosBridgeCommand =
    * Editor mode: ephemeral element property override (via the props proxy).
    * Protocol 4: values may be strings — text raster props (content, font
    * family/style, colors) re-render the element's canvas in place.
+   * Protocol 9: `content` may be a list of runs (styled words); an engine
+   * before it draws a list as the text of its serialization, so a host
+   * sends one only to an engine that advertises 9.
    */
   | {
       type: 'SET_ELEMENT_PROPS'
       id: string
-      props: Record<string, number | boolean | string>
+      props: Record<string, number | boolean | string | TextRun[]>
     }
   /** Editor mode: ephemeral world-space object prop override (protocol 3). */
   | {

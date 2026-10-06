@@ -9,6 +9,7 @@
  * renderer scales them by `viewportHeight / 1080`), so a CSS-px drag delta
  * converts by the inverse factor.
  */
+import type { TextRun } from '@vosjs/core'
 import type { Recipe } from './store'
 
 export const DESIGN_HEIGHT = 1080
@@ -217,15 +218,19 @@ export interface TextStylePatch {
  * gesture — the ephemeral preview is `setElementProps(id, { content })`,
  * protocol 4). Returns null when the id doesn't resolve to a text element.
  *
+ * `content` is the words: a string, or a list of runs where parts of them
+ * are set differently.
+ *
  * A content BOUND to data (`{ $data: key }`) is written to `data[key]` and
  * the binding stays: writing the literal over it cut the text loose from
  * its knob, so a later knob turn or data patch no longer reached the words
- * (and the edit became a recompile instead of a live data change).
+ * (and the edit became a recompile instead of a live data change). A knob
+ * holds words, so runs written to a bound content land as their words.
  */
 export function setTextContentRecipe(
   config: ConfigWithElements,
   elementId: string,
-  content: string,
+  content: string | TextRun[],
 ): Recipe<ConfigWithElements> | null {
   const elements = config.elements
   if (!Array.isArray(elements)) return null
@@ -238,8 +243,17 @@ export function setTextContentRecipe(
 
   const key = boundDataKey((elements[index] as { content?: unknown }).content)
   return (draft) => {
-    if (key) writeData(draft, key, content)
-    else (draft.elements![index] as { content?: string }).content = content
+    if (key) {
+      writeData(
+        draft,
+        key,
+        typeof content === 'string'
+          ? content
+          : content.map((r) => r.text).join(''),
+      )
+    } else {
+      ;(draft.elements![index] as { content?: unknown }).content = content
+    }
   }
 }
 

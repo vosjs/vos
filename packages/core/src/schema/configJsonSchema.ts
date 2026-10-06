@@ -11,9 +11,9 @@ import { programSizeSchema } from './size'
 
 /**
  * `{$data: key}` — the value resolves from the host's data object at render
- * time and re-resolves on setData. Allowed on `content`, `font.family` and
- * `font.color`; because the binding lives in the program, remixing the bound
- * value is a pure data edit (no recompile).
+ * time and re-resolves on setData. Allowed on `content`, on a run's `text`,
+ * and on `font.family` and `font.color`; because the binding lives in the
+ * program, remixing the bound value is a pure data edit (no recompile).
  */
 export const dataRefSchema = z
   .object({ $data: z.string().min(1) })
@@ -32,10 +32,27 @@ const textFontSchema = z
   })
   .passthrough()
 
+/**
+ * A piece of styled text: its words and the fields in which it departs from
+ * the element's `font`. Unknown fields pass (nothing is ever stripped) and
+ * do nothing; `lintVosText` names them.
+ */
+export const textRunSchema = z
+  .object({
+    text: z.union([z.string(), dataRefSchema]),
+    weight: z.number().optional(),
+    italic: z.boolean().optional(),
+    color: z.string().optional(),
+    underline: z.boolean().optional(),
+    strike: z.boolean().optional(),
+    highlight: z.string().optional(),
+  })
+  .passthrough()
+
 export const textElementSchema = z
   .object({
     type: z.literal('text'),
-    content: z.union([z.string(), dataRefSchema]),
+    content: z.union([z.string(), dataRefSchema, z.array(textRunSchema)]),
     font: textFontSchema.optional(),
     stroke: z
       .object({ color: z.string(), width: z.number().nonnegative() })

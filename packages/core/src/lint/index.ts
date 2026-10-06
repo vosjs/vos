@@ -19,6 +19,13 @@ export {
   type FontSeverity,
 } from './fonts'
 export {
+  lintVosText,
+  hasTextErrors,
+  type TextIssue,
+  type TextRule,
+  type TextSeverity,
+} from './text'
+export {
   lintVosPostprocessing,
   type PostprocessingIssue,
   type PostprocessingRule,

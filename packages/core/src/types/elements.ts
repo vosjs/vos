@@ -98,10 +98,44 @@ export interface DataRef {
   $data: string
 }
 
+/**
+ * A piece of styled text: its words, and the fields in which it departs
+ * from its element's `font`. A field left out is the element's own, so a
+ * list of runs holds only what differs. There is no markup in the words.
+ *
+ * The same shape a studio text layer's `text` takes (`@vosjs/elements/text`
+ * holds the operations on it), so styled words read and write one way
+ * wherever they are.
+ */
+export interface TextRun {
+  /** The words. May hold line breaks. */
+  text: string
+  /** Font weight, in place of `font.weight`. */
+  weight?: number
+  /** Italic on, or (on an italic element) off. */
+  italic?: boolean
+  /** Fill colour, in place of `font.color`. */
+  color?: string
+  underline?: boolean
+  strike?: boolean
+  /** A colour behind the words. */
+  highlight?: string
+}
+
+/**
+ * A run as a CONFIG writes it: its words may be bound to data, so a remix
+ * knob keeps editing plain words while the run keeps its style.
+ */
+export type TextElementRun = Omit<TextRun, 'text'> & { text: string | DataRef }
+
 export interface TextElement extends BaseElement {
   type: 'text'
-  /** Text content (supports \n for multiline), or a `{$data}` binding */
-  content: string | DataRef
+  /**
+   * The words (supports \n for multiline): a string, a `{$data}` binding,
+   * or a list of runs where parts of them are set differently
+   * (`[{ text: 'Ship ' }, { text: 'faster', weight: 700 }]`).
+   */
+  content: string | DataRef | TextElementRun[]
 
   font?: {
     family?: string | DataRef
@@ -282,8 +316,9 @@ export interface ElementProps {
   // Text-specific: every one of these re-rasters the text when written
   // (`RASTER_PROPS` in @vosjs/elements), so a scramble or a counter writes
   // `props.content` and a colour change sets `props.color` (the tween dialect
-  // animates numbers only, so a colour is set, never tweened).
-  content?: string
+  // animates numbers only, so a colour is set, never tweened). `content`
+  // takes a string or a list of runs; a string replaces styled words whole.
+  content?: string | TextRun[]
   fontSize?: number
   fontFamily?: string
   fontWeight?: number | string
@@ -332,8 +367,8 @@ export interface ElementInstance {
   segments?: ElementProps[]
   /** Set when a data edit rebuilt this element's units; the host clears it. */
   structural?: boolean
-  /** Update element content (text or image src) */
-  setContent: (content: string) => void
+  /** Update element content (text, plain or as runs; or an image src) */
+  setContent: (content: string | TextRun[]) => void
   /**
    * Re-resolve `{$data}`-bound props against fresh data (called by the
    * compiled module's setData). Returns true when a change was picked up.

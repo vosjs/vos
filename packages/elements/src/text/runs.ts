@@ -13,6 +13,7 @@
  * gone, and text with no style left is a string again.
  */
 import { graphemesOf } from './layout'
+import type { LayoutRun } from './layout'
 
 /** How a run departs from its layer's style. Absent = the layer's own. */
 export interface TextRunStyle {
@@ -98,6 +99,62 @@ export function normalizeRuns(text: RichText): RichText {
   if (!out.length) return ''
   if (out.length === 1 && !isStyled(out[0])) return out[0].text
   return out
+}
+
+/**
+ * Whatever was handed in, as styled text. The guard at a boundary that takes
+ * text from outside (a config, a message, a tween's write): a list keeps the
+ * runs that are runs and the fields that are of their type, and anything
+ * that is not a list becomes its words. Canonical, like `normalizeRuns`.
+ */
+export function toRichText(value: unknown): RichText {
+  if (!Array.isArray(value)) return value == null ? '' : String(value)
+  const runs: TextRun[] = []
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue
+    const r = item as Record<string, unknown>
+    if (typeof r.text !== 'string') continue
+    const run: TextRun = { text: r.text }
+    if (typeof r.weight === 'number' && Number.isFinite(r.weight))
+      run.weight = r.weight
+    if (typeof r.italic === 'boolean') run.italic = r.italic
+    if (typeof r.color === 'string' && r.color) run.color = r.color
+    if (r.underline === true) run.underline = true
+    if (r.strike === true) run.strike = true
+    if (typeof r.highlight === 'string' && r.highlight)
+      run.highlight = r.highlight
+    runs.push(run)
+  }
+  return normalizeRuns(runs)
+}
+
+/**
+ * Styled text as the layout takes it: source lines (split at every line
+ * break), each a list of runs. `fontOf` names the font a run is set in as an
+ * index into the caller's own table (0, the base font, for a run that
+ * departs in neither weight nor slant); colour and decorations ride as they
+ * are. An empty line is an empty list.
+ */
+export function layoutLines(
+  text: RichText,
+  fontOf: (style: TextRunStyle) => number,
+): LayoutRun[][] {
+  const lines: LayoutRun[][] = [[]]
+  for (const run of runsOf(text)) {
+    const f = fontOf(run)
+    const set: Omit<LayoutRun, 't'> = {
+      ...(f ? { f } : {}),
+      ...(run.color ? { c: run.color } : {}),
+      ...(run.underline ? { u: 1 as const } : {}),
+      ...(run.strike ? { s: 1 as const } : {}),
+      ...(run.highlight ? { h: run.highlight } : {}),
+    }
+    run.text.split('\n').forEach((part, i) => {
+      if (i > 0) lines.push([])
+      if (part) lines[lines.length - 1].push({ t: part, ...set })
+    })
+  }
+  return lines
 }
 
 /** The nearest grapheme boundary at or before (`-1`) or after (`1`) an offset. */
