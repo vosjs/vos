@@ -1,5 +1,11 @@
 # @vosjs/cli
 
+## 0.67.1
+
+### Patch Changes
+
+- 2d26cc8: `vos pull --check` on a program that is already up to date no longer exits with a usage error claiming it ignored `--check`. The flag was read only on the path where changes exist, so the up-to-date path never touched it and the ignored-flag guard reported it.
+
 ## 0.67.0
 
 ### Minor Changes
