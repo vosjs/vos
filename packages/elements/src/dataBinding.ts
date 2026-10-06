@@ -2,9 +2,11 @@
  * `{$data: key}` bindings — element props resolved from the host's data
  * object at render time and re-resolved on setData (live edit, no re-init).
  *
- * A text element binds its whole `content`, or the words of single RUNS in
- * a styled content (`[{ text: { $data: 'word' }, weight: 700 }]`): the knob
- * keeps editing plain words and the run keeps its style.
+ * A text element binds its whole `content`, or single fields of the RUNS in
+ * a styled content: a run's words (`{ text: { $data: 'word' } }`), so a
+ * knob keeps editing plain words while the run keeps its style, and a run's
+ * `color` or `highlight`, so one knob turns the accent of every word that
+ * wears it.
  *
  * Bindings live in the elements config, which is part of the compiled
  * program, so a data-only change never alters the program hash: hosts
@@ -12,55 +14,67 @@
  * resolves at boot only — per-unit meshes and timeline segment bindings make
  * live content changes structural (a fresh boot always resolves correctly).
  */
-export interface DataRef {
-  $data: string
-}
+import { isDataRef, resolveRunColors, toRichText } from './text/runs'
+import type { RichText } from './text/runs'
 
-export function isDataRef(value: unknown): value is DataRef {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as { $data?: unknown }).$data === 'string' &&
-    (value as { $data: string }).$data.length > 0
-  )
-}
+export { isDataRef }
+export type { DataRef } from './text/runs'
 
 /** Bound prop → data key, for the props a text element can re-raster. */
 export interface TextBindings {
+  /** The whole content is one binding: its data key. */
   content?: string
-  /** Runs of a styled content whose words are bound: `[index, data key]`. */
-  runs?: [number, string][]
+  /** The content is a list of runs, and some field of one reads data. */
+  runs?: true
   family?: string
   color?: string
 }
 
-/** A styled content with its bound runs' words read from `data`. */
-export function resolveBoundRuns(
-  content: readonly unknown[],
-  runs: readonly [number, string][],
+const RUN_FIELDS = ['text', 'color', 'highlight'] as const
+
+/**
+ * Whether a text element's content reads anything from data: the whole of
+ * it, or a run's words or colours.
+ */
+export function contentIsBound(content: unknown): boolean {
+  if (isDataRef(content)) return true
+  return (
+    Array.isArray(content) &&
+    content.some(
+      (run) =>
+        run !== null &&
+        typeof run === 'object' &&
+        RUN_FIELDS.some((f) => isDataRef((run as Record<string, unknown>)[f])),
+    )
+  )
+}
+
+/**
+ * A text element's content with every binding READ from `data`: what is
+ * drawn. A bound whole is its string; a bound run's words are their string
+ * (empty when the key holds none); a bound colour is its string, or nothing
+ * (the element's own colour) when the key holds none. Content that reads no
+ * data comes back as it was written.
+ */
+export function resolveTextContent(
+  content: unknown,
   data: Record<string, unknown> | null | undefined,
-): unknown[] {
-  const out = content.slice()
-  for (const [index, key] of runs) {
-    out[index] = {
-      ...(content[index] as object),
-      text: String(data?.[key] ?? ''),
-    }
-  }
-  return out
+): unknown {
+  if (isDataRef(content)) return String(data?.[content.$data] ?? '')
+  if (!Array.isArray(content) || !contentIsBound(content)) return content
+  const worded = content.map((run) =>
+    run !== null && typeof run === 'object' && isDataRef(run.text)
+      ? { ...run, text: String(data?.[run.text.$data] ?? '') }
+      : run,
+  )
+  return resolveRunColors(toRichText(worded), data) satisfies RichText
 }
 
 export function extractTextBindings(config: any): TextBindings | null {
   if (config?.type !== 'text') return null
   const bindings: TextBindings = {}
   if (isDataRef(config.content)) bindings.content = config.content.$data
-  else if (Array.isArray(config.content)) {
-    const runs: [number, string][] = []
-    config.content.forEach((run: any, i: number) => {
-      if (isDataRef(run?.text)) runs.push([i, run.text.$data])
-    })
-    if (runs.length) bindings.runs = runs
-  }
+  else if (contentIsBound(config.content)) bindings.runs = true
   if (isDataRef(config.font?.family)) bindings.family = config.font.family.$data
   if (isDataRef(config.font?.color)) bindings.color = config.font.color.$data
   return bindings.content || bindings.runs || bindings.family || bindings.color
@@ -79,9 +93,8 @@ export function resolveTextElement(
   data: Record<string, unknown> | null | undefined,
 ): any {
   const out = { ...config }
-  if (bindings.content) out.content = String(data?.[bindings.content] ?? '')
-  if (bindings.runs) {
-    out.content = resolveBoundRuns(config.content, bindings.runs, data)
+  if (bindings.content || bindings.runs) {
+    out.content = resolveTextContent(config.content, data)
   }
   if (bindings.family || bindings.color) {
     const font = { ...(config.font ?? {}) }

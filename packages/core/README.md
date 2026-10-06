@@ -178,7 +178,7 @@ The whole overlay, every time: it applies from the recording, never on top of th
 
 ## The bridge protocol
 
-A `playback` page speaks `VOS_BRIDGE_PROTOCOL` (currently 9) over `postMessage`. Commands: `LOAD` (a program, its `data`, `stack` data and `tweenEdits`), `PLAY`, `PAUSE`, `SEEK_TIME`, `PLAY_SPEED`, `SET_DURATION`, `SET_DATA`, `SET_TWEEN_EDITS`, `SET_MUTED`, `GET_STACK_STATE`, and in editor mode `HIT_TEST`, `GET_ELEMENT_RECTS` (each rect with the `quad` of an element drawn as one plane: its corners on screen through any rotation or scale), `SET_ELEMENT_PROPS` (a text element's `content` as a string or a list of runs), `OBJECT_BOUNDS`. Events: `BRIDGE_READY`, `READY` (with `canSetDuration`, `canRetimeTweens`, `retime`, `stack`), `UPDATE { progress, time, duration }`, `PRELOAD_PROGRESS`, `STACK_ERROR`, `STACK_STATE`, `OBJECT_RECT`. The `VosBridgeCommand` and `VosBridgeEvent` types are exported from `@vosjs/core/runtime`; `@vosjs/editor` is the host-side client.
+A `playback` page speaks `VOS_BRIDGE_PROTOCOL` (currently 10) over `postMessage`. Commands: `LOAD` (a program, its `data`, `stack` data and `tweenEdits`), `PLAY`, `PAUSE`, `SEEK_TIME`, `PLAY_SPEED`, `SET_DURATION`, `SET_DATA`, `SET_TWEEN_EDITS`, `SET_MUTED`, `GET_STACK_STATE`, and in editor mode `HIT_TEST`, `GET_ELEMENT_RECTS` (each rect with the `quad` of an element drawn as one plane: its corners on screen through any rotation or scale), `SET_ELEMENT_PROPS` (a text element's `content` as a string or a list of runs), `REGISTER_FONTS` (faces to put on the page now, ahead of the program declaring them, so a weight previewed in an uncommitted edit is drawn in its real face), `OBJECT_BOUNDS`. Events: `BRIDGE_READY`, `READY` (with `canSetDuration`, `canRetimeTweens`, `retime`, `stack`), `UPDATE { progress, time, duration }`, `PRELOAD_PROGRESS`, `STACK_ERROR`, `STACK_STATE`, `OBJECT_RECT`. The `VosBridgeCommand` and `VosBridgeEvent` types are exported from `@vosjs/core/runtime`; `@vosjs/editor` is the host-side client.
 
 ## Render audio
 
@@ -216,7 +216,7 @@ if (hasDeterminismErrors(issues)) throw new Error('non-deterministic config')
 
 `lintVosConfig` flags `Math.random`, wall-clock reads, timers and network calls in any function string (rules: `random`, `gsap-random`, `gsap-string-random`, `wall-clock`, `timer`, `network`; silence one line with `// vos-lint-disable-next-line <rule>`). `lintVosDialect` checks the GSAP authoring dialect the recorder can replay (no plugins, modifiers, DOM targets, playback control, `repeatRefresh`, `immediateRender`, snapping, or unknown eases). `lintVosFonts` warns when a text element names a family that `fonts` does not declare, which would fall back silently on a server.
 
-`lintVosText` reads a text element's styled `content` (a list of runs): a run with no words is skipped by the renderer and reported as an error, a field that is not a run's (`bold`, `style`) is named with the one that was meant, and a run weight no declared face of its family holds is reported, since a browser fakes it from another weight.
+`lintVosText` reads a text element's styled `content` (a list of runs): a run with no words is skipped by the renderer and reported as an error, a field that is not a run's (`bold`, `style`) is named with the one that was meant, a run weight no declared face of its family holds is reported, since a browser fakes it from another weight, and so is a run that reads a `data` key the config does not hold.
 
 ## Addons
 

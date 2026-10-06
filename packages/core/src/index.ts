@@ -66,6 +66,7 @@ export type {
   DotScreenEffect,
   OutputEffect,
   VosConfig,
+  FontFaceDecl,
   VosConfigJson,
   AuthoredVosConfigJson,
   ProgramEntry,

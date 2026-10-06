@@ -16,9 +16,10 @@
  */
 
 import type { TextRun } from '../types/elements'
+import type { FontFaceDecl } from '../types/vosConfigJson'
 
 /** Bumped whenever the message set changes. Advertised in `BRIDGE_READY`. */
-export const VOS_BRIDGE_PROTOCOL = 9
+export const VOS_BRIDGE_PROTOCOL = 10
 
 /** One stack entry's live state, as `STACK_STATE` reports it. */
 export interface StackEntryReport {
@@ -123,6 +124,15 @@ export type VosBridgeCommand =
       id: string
       props: Record<string, number | boolean | string | TextRun[]>
     }
+  /**
+   * Editor mode, protocol 10: put font faces on the page now, ahead of the
+   * program declaring them. A host previews a weight in an edit it has not
+   * committed; without its face the page fakes the weight from another until
+   * the commit reloads. Each face is registered once, and text elements are
+   * drawn again when one lands. Ephemeral like every editor command: the
+   * durable declaration is `config.fonts`, written by the commit.
+   */
+  | { type: 'REGISTER_FONTS'; fonts: FontFaceDecl[] }
   /** Editor mode: ephemeral world-space object prop override (protocol 3). */
   | {
       type: 'SET_OBJECT_PROPS'

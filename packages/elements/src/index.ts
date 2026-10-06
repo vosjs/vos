@@ -96,9 +96,10 @@ export function createVosElements(THREE: typeof THREE_NS): VosElements {
 
 export { renderElements } from './renderElements'
 export {
+  contentIsBound,
   extractTextBindings,
   isDataRef,
-  resolveBoundRuns,
+  resolveTextContent,
   resolveTextElement,
 } from './dataBinding'
 export type { DataRef, TextBindings } from './dataBinding'

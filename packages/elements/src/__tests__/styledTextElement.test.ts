@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import * as THREE from 'three'
 import {
+  contentIsBound,
   extractTextBindings,
-  resolveBoundRuns,
+  resolveTextContent,
   resolveTextElement,
 } from '../dataBinding'
 import { renderElements } from '../renderElements'
@@ -12,7 +13,18 @@ import {
   renderTextElement,
 } from '../renderers/text'
 import { layoutTextElement } from '../text/element'
-import { layoutLines, toRichText } from '../text/runs'
+import {
+  MIXED,
+  commonStyle,
+  layoutLines,
+  normalizeRuns,
+  replaceRange,
+  resolveRunColors,
+  setStyle,
+  toRichText,
+  toggleStyle,
+} from '../text/runs'
+import type { RichText } from '../text/runs'
 import {
   layoutSplitUnits,
   layoutTextBlock,
@@ -519,18 +531,26 @@ describe('runs bound to data', () => {
       { text: '!' },
     ],
   })
+  const ACCENT = el({
+    content: [
+      { text: 'Ship it ' },
+      { text: 'faster', weight: 700, color: { $data: 'accent' } },
+      { text: ' today', highlight: { $data: 'wash' } },
+    ],
+  })
 
-  it('names the runs whose words are bound', () => {
-    expect(extractTextBindings(config)).toEqual({
-      runs: [
-        [0, 'lead'],
-        [1, 'word'],
-      ],
-    })
+  it('says whether a content reads data: its whole, a run’s words, a run’s colours', () => {
+    expect(contentIsBound({ $data: 'headline' })).toBe(true)
+    expect(contentIsBound(config.content)).toBe(true)
+    expect(contentIsBound(ACCENT.content)).toBe(true)
+    expect(contentIsBound(RUNS)).toBe(false)
+    expect(contentIsBound('Ship it')).toBe(false)
+    expect(extractTextBindings(config)).toEqual({ runs: true })
+    expect(extractTextBindings(ACCENT)).toEqual({ runs: true })
     expect(extractTextBindings(el({ content: RUNS }))).toBeNull()
   })
 
-  it('resolves their words and keeps their style, and the config its refs', () => {
+  it('reads bound words and keeps their style, and the config its refs', () => {
     const data = { lead: 'Meet ', word: 'Genesis' }
     const resolved = resolveTextElement(
       config,
@@ -543,9 +563,26 @@ describe('runs bound to data', () => {
       { text: '!' },
     ])
     expect(config.content[0].text).toEqual({ $data: 'lead' })
+    // A key that holds no words leaves the run empty, and it is dropped:
+    // what is left is set in one style, so it is a string again.
+    expect(resolveTextContent(config.content, { lead: 'Meet ' })).toBe('Meet !')
+  })
+
+  it('reads a bound colour, and paints the element’s own where the key holds none', () => {
     expect(
-      resolveBoundRuns(config.content, [[1, 'word']], {})[1],
-    ).toMatchObject({ text: '', weight: 700 })
+      resolveTextContent(ACCENT.content, { accent: '#00ff88', wash: '#222' }),
+    ).toEqual([
+      { text: 'Ship it ' },
+      { text: 'faster', weight: 700, color: '#00ff88' },
+      { text: ' today', highlight: '#222' },
+    ])
+    expect(resolveTextContent(ACCENT.content, { accent: 7 })).toEqual([
+      { text: 'Ship it ' },
+      { text: 'faster', weight: 700 },
+      { text: ' today' },
+    ])
+    // Content that reads nothing comes back as it was written.
+    expect(resolveTextContent(RUNS, {})).toBe(RUNS)
   })
 
   it('a data edit redraws the words under their style, and only when they changed', async () => {
@@ -566,6 +603,164 @@ describe('runs bound to data', () => {
       ['Meet ', 'normal 400 24px Lexend', '#fff'],
       ['Exodus', 'normal 700 24px Lexend', '#e37358'],
       ['!', 'normal 400 24px Lexend', '#fff'],
+    ])
+  })
+
+  it('a knob turns a bound colour with no word touched', async () => {
+    const map = await renderElements(
+      [JSON.parse(JSON.stringify(ACCENT))],
+      { 100: new THREE.Scene() } as any,
+      RESOLUTION,
+      THREE,
+      { accent: '#e37358' },
+    )
+    const inst = map.get('t')
+    const mesh = inst.mesh
+    expect(inst.updateData({ accent: '#e37358' })).toBe(false)
+    calls = []
+    expect(inst.updateData({ accent: '#00ff88', wash: '#222' })).toBe(true)
+    inst.flushRaster()
+    // The same mesh, redrawn: the accent word in the knob's colour, and the
+    // highlight that now has one.
+    expect(inst.mesh).toBe(mesh)
+    expect(texts().map((c) => [c.text, c.fill])).toEqual([
+      ['Ship it ', '#fff'],
+      ['faster', '#00ff88'],
+      [' today', '#fff'],
+    ])
+    expect(rects().map((c) => c.fill)).toEqual(['#222'])
+  })
+
+  it('a live write may carry bindings: they are read now, and again when the data moves', async () => {
+    // The element's own config binds nothing.
+    const map = await renderElements(
+      [el({ content: 'Ship it' })],
+      { 100: new THREE.Scene() } as any,
+      RESOLUTION,
+      THREE,
+      { accent: '#e37358' },
+    )
+    const inst = map.get('t')
+    expect(inst.updateData({ accent: '#00ff88' })).toBe(false)
+    calls = []
+    inst.setContent([
+      { text: 'Ship ' },
+      { text: 'it', color: { $data: 'accent' } },
+    ])
+    inst.flushRaster()
+    expect(texts().map((c) => [c.text, c.fill])).toEqual([
+      ['Ship ', '#fff'],
+      ['it', '#00ff88'],
+    ])
+    calls = []
+    expect(inst.updateData({ accent: '#123456' })).toBe(true)
+    inst.flushRaster()
+    expect(texts().map((c) => c.fill)).toEqual(['#fff', '#123456'])
+    // A plain write after it reads nothing: the data no longer moves it.
+    inst.setContent('Ship it')
+    inst.flushRaster()
+    expect(inst.updateData({ accent: '#abcdef' })).toBe(false)
+  })
+
+  it('a bound split text rebuilds its units in the new colour', async () => {
+    const map = await renderElements(
+      [{ ...JSON.parse(JSON.stringify(ACCENT)), split: { type: 'words' } }],
+      { 100: new THREE.Scene() } as any,
+      RESOLUTION,
+      THREE,
+      { accent: '#e37358' },
+    )
+    const inst = map.get('t')
+    calls = []
+    expect(inst.updateData({ accent: '#00ff88' })).toBe(true)
+    expect(inst.structural).toBe(true)
+    expect(texts().find((c) => c.text === 'faster')!.fill).toBe('#00ff88')
+  })
+})
+
+describe('a binding is a value: it rides its run through every edit', () => {
+  const REF = { $data: 'accent' }
+  const text: RichText = [
+    { text: 'Ship it ' },
+    { text: 'faster', weight: 700, color: REF },
+    { text: ' today' },
+  ]
+
+  it('is kept at a boundary, alone, and dropped when it is not one', () => {
+    expect(
+      toRichText([
+        { text: 'a', color: { $data: 'accent', note: 'mine' } },
+        { text: 'b', color: { $data: '' } },
+        { text: 'c', highlight: { key: 'wash' } },
+      ]),
+    ).toEqual([{ text: 'a', color: { $data: 'accent' } }, { text: 'bc' }])
+  })
+
+  it('neighbours bound to the same key are one run; to another key, two', () => {
+    expect(
+      normalizeRuns([
+        { text: 'a', color: { $data: 'accent' } },
+        { text: 'b', color: { $data: 'accent' } },
+        { text: 'c', color: { $data: 'other' } },
+      ]),
+    ).toEqual([
+      { text: 'ab', color: { $data: 'accent' } },
+      { text: 'c', color: { $data: 'other' } },
+    ])
+  })
+
+  it('typing inside a bound run keeps the binding', () => {
+    expect(replaceRange(text, 11, 11, 'XY')).toEqual([
+      { text: 'Ship it ' },
+      { text: 'fasXYter', weight: 700, color: REF },
+      { text: ' today' },
+    ])
+  })
+
+  it('a style set over part of it cuts it in two, each half still bound', () => {
+    expect(toggleStyle(text, 8, 11, 'underline', true)).toEqual([
+      { text: 'Ship it ' },
+      { text: 'fas', weight: 700, color: REF, underline: true },
+      { text: 'ter', weight: 700, color: REF },
+      { text: ' today' },
+    ])
+  })
+
+  it('a literal colour set over it replaces the binding there, and only there', () => {
+    expect(setStyle(text, 8, 11, { color: '#fff' })).toEqual([
+      { text: 'Ship it ' },
+      { text: 'fas', weight: 700, color: '#fff' },
+      { text: 'ter', weight: 700, color: REF },
+      { text: ' today' },
+    ])
+  })
+
+  it('a selection agrees on a binding, or is mixed with a literal', () => {
+    expect(commonStyle(text, 8, 14).color).toEqual(REF)
+    expect(commonStyle(text, 0, 14).color).toBe(MIXED)
+    const two: RichText = [
+      { text: 'a', color: { $data: 'accent' } },
+      { text: 'b', color: { $data: 'accent' }, underline: true },
+    ]
+    expect(commonStyle(two, 0, 2).color).toEqual(REF)
+  })
+
+  it('is read where the run is drawn, and paints nothing of its own until then', () => {
+    expect(resolveRunColors(text, { accent: '#0f8' })).toEqual([
+      { text: 'Ship it ' },
+      { text: 'faster', weight: 700, color: '#0f8' },
+      { text: ' today' },
+    ])
+    // Unread, the words take the colour of what they are set in.
+    expect(resolveRunColors(text, null)).toEqual([
+      { text: 'Ship it ' },
+      { text: 'faster', weight: 700 },
+      { text: ' today' },
+    ])
+    expect(layoutLines(text, () => 0)[0].map((r) => r.c)).toEqual([
+      undefined,
+      undefined,
+      undefined,
     ])
   })
 })
