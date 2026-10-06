@@ -1273,7 +1273,11 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
           }
           for (const k of ['color', 'highlight'] as const) {
             if (r[k] !== undefined && typeof r[k] !== 'string')
-              problems.push(`${at}.${k} must be a CSS colour`)
+              problems.push(
+                isObj(r[k]) && '$data' in r[k]
+                  ? `${at}.${k} must be a CSS colour: a layer has no data to read, { "$data" } binds a program's own text element`
+                  : `${at}.${k} must be a CSS colour`,
+              )
           }
           // A weight the family cannot offer paints as the layer's own.
           if (isNum(r.weight) && r.weight >= 100 && r.weight <= 900) {

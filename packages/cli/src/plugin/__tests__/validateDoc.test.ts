@@ -1401,6 +1401,10 @@ describe('styled text (overlays[].text as runs)', () => {
     expect(bad({ text: 'a', color: 3 })).toContain(
       'text[0].color must be a CSS colour',
     )
+    // A layer has no data: a binding there is a program element's spelling.
+    expect(bad({ text: 'a', highlight: { $data: 'accent' } })).toContain(
+      'text[0].highlight must be a CSS colour: a layer has no data to read',
+    )
     expect(lintDoc(textDoc(42)).problems.join('\n')).toContain(
       'text must be a string, or a list of runs',
     )
