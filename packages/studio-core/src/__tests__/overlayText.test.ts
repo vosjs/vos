@@ -11,11 +11,9 @@ import {
   overlayFontString,
   overlayHit,
   overlayRect,
-  overlaySegments,
   resolveOverlayBox,
   resolveOverlayFx,
   resolveOverlayStyle,
-  wrapOverlayLines,
 } from '../overlayText'
 import {
   DEFAULT_BROWSER_BAR,
@@ -29,6 +27,7 @@ import {
   lowerMerged as lowerToComposition,
   studioEntryOf,
 } from './helpers/studio'
+import { layoutText } from '../richText/layout'
 import type { OverlayClip, ProjectDoc, TextOverlayClip } from '../types'
 
 function clip(over: Partial<TextOverlayClip> = {}): TextOverlayClip {
@@ -420,7 +419,10 @@ function runFrame(
 describe('overlay drawing (stub ON_FRAME)', () => {
   it('draws visible text on the OVERLAY layer at design-px × s', () => {
     const { texts, calls } = runFrame([clip()], 1.5) // mid-hold
-    expect(texts).toEqual([{ text: 'Hello', x: 0, y: 0 }]) // drawn at translated origin
+    // Drawn from its left edge, centred on the translated origin.
+    expect(texts).toHaveLength(1)
+    expect(texts[0]).toMatchObject({ text: 'Hello', y: 0 })
+    expect(texts[0].x).toBeLessThan(0)
     const i = calls.indexOf('ov.translate')
     expect(i).toBeGreaterThan(-1)
     expect(calls).toContain('ov.fillText')
@@ -611,27 +613,29 @@ describe('media overlays (V1b)', () => {
 })
 
 describe('text fx (TX6) — segmentation + normalization', () => {
-  it('overlaySegments: line/word/char split per line; block bakes nothing', () => {
-    expect(overlaySegments('Hi there\nGo', 'line')).toEqual([
-      ['Hi there'],
-      ['Go'],
-    ])
-    // word units keep their trailing whitespace (stable typewriter geometry)
-    expect(overlaySegments('Hi there', 'word')).toEqual([['Hi ', 'there']])
-    expect(overlaySegments('ab', 'char')).toEqual([['a', 'b']])
-    expect(overlaySegments('Hi', 'block')).toEqual([])
-  })
+  // The units themselves are the layout's (richTextLayout.test.ts); what
+  // is resolved here is the timing, sized to how many there will be.
+  const unitsOf = (text: string, unit: 'line' | 'word' | 'char') =>
+    layoutText(
+      { lines: [[{ t: text }]], unit },
+      (t) => t.length * 10,
+    ).lines[0].units!.map((u) => u.parts.map((p) => p.t).join(''))
 
-  it('char units are grapheme-safe (emoji stay whole)', () => {
-    expect(overlaySegments('a👍b', 'char')).toEqual([['a', '👍', 'b']])
+  it('units: word keeps its trailing whitespace, char is grapheme-safe', () => {
+    expect(unitsOf('Hi there', 'line')).toEqual(['Hi there'])
+    // word units keep their trailing whitespace (stable typewriter geometry)
+    expect(unitsOf('Hi there', 'word')).toEqual(['Hi ', 'there'])
+    expect(unitsOf('ab', 'char')).toEqual(['a', 'b'])
+    expect(unitsOf('a👍b', 'char')).toEqual(['a', '👍', 'b'])
   })
 
   it('resolveOverlayFx: defaults resolve, block = one unit', () => {
     const fx = resolveOverlayFx(clip({ fx: { fx: 'fade' } }), 2)
-    expect(fx).toMatchObject({ k: 'fade', u: 'block', d: 0, st: 0, n: 1 })
+    expect(fx).toMatchObject({ k: 'fade', u: 'block', d: 0, st: 0 })
     expect(fx!.dur).toBeCloseTo(0.35, 6)
     expect(fx!.tt).toBeCloseTo(0.35, 6)
-    expect(fx!.units).toEqual([])
+    // The words ride the clip once, never a second time as units.
+    expect('units' in fx!).toBe(false)
     expect(resolveOverlayFx(clip(), 2)).toBeNull()
   })
 
@@ -641,10 +645,10 @@ describe('text fx (TX6) — segmentation + normalization', () => {
       2,
     )!
     expect(fx.k).toBe('typewriter')
-    expect(fx.n).toBe(5) // 'Hello'
     expect(fx.st).toBeCloseTo(0.05, 6)
     expect(fx.dur).toBeCloseTo(0.001, 6)
-    expect(fx.units).toEqual([['H', 'e', 'l', 'l', 'o']])
+    // Five units ('Hello'): the window is four staggers and the last unit.
+    expect(fx.tt).toBeCloseTo(0.05 * 4 + 0.001, 6)
   })
 
   it('stagger clamps so the whole entrance fits ~90% of the clip', () => {
@@ -682,13 +686,20 @@ describe('text fx (TX6) — lowering parity + baked payload', () => {
       u: 'word',
       d: 0,
       st: 0.08,
-      n: 1, // 'Hello' is one word
-      units: [['Hello']],
+      tt: 0.35, // 'Hello' is one word: no stagger to wait for
     })
+    expect('units' in (ol.fx as object)).toBe(false)
   })
 })
 
 describe('text fx (TX6) — ON_FRAME per-unit draw (stub)', () => {
+  /** The lines the layout wraps plain lines into, at 10 px a character. */
+  const wrapped = (lines: string[], max: number) =>
+    layoutText(
+      { lines: lines.map((t) => (t ? [{ t }] : [])), maxWidth: max },
+      (t) => t.length * 10,
+    ).lines.map((l) => l.frags.map((f) => f.t).join(''))
+
   const type = (over: Record<string, unknown> = {}) =>
     clip({
       fx: {
@@ -751,7 +762,7 @@ describe('text fx (TX6) — ON_FRAME per-unit draw (stub)', () => {
     expect(a).toBeLessThan(1)
   })
 
-  it('maxWidth: ON_FRAME wraps like the host mirror; fx units regroup, not recount', () => {
+  it('maxWidth: ON_FRAME wraps as the host lays out; units follow the wrap', () => {
     // Stub measure: 10 design px per char. 'Hello world again' = 170px;
     // budget 0.05 × 1920 = 96px → tokens (60/60/50) wrap to 3 lines.
     const wrapClip = clip({
@@ -759,10 +770,12 @@ describe('text fx (TX6) — ON_FRAME per-unit draw (stub)', () => {
       maxWidth: 0.05,
       fx: { fx: 'typewriter', unit: 'word', stagger: 0.1 },
     })
-    // Host mirror: same tokens, same budget, same lines.
-    expect(
-      wrapOverlayLines(['Hello world again'], (t) => t.length * 10, 96),
-    ).toEqual(['Hello ', 'world ', 'again'])
+    // The host's layout: same tokens, same budget, same lines.
+    expect(wrapped(['Hello world again'], 96)).toEqual([
+      'Hello ',
+      'world ',
+      'again',
+    ])
     // ON_FRAME: 3 units revealed one per wrapped line as t advances.
     const px = (t: string) => t.length * 10
     const run = (time: number) => runFrame([wrapClip], time, new Map(), px)
@@ -794,17 +807,13 @@ describe('text fx (TX6) — ON_FRAME per-unit draw (stub)', () => {
     expect(wrapped.w).toBeLessThan(bare.w)
   })
 
-  it('wrapOverlayLines: token wider than budget gets its own line; \\n respected', () => {
-    const m = (t: string) => t.length * 10
-    expect(wrapOverlayLines(['aaaaaaaaaaaa bb'], m, 60)).toEqual([
-      'aaaaaaaaaaaa ',
-      'bb',
-    ])
-    expect(wrapOverlayLines(['short', 'also short'], m, 200)).toEqual([
+  it('the wrap: token wider than budget gets its own line; \\n respected', () => {
+    expect(wrapped(['aaaaaaaaaaaa bb'], 60)).toEqual(['aaaaaaaaaaaa ', 'bb'])
+    expect(wrapped(['short', 'also short'], 200)).toEqual([
       'short',
       'also short',
     ])
-    expect(wrapOverlayLines([''], m, 60)).toEqual([''])
+    expect(wrapped([''], 60)).toEqual([''])
   })
 
   it('redraw gate stays hot for the whole staggered span', () => {

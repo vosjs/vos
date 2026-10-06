@@ -447,6 +447,7 @@ export {
   boldWeightFor,
   snapRunWeight,
   styledTextOf,
+  textRunsOf,
   overlayRect,
   resolveOverlayBox,
   resolveOverlayStyle,

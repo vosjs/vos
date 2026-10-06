@@ -23,7 +23,7 @@ import {
   nearestFontWeight,
 } from '@vosjs/shared'
 import { htmlLayerPictureBox, htmlLayerWidth } from './htmlLayer'
-import { layoutText } from './richText/layout'
+import { graphemesOf, layoutText, tokenRanges } from './richText/layout'
 import { normalizeRuns, plainText } from './richText/runs'
 import {
   OVERLAY_LINE_HEIGHT,
@@ -268,7 +268,7 @@ export function overlayLines(text: string): string[] {
 // Styled text. A layer's `text` is a string, or a list of runs that each
 // override the layer's style (richText/runs.ts). Everything that reads WORDS
 // goes through `overlayPlainText`; everything that paints or measures a
-// styled layer goes through `styledTextOf` and the layout module.
+// layer goes through the layout module, over `textRunsOf`.
 // ---------------------------------------------------------------------------
 
 /** The words a layer shows, whatever shape its text is in. */
@@ -334,10 +334,11 @@ function hashOf(text: string): string {
 
 /**
  * A text layer as STYLED text (lines of runs resolved against the layer's
- * style), or null when it is set in one style throughout and takes the
- * plain painter. A run's weight snaps like the layer's; its italic is the
- * layer's unless it says otherwise; colour, underline, strikethrough and
- * highlight ride as they are.
+ * style), or null when it is set in one style throughout: such a layer
+ * bakes its lines alone and is laid out as one run a line. A run's weight
+ * snaps like the layer's; its italic is the layer's unless it says
+ * otherwise; colour, underline, strikethrough and highlight ride as they
+ * are.
  */
 export function styledTextOf(clip: TextOverlayClip): StyledText | null {
   const runs = normalizeRuns(clip.text)
@@ -400,87 +401,34 @@ export function styledTextOf(clip: TextOverlayClip): StyledText | null {
 }
 
 /**
- * Word tokens with trailing whitespace preserved — the ONE tokenization
- * wrap and fx share (`overlaySegments`' word case): wrapped lines are
- * token concatenations, so char/word unit sequences are byte-identical
- * wrapped or not.
+ * What the layout module lays out for ANY text layer: a styled layer's
+ * runs, or a plain layer's lines, each one run in the layer's own style.
+ * The painter builds the same input from the baked clip, so the host that
+ * picks and the page that paints measure one thing.
  */
-export function overlayTokens(line: string): string[] {
-  return line.match(/\S+\s*/g) ?? [line]
-}
-
-/**
- * Greedy token wrap at measured widths — the HOST mirror of ON_FRAME's
- * wrap (change together; overlayText.test.ts pins them). Explicit \n lines
- * wrap independently; a token wider than the budget gets its own line.
- * Measures include each token's trailing space (the token IS the unit),
- * which over-counts the trailing gap at wrap points by design — identical
- * on both sides of the mirror, so geometry agrees.
- */
-export function wrapOverlayLines(
-  lines: string[],
-  measure: (text: string) => number,
-  maxPx: number,
-): string[] {
-  if (!(maxPx > 0)) return lines
-  const out: string[] = []
-  for (const line of lines) {
-    if (!line || measure(line) <= maxPx) {
-      out.push(line)
-      continue
-    }
-    let current = ''
-    for (const token of overlayTokens(line)) {
-      if (!current) {
-        current = token
-        continue
-      }
-      if (measure(current + token) <= maxPx) {
-        current += token
-      } else {
-        out.push(current)
-        current = token
-      }
-    }
-    if (current) out.push(current)
+export function textRunsOf(
+  clip: TextOverlayClip,
+): Pick<StyledText, 'l' | 'fs'> {
+  const styled = styledTextOf(clip)
+  if (styled) return styled
+  const style = resolveOverlayStyle(clip)
+  return {
+    l: overlayLines(overlayPlainText(clip)).map((t) => (t ? [{ t }] : [])),
+    fs: [
+      {
+        w: style.weight,
+        ...(style.fontStyle === 'italic' ? { i: 1 as const } : {}),
+      },
+    ],
   }
-  return out.length ? out : ['']
 }
 
 // ---------------------------------------------------------------------------
-// Entrance animation. Segmentation happens HERE, at lowering, because
-// it is deterministic doc-derived data: ON_FRAME stays a pure interpreter
-// over baked units and seek stays f(t) (chunk cold-seeks agree by
-// construction). Units never cross line breaks.
+// Entrance animation. The TIMING is resolved here, at lowering, because it
+// is deterministic doc-derived data; the UNITS are the layout's, cut on the
+// page from the lines it laid out, so a unit is exactly what is drawn.
+// Seek stays f(t): a unit's delay is its index times the stagger.
 // ---------------------------------------------------------------------------
-
-/** Grapheme-safe char split; plain code-point split when Segmenter is absent. */
-function graphemesOf(line: string): string[] {
-  if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
-    return [
-      ...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(
-        line,
-      ),
-    ].map((s) => s.segment)
-  }
-  return [...line]
-}
-
-/**
- * Per-line unit arrays for a fx spec. `word` units keep their trailing
- * whitespace (a typewriter reveals "Hello " then "world" with stable
- * geometry); `line` units are the lines themselves. `block` has NO per-unit
- * segmentation — ON_FRAME animates the whole clip through the normal
- * per-line draw (fillText cannot render '\n'), which is exactly the legacy
- * enter behaviour generalized.
- */
-export function overlaySegments(text: string, unit: TextFxUnit): string[][] {
-  const lines = overlayLines(text)
-  if (unit === 'block') return []
-  if (unit === 'line') return lines.map((l) => [l])
-  if (unit === 'word') return lines.map(overlayTokens)
-  return lines.map(graphemesOf)
-}
 
 /** The baked fx payload ON_FRAME interprets (short keys — it rides ctx.data). */
 export interface BakedOverlayFx {
@@ -496,10 +444,6 @@ export interface BakedOverlayFx {
   dur: number
   /** total entrance seconds — the redraw gate's animation window. */
   tt: number
-  /** per-LINE unit arrays (empty for block — the whole clip animates). */
-  units: string[][]
-  /** total unit count across lines. */
-  n: number
 }
 
 const FX_DIR: Record<string, 0 | 1 | 2> = { forward: 0, reverse: 1, center: 2 }
@@ -517,22 +461,24 @@ export function resolveOverlayFx(
   const spec = overlayFxSpec(clip) ?? clip.fx ?? null
   if (!spec) return null
   const unit = spec.unit ?? 'block'
-  const text = overlayPlainText(clip)
-  const units = overlaySegments(text, unit)
+  const lines = overlayLines(overlayPlainText(clip))
+  const count = (per: (line: string) => number) =>
+    lines.reduce((sum, line) => sum + per(line), 0)
+  const words = () => count((line) => tokenRanges(line).length)
+  // How many units the layout will cut: the stagger clamp and the redraw
+  // gate's window (tt) are sized to them.
   const n =
-    unit === 'block' ? 1 : units.reduce((sum, line) => sum + line.length, 0)
+    unit === 'block'
+      ? 1
+      : unit === 'line'
+        ? lines.length
+        : unit === 'word'
+          ? words()
+          : count((line) => graphemesOf(line).length)
   // Wrapping happens at DRAW time (it needs measurement), so with maxWidth
   // active a 'line' unit means WRAPPED lines — lowering can't know how
   // many, but it CAN bound them: wrapped lines never exceed word tokens.
-  // The bound drives the stagger clamp and the redraw-gate window (tt);
-  // actual per-line delays regroup in ON_FRAME.
-  const upperN =
-    unit === 'line' && clip.maxWidth
-      ? overlayLines(text).reduce(
-          (sum, line) => sum + overlayTokens(line).length,
-          0,
-        )
-      : n
+  const upperN = unit === 'line' && clip.maxWidth ? words() : n
   const typewriter = spec.fx === 'typewriter'
   // Typewriter is a step reveal: the per-unit duration is irrelevant, keep
   // it tiny so the last unit lands with the stagger, not 0.35s after it.
@@ -553,8 +499,6 @@ export function resolveOverlayFx(
     st: round(st),
     dur: round(dur),
     tt: round(st * (upperN - 1) + dur),
-    units,
-    n,
   }
 }
 
@@ -619,42 +563,24 @@ export function overlayRect(
     return { ...base, w, h: w / (mediaAspect || 16 / 9) }
   }
   const style = resolveOverlayStyle(clip)
-  const font = overlayFontString(style, scale, 1)
   const ls = style.letterSpacing * scale
-  // A styled layer is measured by the layout module, the painter's own; a
-  // plain one wraps and measures as it always did.
-  const styled = styledTextOf(clip)
-  let w = 0
-  let lineCount = 0
-  if (styled) {
-    const fonts = styled.fs.map((f) =>
-      overlayFontString(
-        { ...style, weight: f.w, fontStyle: f.i ? 'italic' : 'normal' },
-        scale,
-        1,
-      ),
-    )
-    const laid = layoutText(
-      { lines: styled.l, maxWidth: clip.maxWidth ? clip.maxWidth * frameW : 0 },
-      (t, f) => measure(t, fonts[f], ls),
-    )
-    w = laid.width
-    lineCount = laid.lines.length
-  } else {
-    const width = (t: string) => measure(t, font, ls)
-    // Wrap BEFORE measuring the block — mirrors ON_FRAME's wrap (maxWidth is
-    // a frame-width fraction; this rect works in design px, so the budget is
-    // maxWidth × frameW directly).
-    const lines = clip.maxWidth
-      ? wrapOverlayLines(
-          overlayLines(overlayPlainText(clip)),
-          width,
-          clip.maxWidth * frameW,
-        )
-      : overlayLines(overlayPlainText(clip))
-    for (const line of lines) w = Math.max(w, width(line))
-    lineCount = lines.length
-  }
+  // Measured by the layout module, the painter's own: the same lines, the
+  // same wrap (maxWidth is a frame-width fraction; this rect works in
+  // design px, so the budget is maxWidth × frameW directly).
+  const runs = textRunsOf(clip)
+  const fonts = runs.fs.map((f) =>
+    overlayFontString(
+      { ...style, weight: f.w, fontStyle: f.i ? 'italic' : 'normal' },
+      scale,
+      1,
+    ),
+  )
+  const laid = layoutText(
+    { lines: runs.l, maxWidth: clip.maxWidth ? clip.maxWidth * frameW : 0 },
+    (t, f) => measure(t, fonts[f], ls),
+  )
+  const w = laid.width
+  const lineCount = laid.lines.length
   const lineH = style.size * scale * style.lineHeight
   // The background pill extends the drawn (and thus pickable) bounds —
   // mirrors ON_FRAME's pill geometry exactly.

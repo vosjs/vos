@@ -117,8 +117,9 @@ describe('the words of a layer', () => {
       }),
       3,
     )!
-    expect(fx.units).toEqual([['Ship ', 'it ', 'now']])
-    expect(fx.n).toBe(3)
+    // Three words ('Ship ', 'it ', 'now'): two staggers and the last unit.
+    expect(fx.tt).toBeCloseTo(fx.st * 2 + fx.dur, 6)
+    expect('units' in fx).toBe(false)
   })
 })
 

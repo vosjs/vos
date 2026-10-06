@@ -178,10 +178,52 @@ describe('what a text layer costs per frame', () => {
   // 1.5..2.5 s is a hold: nothing on the layer changes between these frames.
   const HOLD = [1.6, 1.7, 1.8]
 
-  it('a held caption paints once and then costs nothing', () => {
+  it('a held caption is laid out and painted once, then costs nothing', () => {
     const run = makeRunner([clip({ text: 'Ship it faster' })])
-    expect(run.frame(1.5)).toEqual({ uploaded: true, measures: 0, fills: 1 })
+    // One line, one run: the layout measures it once.
+    expect(run.frame(1.5)).toEqual({ uploaded: true, measures: 1, fills: 1 })
     for (const t of HOLD) expect(run.frame(t)).toEqual(QUIET)
+  })
+
+  it('a plain layer that reveals word by word measures nothing after its layout', () => {
+    // The layout is kept, so the frames of an entrance after the first
+    // only draw: no unit is measured twice.
+    const run = makeRunner([
+      clip({
+        text: 'Set up different purposes for every page of the product',
+        maxWidth: 0.3,
+        anim: { enter: { kind: 'rise', unit: 'word' } },
+      }),
+    ])
+    expect(run.frame(0.55).measures).toBeGreaterThan(0)
+    for (const t of [0.6, 0.65, 0.7, 0.75]) {
+      const c = run.frame(t)
+      expect(c.uploaded).toBe(true)
+      expect(c.measures).toBe(0)
+      expect(c.fills).toBeGreaterThan(0)
+    }
+  })
+
+  it('a plain pill caption that moves measures nothing after its layout', () => {
+    // The pill is sized from the kept layout, never from a fresh measure.
+    const run = makeRunner([
+      clip({
+        text: 'Set up different purposes for every page of the product',
+        maxWidth: 0.3,
+        align: 'left',
+        box: { color: '#111827' },
+        motion: [
+          { at: 0, x: 0.3, y: 0.5 },
+          { at: 2, x: 0.7, y: 0.5 },
+        ],
+      }),
+    ])
+    expect(run.frame(1.5).measures).toBeGreaterThan(0)
+    for (const t of [1.6, 1.7, 1.8]) {
+      const c = run.frame(t)
+      expect(c.uploaded).toBe(true)
+      expect(c.measures).toBe(0)
+    }
   })
 
   it('a held styled, wrapped caption is measured once, at its layout', () => {

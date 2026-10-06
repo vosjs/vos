@@ -931,334 +931,155 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
     ovC.textAlign = 'center'
     ovC.textBaseline = 'middle'
     ovC.letterSpacing = ((ol.ls || 0) * olMS * s) + 'px'
-    // A STYLED layer (ol.rt: lines of runs, each set its own way) is laid
-    // out by the layout module, ONCE: the layout is kept per clip under a
-    // key of everything it was measured with, so a frame that only moves,
-    // fades or reveals the layer measures nothing. Fragments draw left to
-    // right from each line's left edge; a per-unit entrance animates the
-    // layout's units, each a few parts of fragments.
+    // Every text layer is laid out by the layout module, ONCE: a styled one
+    // from its runs (ol.rt: lines of runs, each set its own way), a plain
+    // one from its lines, each a single run in the layer's own style. The
+    // layout is kept per clip under a key of everything it was measured
+    // with, so a frame that only moves, fades or reveals the layer measures
+    // nothing. Fragments draw left to right from each line's left edge; a
+    // per-unit entrance animates the layout's units, each a few parts of
+    // fragments.
+    var rtFonts = [ovC.font]
     if (ol.rt) {
-      var rtFonts = [ovC.font]
       for (var rfi = 1; rfi < ol.rt.fs.length; rfi++) {
         rtFonts.push((ol.rt.fs[rfi].i ? 'italic ' : '') + ol.rt.fs[rfi].w + ' ' + olPx + 'px ' + ol.stack)
       }
-      var rtFx = ol.fx && ol.fx.units.length ? ol.fx : null
-      var rtMax = ol.mw ? ol.mw * W : 0
-      var rtKey = ol.rt.h + '|' + rtFonts[0] + '|' + ((ol.ls || 0) * olMS * s) + '|' + rtMax + '|' + (rtFx ? rtFx.u : '') + '|' + (ns.fontEpoch || 0)
-      var rtAll = ns.textLayouts || (ns.textLayouts = {})
-      var rtHit = rtAll[ol.id]
-      if (!rtHit || rtHit.k !== rtKey) {
-        rtHit = rtAll[ol.id] = {
-          k: rtKey,
-          L: TXL.layoutText(
-            { lines: ol.rt.l, maxWidth: rtMax, unit: rtFx ? rtFx.u : undefined },
-            function (mt, mf) { ovC.font = rtFonts[mf]; return ovC.measureText(mt).width }
-          )
-        }
-        ovC.font = rtFonts[0]
-      }
-      var rtL = rtHit.L
-      var rtN = rtL.lines.length
-      var rtLH = olPx * (ol.lh || ${OVERLAY_LINE_HEIGHT})
-      var rtY0 = -((rtN - 1) * rtLH) / 2
-      // A line's left edge: lines sit centred on the anchor and align
-      // against the widest, as the plain layer's do.
-      var rtLeft = function (lw) {
-        var xo = ol.align === 'left' ? (lw - rtL.width) / 2 : ol.align === 'right' ? (rtL.width - lw) / 2 : 0
-        return xo - lw / 2
-      }
-      if (ol.box) {
-        var rbPX = ol.box.px * olMS * s
-        var rbPY = ol.box.py * olMS * s
-        var rbW = rtL.width + rbPX * 2
-        var rbH = rtN * rtLH + rbPY * 2
-        ovC.save()
-        ovC.globalAlpha = olA * ol.box.o
-        ovC.fillStyle = ol.box.c
-        rr(-rbW / 2, -rbH / 2, rbW, rbH, Math.min(ol.box.r * olMS * s, rbH / 2), ovC)
-        ovC.fill()
-        ovC.restore()
-      }
-      // Highlights sit behind the words and take no legibility shadow. Under
-      // a per-unit entrance each is drawn with its unit instead (below), so
-      // it arrives with its word.
-      for (var rhi = 0; !rtFx && rhi < rtN; rhi++) {
-        var rhLine = rtL.lines[rhi]
-        for (var rhj = 0; rhj < rhLine.frags.length; rhj++) {
-          var rhF = rhLine.frags[rhj]
-          if (!rhF.h) continue
-          var rhR = TXL.decorationRect('h', rtLeft(rhLine.w) + rhF.x, rhF.w, rtY0 + rhi * rtLH, olPx)
-          ovC.fillStyle = rhF.h
-          ovC.fillRect(rhR.x, rhR.y, rhR.w, rhR.h)
-        }
-      }
-      if (ol.shadow > 0) {
-        ovC.shadowColor = 'rgba(0,0,0,' + ol.shadow + ')'
-        ovC.shadowBlur = olPx * 0.25
-        ovC.shadowOffsetY = olPx * 0.04
-      }
-      ovC.textAlign = 'left'
-      // One fragment (or the part of one a unit holds): the underline under
-      // the glyphs, stroke under fill, the strikethrough over them.
-      var rtPart = function (p, bx, y, withH) {
-        if (withH && p.h) {
-          var rhU = TXL.decorationRect('h', bx + p.x, p.w, y, olPx)
-          var rhS = ovC.shadowColor
-          ovC.shadowColor = 'rgba(0,0,0,0)'
-          ovC.fillStyle = p.h
-          ovC.fillRect(rhU.x, rhU.y, rhU.w, rhU.h)
-          ovC.shadowColor = rhS
-        }
-        ovC.font = rtFonts[p.f || 0]
-        ovC.fillStyle = p.c || ol.color
-        if (p.u) {
-          var ru = TXL.decorationRect('u', bx + p.x, p.w, y, olPx)
-          ovC.fillRect(ru.x, ru.y, ru.w, ru.h)
-        }
-        if (ol.stroke) {
-          ovC.strokeStyle = ol.stroke.c
-          ovC.lineWidth = ol.stroke.w * olMS * s
-          ovC.lineJoin = 'round'
-          ovC.strokeText(p.t, bx + p.x, y)
-        }
-        ovC.fillText(p.t, bx + p.x, y)
-        if (p.s) {
-          var rs = TXL.decorationRect('s', bx + p.x, p.w, y, olPx)
-          ovC.fillRect(rs.x, rs.y, rs.w, rs.h)
-        }
-      }
-      if (!rtFx) {
-        for (var rli = 0; rli < rtN; rli++) {
-          var rLine = rtL.lines[rli]
-          var rBX = rtLeft(rLine.w)
-          for (var rfk = 0; rfk < rLine.frags.length; rfk++) rtPart(rLine.frags[rfk], rBX, rtY0 + rli * rtLH)
-        }
-      } else {
-        // Per-unit entrance, the plain layer's own arithmetic over the
-        // layout's units: delay = order(index) x st, eased over dur.
-        var rtCount = 0
-        for (var rci = 0; rci < rtN; rci++) rtCount += rtL.lines[rci].units.length
-        var rtIdx = 0
-        for (var rui = 0; rui < rtN; rui++) {
-          var rULine = rtL.lines[rui]
-          var rUBX = rtLeft(rULine.w)
-          var rUY = rtY0 + rui * rtLH
-          for (var ruj = 0; ruj < rULine.units.length; ruj++, rtIdx++) {
-            var rU = rULine.units[ruj]
-            var rOrd = rtFx.d === 1 ? (rtCount - 1 - rtIdx) : rtFx.d === 2 ? Math.abs(rtIdx - (rtCount - 1) / 2) : rtIdx
-            var rT2 = olT - rOrd * rtFx.st
-            var rUA = 1, rUu = 1
-            if (rtFx.k === 'typewriter') {
-              rUA = rT2 >= 0 ? 1 : 0
-            } else {
-              rUu = Math.max(0, Math.min(1, rT2 / rtFx.dur))
-              var rUE = 1 - Math.pow(1 - rUu, 3)
-              rUA = rtFx.k === 'pop' ? Math.min(1, rUu * 2) : rUE
-            }
-            if (rUA <= 0.004) continue
-            ovC.save()
-            ovC.globalAlpha = olA * rUA
-            if (rUu < 1) {
-              if (rtFx.k === 'rise') {
-                ovC.translate(0, (1 - (1 - Math.pow(1 - rUu, 3))) * 24 * s)
-              } else if (rtFx.k === 'pop') {
-                var rPS = 1 + 2.70158 * Math.pow(rUu - 1, 3) + 1.70158 * Math.pow(rUu - 1, 2)
-                var rCX = rUBX + rU.x + rU.w / 2
-                ovC.translate(rCX, rUY)
-                ovC.scale(rPS, rPS)
-                ovC.translate(-rCX, -rUY)
-              } else if (rtFx.k === 'blur') {
-                ovC.filter = 'blur(' + ((1 - rUu) * olPx * 0.12).toFixed(2) + 'px)'
-              }
-            }
-            for (var rpk = 0; rpk < rU.parts.length; rpk++) rtPart(rU.parts[rpk], rUBX, rUY, true)
-            ovC.restore()
-          }
-        }
-      }
-      ovC.restore()
-      continue
     }
-    var olLines = ol.lines || ['']
-    // maxWidth wrap (ol.mw = frame-width fraction): greedy over word tokens
-    // (/\\S+\\s*/ — the SAME tokenization fx uses, trailing spaces kept, so
-    // unit sequences stay byte-identical) at measured widths. MIRRORS
-    // wrapOverlayLines in overlayText.ts — change together. A token wider
-    // than the budget gets its own line; explicit \\n lines wrap independently.
-    if (ol.mw) {
-      var olWMax = ol.mw * W
-      var olWrapped = []
-      for (var olwl = 0; olwl < olLines.length; olwl++) {
-        var olWLine = olLines[olwl]
-        if (!olWLine || ovC.measureText(olWLine).width <= olWMax) {
-          olWrapped.push(olWLine)
-          continue
-        }
-        var olToks = olWLine.match(/\\S+\\s*/g) || [olWLine]
-        var olCur = ''
-        for (var olti = 0; olti < olToks.length; olti++) {
-          if (!olCur) { olCur = olToks[olti]; continue }
-          if (ovC.measureText(olCur + olToks[olti]).width <= olWMax) {
-            olCur += olToks[olti]
-          } else {
-            olWrapped.push(olCur)
-            olCur = olToks[olti]
-          }
-        }
-        if (olCur) olWrapped.push(olCur)
+    var rtFx = ol.fx && ol.fx.u !== 'block' ? ol.fx : null
+    var rtMax = ol.mw ? ol.mw * W : 0
+    var rtKey = (ol.rt ? 'r' + ol.rt.h : 'p' + (ol.lines || ['']).join('\\n')) + '|' + rtFonts[0] + '|' + ((ol.ls || 0) * olMS * s) + '|' + rtMax + '|' + (rtFx ? rtFx.u : '') + '|' + (ns.fontEpoch || 0)
+    var rtAll = ns.textLayouts || (ns.textLayouts = {})
+    var rtHit = rtAll[ol.id]
+    if (!rtHit || rtHit.k !== rtKey) {
+      var rtIn = ol.rt ? ol.rt.l : []
+      if (!ol.rt) {
+        var rtPl = ol.lines || ['']
+        for (var rpi = 0; rpi < rtPl.length; rpi++) rtIn.push(rtPl[rpi] ? [{ t: rtPl[rpi] }] : [])
       }
-      olLines = olWrapped.length ? olWrapped : ['']
+      rtHit = rtAll[ol.id] = {
+        k: rtKey,
+        L: TXL.layoutText(
+          { lines: rtIn, maxWidth: rtMax, unit: rtFx ? rtFx.u : undefined },
+          function (mt, mf) { ovC.font = rtFonts[mf]; return ovC.measureText(mt).width }
+        )
+      }
+      ovC.font = rtFonts[0]
     }
-    var olLH = olPx * (ol.lh || ${OVERLAY_LINE_HEIGHT})
-    var olY0 = -((olLines.length - 1) * olLH) / 2
-    // Per-line widths: needed by the pill, by left/right alignment (lines
-    // draw centered; alignment is an x offset against the widest line), and
-    // by per-unit fx (units place by prefix advance from the line's left edge).
-    var olFx = ol.fx && ol.fx.units.length ? ol.fx : null
-    // With wrap active, baked per-line unit arrays regroup onto the WRAPPED
-    // lines. Wrapping never reorders: word/char units consume in flat order
-    // by string length (wrapped lines are token concatenations); 'line'
-    // units become one per wrapped line. Flat delay order is unchanged.
-    if (olFx && ol.mw) {
-      var olFlat = []
-      for (var olfi = 0; olfi < olFx.units.length; olfi++) {
-        for (var olfj = 0; olfj < olFx.units[olfi].length; olfj++) {
-          olFlat.push(olFx.units[olfi][olfj])
-        }
-      }
-      var olRe = []
-      if (olFx.u === 'line') {
-        for (var olri = 0; olri < olLines.length; olri++) olRe.push([olLines[olri]])
-      } else {
-        var olFk = 0
-        for (var olri2 = 0; olri2 < olLines.length; olri2++) {
-          var olNeed = olLines[olri2].length
-          var olArr = []
-          var olGot = 0
-          while (olFk < olFlat.length && olGot < olNeed) {
-            olArr.push(olFlat[olFk])
-            olGot += olFlat[olFk].length
-            olFk++
-          }
-          olRe.push(olArr)
-        }
-      }
-      var olReN = 0
-      for (var olrn = 0; olrn < olRe.length; olrn++) olReN += olRe[olrn].length
-      olFx = { k: olFx.k, u: olFx.u, d: olFx.d, st: olFx.st, dur: olFx.dur, tt: olFx.tt, units: olRe, n: olReN }
+    var rtL = rtHit.L
+    var rtN = rtL.lines.length
+    var rtLH = olPx * (ol.lh || ${OVERLAY_LINE_HEIGHT})
+    var rtY0 = -((rtN - 1) * rtLH) / 2
+    // A line's left edge: lines sit centred on the anchor and align
+    // against the widest.
+    var rtLeft = function (lw) {
+      var xo = ol.align === 'left' ? (lw - rtL.width) / 2 : ol.align === 'right' ? (rtL.width - lw) / 2 : 0
+      return xo - lw / 2
     }
-    var olLWs = null, olMaxW = 0
-    if (ol.box || ol.align || olFx) {
-      olLWs = []
-      for (var olwi = 0; olwi < olLines.length; olwi++) {
-        var olw = ovC.measureText(olLines[olwi]).width
-        olLWs.push(olw)
-        if (olw > olMaxW) olMaxW = olw
-      }
-    }
-    // Background pill (ol.box, baked design px at fs): drawn BEFORE the text
-    // and before the legibility shadow config, so the pill never inherits the
-    // text shadow. Geometry mirrors overlayRect's inflation — change together.
     if (ol.box) {
-      var obPX = ol.box.px * olMS * s
-      var obPY = ol.box.py * olMS * s
-      var obFullW = olMaxW + obPX * 2
-      var obFullH = olLines.length * olLH + obPY * 2
-      var obR = Math.min(ol.box.r * olMS * s, obFullH / 2)
+      var rbPX = ol.box.px * olMS * s
+      var rbPY = ol.box.py * olMS * s
+      var rbW = rtL.width + rbPX * 2
+      var rbH = rtN * rtLH + rbPY * 2
       ovC.save()
       ovC.globalAlpha = olA * ol.box.o
       ovC.fillStyle = ol.box.c
-      rr(-obFullW / 2, -obFullH / 2, obFullW, obFullH, obR, ovC)
+      rr(-rbW / 2, -rbH / 2, rbW, rbH, Math.min(ol.box.r * olMS * s, rbH / 2), ovC)
       ovC.fill()
       ovC.restore()
+    }
+    // Highlights sit behind the words and take no legibility shadow. Under
+    // a per-unit entrance each is drawn with its unit instead (below), so
+    // it arrives with its word.
+    for (var rhi = 0; !rtFx && rhi < rtN; rhi++) {
+      var rhLine = rtL.lines[rhi]
+      for (var rhj = 0; rhj < rhLine.frags.length; rhj++) {
+        var rhF = rhLine.frags[rhj]
+        if (!rhF.h) continue
+        var rhR = TXL.decorationRect('h', rtLeft(rhLine.w) + rhF.x, rhF.w, rtY0 + rhi * rtLH, olPx)
+        ovC.fillStyle = rhF.h
+        ovC.fillRect(rhR.x, rhR.y, rhR.w, rhR.h)
+      }
     }
     if (ol.shadow > 0) {
       ovC.shadowColor = 'rgba(0,0,0,' + ol.shadow + ')'
       ovC.shadowBlur = olPx * 0.25
       ovC.shadowOffsetY = olPx * 0.04
     }
-    ovC.fillStyle = ol.color
-    if (!olFx) {
-      for (var ok = 0; ok < olLines.length; ok++) {
-        var olXof = 0
-        if (ol.align && olLWs) {
-          olXof = ol.align === 'left'
-            ? (olLWs[ok] - olMaxW) / 2
-            : (olMaxW - olLWs[ok]) / 2
-        }
-        var olLY = olY0 + ok * olLH
-        if (ol.stroke) {
-          ovC.strokeStyle = ol.stroke.c
-          ovC.lineWidth = ol.stroke.w * olMS * s
-          ovC.lineJoin = 'round'
-          ovC.strokeText(olLines[ok], olXof, olLY)
-        }
-        ovC.fillText(olLines[ok], olXof, olLY)
+    ovC.textAlign = 'left'
+    // One fragment (or the part of one a unit holds): the underline under
+    // the glyphs, stroke under fill, the strikethrough over them.
+    var rtPart = function (p, bx, y, withH) {
+      if (withH && p.h) {
+        var rhU = TXL.decorationRect('h', bx + p.x, p.w, y, olPx)
+        var rhS = ovC.shadowColor
+        ovC.shadowColor = 'rgba(0,0,0,0)'
+        ovC.fillStyle = p.h
+        ovC.fillRect(rhU.x, rhU.y, rhU.w, rhU.h)
+        ovC.shadowColor = rhS
+      }
+      ovC.font = rtFonts[p.f || 0]
+      ovC.fillStyle = p.c || ol.color
+      if (p.u) {
+        var ru = TXL.decorationRect('u', bx + p.x, p.w, y, olPx)
+        ovC.fillRect(ru.x, ru.y, ru.w, ru.h)
+      }
+      if (ol.stroke) {
+        ovC.strokeStyle = ol.stroke.c
+        ovC.lineWidth = ol.stroke.w * olMS * s
+        ovC.lineJoin = 'round'
+        ovC.strokeText(p.t, bx + p.x, y)
+      }
+      ovC.fillText(p.t, bx + p.x, y)
+      if (p.s) {
+        var rs = TXL.decorationRect('s', bx + p.x, p.w, y, olPx)
+        ovC.fillRect(rs.x, rs.y, rs.w, rs.h)
+      }
+    }
+    if (!rtFx) {
+      for (var rli = 0; rli < rtN; rli++) {
+        var rLine = rtL.lines[rli]
+        var rBX = rtLeft(rLine.w)
+        for (var rfk = 0; rfk < rLine.frags.length; rfk++) rtPart(rLine.frags[rfk], rBX, rtY0 + rli * rtLH)
       }
     } else {
-      // Per-unit entrance: units draw LEFT-aligned at prefix advances
-      // measured from the full line (exact bar cross-unit kerning), so the
-      // settled frame matches the non-fx layout. Per-unit progress is pure
-      // f(t): delay = order(index)·st, eased over dur; typewriter is a step
-      // reveal. Stroke-under-fill per unit; pill/shadow config above apply.
-      ovC.textAlign = 'left'
-      var olIdx = 0
-      for (var ok2 = 0; ok2 < olFx.units.length; ok2++) {
-        var olUs = olFx.units[ok2]
-        var olLW2 = olLWs ? olLWs[ok2] : 0
-        var olLY2 = olY0 + ok2 * olLH
-        var olXof2 = 0
-        if (ol.align) {
-          olXof2 = ol.align === 'left'
-            ? (olLW2 - olMaxW) / 2
-            : (olMaxW - olLW2) / 2
-        }
-        var olXb = olXof2 - olLW2 / 2
-        var olPref = '', olPW = 0
-        for (var ou = 0; ou < olUs.length; ou++, olIdx++) {
-          var olOrd = olFx.d === 1
-            ? (olFx.n - 1 - olIdx)
-            : olFx.d === 2
-              ? Math.abs(olIdx - (olFx.n - 1) / 2)
-              : olIdx
-          var olT2 = olT - olOrd * olFx.st
-          var olNext = olPref + olUs[ou]
-          var olNW = ovC.measureText(olNext).width
-          var olUW = olNW - olPW
-          var olUX = olXb + olPW
-          var olUA = 1, olUu = 1
-          if (olFx.k === 'typewriter') {
-            olUA = olT2 >= 0 ? 1 : 0
+      // Per-unit entrance, the plain layer's own arithmetic over the
+      // layout's units: delay = order(index) x st, eased over dur.
+      var rtCount = 0
+      for (var rci = 0; rci < rtN; rci++) rtCount += rtL.lines[rci].units.length
+      var rtIdx = 0
+      for (var rui = 0; rui < rtN; rui++) {
+        var rULine = rtL.lines[rui]
+        var rUBX = rtLeft(rULine.w)
+        var rUY = rtY0 + rui * rtLH
+        for (var ruj = 0; ruj < rULine.units.length; ruj++, rtIdx++) {
+          var rU = rULine.units[ruj]
+          var rOrd = rtFx.d === 1 ? (rtCount - 1 - rtIdx) : rtFx.d === 2 ? Math.abs(rtIdx - (rtCount - 1) / 2) : rtIdx
+          var rT2 = olT - rOrd * rtFx.st
+          var rUA = 1, rUu = 1
+          if (rtFx.k === 'typewriter') {
+            rUA = rT2 >= 0 ? 1 : 0
           } else {
-            olUu = Math.max(0, Math.min(1, olT2 / olFx.dur))
-            var olUE = 1 - Math.pow(1 - olUu, 3)
-            olUA = olFx.k === 'pop' ? Math.min(1, olUu * 2) : olUE
+            rUu = Math.max(0, Math.min(1, rT2 / rtFx.dur))
+            var rUE = 1 - Math.pow(1 - rUu, 3)
+            rUA = rtFx.k === 'pop' ? Math.min(1, rUu * 2) : rUE
           }
-          var olUnit = olUs[ou]
-          olPref = olNext
-          olPW = olNW
-          if (olUA <= 0.004) continue
+          if (rUA <= 0.004) continue
           ovC.save()
-          ovC.globalAlpha = olA * olUA
-          if (olUu < 1) {
-            if (olFx.k === 'rise') {
-              ovC.translate(0, (1 - (1 - Math.pow(1 - olUu, 3))) * 24 * s)
-            } else if (olFx.k === 'pop') {
-              var olPS = 1 + 2.70158 * Math.pow(olUu - 1, 3) + 1.70158 * Math.pow(olUu - 1, 2)
-              ovC.translate(olUX + olUW / 2, olLY2)
-              ovC.scale(olPS, olPS)
-              ovC.translate(-(olUX + olUW / 2), -olLY2)
-            } else if (olFx.k === 'blur') {
-              ovC.filter = 'blur(' + ((1 - olUu) * olPx * 0.12).toFixed(2) + 'px)'
+          ovC.globalAlpha = olA * rUA
+          if (rUu < 1) {
+            if (rtFx.k === 'rise') {
+              ovC.translate(0, (1 - (1 - Math.pow(1 - rUu, 3))) * 24 * s)
+            } else if (rtFx.k === 'pop') {
+              var rPS = 1 + 2.70158 * Math.pow(rUu - 1, 3) + 1.70158 * Math.pow(rUu - 1, 2)
+              var rCX = rUBX + rU.x + rU.w / 2
+              ovC.translate(rCX, rUY)
+              ovC.scale(rPS, rPS)
+              ovC.translate(-rCX, -rUY)
+            } else if (rtFx.k === 'blur') {
+              ovC.filter = 'blur(' + ((1 - rUu) * olPx * 0.12).toFixed(2) + 'px)'
             }
           }
-          if (ol.stroke) {
-            ovC.strokeStyle = ol.stroke.c
-            ovC.lineWidth = ol.stroke.w * olMS * s
-            ovC.lineJoin = 'round'
-            ovC.strokeText(olUnit, olUX, olLY2)
-          }
-          ovC.fillText(olUnit, olUX, olLY2)
+          for (var rpk = 0; rpk < rU.parts.length; rpk++) rtPart(rU.parts[rpk], rUBX, rUY, true)
           ovC.restore()
         }
       }
