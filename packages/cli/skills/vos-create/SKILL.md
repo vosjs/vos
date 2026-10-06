@@ -165,8 +165,11 @@ from what it produced.
 
 ```bash
 vos push <file>.json --title "…" --desc "one line" --tags a,b \
-  --folder <folderId|slug> --label "what you did" --note "why: the ask"
+  --folder <folderId|slug> --label "what you did" --note "why: the ask" \
+  --prompt "<the person's prompt, as they wrote it>"
 ```
+
+`--prompt` shows the person's prompt on the watch page by default: their words as they wrote them, never yours, with no file path, key or email they did not mean to publish. Say it is shown, and that they can take it off from the watch page.
 
 Pass `--label` and `--note` on EVERY push, the first one included: a
 create stamps them on v1, and the history is the conversation the human

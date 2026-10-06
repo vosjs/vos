@@ -33,7 +33,8 @@ Two shapes, both used as `Authorization: Bearer`:
    Humans mint keys at https://vos.so/app/api.
 3. **No credential at all** — the claimable push (programs only):
    ```bash
-   vos push my-remix.json --claimable --title "My remix"
+   vos push my-remix.json --claimable --title "My remix" \
+     --prompt "<the person's prompt, as they wrote it>"
    # → claim: https://vos.so/claim/…   expires: <72h from now>
 
    # No CLI, or an older one? The same thing over plain HTTP:
@@ -88,11 +89,13 @@ vos.so.
 5. **Push** as a private vos with lineage (the CLI reads `vos.json` beside
    the config for the `remixOfId` credit):
    ```bash
-   vos push <slug>/config.json --title "Aurora Ribbons — dusk"
+   vos push <slug>/config.json --title "Aurora Ribbons — dusk" \
+     --prompt "<the person's prompt, as they wrote it>"
    # → Created private vos <id>
    #   watch:  https://vos.so/vos/<id>
    #   studio: https://vos.so/studio?vos=<id>
    ```
+   `--prompt` shows the person's prompt on the watch page by default: their words as they wrote them, never yours, with no file path, key or email they did not mean to publish. Say it is shown, and that they can take it off from the watch page.
 
 6. **Iterate** — further edits become versions of the same vos:
    ```bash

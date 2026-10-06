@@ -56,9 +56,19 @@ Find a credential in this order, without printing it: `VOS_API_KEY`, then
 the first line of `~/.config/vos/credentials`. With one, push:
 
 ```bash
-vos push my-config.json --title "…" --desc "one line" --wait
+vos push my-config.json --title "…" --desc "one line" \
+  --prompt "<the person's prompt, as they wrote it>" --wait
 # --wait stays until the cover has rendered, then prints the links
 ```
+
+**Show the prompt that made it.** Pass the person's prompt with `--prompt`
+on the push that creates the vos: the watch page shows it by default, so
+whoever watches sees what was asked. Use their words as they wrote them,
+typos included, and never add your own; leave out a file path, key, email
+or name they did not mean to publish. The vos lands private, so its owner
+sees the prompt before anyone else: say it is shown, and that they can take
+it off from the watch page. A push without one prints the command that
+adds it.
 
 The vos lands PRIVATE on the key owner's shelf: only they can open the
 links, and publishing stays their act on vos.so. Keyed pushes never expire;
@@ -67,13 +77,14 @@ iterate with `vos push my-config.json --vos <id>`.
 No credential at all? Use the claimable push instead of stopping:
 
 ```bash
-vos push my-config.json --claimable --title "…"
+vos push my-config.json --claimable --title "…" \
+  --prompt "<the person's prompt, as they wrote it>"
 # → claim: https://vos.so/claim/…   expires: <72h from now>
 
 # No CLI, or an older one? The same thing over plain HTTP:
 curl -s -X POST https://vos.so/api/claim \
   -H 'content-type: application/json' \
-  -d '{"title": "…", "config": <the VosConfigJson>}'
+  -d '{"title": "…", "prompt": "<their prompt>", "config": <the VosConfigJson>}'
 # → { "claimUrl": "https://vos.so/claim/…", "expiresAt": "…" }
 ```
 

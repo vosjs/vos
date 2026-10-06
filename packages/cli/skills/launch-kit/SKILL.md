@@ -285,10 +285,13 @@ kit's stills into the release's project so the human can retrospect without
 a terminal:
 
 ```
-vos push take --folder <project-slug> --label "v2.1 launch" --note "<what shipped, one line>"
+vos push take --folder <project-slug> --label "v2.1 launch" --note "<what shipped, one line>" \
+  --prompt "<the person's prompt, as they wrote it>"
 vos push poster/landscape --folder <project-slug> --label "v2.1 poster, landscape"
 vos asset push kit/*.png --folder <project-slug>
 ```
+
+`--prompt` shows the person's prompt on the watch page by default: their words as they wrote them, never yours, with no file path, key or email they did not mean to publish. Say it is shown, and that they can take it off from the watch page.
 
 End by handing the human the loop, not the files: the watch page plays the
 latest version, the studio edits the cut AND the posters (the card is a
