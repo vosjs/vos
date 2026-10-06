@@ -7,13 +7,33 @@ import {
   rangeRects,
 } from '../richText/caret'
 import { decorationRect, layoutText, tokenRanges } from '../richText/layout'
-import { overlayTokens, wrapOverlayLines } from '../overlayText'
 import type { LayoutRun, Measure } from '../richText/layout'
 
 /** 10 px a character in font 0, 13 in font 1: a bold run cannot hide. */
 const measure: Measure = (t, f) => t.length * (f === 1 ? 13 : 10)
 
 const plain = (t: string): LayoutRun[] => [{ t }]
+
+/**
+ * The greedy token wrap the text layer painted with before it took the
+ * layout module, kept as the oracle the layout is held to on plain lines.
+ */
+const oldWrap = (line: string, max: number): string[] => {
+  const width = (t: string) => t.length * 10
+  if (!line || width(line) <= max) return [line]
+  const out: string[] = []
+  let current = ''
+  for (const token of line.match(/\S+\s*/g) ?? [line]) {
+    if (!current) current = token
+    else if (width(current + token) <= max) current += token
+    else {
+      out.push(current)
+      current = token
+    }
+  }
+  if (current) out.push(current)
+  return out
+}
 const text = (line: { frags: { t: string }[] }) =>
   line.frags.map((f) => f.t).join('')
 
@@ -84,14 +104,14 @@ describe('the wrap', () => {
         { lines: [plain(line)], maxWidth: max },
         measure,
       ).lines.map(text)
-      expect(mine).toEqual(wrapOverlayLines([line], (t) => t.length * 10, max))
+      expect(mine).toEqual(oldWrap(line, max))
     }
   })
 
   it('tokenizes as the text layer does', () => {
     for (const line of ['one two', 'a  b ', 'word', 'x y z']) {
       expect(tokenRanges(line).map(([a, b]) => line.slice(a, b))).toEqual(
-        overlayTokens(line),
+        line.match(/\S+\s*/g) ?? [line],
       )
     }
   })

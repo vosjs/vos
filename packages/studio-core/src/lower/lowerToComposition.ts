@@ -3146,11 +3146,12 @@ export function studioLayerData(
             return {
               ...base,
               text: overlayPlainText(o),
-              // The lines a person reads. A styled layer (rt) is painted from
+              // The lines a person reads: what a plain layer is laid out
+              // from, one run a line. A styled layer (rt) is laid out from
               // its runs; these are then its words, for the signature.
               lines: overlayLines(overlayPlainText(o)),
               // The styled payload, only when the layer is set in more than
-              // one style: a plain clip's data is unchanged.
+              // one style.
               ...(rt ? { rt } : {}),
               fs: st.size,
               weight: st.weight,
@@ -3191,9 +3192,10 @@ export function studioLayerData(
                     },
                   }
                 : {}),
-              // Entrance animation: segmentation + timing normalized
-              // HERE (deterministic doc-derived data) — ON_FRAME interprets
-              // per-unit progress as pure f(t). Absent = data byte parity.
+              // Entrance animation: timing normalized HERE (deterministic
+              // doc-derived data) — ON_FRAME cuts the units from the layout
+              // and interprets per-unit progress as pure f(t). Absent = data
+              // byte parity.
               ...(() => {
                 const olFx = resolveOverlayFx(
                   o,

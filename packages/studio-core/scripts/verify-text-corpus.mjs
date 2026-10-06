@@ -488,6 +488,134 @@ const CASES = [
     ],
     HOLD,
   ],
+  // Plain layers under every entrance shape, an empty line, a token wider
+  // than the budget.
+  [
+    'fx-word-reverse-mid',
+    [
+      clip({
+        preset: 'caption',
+        text: LONG,
+        anim: { enter: { kind: 'rise', unit: 'word', direction: 'reverse' } },
+      }),
+    ],
+    MID,
+  ],
+  [
+    'fx-char-center-mid',
+    [
+      clip({
+        anim: { enter: { kind: 'fade', unit: 'char', direction: 'center' } },
+      }),
+    ],
+    MID,
+  ],
+  [
+    'fx-word-wrap-right-pill-settled',
+    [
+      clip({
+        preset: 'caption',
+        text: LONG,
+        maxWidth: 0.3,
+        align: 'right',
+        box: { color: '#111827', opacity: 0.9 },
+        anim: { enter: { kind: 'rise', unit: 'word' } },
+      }),
+    ],
+    HOLD,
+  ],
+  [
+    'fx-word-stroke-mid',
+    [
+      clip({
+        stroke: { color: '#111827', width: 6 },
+        anim: { enter: { kind: 'pop', unit: 'word' } },
+      }),
+    ],
+    MID,
+  ],
+  [
+    'fx-char-spacing-wrap-settled',
+    [
+      clip({
+        preset: 'caption',
+        text: LONG,
+        maxWidth: 0.3,
+        letterSpacing: 2,
+        anim: { enter: { kind: 'typewriter', unit: 'char' } },
+      }),
+    ],
+    HOLD,
+  ],
+  [
+    'fx-char-emoji-settled',
+    [
+      clip({
+        text: 'Ship 🚀 cafe\u0301',
+        anim: { enter: { kind: 'pop', unit: 'char' } },
+      }),
+    ],
+    HOLD,
+  ],
+  [
+    'fx-word-empty-line-mid',
+    [
+      clip({
+        text: 'Ship it\n\nfaster than',
+        anim: { enter: { kind: 'rise', unit: 'word' } },
+      }),
+    ],
+    MID,
+  ],
+  [
+    'empty-line-pill-left',
+    [
+      clip({
+        preset: 'caption',
+        text: 'Ship it\n\nfaster than you think',
+        align: 'left',
+        box: { color: '#111827', opacity: 0.9 },
+      }),
+    ],
+    HOLD,
+  ],
+  [
+    'wrap-wide-token',
+    [
+      clip({
+        preset: 'caption',
+        text: 'See https://vos.so/docs/edit/text-and-everything-after-it for more',
+        maxWidth: 0.2,
+        align: 'left',
+      }),
+    ],
+    HOLD,
+  ],
+  [
+    'wrap-posed-stroke',
+    [
+      clip({
+        preset: 'caption',
+        text: LONG,
+        maxWidth: 0.3,
+        stroke: { color: '#111827', width: 4 },
+        transform: { x: 0.4, y: 0.6, scale: 1.4, rotation: -8 },
+      }),
+    ],
+    HOLD,
+  ],
+  // A line that starts with spaces under a word entrance: the words stand
+  // where they stand without one, the spaces ahead of them kept.
+  [
+    'fx-word-leading-space-settled',
+    [
+      clip({
+        text: '  Ship it\nfaster than you',
+        anim: { enter: { kind: 'rise', unit: 'word' } },
+      }),
+    ],
+    HOLD,
+  ],
 ]
 
 const makeDoc = (overlays) => ({
