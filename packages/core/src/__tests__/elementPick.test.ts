@@ -12,6 +12,7 @@ type Inst = {
   config: { zIndex?: number }
   mesh: THREE.Mesh
   meshes?: () => THREE.Mesh[]
+  refreshRaster?: () => boolean
 }
 
 const plane = (
@@ -31,7 +32,11 @@ const plane = (
   return m
 }
 
-function editorApi(elements: Map<string, Inst>, scene: THREE.Scene) {
+function editorApi(
+  elements: Map<string, Inst>,
+  scene: THREE.Scene,
+  page: { FontFace?: unknown; fonts?: unknown } = {},
+) {
   for (const inst of elements.values())
     for (const m of inst.meshes?.() ?? [inst.mesh]) if (!m.parent) scene.add(m)
   scene.updateMatrixWorld(true)
@@ -44,8 +49,13 @@ function editorApi(elements: Map<string, Inst>, scene: THREE.Scene) {
     100,
   )
   overlayCamera.position.z = 10
-  const win = { innerWidth: 200, innerHeight: 100, addEventListener() {} }
-  const doc = { querySelector: () => null }
+  const win = {
+    innerWidth: 200,
+    innerHeight: 100,
+    addEventListener() {},
+    FontFace: page.FontFace,
+  }
+  const doc = { querySelector: () => null, fonts: page.fonts }
   const build = new Function(
     'THREE',
     '__current',
@@ -65,6 +75,7 @@ function editorApi(elements: Map<string, Inst>, scene: THREE.Scene) {
       visible: boolean
       quad?: [number, number][]
     }[]
+    registerFonts: (fonts: unknown) => void
   }
 }
 
@@ -153,6 +164,54 @@ describe('editor bridge picking', () => {
       scene,
     )
     expect(api.getRects()[0].quad).toBeUndefined()
+  })
+
+  it('puts a face on the page once, and redraws the text when it lands', async () => {
+    const added: { family: string; src: string; weight: string }[] = []
+    let redrawn = 0
+    class Face {
+      constructor(
+        public family: string,
+        public src: string,
+        public desc: { weight: string; style: string },
+      ) {}
+      load() {
+        return Promise.resolve(this)
+      }
+    }
+    const scene = new THREE.Scene()
+    const elements = new Map<string, Inst>([
+      [
+        'cap',
+        {
+          config: {},
+          mesh: plane(40, 20, 0, 0),
+          refreshRaster: () => {
+            redrawn++
+            return true
+          },
+        } as Inst,
+      ],
+    ])
+    const api = editorApi(elements, scene, {
+      FontFace: Face,
+      fonts: {
+        add: (f: Face) =>
+          added.push({ family: f.family, src: f.src, weight: f.desc.weight }),
+      },
+    })
+    const bold = { family: 'Lexend', weight: 700, url: 'https://x/700.woff2' }
+    api.registerFonts([bold, bold, { family: '', url: 'nope' }, null])
+    api.registerFonts([bold])
+    expect(added).toEqual([
+      { family: 'Lexend', src: 'url(https://x/700.woff2)', weight: '700' },
+    ])
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(redrawn).toBe(1)
+    // Nothing to register, or a page with no font API: nothing happens.
+    api.registerFonts(undefined)
+    expect(added).toHaveLength(1)
   })
 
   it('an instance without meshes() still picks by its mesh', () => {

@@ -386,6 +386,19 @@ const CASES = [
     ],
     { styled: true, scale: 2 },
   ],
+  [
+    'runs-bound-color',
+    [
+      text({
+        content: [
+          { text: 'Ship it ' },
+          { text: 'faster', weight: 700, color: { $data: 'accent' } },
+          { text: ' today', highlight: { $data: 'wash' } },
+        ],
+      }),
+    ],
+    { styled: true, data: { accent: '#e37358', wash: '#2a2a33' } },
+  ],
   // One unstyled run is the string it holds: the same pixels.
   [
     'runs-one-plain',

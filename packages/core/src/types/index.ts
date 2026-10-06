@@ -35,6 +35,7 @@ export type {
   AssetKind,
   AuthoredVosConfigJson,
   ProgramEntryJson,
+  FontFaceDecl,
   VosConfigJson,
 } from './vosConfigJson'
 

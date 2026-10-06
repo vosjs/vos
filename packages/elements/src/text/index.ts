@@ -43,10 +43,12 @@ export {
   clearStyle,
   commonStyle,
   diffInput,
+  isDataRef,
   layoutLines,
   normalizeRuns,
   plainText,
   replaceRange,
+  resolveRunColors,
   runsOf,
   setStyle,
   sliceRuns,
@@ -56,7 +58,14 @@ export {
   toRichText,
   toggleStyle,
 } from './runs'
-export type { RichText, RunStyleKey, TextRun, TextRunStyle } from './runs'
+export type {
+  DataRef,
+  RichText,
+  RunColor,
+  RunStyleKey,
+  TextRun,
+  TextRunStyle,
+} from './runs'
 export {
   canvasTextProbe,
   layoutTextElement,

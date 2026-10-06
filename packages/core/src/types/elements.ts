@@ -114,12 +114,16 @@ export interface TextRun {
   weight?: number
   /** Italic on, or (on an italic element) off. */
   italic?: boolean
-  /** Fill colour, in place of `font.color`. */
-  color?: string
+  /**
+   * Fill colour, in place of `font.color`: a literal, or `{ $data: key }`
+   * to read it from the program's data, so one knob turns the accent of
+   * every word that wears it.
+   */
+  color?: string | DataRef
   underline?: boolean
   strike?: boolean
-  /** A colour behind the words. */
-  highlight?: string
+  /** A colour behind the words: a literal, or a `{ $data }` binding. */
+  highlight?: string | DataRef
 }
 
 /**

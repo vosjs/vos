@@ -475,9 +475,11 @@ export {
   clearStyle,
   commonStyle,
   diffInput,
+  isDataRef,
   normalizeRuns,
   plainText,
   replaceRange,
+  resolveRunColors,
   runsOf,
   setStyle,
   sliceRuns,
@@ -488,6 +490,7 @@ export {
 } from '@vosjs/elements/text'
 export type {
   CaretStop,
+  DataRef,
   Fragment,
   LayoutInput,
   LayoutLine,
@@ -495,6 +498,7 @@ export type {
   LayoutUnit,
   Measure as TextMeasure,
   RichText,
+  RunColor,
   RunStyle,
   RunStyleKey,
   TextLayout,

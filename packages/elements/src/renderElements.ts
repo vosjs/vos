@@ -7,8 +7,9 @@ import {
 } from './createElementProps'
 import type { SplitGroup } from './createElementProps'
 import {
+  contentIsBound,
   extractTextBindings,
-  resolveBoundRuns,
+  resolveTextContent,
   resolveTextElement,
 } from './dataBinding'
 import { renderAudioElement } from './renderers/audio'
@@ -126,18 +127,24 @@ export async function renderElements(
       let textRerender:
         | ((patch: any) => { width: number; height: number })
         | null = null
-      // What the bound runs resolved to last, to tell a data edit that
-      // changed their words from one that did not.
-      let boundRuns = bindings?.runs ? JSON.stringify(config.content) : ''
-      const nextBoundRuns = (
+      // The content as it was WRITTEN, by the config or by the last live
+      // write: it may read data (the whole of it, a run's words, a run's
+      // colours), so it is read again whenever the data moves. `drawn` is
+      // what the frame last drew of it.
+      let authored: unknown = rawConfig.content
+      let dataNow = data
+      let drawn = config.type === 'text' ? JSON.stringify(config.content) : ''
+      /** What a data move changes the words to, or undefined for no change. */
+      const contentAfter = (
         next: Record<string, unknown> | null | undefined,
-      ): unknown[] | null => {
-        if (!bindings?.runs) return null
-        const v = resolveBoundRuns(rawConfig.content, bindings.runs, next)
-        const key = JSON.stringify(v)
-        if (key === boundRuns) return null
-        boundRuns = key
-        return v
+      ): unknown => {
+        dataNow = next
+        if (!contentIsBound(authored)) return undefined
+        const resolved = resolveTextContent(authored, next)
+        const key = JSON.stringify(resolved)
+        if (key === drawn) return undefined
+        drawn = key
+        return resolved
       }
 
       // Split text: one mesh and one props proxy per unit. Built by a
@@ -380,9 +387,7 @@ export async function renderElements(
         ;(props as any).x = posX + offsetX
         ;(props as any).y = -posY + offsetY
       }
-      const queueRaster = (prop: string, value: unknown) => {
-        if (!textRerender) return
-        const patch = rasterPropPatch(prop, value, config)
+      const queuePatch = (patch: any) => {
         if (!patch) return
         pendingRaster = pendingRaster
           ? mergeQueuedPatches(pendingRaster, patch)
@@ -391,6 +396,24 @@ export async function renderElements(
           rasterScheduled = true
           void Promise.resolve().then(flushRaster)
         }
+      }
+      /** Draw words already read from data; what was written stays written. */
+      const drawContent = (resolved: unknown) => {
+        if (textRerender)
+          queuePatch(rasterPropPatch('content', resolved, config))
+      }
+      const queueRaster = (prop: string, value: unknown) => {
+        if (!textRerender) return
+        if (prop === 'content') {
+          // A live write IS the content from now on, bindings and all: they
+          // are read against the data as it stands, and again when it moves.
+          authored = value
+          const resolved = resolveTextContent(value, dataNow)
+          drawn = JSON.stringify(resolved)
+          drawContent(resolved)
+          return
+        }
+        queuePatch(rasterPropPatch(prop, value, config))
       }
 
       const props = splitGroup
@@ -456,28 +479,22 @@ export async function renderElements(
         // writes. Split text has one mesh per unit, so its words are
         // structure: the units are rebuilt from the new values instead.
         updateData: (next: Record<string, unknown> | null | undefined) => {
-          if (bindings && config.type === 'text' && config.split) {
+          if (config.type !== 'text') return false
+          if (config.split) {
             let changed = false
-            if (bindings.content) {
-              const v = String(next?.[bindings.content] ?? '')
-              if (v !== config.content) {
-                config.content = v
-                changed = true
-              }
-            }
-            const runs = nextBoundRuns(next)
-            if (runs) {
-              config.content = runs
+            const words = contentAfter(next)
+            if (words !== undefined) {
+              config.content = words
               changed = true
             }
-            if (bindings.family) {
+            if (bindings?.family) {
               const v = next?.[bindings.family]
               if (typeof v === 'string' && v && v !== config.font?.family) {
                 config.font = { ...config.font, family: v }
                 changed = true
               }
             }
-            if (bindings.color) {
+            if (bindings?.color) {
               const v = next?.[bindings.color]
               if (typeof v === 'string' && v && v !== config.font?.color) {
                 config.font = { ...config.font, color: v }
@@ -496,28 +513,21 @@ export async function renderElements(
             elementInstance.structural = true
             return true
           }
-          if (!bindings || !textRerender) return false
+          if (!textRerender) return false
           let changed = false
-          if (bindings.content) {
-            const v = String(next?.[bindings.content] ?? '')
-            if (v !== config.content) {
-              queueRaster('content', v)
-              changed = true
-            }
-          }
-          const runs = nextBoundRuns(next)
-          if (runs) {
-            queueRaster('content', runs)
+          const words = contentAfter(next)
+          if (words !== undefined) {
+            drawContent(words)
             changed = true
           }
-          if (bindings.family) {
+          if (bindings?.family) {
             const v = next?.[bindings.family]
             if (typeof v === 'string' && v && v !== config.font?.family) {
               queueRaster('fontFamily', v)
               changed = true
             }
           }
-          if (bindings.color) {
+          if (bindings?.color) {
             const v = next?.[bindings.color]
             if (typeof v === 'string' && v && v !== config.font?.color) {
               queueRaster('color', v)

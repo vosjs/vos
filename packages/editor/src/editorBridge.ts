@@ -9,7 +9,7 @@
  * Requests resolve with a fallback (null / []) after `timeoutMs` so a player
  * that is not in editor mode (or mid-reload) can never hang the UI.
  */
-import type { TextRun } from '@vosjs/core'
+import type { FontFaceDecl, TextRun } from '@vosjs/core'
 import type { ElementRect } from '@vosjs/core/runtime'
 
 export type { ElementRect }
@@ -29,6 +29,13 @@ export interface EditorBridgeClient {
     id: string,
     props: Record<string, number | boolean | string | TextRun[]>,
   ) => void
+  /**
+   * Put font faces on the running page now, ahead of the program declaring
+   * them (protocol 10): the face behind a weight being previewed in an edit
+   * that has not been committed. An engine before it ignores the message,
+   * and the weight is faked until the commit, as it was.
+   */
+  registerFonts: (fonts: FontFaceDecl[]) => void
   /** Rect pushes (the player posts them on resize) + rect responses. */
   onRects: (fn: (rects: ElementRect[]) => void) => () => void
   /** Reject-all outstanding requests (e.g. the iframe document reloaded). */
@@ -108,6 +115,10 @@ export function createEditorBridgeClient(
 
     setElementProps(id, props) {
       post({ type: 'SET_ELEMENT_PROPS', id, props })
+    },
+
+    registerFonts(fonts) {
+      if (fonts.length) post({ type: 'REGISTER_FONTS', fonts })
     },
 
     onRects(fn) {

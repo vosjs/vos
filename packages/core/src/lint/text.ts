@@ -16,6 +16,7 @@ export type TextRule =
   | 'unknown-run-field'
   | 'run-field-type'
   | 'undeclared-run-weight'
+  | 'unbound-run-key'
 export type TextSeverity = 'error' | 'warn'
 
 export interface TextIssue {
@@ -28,15 +29,18 @@ export interface TextIssue {
   message: string
 }
 
-/** What a run may say, and the type each field takes. */
-const RUN_FIELDS: Record<string, 'text' | 'number' | 'boolean' | 'string'> = {
+/**
+ * What a run may say, and the type each field takes. A `bindable` field is
+ * a string or `{ "$data": "key" }`.
+ */
+const RUN_FIELDS: Record<string, 'text' | 'number' | 'boolean' | 'bindable'> = {
   text: 'text',
   weight: 'number',
   italic: 'boolean',
-  color: 'string',
+  color: 'bindable',
   underline: 'boolean',
   strike: 'boolean',
-  highlight: 'string',
+  highlight: 'bindable',
 }
 
 /** A field people reach for, and the one that does what they meant. */
@@ -58,7 +62,7 @@ const MEANT: Record<string, string> = {
   fontFamily: "the element's font.family (a run cannot change it)",
 }
 
-const isDataRef = (v: unknown) =>
+const isDataRef = (v: unknown): v is { $data: string } =>
   typeof v === 'object' &&
   v !== null &&
   typeof (v as { $data?: unknown }).$data === 'string' &&
@@ -106,6 +110,11 @@ export function lintVosText(config: VosConfigJson): TextIssue[] {
         message: `text element "${elementId}", run ${run}: ${message}`,
       })
 
+    const bound = new Set(
+      config.data && typeof config.data === 'object'
+        ? Object.keys(config.data as object)
+        : [],
+    )
     const family =
       typeof el.font?.family === 'string'
         ? firstFamilyToken(el.font.family)
@@ -152,15 +161,37 @@ export function lintVosText(config: VosConfigJson): TextIssue[] {
         const ok =
           type === 'number'
             ? typeof value === 'number' && Number.isFinite(value)
-            : typeof value === type
+            : type === 'bindable'
+              ? typeof value === 'string' || isDataRef(value)
+              : typeof value === type
         if (!ok) {
           say(
             'run-field-type',
             'warn',
             i,
-            `"${key}" must be a ${type} and is ignored as written (${JSON.stringify(value)}).`,
+            `"${key}" must be ${
+              type === 'bindable'
+                ? 'a string or { "$data": "key" }'
+                : `a ${type}`
+            } and is ignored as written (${JSON.stringify(value)}).`,
           )
         }
+      }
+      // A binding to a key the program's data does not hold reads nothing
+      // until a value arrives: no words, or the element's own colour.
+      for (const key of ['text', 'color', 'highlight']) {
+        const ref = run[key]
+        if (!isDataRef(ref) || bound.has(ref.$data)) continue
+        say(
+          'unbound-run-key',
+          'warn',
+          i,
+          `"${key}" reads data.${ref.$data}, which config.data does not hold: ${
+            key === 'text'
+              ? 'the run draws no words'
+              : "the run draws in the element's own colour"
+          } until a value arrives. Ship a default in data.`,
+        )
       }
       // A weight no declared face of the family holds is faked from another.
       if (

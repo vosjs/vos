@@ -12,7 +12,7 @@ import { programSizeSchema } from './size'
 /**
  * `{$data: key}` — the value resolves from the host's data object at render
  * time and re-resolves on setData. Allowed on `content`, on a run's `text`,
- * and on `font.family` and `font.color`; because the binding lives in the
+ * `color` and `highlight`, and on `font.family` and `font.color`; because the binding lives in the
  * program, remixing the bound value is a pure data edit (no recompile).
  */
 export const dataRefSchema = z
@@ -42,10 +42,10 @@ export const textRunSchema = z
     text: z.union([z.string(), dataRefSchema]),
     weight: z.number().optional(),
     italic: z.boolean().optional(),
-    color: z.string().optional(),
+    color: z.union([z.string(), dataRefSchema]).optional(),
     underline: z.boolean().optional(),
     strike: z.boolean().optional(),
-    highlight: z.string().optional(),
+    highlight: z.union([z.string(), dataRefSchema]).optional(),
   })
   .passthrough()
 

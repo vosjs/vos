@@ -614,6 +614,9 @@ function editorMessageCases(editor: boolean): string {
                 case 'SET_ELEMENT_PROPS':
                     __editorApi.setProps(msg.id, msg.props);
                     break;
+                case 'REGISTER_FONTS':
+                    __editorApi.registerFonts(msg.fonts);
+                    break;
                 case 'SET_OBJECT_PROPS':
                     __editorApi.setObjectProps(msg.id, msg.props);
                     break;
@@ -753,6 +756,38 @@ export function editorExtension(editor: boolean): string {
                 if (inst && inst.props && props) Object.assign(inst.props, props);
             };
 
+            // Faces a host needs on the page BEFORE the program declares them
+            // (protocol 10): a weight previewed in an edit that is not yet
+            // committed would be faked from the regular face until the
+            // commit's reload. Each is registered once, like the program's
+            // own, and every text element is drawn again when one lands,
+            // since a face that arrives after a paint replaces a fallback.
+            const fontsSeen = new Set();
+            const redrawText = () => {
+                if (!__current || !__current.elements) return;
+                __current.elements.forEach((inst) => {
+                    if (inst && inst.refreshRaster) inst.refreshRaster();
+                });
+            };
+            const registerFonts = (list) => {
+                const Face = window.FontFace;
+                if (!Face || !document.fonts || !Array.isArray(list)) return;
+                for (const f of list) {
+                    if (!f || typeof f.family !== 'string' || !f.family || typeof f.url !== 'string' || !f.url) continue;
+                    const key = f.family + '|' + (f.weight != null ? f.weight : 'normal') + '|' + (f.style || 'normal') + '|' + f.url;
+                    if (fontsSeen.has(key)) continue;
+                    fontsSeen.add(key);
+                    try {
+                        const face = new Face(f.family, 'url(' + f.url + ')', {
+                            weight: f.weight != null ? String(f.weight) : 'normal',
+                            style: f.style || 'normal',
+                        });
+                        document.fonts.add(face);
+                        face.load().then(redrawText).catch(() => {});
+                    } catch (e) {}
+                }
+            };
+
             // World-space objects (protocol 3): raycast against the MAIN camera
             // — objects live in the 3D scene with real depth, so nearest hit
             // wins (unlike overlay elements, whose depth is cleared per group).
@@ -821,7 +856,7 @@ export function editorExtension(editor: boolean): string {
                 __post({ type: 'ELEMENT_RECTS', requestId: null, rects: getRects() });
             });
 
-            return { getRects, hitTest, setProps, objectHitTest, objectRect, setObjectProps };
+            return { getRects, hitTest, setProps, registerFonts, objectHitTest, objectRect, setObjectProps };
         })();`
 }
 

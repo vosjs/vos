@@ -10,7 +10,7 @@ describe('tween edits, live (protocol 8)', () => {
   const html = generateRenderTemplate('', { mode: 'playback' })
 
   it('bumps the protocol', () => {
-    expect(VOS_BRIDGE_PROTOCOL).toBe(9)
+    expect(VOS_BRIDGE_PROTOCOL).toBe(10)
   })
 
   it('applies the overlay to the running timeline and reports the new duration', () => {

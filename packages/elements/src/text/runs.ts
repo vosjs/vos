@@ -15,6 +15,34 @@
 import { graphemesOf } from './layout'
 import type { LayoutRun } from './layout'
 
+/**
+ * A value read from a program's data instead of written here: `{ $data:
+ * key }` names the key. A knob that turns the value changes everything
+ * bound to it, with no edit to the text.
+ */
+export interface DataRef {
+  $data: string
+}
+
+export function isDataRef(value: unknown): value is DataRef {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { $data?: unknown }).$data === 'string' &&
+    (value as { $data: string }).$data.length > 0
+  )
+}
+
+/**
+ * A colour a run names: a literal, or a binding to a program's data. A
+ * binding is a VALUE like any other here: it rides its run through every
+ * edit (typing in it, cutting it in two, setting its neighbours alike), and
+ * is resolved against the data only where the run is drawn
+ * (`resolveRunColors`). Where there is no data to read (a studio layer), a
+ * binding says nothing and the words take their layer's own colour.
+ */
+export type RunColor = string | DataRef
+
 /** How a run departs from its layer's style. Absent = the layer's own. */
 export interface TextRunStyle {
   /** Font weight, snapped to the family's hosted steps like the layer's. */
@@ -22,11 +50,11 @@ export interface TextRunStyle {
   /** Italic on, or (on an italic layer) off. */
   italic?: boolean
   /** Fill colour. */
-  color?: string
+  color?: RunColor
   underline?: boolean
   strike?: boolean
   /** A colour behind the run. */
-  highlight?: string
+  highlight?: RunColor
 }
 
 export interface TextRun extends TextRunStyle {
@@ -63,21 +91,33 @@ export function runsOf(text: RichText): TextRun[] {
   return typeof text === 'string' ? (text ? [{ text }] : []) : text
 }
 
+/** A colour as a run keeps it: a non-empty literal, or a binding alone. */
+function colorOf(value: unknown): RunColor | undefined {
+  if (typeof value === 'string') return value || undefined
+  return isDataRef(value) ? { $data: value.$data } : undefined
+}
+
+/** Two style values are one: equal, or bindings to the same key. */
+const sameValue = (a: unknown, b: unknown) =>
+  a === b || (isDataRef(a) && isDataRef(b) && a.$data === b.$data)
+
 /** A run's style alone, without fields that say nothing. */
 export function styleOf(run: TextRunStyle): TextRunStyle {
   const out: TextRunStyle = {}
   if (typeof run.weight === 'number') out.weight = run.weight
   // `italic: false` says something (upright words on an italic layer).
   if (typeof run.italic === 'boolean') out.italic = run.italic
-  if (run.color) out.color = run.color
+  const color = colorOf(run.color)
+  if (color) out.color = color
   if (run.underline) out.underline = true
   if (run.strike) out.strike = true
-  if (run.highlight) out.highlight = run.highlight
+  const highlight = colorOf(run.highlight)
+  if (highlight) out.highlight = highlight
   return out
 }
 
 const sameStyle = (a: TextRunStyle, b: TextRunStyle) =>
-  RUN_STYLE_KEYS.every((k) => a[k] === b[k])
+  RUN_STYLE_KEYS.every((k) => sameValue(a[k], b[k]))
 
 const isStyled = (s: TextRunStyle) =>
   RUN_STYLE_KEYS.some((k) => s[k] !== undefined)
@@ -118,14 +158,45 @@ export function toRichText(value: unknown): RichText {
     if (typeof r.weight === 'number' && Number.isFinite(r.weight))
       run.weight = r.weight
     if (typeof r.italic === 'boolean') run.italic = r.italic
-    if (typeof r.color === 'string' && r.color) run.color = r.color
+    const color = colorOf(r.color)
+    if (color) run.color = color
     if (r.underline === true) run.underline = true
     if (r.strike === true) run.strike = true
-    if (typeof r.highlight === 'string' && r.highlight)
-      run.highlight = r.highlight
+    const highlight = colorOf(r.highlight)
+    if (highlight) run.highlight = highlight
     runs.push(run)
   }
   return normalizeRuns(runs)
+}
+
+/**
+ * Styled text with its bound colours READ: every `{ $data: key }` colour
+ * becomes the string `data[key]` holds, and one whose key holds no string
+ * is dropped, so those words take the colour of what they are set in.
+ * What a painter is handed, and what a host shows for a bound run.
+ */
+export function resolveRunColors(
+  text: RichText,
+  data: Record<string, unknown> | null | undefined,
+): RichText {
+  if (typeof text === 'string') return text
+  const read = (value: RunColor | undefined): string | undefined => {
+    if (!isDataRef(value)) return value
+    const v = data?.[value.$data]
+    return typeof v === 'string' && v ? v : undefined
+  }
+  return normalizeRuns(
+    text.map((run) => {
+      const { color, highlight, ...rest } = run
+      const c = read(color)
+      const h = read(highlight)
+      return {
+        ...rest,
+        ...(c ? { color: c } : {}),
+        ...(h ? { highlight: h } : {}),
+      }
+    }),
+  )
 }
 
 /**
@@ -133,7 +204,8 @@ export function toRichText(value: unknown): RichText {
  * break), each a list of runs. `fontOf` names the font a run is set in as an
  * index into the caller's own table (0, the base font, for a run that
  * departs in neither weight nor slant); colour and decorations ride as they
- * are. An empty line is an empty list.
+ * are. A colour still BOUND to data paints nothing of its own here: resolve
+ * the text first (`resolveRunColors`). An empty line is an empty list.
  */
 export function layoutLines(
   text: RichText,
@@ -144,10 +216,12 @@ export function layoutLines(
     const f = fontOf(run)
     const set: Omit<LayoutRun, 't'> = {
       ...(f ? { f } : {}),
-      ...(run.color ? { c: run.color } : {}),
+      ...(typeof run.color === 'string' && run.color ? { c: run.color } : {}),
       ...(run.underline ? { u: 1 as const } : {}),
       ...(run.strike ? { s: 1 as const } : {}),
-      ...(run.highlight ? { h: run.highlight } : {}),
+      ...(typeof run.highlight === 'string' && run.highlight
+        ? { h: run.highlight }
+        : {}),
     }
     run.text.split('\n').forEach((part, i) => {
       if (i > 0) lines.push([])
@@ -299,7 +373,7 @@ export function commonStyle(
   if (!runs.length) return styleAt(text, start)
   for (const k of RUN_STYLE_KEYS) {
     const first = styleOf(runs[0])[k]
-    const agree = runs.every((run) => styleOf(run)[k] === first)
+    const agree = runs.every((run) => sameValue(styleOf(run)[k], first))
     if (!agree) out[k] = MIXED
     else if (first !== undefined) out[k] = first
   }

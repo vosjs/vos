@@ -28,6 +28,13 @@ describe('the schema', () => {
       { $data: 'headline' },
       [{ text: 'Ship ' }, { text: 'faster', weight: 700, underline: true }],
       [{ text: { $data: 'word' }, color: '#e37358', italic: true }],
+      [
+        {
+          text: 'faster',
+          color: { $data: 'accent' },
+          highlight: { $data: 'w' },
+        },
+      ],
     ]) {
       expect(textElementSchema.safeParse(text(content)).success).toBe(true)
     }
@@ -60,20 +67,24 @@ describe('lintVosText', () => {
     expect(lint(text('Ship it'))).toEqual([])
     expect(lint(text({ $data: 'headline' }))).toEqual([])
     expect(
-      lint(
-        text([
-          { text: 'Ship ' },
-          {
-            text: { $data: 'word' },
-            weight: 700,
-            italic: false,
-            color: '#e37358',
-            underline: true,
-            strike: true,
-            highlight: '#222',
-          },
-        ]),
-      ),
+      lintVosText({
+        ...base,
+        data: { word: 'faster' },
+        elements: [
+          text([
+            { text: 'Ship ' },
+            {
+              text: { $data: 'word' },
+              weight: 700,
+              italic: false,
+              color: '#e37358',
+              underline: true,
+              strike: true,
+              highlight: '#222',
+            },
+          ]),
+        ],
+      } as never),
     ).toEqual([])
   })
 
@@ -136,6 +147,46 @@ describe('lintVosText', () => {
     // A family with no declared face at all is the fonts lint's to report.
     expect(lint(runs)).toEqual([])
     expect(lint(runs, [{ family: 'Sora', url: 'x', weight: 400 }])).toEqual([])
+  })
+
+  it('takes a colour or a highlight bound to data, and says when the key is not there', () => {
+    const runs = text([
+      { text: 'Ship it ' },
+      {
+        text: 'faster',
+        color: { $data: 'accent' },
+        highlight: { $data: 'wash' },
+      },
+    ])
+    const lintWith = (data?: Record<string, unknown>) =>
+      lintVosText({
+        ...base,
+        elements: [runs],
+        ...(data ? { data } : {}),
+      } as never)
+    expect(lintWith({ accent: '#e37358', wash: '#222' })).toEqual([])
+    const missing = lintWith({ accent: '#e37358' })
+    expect(missing.map((i) => [i.rule, i.severity])).toEqual([
+      ['unbound-run-key', 'warn'],
+    ])
+    expect(missing[0].message).toContain('"highlight" reads data.wash')
+    expect(lintWith().map((i) => i.rule)).toEqual([
+      'unbound-run-key',
+      'unbound-run-key',
+    ])
+    // Bound words with no value draw nothing, and say so.
+    const words = lintVosText({
+      ...base,
+      elements: [text([{ text: { $data: 'name' }, weight: 700 }])],
+    } as never)
+    expect(words[0].message).toContain('the run draws no words')
+    // A colour that is neither a string nor a binding is ignored, and named.
+    const wrong = lint(text([{ text: 'a', color: 7, highlight: { key: 'x' } }]))
+    expect(wrong.map((i) => i.rule)).toEqual([
+      'run-field-type',
+      'run-field-type',
+    ])
+    expect(wrong[0].message).toContain('a string or { "$data": "key" }')
   })
 
   it('reads nothing but text elements with a list for content', () => {
