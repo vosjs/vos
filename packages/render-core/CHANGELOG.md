@@ -1,5 +1,11 @@
 # @vosjs/render-core
 
+## 0.3.26
+
+### Patch Changes
+
+- 7d16867: The audio page loads `@vosjs/core` 0.29.0's audio module.
+
 ## 0.3.25
 
 ### Patch Changes
