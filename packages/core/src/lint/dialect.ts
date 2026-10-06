@@ -106,11 +106,15 @@ const RULES: RuleDef[] = [
       'modifiers is outside the dialect — compute derived properties in onUpdate from the tweened driver instead.',
   },
   {
-    // First arg to .to/.from/.fromTo/.set is a string literal → DOM/selector target
-    // (CSSPlugin territory). Dialect targets must be plain objects / element props.
+    // A tween whose first arg is a string literal and whose second is a vars
+    // object → a DOM/selector target (CSSPlugin territory). Dialect targets
+    // must be plain objects / element props. The vars object is what makes
+    // it a tween: `map.set('key', 1)`, `Array.from('abc')` and
+    // `registry.set('name', fn)` are JavaScript, not GSAP.
     rule: 'dom-target',
     severity: 'error',
-    pattern: /\.(?:to|from|fromTo|set)\s*\(\s*['"`]/g,
+    pattern:
+      /\.(?:to|from|fromTo|set)\s*\(\s*(?:'[^'\n]*'|"[^"\n]*"|`[^`\n]*`)\s*,\s*\{/g,
     message:
       'String/selector tween targets are outside the dialect — tween plain objects, element `props`, or THREE object properties.',
   },

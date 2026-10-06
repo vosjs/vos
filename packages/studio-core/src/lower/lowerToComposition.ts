@@ -3432,6 +3432,24 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
 }
 
 /**
+ * Whether a config is a RECORDING's lowered program: its four functions are
+ * this module's constants, byte for byte, with the document in `data`. A
+ * host that lints an author's code can tell this code apart and leave it to
+ * the tests here; a program document's functions are the author's and stay
+ * under the author's lints.
+ */
+export function isLoweredRecording(config: unknown): boolean {
+  if (!config || typeof config !== 'object') return false
+  const c = config as Record<string, unknown>
+  return (
+    c.setup === SETUP &&
+    c.createContent === CREATE_CONTENT &&
+    c.createTimeline === CREATE_TIMELINE &&
+    c.onFrame === ON_FRAME
+  )
+}
+
+/**
  * The zoom spans as the camera reads them: rested through the transition
  * windows, focus clamped under the frame's camera model, an auto-focus
  * span's entry and dead-zone recenters baked from the cursor track.

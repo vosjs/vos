@@ -19,7 +19,7 @@ import {
   lintVosPostprocessing,
   lintVosText,
 } from '@vosjs/core/lint'
-import { STUDIO_ENTRY_ID } from '@vosjs/studio-core'
+import { STUDIO_ENTRY_ID, isLoweredRecording } from '@vosjs/studio-core'
 import { assetParamIssues } from '@vosjs/shared/params'
 import { knobWarnings } from './plugin/knobs'
 
@@ -219,17 +219,22 @@ export function runCheck(parsed: unknown): CheckResult {
   }
 
   // The studio's own layers ride a program document's composed config as a
-  // stack entry: machinery the author did not write, tested where it lives.
-  // Its lines are not the author's, so they never reach the author's check.
+  // stack entry, and a RECORDING's whole program is studio-core's: machinery
+  // the author did not write, tested where it lives. Its lines are not the
+  // author's, so they never reach the author's check; a finding in another
+  // stack entry names the entry, since `setup:38` alone reads as the author's.
+  const generated = isLoweredRecording(migrated)
   for (const i of lintVosConfig(migrated as never)) {
     if (i.entry === STUDIO_ENTRY_ID) continue
+    if (!i.entry && generated) continue
     issues.push({
       level: i.severity === 'error' ? 'error' : 'warn',
       source: 'determinism',
-      message: `${i.fn}:${i.line} [${i.rule}] ${i.message}`,
+      message: `${i.entry ? `${i.entry} ` : ''}${i.fn}:${i.line} [${i.rule}] ${i.message}`,
     })
   }
   for (const i of lintVosDialect(migrated as never)) {
+    if (generated) break
     issues.push({
       level: i.severity === 'error' ? 'error' : 'warn',
       source: 'dialect',
