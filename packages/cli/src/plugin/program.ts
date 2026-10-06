@@ -807,6 +807,9 @@ export async function cmdPullProgram(argv: string[]): Promise<number> {
     )
   }
   const since = strFlag(flags, 'since') ?? state?.versionId ?? null
+  // Read up front: an up-to-date pull returns before the check branch, and a
+  // flag read nowhere on that path is reported as ignored.
+  const check = flags.check === true
   if (!since) {
     throw new UsageError(
       `no base version in ${dir}/vos.json — pass --since <versionId>`,
@@ -849,7 +852,7 @@ export async function cmdPullProgram(argv: string[]): Promise<number> {
     r.log('walk truncated — more versions exist; pull again after syncing')
   }
 
-  if (flags.check === true) {
+  if (check) {
     r.done(
       {
         id: vosId,
