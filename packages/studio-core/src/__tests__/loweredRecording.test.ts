@@ -10,7 +10,8 @@ import {
   lowerToComposition,
 } from '../lower/lowerToComposition'
 import { lowerProgramDoc } from '../lower/lowerStudioDoc'
-import type { ProgramAnchorDoc, ProjectDoc } from '../types'
+import type { ProgramAnchorDoc } from '../doc/studioDoc'
+import type { ProjectDoc } from '../types'
 
 const take: ProjectDoc = {
   source: {
