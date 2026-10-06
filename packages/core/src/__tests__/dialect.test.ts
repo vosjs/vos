@@ -65,6 +65,21 @@ describe('lintVosDialect', () => {
       ct('(ctx) => { tl.to("#id", { x: 10 }); tl.from(".cls", { x: 0 }) }'),
     )
     expect(issues.filter((i) => i.rule === 'dom-target')).toHaveLength(2)
+    const two = lintVosDialect(
+      ct(
+        "(ctx) => { ctx.gsap.fromTo('.a', { x: 0 }, { x: 1 }); tl.set(`#b`, { opacity: 0 }) }",
+      ),
+    )
+    expect(two.filter((i) => i.rule === 'dom-target')).toHaveLength(2)
+  })
+
+  it('leaves JavaScript that is not a tween alone: a Map, Array.from, a registry', () => {
+    const issues = lintVosDialect(
+      ct(
+        "(ctx) => { const seen = new Map(); seen.set('title', 1); const letters = Array.from('vos'); ns.framePrep.set('voila.card', (t) => t); params.set('a', 'b'); return ctx.gsap.timeline() }",
+      ),
+    )
+    expect(issues.filter((i) => i.rule === 'dom-target')).toEqual([])
   })
 
   it('flags playback-control, repeatRefresh, snap', () => {

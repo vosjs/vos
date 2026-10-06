@@ -235,6 +235,7 @@ export {
   docZoomTrack,
   pinCandidates,
   resolvePins,
+  isLoweredRecording,
   lowerToComposition,
   ratedSegments,
   spanOutputExtent,
