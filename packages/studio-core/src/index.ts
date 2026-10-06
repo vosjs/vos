@@ -443,12 +443,9 @@ export {
   overlayFontString,
   overlayHit,
   overlayLines,
-  EM_OPEN,
-  EM_CLOSE,
-  parseEmphasis,
-  overlayDisplayText,
-  stripEmphasis,
-  resolveEmphasis,
+  overlayPlainText,
+  boldWeightFor,
+  snapRunWeight,
   styledTextOf,
   overlayRect,
   resolveOverlayBox,
@@ -482,6 +479,34 @@ export {
   rangeRects,
 } from './richText/caret'
 export type { CaretStop } from './richText/caret'
+export {
+  MIXED,
+  RUN_STYLE_KEYS,
+  clearStyle,
+  commonStyle,
+  diffInput,
+  normalizeRuns,
+  plainText,
+  replaceRange,
+  runsOf,
+  setStyle,
+  sliceRuns,
+  snapOffset,
+  styleAt,
+  styleOf,
+  toggleStyle,
+} from './richText/runs'
+export type {
+  RichText,
+  RunStyleKey,
+  TextRun,
+  TextRunStyle,
+} from './richText/runs'
+export {
+  marksEmphasis,
+  migrateText,
+  migrateTextClip,
+} from './richText/migrateEmphasis'
 export type { StyledText } from './overlayText'
 export type {
   OverlayFontFace,

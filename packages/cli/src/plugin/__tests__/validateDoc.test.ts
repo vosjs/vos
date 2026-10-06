@@ -1350,8 +1350,8 @@ describe('a strong lean is said once', () => {
   })
 })
 
-describe('emphasis is opt-in (overlays[].emphasis)', () => {
-  const textDoc = (text: string, emphasis?: unknown) =>
+describe('styled text (overlays[].text as runs)', () => {
+  const textDoc = (text: unknown, over: Record<string, unknown> = {}) =>
     makeDoc({
       overlays: [
         {
@@ -1361,31 +1361,93 @@ describe('emphasis is opt-in (overlays[].emphasis)', () => {
           duration: 3,
           text,
           transform: { x: 0.5, y: 0.5, scale: 1, rotation: 0 },
-          ...(emphasis !== undefined ? { emphasis } : {}),
+          ...over,
         },
       ] as unknown as ProjectDoc['overlays'],
     })
-  const about = (r: ReturnType<typeof lintDoc>) =>
-    [...r.problems, ...r.warnings].filter((x) => x.includes('emphasis'))
+  const about = (r: ReturnType<typeof lintDoc>, word: string) =>
+    [...r.problems, ...r.warnings].filter((x) => x.includes(word))
 
-  it('says so when *marked* words have no emphasis, never refuses', () => {
-    const r = lintDoc(textDoc('Read *every candle*'))
+  it('takes a string, and a list of runs in every style', () => {
+    expect(about(lintDoc(textDoc('Plain words')), 'text')).toEqual([])
+    const r = lintDoc(
+      textDoc([
+        { text: 'Ship ' },
+        { text: 'faster', weight: 700, underline: true, color: '#ff0000' },
+        { text: ' now', italic: true, strike: true, highlight: '#222222' },
+      ]),
+    )
+    expect(about(r, 'text')).toEqual([])
+  })
+
+  it('refuses a field a run does not have, and says what to write', () => {
+    const r = lintDoc(textDoc([{ text: 'a', bold: true }]))
+    expect(r.problems.join('\n')).toContain(
+      'overlays[0].text[0].bold is not a run field',
+    )
+    expect(r.problems.join('\n')).toContain('write weight: 700')
+  })
+
+  it('refuses a malformed run in words', () => {
+    const bad = (run: unknown) => lintDoc(textDoc([run])).problems.join('\n')
+    expect(bad('a')).toContain('text[0] must be a run')
+    expect(bad({ weight: 700 })).toContain('text[0].text must be a string')
+    expect(bad({ text: 'a', weight: 2000 })).toContain(
+      'text[0].weight must be 100..900',
+    )
+    expect(bad({ text: 'a', underline: 'yes' })).toContain(
+      'text[0].underline must be true or false',
+    )
+    expect(bad({ text: 'a', color: 3 })).toContain(
+      'text[0].color must be a CSS colour',
+    )
+    expect(lintDoc(textDoc(42)).problems.join('\n')).toContain(
+      'text must be a string, or a list of runs',
+    )
+  })
+
+  it('warns on an empty run, and on a weight the family cannot offer', () => {
+    expect(
+      lintDoc(textDoc([{ text: 'a' }, { text: '' }])).warnings.join('\n'),
+    ).toContain('text[1] has no text')
+    const r = lintDoc(
+      textDoc([{ text: 'a ' }, { text: 'b', weight: 700 }], {
+        family: 'Bebas Neue',
+      }),
+    )
     expect(r.problems).toEqual([])
-    expect(about(r)[0]).toContain('add emphasis: {}')
+    expect(r.warnings.join('\n')).toContain('paints no differently')
+    // A family that hosts the weight says nothing.
+    expect(
+      about(
+        lintDoc(textDoc([{ text: 'a ' }, { text: 'b', weight: 700 }])),
+        'paints no differently',
+      ),
+    ).toEqual([])
   })
 
-  it('is silent on a plain text, and on markers with emphasis on', () => {
-    expect(about(lintDoc(textDoc('Plain words')))).toEqual([])
-    expect(about(lintDoc(textDoc('Read *every candle*', {})))).toEqual([])
+  it('reads the words of runs wherever it reads words', () => {
+    const r = lintDoc(textDoc([{ text: 'Ship ' }, { text: 'it', weight: 700 }]))
+    expect(r.problems).toEqual([])
   })
 
-  it('refuses a malformed emphasis in words', () => {
-    expect(about(lintDoc(textDoc('*a*', { weight: 2000 })))[0]).toContain(
-      'emphasis.weight must be 100..900',
+  it('says emphasis is retired and prints the runs to write, never refuses', () => {
+    const r = lintDoc(textDoc('Read *every candle*', { emphasis: {} }))
+    expect(r.problems).toEqual([])
+    const line = about(r, 'emphasis is retired')[0]
+    expect(line).toContain(
+      '"text": [{"text":"Read "},{"text":"every","weight":700},{"text":" "},{"text":"candle","weight":700}]',
     )
-    expect(about(lintDoc(textDoc('*a*', 'bold')))[0]).toContain(
-      '{} turns *markers* on',
+  })
+
+  it('says asterisks show as typed, and prints the runs that would set them bold', () => {
+    const r = lintDoc(textDoc('Read *every* candle'))
+    expect(r.problems).toEqual([])
+    const line = about(r, 'between asterisks')[0]
+    expect(line).toContain(
+      '"text": [{"text":"Read "},{"text":"every","weight":700},{"text":" candle"}]',
     )
+    expect(about(lintDoc(textDoc('2 * 3 = 6')), 'asterisks')).toEqual([])
   })
 })
 

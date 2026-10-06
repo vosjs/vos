@@ -964,8 +964,44 @@
             "exclusiveMinimum": 0
           },
           "text": {
-            "type": "string",
-            "description": "content; \\n breaks lines. With `emphasis` set (OPT-IN; {} is enough), *words between asterisks* are set in the emphasis weight (a two-weight caption: light words with bold ones), a word-by-word reveal keeps each word in its own weight, \\* is a literal asterisk and a lone * stays as typed. Without `emphasis`, asterisks are text as typed"
+            "description": "the words; \\n breaks lines. A string, or a list of RUNS when parts of it are set differently: each run is a piece of text and the fields in which it departs from the layer's style. Example: [{ \"text\": \"Ship \" }, { \"text\": \"faster\", \"weight\": 700, \"underline\": true }]. There is no markup in the words: an asterisk is an asterisk. A run may hold \\n, a style may start and end anywhere, and a word-by-word reveal keeps every word in its own style",
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["text"],
+                  "properties": {
+                    "text": { "type": "string" },
+                    "weight": {
+                      "type": "number",
+                      "minimum": 100,
+                      "maximum": 900,
+                      "description": "font weight of this run, snapped to what the layer's family hosts (700 is bold). A family with one weight paints it as the layer's own"
+                    },
+                    "italic": {
+                      "type": "boolean",
+                      "description": "italic on, or false for upright words on an italic layer"
+                    },
+                    "color": {
+                      "type": "string",
+                      "description": "fill colour of this run (absent = the layer's)"
+                    },
+                    "underline": { "type": "boolean" },
+                    "strike": {
+                      "type": "boolean",
+                      "description": "strikethrough"
+                    },
+                    "highlight": {
+                      "type": "string",
+                      "description": "a colour behind this run"
+                    }
+                  }
+                }
+              }
+            ]
           },
           "emphasis": {
             "type": "object",
@@ -982,7 +1018,7 @@
                 "description": "the colour of *marked* words (absent = the clip's colour)"
               }
             },
-            "description": "text kind: turns *markers* in text ON ({} is enough) and says how marked words are set. Absent = emphasis off: asterisks are text as typed"
+            "description": "RETIRED: styled words are runs in `text` now. A layer that still carries this is read into runs (each *marked* word a run in this weight and colour); write runs instead"
           },
           "preset": {
             "enum": ["title", "caption", "label"],

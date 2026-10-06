@@ -23,6 +23,7 @@ import {
   computeCardLayout,
   docStillTime,
   migrateHostedDoc,
+  overlayPlainText,
   overlayRect,
   resolveOverlayStyle,
 } from '@vosjs/studio-core'
@@ -222,7 +223,7 @@ export function posterTextBoxes(
       w: r3(rect.w / W),
       h: r3(rect.h / H),
       role: clip.preset === 'title' ? 'headline' : 'body',
-      label: clip.text.split('\n')[0].slice(0, 40),
+      label: overlayPlainText(clip).split('\n')[0].slice(0, 40),
       ...(/^#[0-9a-f]{6}$/i.test(style.color) ? { color: style.color } : {}),
     })
   }

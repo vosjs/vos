@@ -24,6 +24,7 @@ import {
 } from '@vosjs/shared'
 import { htmlLayerPictureBox, htmlLayerWidth } from './htmlLayer'
 import { layoutText } from './richText/layout'
+import { normalizeRuns, plainText } from './richText/runs'
 import {
   OVERLAY_LINE_HEIGHT,
   OVERLAY_MEDIA_DEFAULT_WIDTH,
@@ -250,8 +251,10 @@ export function overlayFontFaces(
   for (const o of doc.overlays ?? []) {
     if (o.kind !== 'text') continue
     add(overlayFaceFor(o))
-    // The emphasis weight's face, so the first frame has it (SETUP awaits).
-    add(resolveEmphasis(o)?.face)
+    // A styled layer's other faces, so the first frame has them.
+    for (const f of styledTextOf(o)?.faces ?? []) {
+      add({ family: f.f, weight: f.w, url: f.u })
+    }
   }
   return faces
 }
@@ -262,135 +265,49 @@ export function overlayLines(text: string): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Emphasis. `*words*` in a text layer are set in the emphasis weight. The
-// lowering turns the markers into two control characters around EVERY
-// emphasized word (never across a space), so a wrapped line, a word unit or
-// a line unit always carries its own state; a char unit reads its state
-// from the line's prefix. ON_FRAME switches fonts at the marks; a layer
-// with no markers bakes no marks and takes the old draw calls unchanged.
+// Styled text. A layer's `text` is a string, or a list of runs that each
+// override the layer's style (richText/runs.ts). Everything that reads WORDS
+// goes through `overlayPlainText`; everything that paints or measures a
+// styled layer goes through `styledTextOf` and the layout module.
 // ---------------------------------------------------------------------------
 
-/** Opens an emphasized word in the displayed text. */
-export const EM_OPEN = '\u0001'
-/** Closes an emphasized word in the displayed text. */
-export const EM_CLOSE = '\u0002'
+/** The words a layer shows, whatever shape its text is in. */
+export function overlayPlainText(clip: Pick<TextOverlayClip, 'text'>): string {
+  return plainText(clip.text)
+}
+
+/** The catalog family a layer is set in (null for an unhosted one). */
+function familyEntryOf(clip: TextOverlayClip) {
+  return (
+    findFontFamily(
+      clip.family ??
+        PRESET_FAMILY[clip.preset in TEXT_PRESETS ? clip.preset : 'title'],
+    ) ?? null
+  )
+}
 
 /**
- * The displayed text of `*marked*` source, with EM_OPEN/EM_CLOSE around each
- * emphasized word, or null when nothing is marked (the caller keeps the
- * source as it is). A `*` pairs with the next `*` on the same line around
- * non-blank words; `\*` is a literal asterisk; a lone `*` stays literal.
+ * A run's weight as it will paint: snapped to the family's hosted steps,
+ * exactly as the layer's own weight is. An unhosted family takes it as is.
  */
-export function parseEmphasis(text: string): string | null {
-  let any = false
-  const lines = text.split('\n').map((line) => {
-    const chars: string[] = []
-    const bold: boolean[] = []
-    // Unescape first, remembering which asterisks are markers.
-    const marker: boolean[] = []
-    for (let i = 0; i < line.length; i++) {
-      if (line[i] === '\\' && line[i + 1] === '*') {
-        chars.push('*')
-        marker.push(false)
-        i++
-      } else {
-        chars.push(line[i])
-        marker.push(line[i] === '*')
-      }
-    }
-    const keep = chars.map(() => true)
-    for (let i = 0; i < chars.length; i++) {
-      if (!marker[i]) continue
-      let j = i + 1
-      while (j < chars.length && !marker[j]) j++
-      if (j >= chars.length) break
-      const inner = chars.slice(i + 1, j).join('')
-      if (!inner.trim()) {
-        i = j - 1
-        continue
-      }
-      keep[i] = false
-      keep[j] = false
-      for (let k = i + 1; k < j; k++) bold[k] = true
-      any = true
-      i = j
-    }
-    // Over the KEPT characters only (the markers are gone): an emphasized
-    // non-space character opens a mark when the one before it is not one,
-    // and closes it when the one after it is not, so every word carries its
-    // own pair and a space is never inside a mark.
-    const kept: { c: string; b: boolean }[] = []
-    for (let i = 0; i < chars.length; i++) {
-      if (keep[i])
-        kept.push({ c: chars[i], b: !!bold[i] && !/\s/.test(chars[i]) })
-    }
-    let out = ''
-    for (let i = 0; i < kept.length; i++) {
-      const { c, b } = kept[i]
-      if (b && !(i > 0 && kept[i - 1].b)) out += EM_OPEN
-      out += c
-      if (b && !(i + 1 < kept.length && kept[i + 1].b)) out += EM_CLOSE
-    }
-    return out
-  })
-  return any ? lines.join('\n') : null
+export function snapRunWeight(clip: TextOverlayClip, weight: number): number {
+  const entry = familyEntryOf(clip)
+  return entry ? nearestFontWeight(entry, weight) : weight
 }
 
-/** The text a layer paints: its emphasis marks applied, else its source. */
-export function overlayDisplayText(
-  clip: Pick<TextOverlayClip, 'text' | 'emphasis'>,
-): string {
-  // OPT-IN: asterisks mean emphasis only on a clip that carries `emphasis`
-  // (`{}` is enough). Anywhere else `*this*` is the text as typed, so no
-  // existing caption changes meaning and nobody gets bold by surprise.
-  if (!clip.emphasis) return clip.text
-  return parseEmphasis(clip.text) ?? clip.text
-}
+/** The weight a family's bold step resolves to when nothing names one. */
+const BOLD_WEIGHT = 700
 
-/** A displayed text without its marks: what a person reads. */
-export function stripEmphasis(text: string): string {
-  return text.split(EM_OPEN).join('').split(EM_CLOSE).join('')
-}
-
-/** The emphasis set a text layer resolves to, when its text marks any word. */
-export interface ResolvedEmphasis {
-  weight: number
-  color?: string
-  /** The hosted face to load for the weight, when it is not a base face. */
-  face?: OverlayFontFace
-}
-
-/** The weight a family's bold step resolves to when the clip names none. */
-const EMPHASIS_WEIGHT = 700
-
-export function resolveEmphasis(
-  clip: TextOverlayClip,
-): ResolvedEmphasis | null {
-  if (!clip.emphasis || parseEmphasis(clip.text) === null) return null
-  const style = resolveOverlayStyle(clip)
-  const entry = findFontFamily(
-    clip.family ??
-      PRESET_FAMILY[clip.preset in TEXT_PRESETS ? clip.preset : 'title'],
+/**
+ * The weight Bold puts on a run of this layer: the family's bold step, 700
+ * or the nearest hosted, never lighter than the layer itself. When that is
+ * the layer's own weight the family has nothing bolder to offer.
+ */
+export function boldWeightFor(clip: TextOverlayClip): number {
+  return snapRunWeight(
+    clip,
+    Math.max(BOLD_WEIGHT, resolveOverlayStyle(clip).weight),
   )
-  const wanted =
-    clip.emphasis?.weight ?? Math.max(EMPHASIS_WEIGHT, style.weight)
-  const weight = entry ? nearestFontWeight(entry, wanted) : wanted
-  const inBase = OVERLAY_FONT_FACES.some(
-    (f) => entry && f.family === entry.family && f.weight === weight,
-  )
-  return {
-    weight,
-    ...(clip.emphasis?.color ? { color: clip.emphasis.color } : {}),
-    ...(entry && !inBase
-      ? {
-          face: {
-            family: entry.family,
-            weight,
-            url: fontFaceUrl(entry.slug, weight),
-          },
-        }
-      : {}),
-  }
 }
 
 /** The styled payload a text layer bakes: what the layout module lays out. */
@@ -398,7 +315,7 @@ export interface StyledText {
   /** Source lines, each a list of runs (`f` indexes `fs`). */
   l: LayoutRun[][]
   /** The fonts the runs are set in; 0 is the layer's own. */
-  fs: { w: number }[]
+  fs: { w: number; i?: 1 }[]
   /** Hosted faces to load beyond the layer's own. */
   faces?: { f: string; w: number; u: string }[]
   /** A hash of `l` and `fs`: the layout's cache key and the dirty signature. */
@@ -416,43 +333,68 @@ function hashOf(text: string): string {
 }
 
 /**
- * A text layer as STYLED text (lines of runs), or null when it is set in
- * one style throughout and takes the plain painter. Today the one source of
- * a second style is emphasis: each marked word is a run in font 1, in the
- * emphasis colour when the clip names one.
+ * A text layer as STYLED text (lines of runs resolved against the layer's
+ * style), or null when it is set in one style throughout and takes the
+ * plain painter. A run's weight snaps like the layer's; its italic is the
+ * layer's unless it says otherwise; colour, underline, strikethrough and
+ * highlight ride as they are.
  */
 export function styledTextOf(clip: TextOverlayClip): StyledText | null {
-  const em = resolveEmphasis(clip)
-  if (!em) return null
-  const l = overlayLines(overlayDisplayText(clip)).map((line) => {
-    const runs: LayoutRun[] = []
-    let run = ''
-    let bold = false
-    const flush = () => {
-      if (!run) return
-      runs.push(
-        bold
-          ? { t: run, f: 1, ...(em.color ? { c: em.color } : {}) }
-          : { t: run },
-      )
-      run = ''
+  const runs = normalizeRuns(clip.text)
+  if (typeof runs === 'string') return null
+  const style = resolveOverlayStyle(clip)
+  const italic = style.fontStyle === 'italic'
+  const fs: { w: number; i?: 1 }[] = [
+    { w: style.weight, ...(italic ? { i: 1 as const } : {}) },
+  ]
+  const fontOf = (w: number, i: boolean) => {
+    let at = fs.findIndex((f) => f.w === w && !!f.i === i)
+    if (at < 0) {
+      fs.push({ w, ...(i ? { i: 1 as const } : {}) })
+      at = fs.length - 1
     }
-    for (const c of line) {
-      if (c === EM_OPEN || c === EM_CLOSE) {
-        flush()
-        bold = c === EM_OPEN
-      } else run += c
+    return at
+  }
+  const l: LayoutRun[][] = [[]]
+  for (const run of runs) {
+    const f = fontOf(
+      run.weight !== undefined ? snapRunWeight(clip, run.weight) : style.weight,
+      run.italic ?? italic,
+    )
+    const set: Omit<LayoutRun, 't'> = {
+      ...(f ? { f } : {}),
+      ...(run.color ? { c: run.color } : {}),
+      ...(run.underline ? { u: 1 as const } : {}),
+      ...(run.strike ? { s: 1 as const } : {}),
+      ...(run.highlight ? { h: run.highlight } : {}),
     }
-    flush()
-    return runs
-  })
-  const fs = [{ w: resolveOverlayStyle(clip).weight }, { w: em.weight }]
+    run.text.split('\n').forEach((part, i) => {
+      if (i > 0) l.push([])
+      if (part) l[l.length - 1].push({ t: part, ...set })
+    })
+  }
+  // The faces behind the other weights, where the catalog hosts them (an
+  // italic is synthesized, like the layer's own).
+  const entry = familyEntryOf(clip)
+  const faces: { f: string; w: number; u: string }[] = []
+  for (const font of fs.slice(1)) {
+    if (!entry || font.w === style.weight) continue
+    if (faces.some((x) => x.w === font.w)) continue
+    const inBase = OVERLAY_FONT_FACES.some(
+      (b) => b.family === entry.family && b.weight === font.w,
+    )
+    if (!inBase) {
+      faces.push({
+        f: entry.family,
+        w: font.w,
+        u: fontFaceUrl(entry.slug, font.w),
+      })
+    }
+  }
   return {
     l,
     fs,
-    ...(em.face
-      ? { faces: [{ f: em.face.family, w: em.face.weight, u: em.face.url }] }
-      : {}),
+    ...(faces.length ? { faces } : {}),
     h: hashOf(JSON.stringify([l, fs])),
   }
 }
@@ -575,8 +517,7 @@ export function resolveOverlayFx(
   const spec = overlayFxSpec(clip) ?? clip.fx ?? null
   if (!spec) return null
   const unit = spec.unit ?? 'block'
-  // The words a person reads: a unit is never a mark.
-  const text = stripEmphasis(overlayDisplayText(clip))
+  const text = overlayPlainText(clip)
   const units = overlaySegments(text, unit)
   const n =
     unit === 'block' ? 1 : units.reduce((sum, line) => sum + line.length, 0)
@@ -687,7 +628,11 @@ export function overlayRect(
   let lineCount = 0
   if (styled) {
     const fonts = styled.fs.map((f) =>
-      overlayFontString({ ...style, weight: f.w }, scale, 1),
+      overlayFontString(
+        { ...style, weight: f.w, fontStyle: f.i ? 'italic' : 'normal' },
+        scale,
+        1,
+      ),
     )
     const laid = layoutText(
       { lines: styled.l, maxWidth: clip.maxWidth ? clip.maxWidth * frameW : 0 },
@@ -701,8 +646,12 @@ export function overlayRect(
     // a frame-width fraction; this rect works in design px, so the budget is
     // maxWidth × frameW directly).
     const lines = clip.maxWidth
-      ? wrapOverlayLines(overlayLines(clip.text), width, clip.maxWidth * frameW)
-      : overlayLines(clip.text)
+      ? wrapOverlayLines(
+          overlayLines(overlayPlainText(clip)),
+          width,
+          clip.maxWidth * frameW,
+        )
+      : overlayLines(overlayPlainText(clip))
     for (const line of lines) w = Math.max(w, width(line))
     lineCount = lines.length
   }

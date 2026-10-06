@@ -940,7 +940,7 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
     if (ol.rt) {
       var rtFonts = [ovC.font]
       for (var rfi = 1; rfi < ol.rt.fs.length; rfi++) {
-        rtFonts.push((ol.sty ? ol.sty + ' ' : '') + ol.rt.fs[rfi].w + ' ' + olPx + 'px ' + ol.stack)
+        rtFonts.push((ol.rt.fs[rfi].i ? 'italic ' : '') + ol.rt.fs[rfi].w + ' ' + olPx + 'px ' + ol.stack)
       }
       var rtFx = ol.fx && ol.fx.units.length ? ol.fx : null
       var rtMax = ol.mw ? ol.mw * W : 0
@@ -979,8 +979,10 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
         ovC.fill()
         ovC.restore()
       }
-      // Highlights sit behind the words and take no legibility shadow.
-      for (var rhi = 0; rhi < rtN; rhi++) {
+      // Highlights sit behind the words and take no legibility shadow. Under
+      // a per-unit entrance each is drawn with its unit instead (below), so
+      // it arrives with its word.
+      for (var rhi = 0; !rtFx && rhi < rtN; rhi++) {
         var rhLine = rtL.lines[rhi]
         for (var rhj = 0; rhj < rhLine.frags.length; rhj++) {
           var rhF = rhLine.frags[rhj]
@@ -998,7 +1000,15 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
       ovC.textAlign = 'left'
       // One fragment (or the part of one a unit holds): the underline under
       // the glyphs, stroke under fill, the strikethrough over them.
-      var rtPart = function (p, bx, y) {
+      var rtPart = function (p, bx, y, withH) {
+        if (withH && p.h) {
+          var rhU = TXL.decorationRect('h', bx + p.x, p.w, y, olPx)
+          var rhS = ovC.shadowColor
+          ovC.shadowColor = 'rgba(0,0,0,0)'
+          ovC.fillStyle = p.h
+          ovC.fillRect(rhU.x, rhU.y, rhU.w, rhU.h)
+          ovC.shadowColor = rhS
+        }
         ovC.font = rtFonts[p.f || 0]
         ovC.fillStyle = p.c || ol.color
         if (p.u) {
@@ -1061,7 +1071,7 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
                 ovC.filter = 'blur(' + ((1 - rUu) * olPx * 0.12).toFixed(2) + 'px)'
               }
             }
-            for (var rpk = 0; rpk < rU.parts.length; rpk++) rtPart(rU.parts[rpk], rUBX, rUY)
+            for (var rpk = 0; rpk < rU.parts.length; rpk++) rtPart(rU.parts[rpk], rUBX, rUY, true)
             ovC.restore()
           }
         }

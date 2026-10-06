@@ -5,6 +5,7 @@
  * and the lowering. Branding lives at the app layer;
  * these types are intentionally generic so the core stays extraction-ready.
  */
+import type { RichText } from './richText/runs'
 import type { Segment } from '@vosjs/timeline'
 import type { ZoomStyleName, ZoomStyleParams } from './zoomStyle'
 import type { SpeedParams } from './planner/autoSpeed'
@@ -1277,8 +1278,13 @@ interface OverlayClipBase {
 
 export interface TextOverlayClip extends OverlayClipBase {
   kind: 'text'
-  /** Text content; '\n' breaks lines. */
-  text: string
+  /**
+   * The words; '\n' breaks lines. A string, or a list of RUNS when parts of
+   * it are set differently: each run is a piece of text and the fields in
+   * which it departs from this layer's style (`weight`, `italic`, `color`,
+   * `underline`, `strike`, `highlight`). There is no markup in the words.
+   */
+  text: RichText
   preset: TextOverlayPreset
   /** Font size override in design px (preset default when absent). */
   size?: number
@@ -1291,14 +1297,6 @@ export interface TextOverlayClip extends OverlayClipBase {
   family?: string
   /** Weight override — snapped to the nearest weight the catalog hosts. */
   weight?: number
-  /**
-   * Turns emphasis ON for this clip (`{}` is enough), and says how
-   * `*marked*` words in `text` are set: their weight (snapped like `weight`;
-   * absent = the family's bold step, 700 or the nearest hosted) and colour
-   * (absent = the clip's). OPT-IN: without this field asterisks are text as
-   * typed. With it, `\*` is a literal asterisk.
-   */
-  emphasis?: { weight?: number; color?: string }
   /** Synthesized oblique (no italic files are hosted). */
   italic?: boolean
   /** Multi-line alignment within the block (default center). */

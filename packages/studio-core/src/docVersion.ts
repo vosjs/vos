@@ -10,10 +10,13 @@
  * pull`) run through migrateHostedDoc before trusting a hosted doc.
  */
 import { migrateMotion } from './lower/motion'
+import { migrateText } from './richText/migrateEmphasis'
 import { RETIRED_ZOOM_STYLES } from './zoomStyle'
 import type { ProjectDoc } from './types'
 
 /**
+ * 6 = the runs era: a text layer's `emphasis` and its `*marked*` words are
+ * read into runs (`migrateText`); a layer without `emphasis` is untouched.
  * 5 = the six-style era: the retired camera styles `keynote` and `drift`
  * are read into their live style plus the tilt intensity the name carried
  * (`glide` + medium, `cinema` + subtle; an explicit `tiltStyle` wins). The
@@ -27,7 +30,7 @@ import type { ProjectDoc } from './types'
  * document); a v1 doc IS a recording document, so 1 → 2 was a stamp, and
  * 0 → 1 was a stamp too.
  */
-export const DOC_SCHEMA_VERSION = 5
+export const DOC_SCHEMA_VERSION = 6
 
 /**
  * Upgrade a hosted doc.json payload to the current schema version.
@@ -44,8 +47,16 @@ export function migrateHostedDoc(
 ): Record<string, unknown> {
   const version =
     typeof raw.docSchemaVersion === 'number' ? raw.docSchemaVersion : 0
-  if (version >= DOC_SCHEMA_VERSION) return raw
-  let doc = raw
+  // The retired emphasis is read whatever the stamp says: a client older
+  // than the runs era can still write it into a document a newer writer
+  // stamps, and a layer that carries the field must never reach a reader
+  // that no longer knows it. Idempotent; a document without it is untouched.
+  const read = migrateText(raw as Pick<ProjectDoc, 'overlays'>) as Record<
+    string,
+    unknown
+  >
+  if (version >= DOC_SCHEMA_VERSION) return read
+  let doc = read
   if (version < 4 && doc.source && typeof doc.source === 'object') {
     doc = migrateMotion(doc as unknown as ProjectDoc) as unknown as Record<
       string,
