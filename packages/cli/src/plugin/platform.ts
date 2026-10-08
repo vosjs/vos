@@ -239,6 +239,27 @@ export interface SyncState {
   title?: string
   slug?: string
   remixOfId?: string
+  /**
+   * The files `vos fetch --media` brought home, by their path in the
+   * directory: the hosted address each came from and its sha256 then. A
+   * claimable push of the take names these originals instead of uploading,
+   * and only while the bytes are unchanged.
+   */
+  hostedMedia?: Record<string, { ref: string; sha256: string }>
+}
+
+/** The `hostedMedia` map, read defensively (a hand-edited vos.json). */
+function hostedMediaOf(
+  value: unknown,
+): Record<string, { ref: string; sha256: string }> | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const out: Record<string, { ref: string; sha256: string }> = {}
+  for (const [file, entry] of Object.entries(value)) {
+    const e = entry as { ref?: unknown; sha256?: unknown } | null
+    if (e && typeof e.ref === 'string' && typeof e.sha256 === 'string')
+      out[file] = { ref: e.ref, sha256: e.sha256 }
+  }
+  return Object.keys(out).length ? out : undefined
 }
 
 function readJsonFile(file: string): Record<string, unknown> | null {
@@ -265,6 +286,9 @@ export function readSyncState(dir: string): SyncState | null {
       ...(typeof own.slug === 'string' ? { slug: own.slug } : {}),
       ...(typeof own.remixOfId === 'string'
         ? { remixOfId: own.remixOfId }
+        : {}),
+      ...(hostedMediaOf(own.hostedMedia)
+        ? { hostedMedia: hostedMediaOf(own.hostedMedia) }
         : {}),
     }
   }

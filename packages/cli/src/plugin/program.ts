@@ -40,7 +40,12 @@ import {
 import { programPushTarget } from './sync'
 import { hostedAssetId, manifestRefs } from '../programAssets'
 import { listFolders, resolveFolder } from './folder'
-import { docLayerRefs, pullMedia, uploadDocRefs } from './media'
+import {
+  docLayerRefs,
+  pullMedia,
+  recordHostedMedia,
+  uploadDocRefs,
+} from './media'
 import { codeFileWarnings, liftNamedFiles, localDataRefs } from './programFiles'
 import {
   hostedLiteralWarnings,
@@ -233,6 +238,7 @@ export async function cmdFetch(argv: string[]): Promise<number> {
       await writeFile(join(out, 'doc.json'), JSON.stringify(hosted, null, 2))
       if (flags.media === true) {
         const media = await pullMedia({ origin, key }, out, hosted, r.log)
+        await recordHostedMedia(out, vosId, media)
         mediaLine = media.downloaded.length
           ? ` + ${media.downloaded.map((m) => m.file).join(', ')}`
           : ''
@@ -522,6 +528,12 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
     if (uploadToken) body.uploadToken = uploadToken
     if (prompt) body.prompt = prompt
     if (flags.share === true) body.share = true
+    // Lineage: --remix-of, else the vos this directory was fetched from, so
+    // a fetch -> edit -> claimable push credits its source with no flag. The
+    // server keeps it only while that source is public or unlisted.
+    const remixOf = strFlag(flags, 'remix-of')
+    const remixOfId = remixOf ? parseVosId(remixOf) : state?.vosId
+    if (remixOfId) body.remixOfId = remixOfId
     const slug = strFlag(flags, 'slug')
     if (slug) body.slug = slug
     const res = await apiJson(origin, '/api/claim', { method: 'POST', body })

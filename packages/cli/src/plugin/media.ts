@@ -33,6 +33,7 @@ import {
   resolveMediaType,
 } from './container'
 import { uploadAsset } from './uploadAsset'
+import { writeSyncState } from './platform'
 import type { UploadTarget, UploadedAsset } from './uploadAsset'
 import type {
   AudioClip,
@@ -341,6 +342,9 @@ export function assetIdOf(url: string | undefined): string | null {
 export interface MediaPullResult {
   downloaded: { file: string; assetId: string; bytes: number }[]
   kept: string[]
+  /** Every hosted file now beside the take, downloaded or kept: its path
+   *  here and the address it came from. */
+  hosted: { file: string; url: string }[]
 }
 
 /** The first bytes of a file, enough for every container signature. */
@@ -425,7 +429,7 @@ export async function pullMedia(
   doc: ProjectDoc,
   log: (line: string) => void,
 ): Promise<MediaPullResult> {
-  const result: MediaPullResult = { downloaded: [], kept: [] }
+  const result: MediaPullResult = { downloaded: [], kept: [], hosted: [] }
   for (const { key, stem, fallbackExt } of SOURCE_MEDIA) {
     const url = doc.source[key]
     const assetId = assetIdOf(url)
@@ -435,6 +439,7 @@ export async function pullMedia(
     const present = takeMediaFiles(dir, stem)[0]
     if (present) {
       result.kept.push(basename(present))
+      result.hosted.push({ file: basename(present), url: url! })
       doc.source[key] = basename(present)
       continue
     }
@@ -447,6 +452,7 @@ export async function pullMedia(
     })
     result.downloaded.push({ file: got.file, assetId, bytes: got.bytes })
     log(`  ${got.file} ← asset ${assetId} (${Math.round(got.bytes / 1024)} kB)`)
+    result.hosted.push({ file: got.file, url: url! })
     doc.source[key] = got.file
   }
   // The document's other media (a poster's mark, a pasted ground): a hosted
@@ -462,6 +468,7 @@ export async function pullMedia(
     if (existing) {
       const file = `media/${existing}`
       result.kept.push(file)
+      result.hosted.push({ file, url: ref.key })
       ref.set(file)
       continue
     }
@@ -478,6 +485,7 @@ export async function pullMedia(
     log(
       `  ${got.file} ← ${ref.where}, asset ${assetId} (${Math.round(got.bytes / 1024)} kB)`,
     )
+    result.hosted.push({ file: got.file, url: ref.key })
     ref.set(got.file)
   }
   // The take-dir markers: meta.json and cursor.json live on the doc for a
@@ -488,4 +496,30 @@ export async function pullMedia(
   if (!existsSync(cursorPath)) await writeJson(cursorPath, doc.source.cursor)
   await writeFile(join(dir, 'doc.json'), JSON.stringify(doc, null, 2))
   return result
+}
+
+/** The sha256 of a file beside the take, hex. */
+export async function fileSha256(file: string): Promise<string> {
+  return createHash('sha256')
+    .update(await readFile(file))
+    .digest('hex')
+}
+
+/**
+ * Write what a pull brought home into vos.json (`hostedMedia`): each file's
+ * path here, the address it came from, and its sha256 now. A claimable push
+ * of the take names those originals instead of uploading, and only while
+ * the bytes are the ones that were fetched.
+ */
+export async function recordHostedMedia(
+  dir: string,
+  vosId: string,
+  pulled: MediaPullResult,
+): Promise<void> {
+  if (pulled.hosted.length === 0) return
+  const hostedMedia: Record<string, { ref: string; sha256: string }> = {}
+  for (const { file, url } of pulled.hosted) {
+    hostedMedia[file] = { ref: url, sha256: await fileSha256(join(dir, file)) }
+  }
+  writeSyncState(dir, { vosId, hostedMedia })
 }

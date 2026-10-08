@@ -99,7 +99,7 @@ import { encodeRecording } from './encode'
 import { planTake } from './plan'
 import { openingBackdrop } from './backdrops'
 import { renderTake } from './renderTake'
-import { pullTake, pushTake, takePushRefusal } from './sync'
+import { pullTake, pushTake, pushTakeClaimable, takePushRefusal } from './sync'
 import {
   cmdDuplicate,
   cmdFetch,
@@ -151,6 +151,8 @@ const BOOLEAN_FLAGS = new Set([
   'dry-run',
   'allow-wall',
   'hosted',
+  'claimable',
+  'share',
 ])
 /** Repeatable value flags (accumulate): --set path=value on render/frames, --override id on push, --browser-arg=<switch> on record/create. */
 export const MULTI_FLAGS = new Set(['set', 'override', 'browser-arg', 'header'])
@@ -225,9 +227,12 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
             the platform's typed changelog. A TAKE pushes to the vos in its
             vos.json; --vos on a take with none ADOPTS that vos (the take
             becomes its next version, built on its head), and --vos that
-            disagrees with vos.json is refused before anything uploads. --claimable (programs only, NO
+            disagrees with vos.json is refused before anything uploads. --claimable (NO
             credential): creates a 72h claim link instead — hand it to the
-            user and nowhere else; unclaimed work is deleted after 72h.
+            user and nowhere else; unclaimed work is deleted after 72h. On a
+            take it is for a REMIX of a public take fetched with --media: it
+            uploads nothing, so every file must be one the fetch brought home,
+            unchanged, and it credits the take it came from.
             --override consents to touching
             protected (human-edited) nodes, ONLY when the user asked.
             Without --folder a new vos lands unfiled, at the root of your
@@ -2247,7 +2252,7 @@ async function cmdPush(argv: string[]): Promise<number> {
   const dir = positionals[0]
   if (!dir)
     throw new UsageError(
-      'vos push <take> [--vos|--title|--label|--note|--prompt|--folder|--override|--yes|--key|--api]',
+      'vos push <take> [--vos|--title|--label|--note|--prompt|--folder|--override|--yes|--key|--api|--claimable [--share]]',
     )
   const refusal = takePushRefusal({
     vos: strFlag(flags, 'vos'),
@@ -2258,6 +2263,37 @@ async function cmdPush(argv: string[]): Promise<number> {
   })
   if (refusal) throw new UsageError(refusal)
   const r = createReporter(flags.json === true)
+  if (flags.claimable === true) {
+    // A claimable take creates a NEW vos and uploads nothing: the flags
+    // that iterate or file one have nothing to act on.
+    const iterating = ['vos', 'folder', 'override', 'base'].filter((name) =>
+      hasFlag(flags, name),
+    )
+    if (iterating.length)
+      throw new UsageError(
+        `--claimable creates a NEW claimable vos; ${iterating.map((f) => `--${f}`).join(', ')} ${iterating.length > 1 ? 'apply' : 'applies'} to a keyed push`,
+      )
+    const claim = await pushTakeClaimable(
+      resolve(dir),
+      {
+        api: strFlag(flags, 'api'),
+        origin: strFlag(flags, 'origin'),
+        title: strFlag(flags, 'title'),
+        prompt: strFlag(flags, 'prompt'),
+        share: flags.share === true,
+      },
+      r,
+    )
+    r.done(
+      { ...claim },
+      `Claimable push created (${claim.title})\n` +
+        `  claim:   ${claim.claimUrl}\n` +
+        `  expires: ${claim.expiresAt} — unclaimed work is deleted after 72h\n` +
+        `Hand the claim link to the user and NOWHERE else — it is the only\n` +
+        `reference and the only credential.`,
+    )
+    return 0
+  }
   // Index access is typed present but is runtime-optional — pushTake guards.
   const overrides = multi.override
   const result = await pushTake(

@@ -281,4 +281,40 @@ describe('vos push of a program document with its own sound', () => {
       '/api/assets/snd/file',
     ])
   })
+  it('a claimable push from a fetched directory credits the vos it came from', async () => {
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    const dir = programDir()
+    writeFileSync(
+      join(dir, 'vos.json'),
+      JSON.stringify({ vosId: 'src-1', versionId: 'ver-9', title: 'Source' }),
+    )
+    await cmdPushProgram([
+      join(dir, 'config.json'),
+      '--claimable',
+      '--origin',
+      origin,
+      '--json',
+    ])
+    const claim = seen.find((s) => s.url === '/api/claim')
+    expect(claim?.body?.remixOfId).toBe('src-1')
+  })
+
+  it('--remix-of names the source of a claimable push over the tracked one', async () => {
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    const dir = programDir()
+    writeFileSync(join(dir, 'vos.json'), JSON.stringify({ vosId: 'src-1' }))
+    await cmdPushProgram([
+      join(dir, 'config.json'),
+      '--claimable',
+      '--remix-of',
+      'other-2',
+      '--origin',
+      origin,
+      '--json',
+    ])
+    const claim = seen.find((s) => s.url === '/api/claim')
+    expect(claim?.body?.remixOfId).toBe('other-2')
+  })
 })
