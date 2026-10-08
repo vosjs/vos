@@ -27,9 +27,11 @@ import { RECORDING_NAME, loadTake, takeMediaFile, writeJson } from './take'
 import { lintDoc } from './validateDoc'
 import {
   docMediaRefs,
+  fileSha256,
   isTakeRelativeKey,
   pullMedia,
   sourceSidecarRefs,
+  takeRelativeFile,
   uploadDocRefs,
 } from './media'
 import { MEDIA_HEAD_BYTES, nameForType, resolveMediaType } from './container'
@@ -657,5 +659,106 @@ export async function pullTake(
     versionNumber: headRow?.versionNumber ?? null,
     changed: true,
     media,
+  }
+}
+
+/**
+ * `vos push <take> --claimable`: a REMIX of a public take, pushed with no
+ * account. The claim never takes footage, so every file the document names
+ * must already be on vos.so: a file `vos fetch --media` brought home is
+ * named by the address it came from (vos.json `hostedMedia`), and only
+ * while its bytes are unchanged. Anything new is refused in words; the
+ * platform checks the same rule again. The lineage is the vos the
+ * directory was fetched from.
+ */
+export async function pushTakeClaimable(
+  dir: string,
+  flags: {
+    api?: string
+    origin?: string
+    title?: string
+    prompt?: string
+    share?: boolean
+  },
+  r: Reporter,
+): Promise<{
+  id: string | null
+  title: string
+  claimUrl: string
+  expiresAt: string
+}> {
+  const stateFile = storageStateInDir(dir)
+  if (stateFile)
+    throw new Error(
+      `${stateFile} looks like a Playwright storage state (cookies + origins): a live session in the take directory would be sent with it. Move it out of the take and push again`,
+    )
+  const take = await loadTake(dir)
+  if (!take.doc) {
+    throw new Error('no doc.json in this take — run `vos plan` first')
+  }
+  const lint = lintDoc(take.doc)
+  if (lint.problems.length) {
+    throw new Error(`doc.json fails lint:\n  ${lint.problems.join('\n  ')}`)
+  }
+  const state = readSyncState(dir)
+  const hosted = state?.hostedMedia ?? {}
+  const docForPush: ProjectDoc = structuredClone(take.doc)
+  const refs = [
+    ...(isTakeRelativeKey(docForPush.source.videoKey)
+      ? [
+          {
+            where: 'the recording',
+            key: docForPush.source.videoKey,
+            set: (next: string) => {
+              docForPush.source.videoKey = next
+            },
+          },
+        ]
+      : []),
+    ...sourceSidecarRefs(docForPush),
+    ...docMediaRefs(docForPush),
+  ]
+  for (const ref of refs) {
+    const file = takeRelativeFile(ref.key)
+    const origin = hosted[file]
+    if (!origin) {
+      throw new Error(
+        `${ref.where} (${file}) is not a file this take fetched from vos.so, and a claimable push never uploads footage. Push the take with an account (vos login, then vos push ${dir}), or remix a public take fetched with \`vos fetch <url> --media\``,
+      )
+    }
+    const path = join(dir, file)
+    const now = existsSync(path) ? await fileSha256(path) : null
+    if (now !== origin.sha256) {
+      throw new Error(
+        `${ref.where} (${file}) changed since it was fetched, so it is no longer the hosted file. A claimable push names only the original; push with an account to upload the new one`,
+      )
+    }
+    ref.set(origin.ref)
+  }
+
+  const lowered = lowerToComposition(docForPush)
+  const config = { ...lowered.config, data: lowered.data }
+  const title = (
+    flags.title ?? (state?.title ? `${state.title} remix` : basename(dir))
+  ).slice(0, 200)
+  const body: Record<string, unknown> = { title, config, doc: docForPush }
+  if (state?.vosId) body.remixOfId = state.vosId
+  if (flags.prompt) body.prompt = flags.prompt
+  if (flags.share) body.share = true
+  const origin = platformOrigin(flags)
+  r.log(`creating a claimable push of ${title}…`)
+  const res = await apiJson(origin, '/api/claim', { method: 'POST', body })
+  if (res.status !== 201) {
+    throw new Error(
+      `claimable push failed (${res.status}): ${String(res.body.error ?? '')}${res.body.hint ? ` (${String(res.body.hint)})` : ''}`,
+    )
+  }
+  serverWarnings(res.body, (l) => r.log(l))
+  const created = (res.body.vos ?? {}) as { id?: string }
+  return {
+    id: created.id ?? null,
+    title,
+    claimUrl: String(res.body.claimUrl ?? ''),
+    expiresAt: String(res.body.expiresAt ?? ''),
   }
 }

@@ -40,7 +40,12 @@ import {
 import { programPushTarget } from './sync'
 import { hostedAssetId, manifestRefs } from '../programAssets'
 import { listFolders, resolveFolder } from './folder'
-import { docLayerRefs, pullMedia, uploadDocRefs } from './media'
+import {
+  docLayerRefs,
+  pullMedia,
+  recordHostedMedia,
+  uploadDocRefs,
+} from './media'
 import { codeFileWarnings, liftNamedFiles, localDataRefs } from './programFiles'
 import {
   hostedLiteralWarnings,
@@ -233,6 +238,7 @@ export async function cmdFetch(argv: string[]): Promise<number> {
       await writeFile(join(out, 'doc.json'), JSON.stringify(hosted, null, 2))
       if (flags.media === true) {
         const media = await pullMedia({ origin, key }, out, hosted, r.log)
+        await recordHostedMedia(out, vosId, media)
         mediaLine = media.downloaded.length
           ? ` + ${media.downloaded.map((m) => m.file).join(', ')}`
           : ''
