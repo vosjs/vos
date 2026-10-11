@@ -66,11 +66,9 @@ describe('cam bubble draw gating', () => {
 
   function frameRunner() {
     const { config, data } = lowerToComposition(makeCamDoc())
-    const onFrame = new Function(`return (${config.onFrame as string})`)() as (
-      ctx: unknown,
-      content: unknown,
-      dt: number,
-    ) => void
+    const onFrame = new Function(
+      `"use strict"; return (${config.onFrame as string})`,
+    )() as (ctx: unknown, content: unknown, dt: number) => void
 
     g.window = { __vos__: { isPaused: true } }
     g.__vosTimeline = { mapTime, rateAt, sample, lerpArray }
@@ -159,11 +157,9 @@ describe('camBubbleRect mirrors the painted geometry', () => {
     doc.cam = { ...doc.cam, ...camStyle }
     mutate?.(doc)
     const { config, data } = lowerToComposition(doc)
-    const onFrame = new Function(`return (${config.onFrame as string})`)() as (
-      ctx: unknown,
-      content: unknown,
-      dt: number,
-    ) => void
+    const onFrame = new Function(
+      `"use strict"; return (${config.onFrame as string})`,
+    )() as (ctx: unknown, content: unknown, dt: number) => void
     g.window = { __vos__: { isPaused: true } }
     g.__vosTimeline = { mapTime, rateAt, sample, lerpArray }
     const camVideo = makeVideoStub(2)

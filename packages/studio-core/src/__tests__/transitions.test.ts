@@ -320,11 +320,9 @@ describe('ON_FRAME across a boundary', () => {
 
   function runFrame(d: ProjectDoc, time: number, card: Mesh = mesh()) {
     const { config, data } = lowerToComposition(d)
-    const onFrame = new Function(`return (${config.onFrame as string})`)() as (
-      ctx: unknown,
-      content: unknown,
-      dt: number,
-    ) => void
+    const onFrame = new Function(
+      `"use strict"; return (${config.onFrame as string})`,
+    )() as (ctx: unknown, content: unknown, dt: number) => void
     const a = makeVideo('a', 'blob:a')
     const b = makeVideo('b', 'blob:b')
     const ghosts: VideoStub[] = []

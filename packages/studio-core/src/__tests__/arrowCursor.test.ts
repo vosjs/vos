@@ -62,11 +62,9 @@ describe('the pointer shape', () => {
     moves: number[][]
   } {
     const { config, data } = lowerToComposition(makeDoc(cursor))
-    const onFrame = new Function(`return (${config.onFrame as string})`)() as (
-      ctx: unknown,
-      content: unknown,
-      dt: number,
-    ) => void
+    const onFrame = new Function(
+      `"use strict"; return (${config.onFrame as string})`,
+    )() as (ctx: unknown, content: unknown, dt: number) => void
     g.window = { __vos__: { isPaused: true } }
     g.__vosTimeline = { mapTime, sample, lerpArray }
     const arcs: number[][] = []

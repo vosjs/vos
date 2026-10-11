@@ -49,11 +49,9 @@ describe('ON_FRAME zoom suppression', () => {
 
   function runFrame(zoomSuppressed: boolean): string[] {
     const { config, data } = lowerToComposition(doc)
-    const onFrame = new Function(`return (${config.onFrame as string})`)() as (
-      ctx: unknown,
-      content: unknown,
-      dt: number,
-    ) => void
+    const onFrame = new Function(
+      `"use strict"; return (${config.onFrame as string})`,
+    )() as (ctx: unknown, content: unknown, dt: number) => void
 
     g.window = { __vos__: { isPaused: true } }
     g.__vosTimeline = { mapTime, sample, lerpArray }

@@ -22,9 +22,13 @@ export function lowerMerged(doc: ProjectDoc): LoweredComposition {
 }
 
 export function bothFrames(config: Record<string, unknown>): FrameFn {
-  const main = new Function(`return (${config.onFrame as string})`)() as FrameFn
+  const main = new Function(
+    `"use strict"; return (${config.onFrame as string})`,
+  )() as FrameFn
   const entry = (config.stack as { onFrame: string }[])[0]
-  const studio = new Function(`return (${entry.onFrame})`)() as FrameFn
+  const studio = new Function(
+    `"use strict"; return (${entry.onFrame})`,
+  )() as FrameFn
   return (ctx, content, dt) => {
     main(ctx, content, dt)
     studio(ctx, content, dt)

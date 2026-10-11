@@ -98,11 +98,9 @@ describe('card tilt track (compositor v2 V0)', () => {
     const data = opts.dataPatch
       ? { ...lowered.data, ...opts.dataPatch }
       : lowered.data
-    const onFrame = new Function(`return (${config.onFrame as string})`)() as (
-      ctx: unknown,
-      content: unknown,
-      dt: number,
-    ) => void
+    const onFrame = new Function(
+      `"use strict"; return (${config.onFrame as string})`,
+    )() as (ctx: unknown, content: unknown, dt: number) => void
     g.window = {
       __vos__: {
         isPaused: true,

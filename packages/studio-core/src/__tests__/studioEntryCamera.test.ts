@@ -17,7 +17,7 @@ function run(
   scene?: THREE.Scene,
 ) {
   const entry = studioEntry({})
-  const onFrame = new Function(`return (${entry.onFrame})`)() as (
+  const onFrame = new Function(`"use strict"; return (${entry.onFrame})`)() as (
     ctx: unknown,
     content: unknown,
     dt: number,

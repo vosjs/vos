@@ -20,7 +20,7 @@ async function runSetup(ns: Ns | undefined) {
   const win = { __vos__: ns } as { __vos__?: Ns }
   const g = globalThis as unknown as Record<string, unknown>
   g.window = win
-  const setup = new Function(`return (${STUDIO_SETUP})`)() as (
+  const setup = new Function(`"use strict"; return (${STUDIO_SETUP})`)() as (
     ctx: unknown,
   ) => Promise<void>
   await setup({ data: {} })

@@ -60,11 +60,9 @@ describe('background depth (V2)', () => {
       },
     })
     const { config, data } = lowerToComposition(doc)
-    const onFrame = new Function(`return (${config.onFrame as string})`)() as (
-      ctx: unknown,
-      content: unknown,
-      dt: number,
-    ) => void
+    const onFrame = new Function(
+      `"use strict"; return (${config.onFrame as string})`,
+    )() as (ctx: unknown, content: unknown, dt: number) => void
     g.window = {
       __vos__: {
         isPaused: true,
@@ -137,11 +135,9 @@ describe('background depth (V2)', () => {
       zoom: [{ id: 'z1', in: 0.5, out: 3.5, level: 2, cx: 0.9, cy: 0.5 }],
     })
     const { config, data } = lowerToComposition(zoomed)
-    const onFrame = new Function(`return (${config.onFrame as string})`)() as (
-      ctx: unknown,
-      content: unknown,
-      dt: number,
-    ) => void
+    const onFrame = new Function(
+      `"use strict"; return (${config.onFrame as string})`,
+    )() as (ctx: unknown, content: unknown, dt: number) => void
     g.window = {
       __vos__: {
         isPaused: true,

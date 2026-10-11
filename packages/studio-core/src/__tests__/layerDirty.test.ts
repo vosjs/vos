@@ -64,11 +64,9 @@ describe('layer dirty-tracking (compositor v2 V0 perf)', () => {
   // the dirty state (bg.sig / ov.active) carries between frames like at runtime.
   function makeRunner(doc: ProjectDoc, cache = new Map<string, unknown>()) {
     const { config, data } = lowerToComposition(doc)
-    const onFrame = new Function(`return (${config.onFrame as string})`)() as (
-      ctx: unknown,
-      content: unknown,
-      dt: number,
-    ) => void
+    const onFrame = new Function(
+      `"use strict"; return (${config.onFrame as string})`,
+    )() as (ctx: unknown, content: unknown, dt: number) => void
     g.window = {
       __vos__: { isPaused: true, videoCache: cache, pendingDecodes: new Set() },
     }

@@ -61,11 +61,9 @@ describe('click effects in ON_FRAME', () => {
   /** Runs one frame; returns recorded c2d calls ('arc:<radius>' carries args). */
   function runFrame(doc: ProjectDoc, time: number): string[] {
     const { config, data } = lowerToComposition(doc)
-    const onFrame = new Function(`return (${config.onFrame as string})`)() as (
-      ctx: unknown,
-      content: unknown,
-      dt: number,
-    ) => void
+    const onFrame = new Function(
+      `"use strict"; return (${config.onFrame as string})`,
+    )() as (ctx: unknown, content: unknown, dt: number) => void
 
     g.window = { __vos__: { isPaused: true } }
     g.__vosTimeline = { mapTime, sample, lerpArray }

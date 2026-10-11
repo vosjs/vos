@@ -497,11 +497,9 @@ describe('ON_FRAME', () => {
 
   function paint(doc: ProjectDoc, t: number) {
     const { config, data } = lowerToComposition(doc)
-    const onFrame = new Function(`return (${config.onFrame as string})`)() as (
-      ctx: unknown,
-      content: unknown,
-      dt: number,
-    ) => void
+    const onFrame = new Function(
+      `"use strict"; return (${config.onFrame as string})`,
+    )() as (ctx: unknown, content: unknown, dt: number) => void
     g.window = { __vos__: { isPaused: true } }
     g.__vosTimeline = { mapTime, sample, lerpArray }
     const ops: { op: string; args: unknown[] }[] = []

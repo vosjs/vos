@@ -103,11 +103,9 @@ describe('what a text layer costs per frame', () => {
     }
     const first = lower(overlays)
     let data = first.data
-    const onFrame = new Function(`return (${first.entry.onFrame})`)() as (
-      ctx: unknown,
-      content: unknown,
-      dt: number,
-    ) => void
+    const onFrame = new Function(
+      `"use strict"; return (${first.entry.onFrame})`,
+    )() as (ctx: unknown, content: unknown, dt: number) => void
     const vos: Record<string, unknown> = {
       isPaused: true,
       videoCache: new Map(),

@@ -50,7 +50,7 @@ interface Steps {
 function steps(ns: { pendingDecodes: Set<Promise<void>> }): Steps {
   return new Function(
     'ns',
-    `${FRAME_STEP_SRC}\nreturn { stepPaused: stepPaused, stepBg: stepBg }`,
+    `"use strict";\n${FRAME_STEP_SRC}\nreturn { stepPaused: stepPaused, stepBg: stepBg }`,
   )(ns) as Steps
 }
 

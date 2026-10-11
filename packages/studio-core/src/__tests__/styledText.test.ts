@@ -292,7 +292,7 @@ describe('painting (the entry on a stub canvas)', () => {
   function draw(overlays: OverlayClip[], time: number) {
     const lowered = lowerToComposition(makeDoc(overlays))
     const onFrame = new Function(
-      `return (${studioEntryOf(lowered.config).onFrame})`,
+      `"use strict"; return (${studioEntryOf(lowered.config).onFrame})`,
     )() as (ctx: unknown, content: unknown, dt: number) => void
     g.window = {
       __vos__: {

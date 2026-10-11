@@ -106,11 +106,9 @@ describe('ON_FRAME holds the footage element still past its footage', () => {
 
   function runFrame(d: ProjectDoc, video: VideoStub, time: number): void {
     const { config, data } = lowerToComposition(d)
-    const onFrame = new Function(`return (${config.onFrame as string})`)() as (
-      ctx: unknown,
-      content: unknown,
-      dt: number,
-    ) => void
+    const onFrame = new Function(
+      `"use strict"; return (${config.onFrame as string})`,
+    )() as (ctx: unknown, content: unknown, dt: number) => void
     g.window = { __vos__: { isPaused: false } }
     g.__vosTimeline = { mapTime, sample, lerpArray, rateAt, totalDuration }
     const c2d = new Proxy(
