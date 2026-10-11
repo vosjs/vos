@@ -1,5 +1,11 @@
 # @vosjs/studio-core
 
+## 0.41.0
+
+### Minor Changes
+
+- 0dbbced: `DESTINATIONS` holds the four video destinations only (a YouTube demo, an X feed cut, a 9:16 cut for Shorts and LinkedIn, a GitHub README loop). The `Destination` type loses `kind`, `count`, `genre`, `fit`, `safe` and `template`, and `format` is `'mp4'`.
+
 ## 0.40.3
 
 ### Patch Changes
