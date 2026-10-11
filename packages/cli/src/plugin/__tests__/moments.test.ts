@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { STEP_SETTLE_SECONDS, resolveStepTime } from '../moments'
-import { DEFAULT_CAM_STYLE, DEFAULT_CURSOR_STYLE } from '@vosjs/studio-core'
+import { STEP_SETTLE_SECONDS, stepOutputTime } from '../moments'
+import {
+  DEFAULT_CAM_STYLE,
+  DEFAULT_CURSOR_STYLE,
+  ratedSegments,
+} from '@vosjs/studio-core'
 import type { ProjectDoc, StepSpan } from '@vosjs/studio-core'
 
 function doc(
@@ -55,31 +59,17 @@ const STEPS: StepSpan[] = [
   { step: 5, id: 'late', do: 'click', tStart: 18.5, tEnd: 19.2 },
 ]
 
-describe('resolveStepTime', () => {
-  it('reads step:<id>, step:<index> and an offset', () => {
-    const d = doc(STEPS)
-    expect(resolveStepTime(d, 'step:open')).toBeCloseTo(
+describe('stepOutputTime', () => {
+  it('lands a step at its gesture end plus the settle, in output seconds', () => {
+    const rated = ratedSegments(doc(STEPS))
+    expect(stepOutputTime(rated, STEPS[2], STEP_SETTLE_SECONDS)).toBeCloseTo(
       4.1 - 2 + STEP_SETTLE_SECONDS,
       6,
     )
-    expect(resolveStepTime(d, 'step:2')).toBeCloseTo(
-      4.1 - 2 + STEP_SETTLE_SECONDS,
-      6,
-    )
-    expect(resolveStepTime(d, 'step:open+1.5')).toBeCloseTo(4.1 - 2 + 1.5, 6)
-    expect(resolveStepTime(d, 'step:open-0.5')).toBeCloseTo(4.1 - 2 - 0.5, 6)
-    expect(resolveStepTime(d, '3.5')).toBeNull()
   })
 
-  it('an unknown or trimmed step is refused in words', () => {
-    expect(() => resolveStepTime(doc(STEPS), 'step:nope')).toThrow(
-      /no step "nope".*hover-a/,
-    )
-    expect(() => resolveStepTime(doc(STEPS), 'step:late')).toThrow(
-      /outside the cut/,
-    )
-    expect(() => resolveStepTime(doc(undefined), 'step:open')).toThrow(
-      /carries none/,
-    )
+  it('answers null for a step the cut trimmed out', () => {
+    const rated = ratedSegments(doc(STEPS))
+    expect(stepOutputTime(rated, STEPS[5], STEP_SETTLE_SECONDS)).toBeNull()
   })
 })
