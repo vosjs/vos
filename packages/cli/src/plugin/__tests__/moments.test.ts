@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  STEP_SETTLE_SECONDS,
-  momentCandidates,
-  pickMoments,
-  resolveStepTime,
-} from '../moments'
+import { STEP_SETTLE_SECONDS, resolveStepTime } from '../moments'
 import { DEFAULT_CAM_STYLE, DEFAULT_CURSOR_STYLE } from '@vosjs/studio-core'
 import type { ProjectDoc, StepSpan } from '@vosjs/studio-core'
 
@@ -60,70 +55,6 @@ const STEPS: StepSpan[] = [
   { step: 5, id: 'late', do: 'click', tStart: 18.5, tEnd: 19.2 },
 ]
 
-describe('momentCandidates', () => {
-  it('steps first, at gesture end plus the settle, mapped through the cut', () => {
-    const { candidates } = momentCandidates(doc(STEPS), 16)
-    const steps = candidates.filter((c) => c.source === 'step')
-    expect(steps.map((c) => c.step)).toEqual(['hover-a', 'open', 'scroll'])
-    // hover-a ends at 2.6 s source; the cut starts at 2 s → 0.6 + settle.
-    expect(steps[0].time).toBeCloseTo(0.6 + STEP_SETTLE_SECONDS, 6)
-  })
-
-  it('waits and skipped steps are not moments; a step past the cut drops', () => {
-    const { candidates } = momentCandidates(doc(STEPS), 16)
-    expect(candidates.some((c) => c.step === 'settle')).toBe(false)
-    expect(candidates.some((c) => c.step === 3)).toBe(false)
-    expect(candidates.some((c) => c.step === 'late')).toBe(false)
-  })
-
-  it('zoom apexes follow the steps and the spread only fills an empty list', () => {
-    const z = [{ id: 'z', in: 8, out: 12, level: 1.8, cx: 0.5, cy: 0.5 }]
-    const withSteps = momentCandidates(doc(STEPS, z), 16).candidates
-    expect(withSteps.map((c) => c.source)).toEqual([
-      'step',
-      'step',
-      'step',
-      'zoom',
-    ])
-    expect(withSteps[3].time).toBeCloseTo(8, 6) // (6 + 10) / 2 in output time
-    const bare = momentCandidates(doc(undefined), 16).candidates
-    expect(bare.map((c) => c.source)).toEqual([
-      'spread',
-      'spread',
-      'spread',
-      'spread',
-      'spread',
-    ])
-    expect(bare[0].time).toBeCloseTo(1.6, 6)
-  })
-
-  it('a wait after a gesture is the response landing: the moment is its end', () => {
-    const steps: StepSpan[] = [
-      { step: 0, id: 'open', do: 'click', tStart: 2, tEnd: 3 },
-      { step: 1, id: 'loads', do: 'wait', tStart: 3, tEnd: 5.5 },
-      { step: 2, id: 'hover', do: 'hover', tStart: 5.5, tEnd: 7 },
-    ]
-    const { candidates } = momentCandidates(doc(steps), 16)
-    expect(candidates.map((c) => c.step)).toEqual(['open', 'hover'])
-    expect(candidates[0].time).toBeCloseTo(5.5 - 2, 6)
-    expect(candidates[1].time).toBeCloseTo(7 - 2 + STEP_SETTLE_SECONDS, 6)
-  })
-
-  it('a dense page never makes a populated one read as blank', () => {
-    const pick = pickMoments([
-      { time: 1, ink: 0.94, hash: 'aaaaaaaaaaaaaaaa' },
-      { time: 2, ink: 0.31, hash: '1111111111111111' },
-      { time: 3, ink: 0.05, hash: '5555555555555555' },
-    ])
-    expect(pick.times).toEqual([1, 2])
-  })
-
-  it('a trimmed apex is counted, not silently lost', () => {
-    const z = [{ id: 'z', in: 0.2, out: 1.5, level: 1.8, cx: 0.5, cy: 0.5 }]
-    expect(momentCandidates(doc(undefined, z), 16).dropped).toBe(1)
-  })
-})
-
 describe('resolveStepTime', () => {
   it('reads step:<id>, step:<index> and an offset', () => {
     const d = doc(STEPS)
@@ -149,33 +80,6 @@ describe('resolveStepTime', () => {
     )
     expect(() => resolveStepTime(doc(undefined), 'step:open')).toThrow(
       /carries none/,
-    )
-  })
-})
-
-describe('pickMoments', () => {
-  it("drops blanks against the take's own median and collapses one frame at two times", () => {
-    const pick = pickMoments([
-      { time: 1, ink: 0.31, hash: 'aaaaaaaaaaaaaaaa' },
-      { time: 2, ink: 0.04, hash: '1111111111111111' },
-      { time: 3, ink: 0.3, hash: 'aaaaaaaaaaaaaaab' },
-      { time: 4, ink: 0.28, hash: '5555555555555555' },
-    ])
-    expect(pick.times).toEqual([1, 4])
-    expect(pick.dropped[0]).toMatch(
-      /blank at 2.00s: 4% ink \(the floor is 12%; the take's median is 30%\)/,
-    )
-    expect(pick.dropped[1]).toMatch(/3.00s is the same frame as 1.00s/)
-  })
-
-  it('keeps the least empty candidate when every one is blank, and says so', () => {
-    const pick = pickMoments([
-      { time: 1, ink: 0.01, hash: 'aaaaaaaaaaaaaaaa' },
-      { time: 2, ink: 0.03, hash: '1111111111111111' },
-    ])
-    expect(pick.times).toEqual([2])
-    expect(pick.dropped.at(-1)).toMatch(
-      /every candidate is under the blank floor; kept 2.00s/,
     )
   })
 })

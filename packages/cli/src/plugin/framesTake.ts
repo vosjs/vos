@@ -1,6 +1,5 @@
 /**
- * Stills from a take — the agent's eyes AND a first-class asset output
- * (posters, OG cards, store screenshots). Lowers + compiles exactly like
+ * Stills from a take — the agent's eyes on a cut. Lowers + compiles exactly like
  * render, then seeks each requested time in ONE page and captures the canvas
  * as PNG at the exact output resolution. No encoder, no chunks.
  *
@@ -37,9 +36,9 @@ import type { Browser } from 'playwright'
 const VIDEO_TOKEN = '__VOILA_CLI_VIDEO__'
 
 /**
- * The supersample factor a still renders at: small destinations (a 440
- * px store tile, a 240 px thumbnail) render at two or three times their
- * pixels and downscale once with the browser's high-quality resampler,
+ * The supersample factor a still renders at: a small --size (a 440
+ * px frame, a 240 px one) renders at two or three times its
+ * pixels and downscales once with the high-quality resampler,
  * so footage recorded at 1920 px is not one bilinear tap away from a
  * 270 px card. A still already past 1800 px on its long side renders 1:1.
  */
@@ -66,7 +65,7 @@ export interface FramesTakeOptions {
   overrides?: DocOverrides
   /**
    * Render THIS document over the take's footage instead of its doc.json
-   * (a poster document beside the take). Cloned before any override.
+   * (a variant built in memory). Cloned before any override.
    */
   doc?: ProjectDoc
 }

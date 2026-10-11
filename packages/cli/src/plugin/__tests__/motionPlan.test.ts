@@ -94,25 +94,21 @@ const catalog: MusicCatalog = {
 
 const feed = {
   id: 'x-feed-cut',
-  kind: 'video' as const,
   px: { w: 1920, h: 1080 },
   text: 'allowed' as const,
 }
 const loop = {
   id: 'github-readme-loop',
-  kind: 'video' as const,
   px: { w: 1920, h: 1080 },
   text: 'none' as const,
 }
 const silent = {
   id: 'linkedin-feed-cut',
-  kind: 'video' as const,
   px: { w: 1920, h: 1080 },
   text: 'allowed' as const,
 }
 const vertical = {
   id: 'shorts-linkedin-vertical-cut',
-  kind: 'video' as const,
   px: { w: 1080, h: 1920 },
   text: 'expected' as const,
 }
@@ -473,19 +469,6 @@ describe('destinationMechanics (what the spec does at render time)', () => {
     expect(m.set).toContain('frame.fit=cover')
     expect(m.set).toContain('frame.focusFollow=camera')
     expect(m.set.some((s) => s.startsWith('frame.inset='))).toBe(true)
-  })
-
-  it('a still is not a video destination', () => {
-    const m = destinationMechanics(
-      {
-        id: 'og-card',
-        kind: 'still',
-        px: { w: 1200, h: 630 },
-        text: 'allowed',
-      },
-      proposed,
-    )
-    expect(m).toEqual({ set: [], unset: [], notes: [] })
   })
 })
 

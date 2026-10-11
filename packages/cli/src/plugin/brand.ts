@@ -1,9 +1,10 @@
 /**
- * `vos brand <url>` — the brand kit, witnessed. The launch-kit loop must
- * resolve the brand BEFORE any asset is authored (a template's own palette
- * on a deliverable shipped once, and that run is why this verb exists).
- * The kit is a `BRAND.md` recipe: frontmatter carries the roles the poster
- * family binds (`bgA/bgB/bgC`, `ink`, `accent`, `fontDisplay`, `logoUrl`),
+ * `vos brand <url>` — the brand kit, witnessed. A release must resolve the
+ * brand BEFORE any cut is authored (a template's own palette on a
+ * deliverable shipped once, and that run is why this verb exists).
+ * The kit is a `BRAND.md` recipe: frontmatter carries the roles the look,
+ * the titles and the end card bind (`bgA/bgB/bgC`, `ink`, `accent`,
+ * `fontDisplay`, `logoUrl`),
  * prose carries where each value came from and what the site says to avoid.
  *
  * Three sources, in order, each read when it exists:
@@ -511,7 +512,7 @@ export function renderBrandMd(
     '',
     '## Use',
     '',
-    `The poster family binds these roles: \`bgA/bgB/bgC\` for the ground, \`ink\` for type, \`fontDisplay\` for the headline (if it is not in the hosted catalog, \`vos check\` warns and the nearest hosted serif or sans stands in), \`logoUrl\` for the mark (placed beside the wordmark on the cards and the end card; \`logoOnDarkUrl\` stands in on a dark ground). A site that publishes only a favicon or an app icon gets the icon here, tile and all: publish a bare mark and name it in design.md. A take's frame ground is a gradient of \`accent\` toward \`bgC\` unless the brand is paper, in which case \`bgB\` toward \`bgC\`.`,
+    `The look, the titles and the end card bind these roles: \`bgA/bgB/bgC\` for the ground, \`ink\` for type, \`fontDisplay\` for the headline (if it is not in the hosted catalog, \`vos check\` warns and the nearest hosted serif or sans stands in), \`logoUrl\` for the mark (placed beside the wordmark on the end card; \`logoOnDarkUrl\` stands in on a dark ground). A site that publishes only a favicon or an app icon gets the icon here, tile and all: publish a bare mark and name it in design.md. A take's frame ground is a gradient of \`accent\` toward \`bgC\` unless the brand is paper, in which case \`bgB\` toward \`bgC\`.`,
   ]
   if (c.avoid.length) {
     lines.push('', '## Avoid (the site says)', '')

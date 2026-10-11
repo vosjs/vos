@@ -21,7 +21,7 @@ Everything in this repository is MIT. [vos.so](https://vos.so) is the hosted pla
 npm i -g @vosjs/cli
 vos record --actions actions.json --out take --strict   # drive the page, record it, plan the zooms
 vos render take out.webm                                # deterministic render; edit take/doc.json and render again
-vos deliver take --to cws,producthunt,og --release v2.1 # the release's assets per channel spec, verified into kit.json
+vos deliver take --to youtube,x,shorts --release v2.1  # the release's video cuts per channel spec, verified into kit.json
 ```
 
 The workflows for coding agents (Claude Code, Codex, Cursor and friends) install with `npx skills add vosjs/skills`. The full agent contract is [vos.so/llms.txt](https://vos.so/llms.txt). See the [CLI README](./packages/cli/README.md) for every verb.

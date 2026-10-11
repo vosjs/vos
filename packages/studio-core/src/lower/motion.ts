@@ -59,9 +59,9 @@ export const OPENING_ENTER_SECONDS = 0.6
 const r3 = (v: number) => Math.round(v * 1000) / 1000
 
 /**
- * The output moment that STANDS for a document: its cover on the shelf,
- * the still a kit leads with. One ladder, one derivation, read by the
- * fleet thumbnail, the stills export and the kit alike; a template can
+ * The output moment that STANDS for a document: its cover on the shelf.
+ * One ladder, one derivation, read by every surface that takes a cover
+ * (the fleet thumbnail, `vos frames --at-still`); a template can
  * never move it, because everything a template lays is stamped `from`.
  *
  * 1. `doc.still`, the author's own choice, clamped to the output.
