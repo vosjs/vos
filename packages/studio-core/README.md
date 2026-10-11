@@ -45,7 +45,7 @@ The shared layers lower as one engine `stack` entry, `STUDIO_ENTRY_ID` (`'vosso.
 
 ## Destinations
 
-`DESTINATIONS` is the table of launch destinations (store listings, Product Hunt, social, OG cards, README loops) with exact pixel sizes, byte and duration ceilings, generated from `channel-specs.json` in `@vosjs/cli` and hash-gated by a test. `destinationById`, `destinationsForChannel`, `exportSizeFor(ratio, resolution)` and `resolveExportSize` size an export; `ExportResolution` is `720p | 1080p | 2k | 4k`.
+`DESTINATIONS` is the table of video destinations (a YouTube demo, an X feed cut, a vertical cut for Shorts and LinkedIn, a GitHub README loop) with exact pixel sizes, byte and duration ceilings and a word policy, generated from `channel-specs.json` in `@vosjs/cli` and hash-gated by a test. `destinationById`, `destinationsForChannel`, `exportSizeFor(ratio, resolution)` and `resolveExportSize` size an export; `ExportResolution` is `720p | 1080p | 2k | 4k`.
 
 ## Exports by area
 

@@ -35,9 +35,8 @@ import {
 import { loadTake, writeJson } from './take'
 import { retimeCut } from './reuse'
 import { proposeMotion } from './motionPlan'
-import type { MotionProposalInput } from './motionPlan'
+import type { MotionProposalInput, ReleaseWords } from './motionPlan'
 import type { ReuseReport } from './reuse'
-import type { ReleaseWords } from './posterValues'
 import type {
   Backdrop,
   LayoutParts,

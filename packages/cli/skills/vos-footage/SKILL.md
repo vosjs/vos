@@ -12,7 +12,7 @@ backdrop, no titles (the composition owns those) — but it is never an
 orphan file: the take it came from lives on the maker's shelf, editable,
 and the handoff says so. That one line is the whole contract.
 
-If the ask is actually a RELEASE (a launch video, a store listing, the
+If the ask is actually a RELEASE (a launch video, the social cuts, the
 whole kit), stop — that is the `launch-kit` skill, and the document that
 survives should be the vosso one.
 

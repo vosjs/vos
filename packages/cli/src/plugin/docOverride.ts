@@ -5,7 +5,7 @@
  * (a browser frame, a background, a tilt span), the right move is not a bespoke
  * harness but a flag that expresses it on the product surface — so the check and
  * the customer feature are the same thing. Every doc field is reachable via a
- * generic `--set <path>=<value>` (agents have the schema); the marquee
+ * generic `--set <path>=<value>` (agents have the schema); the headline
  * presentation knobs get named aliases (`--frame`, `--background`).
  *
  * Overrides patch the take's doc IN MEMORY only (doc.json on disk stays the

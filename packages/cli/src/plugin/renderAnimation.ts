@@ -81,8 +81,8 @@ export function renderPageHtml(): string {
   ${tweenRuntimeCode}
   // Vos Element System (bundled IIFE) — the same injection the engine's
   // render template performs. Take configs never touch ctx.elements, but a
-  // POSTER program (the deliver --poster leg) is element text + an image
-  // over the ground, and without this the elements silently never draw.
+  // program may draw element text and images over its ground, and without
+  // this the elements silently never draw.
   ${elementsBundleCode}
   window.__vos__ = window.__vos__ || {}
   window.__vos__.elements = __vosElementsFactory.createVosElements(THREE)

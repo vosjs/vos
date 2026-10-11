@@ -45,7 +45,7 @@ export const manifest: PluginManifest = {
     {
       name: 'deliver',
       summary:
-        'render a take to release destinations (CWS, Product Hunt, X, LinkedIn, OG…) + verified kit.json',
+        'render a take to release video destinations (YouTube, X, Shorts/LinkedIn, GitHub) + verified kit.json',
     },
     {
       name: 'digest',

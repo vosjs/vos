@@ -29,43 +29,36 @@ describe('destinations', () => {
     expect(CHANNEL_SPECS_HASH).toBe(currentHash())
   })
 
-  it('carries the beachhead destinations', () => {
-    const ids = DESTINATIONS.map((d) => d.id)
-    for (const id of [
-      'cws-screenshot',
-      'cws-small-promo-tile',
-      'cws-marquee',
-      'producthunt-gallery',
-      'linkedin-feed-image',
-      'og-card',
+  it('carries the video destinations', () => {
+    expect(DESTINATIONS.map((d) => d.id)).toEqual([
       'youtube-main-demo',
-    ]) {
-      expect(ids).toContain(id)
-    }
-  })
-
-  it('derives kinds from the spec shape', () => {
-    expect(destinationById('youtube-main-demo')?.kind).toBe('video')
-    expect(destinationById('cws-small-promo-tile')?.kind).toBe('still')
-    // A counted image asset is a set.
-    const shots = destinationById('cws-screenshot')
-    expect(shots?.kind).toBe('still-set')
-    expect(shots?.count).toEqual({ min: 1, max: 5 })
+      'x-feed-cut',
+      'shorts-linkedin-vertical-cut',
+      'github-readme-loop',
+    ])
+    for (const d of DESTINATIONS) expect(d.format).toBe('mp4')
   })
 
   it('keeps the verified pixel sizes', () => {
-    expect(destinationById('cws-screenshot')?.px).toEqual({ w: 1280, h: 800 })
-    expect(destinationById('cws-marquee')?.px).toEqual({ w: 1400, h: 560 })
-    expect(destinationById('og-card')?.px).toEqual({ w: 1200, h: 630 })
+    expect(destinationById('youtube-main-demo')?.px).toEqual({
+      w: 1920,
+      h: 1080,
+    })
+    expect(destinationById('shorts-linkedin-vertical-cut')?.px).toEqual({
+      w: 1080,
+      h: 1920,
+    })
+    expect(destinationById('shorts-linkedin-vertical-cut')?.ratio).toBe('9:16')
   })
 
-  it('stills fill their region, videos keep their ratio', () => {
-    expect(destinationById('cws-small-promo-tile')?.fit).toBe('cover')
-    expect(destinationById('x-feed-cut')?.fit).toBe('contain')
+  it('a loop takes no words', () => {
+    expect(destinationById('github-readme-loop')?.text).toBe('none')
   })
 
-  it('lists a channel in spec order', () => {
-    const cws = destinationsForChannel('cws').map((d) => d.asset)
-    expect(cws).toEqual(['screenshot', 'small-promo-tile', 'marquee', 'icon'])
+  it('lists a channel in spec order, and nothing for a channel with no video', () => {
+    expect(destinationsForChannel('github').map((d) => d.asset)).toEqual([
+      'readme-loop',
+    ])
+    expect(destinationsForChannel('cws')).toEqual([])
   })
 })

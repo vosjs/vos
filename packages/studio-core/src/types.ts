@@ -954,8 +954,8 @@ export interface FrameStyle {
    * How footage meets an off-ratio frame. 'contain' (default) fits the
    * whole card inside the padded area, letterboxing onto the background;
    * 'cover' makes the padded area the card and cover-fills it with footage,
-   * cropped around `focus` — what a 440x280 store tile or a 2.5:1 marquee
-   * demands ("fill the region"). Absent = contain; every existing doc is
+   * cropped around `focus` — what a 9:16 cut of 16:9 footage demands
+   * ("fill the region"). Absent = contain; every existing doc is
    * byte-identical.
    */
   fit?: 'contain' | 'cover'
@@ -1692,8 +1692,8 @@ export interface ProjectDoc {
   media?: Media[]
   /**
    * The frame that stands for this document (OUTPUT seconds): the cover the
-   * shelf shows, the still a kit leads with. Absent, `docStillTime` derives
-   * it: the document's own last freeze (a poster's rest), else the hero
+   * shelf shows. Absent, `docStillTime` derives it: the document's own
+   * last freeze (the rest a closing hold ends on), else the hero
    * moment after the opening has entered. A template never sets it.
    */
   still?: number

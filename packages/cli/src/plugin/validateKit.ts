@@ -1,18 +1,17 @@
 /**
  * `vos validate <kit.json>` — the kit's own verifier, run AFTER deliver (or
- * after a hand-assembled kit): every asset in the manifest must exist, be
- * what its name says (a `.png` that is really WebP is the classic miss),
+ * after a hand-assembled kit): every cut in the manifest must exist,
  * measure what the manifest claims, and meet its destination's spec (px,
- * bytes, duration, count). Reads dims and durations from the FILES, never
- * from intent, so a manifest that lies is caught the way a still that lies
- * is. Pure over a directory: no browser, no network.
+ * bytes, duration). Reads dims and durations from the FILES, never from
+ * intent, so a manifest that lies is caught. Pure over a directory: no
+ * browser, no network.
  */
 import { existsSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 import { DESTINATIONS } from '@vosjs/studio-core'
 import { pictureChecks } from './kitPicture'
-import type { PictureAsset, PictureFinding, TextBox } from './kitPicture'
+import type { PictureAsset, PictureFinding } from './kitPicture'
 import type { StillMeasure } from './picture'
 import type { Destination } from '@vosjs/studio-core'
 
@@ -25,22 +24,7 @@ export interface KitAssetRecord {
   h: number
   bytes: number
   seconds: number | null
-  frameTime?: number | null
   source?: string
-  /**
-   * Where the words are, as fractions of the asset (the poster leg records
-   * the element layout it rendered): what the sliced, safe and contrast
-   * checks read. Absent on a take frame, whose page text is unknown.
-   */
-  text?: TextBox[]
-  /** A screenshot rendered with the cut's camera and chrome (--composed). */
-  composed?: boolean
-  /** A poster card's shot placement, fractions of the asset. */
-  shot?: { x: number; y: number; w: number; h: number }
-  /** A tile: the shot is a close CROP of the page's hero, past the frame by design. */
-  crop?: boolean
-  /** The poster document a card rendered from: its class, its file, the vos it tracks. */
-  poster?: { class: string; file: string; vosId?: string }
 }
 
 export interface KitRecord {
@@ -74,32 +58,9 @@ export interface KitVerdict {
   }[]
 }
 
-const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-
-/** PNG dims from the IHDR chunk, or null when the bytes are not a PNG. */
-export function pngDimensions(bytes: Buffer): { w: number; h: number } | null {
-  if (bytes.length < 24 || !bytes.subarray(0, 8).equals(PNG_SIG)) return null
-  if (bytes.toString('ascii', 12, 16) !== 'IHDR') return null
-  return { w: bytes.readUInt32BE(16), h: bytes.readUInt32BE(20) }
-}
-
-/** What a file's leading bytes say it is, for the "named .png, is WebP" miss. */
-export function sniffImage(bytes: Buffer): 'png' | 'webp' | 'jpeg' | 'unknown' {
-  if (bytes.subarray(0, 8).equals(PNG_SIG)) return 'png'
-  if (
-    bytes.length >= 12 &&
-    bytes.toString('ascii', 0, 4) === 'RIFF' &&
-    bytes.toString('ascii', 8, 12) === 'WEBP'
-  )
-    return 'webp'
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8) return 'jpeg'
-  return 'unknown'
-}
-
 /**
  * Video dims + duration through mediabunny (the render harness's own
  * demuxer), so a kit's mp4 is measured by the same library that wrote it.
- * Loaded lazily: a stills-only kit never pays for it.
  */
 async function probeVideo(
   path: string,
@@ -167,7 +128,6 @@ export async function validateKit(
     const beside = join(base, p.split('/').pop() ?? p)
     return beside
   }
-  const perDestination = new Map<string, number>()
   const pictureAssets: PictureAsset[] = []
 
   for (const a of kit.assets) {
@@ -181,7 +141,6 @@ export async function validateKit(
       problems.push(`${label}: ${a.path} is missing`)
       continue
     }
-    perDestination.set(id, (perDestination.get(id) ?? 0) + 1)
     if (bytes !== a.bytes)
       problems.push(
         `${label}: manifest says ${a.bytes} bytes, the file is ${bytes}`,
@@ -190,25 +149,7 @@ export async function validateKit(
     let w: number | null = null
     let h: number | null = null
     let seconds: number | null = null
-    if (/\.(png|jpe?g|webp)$/i.test(file)) {
-      const head = Buffer.from(await readFile(file))
-      const kind = sniffImage(head)
-      if (file.toLowerCase().endsWith('.png') && kind !== 'png')
-        problems.push(
-          `${label}: ${a.path} is named .png but its bytes are ${kind} — stores refuse a mislabelled image`,
-        )
-      const dims = kind === 'png' ? pngDimensions(head) : null
-      if (dims) {
-        w = dims.w
-        h = dims.h
-        if (w !== a.w || h !== a.h)
-          problems.push(
-            `${label}: manifest says ${a.w}x${a.h}, the file is ${w}x${h}`,
-          )
-      } else if (kind === 'png') {
-        problems.push(`${label}: ${a.path} has no readable IHDR`)
-      }
-    } else if (/\.(mp4|webm|mov)$/i.test(file)) {
+    if (/\.(mp4|webm|mov)$/i.test(file)) {
       try {
         const v = await probeVideo(file)
         if (!v) problems.push(`${label}: ${a.path} has no video track`)
@@ -231,21 +172,14 @@ export async function validateKit(
         )
       }
     } else {
-      warnings.push(
-        `${label}: ${a.path} is not an image or video the kit verifies`,
-      )
+      warnings.push(`${label}: ${a.path} is not a video the kit verifies`)
     }
     measured.push({ destination: id, path: a.path, w, h, bytes, seconds })
     pictureAssets.push({
       destination: id,
       path: a.path,
       file,
-      spec,
-      text: a.text,
       seconds,
-      composed: a.composed,
-      shot: a.source === 'poster' || a.source === 'stage' ? a.shot : undefined,
-      crop: a.crop,
     })
 
     if (!spec) {
@@ -273,18 +207,6 @@ export async function validateKit(
           `${label}: spec caps at ${spec.maxSeconds} s, the file is ${seconds.toFixed(1)} s`,
         )
     }
-    if (spec.format === 'png' && !file.toLowerCase().endsWith('.png'))
-      warnings.push(
-        `${label}: spec renders png, the file is ${file.split('.').pop()}`,
-      )
-  }
-
-  for (const [id, n] of perDestination) {
-    const spec = specById.get(id)
-    if (spec?.count && (n < spec.count.min || n > spec.count.max))
-      problems.push(
-        `${spec.channel} ${spec.asset}: spec wants ${spec.count.min}-${spec.count.max}, the kit has ${n}`,
-      )
   }
 
   if (!opts.picture) {

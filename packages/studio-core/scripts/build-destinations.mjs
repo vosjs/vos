@@ -1,9 +1,9 @@
 /**
  * Generate the studio-core DESTINATIONS table from the CLI's channel specs
  * (derivation lives here, output is committed). `packages/cli/schema/channel-specs.json`
- * stays the one home for per-channel launch-asset facts; this script shapes
- * it into the `Destination` rows `vos deliver`, the export surfaces and the
- * launch-kit loop share, so a spec re-verify propagates from one file.
+ * stays the one home for per-channel video facts; this script shapes it into
+ * the `Destination` rows `vos deliver` and the export surfaces share, so a
+ * spec re-verify propagates from one file.
  *
  *   node packages/studio-core/scripts/build-destinations.mjs
  *
@@ -26,10 +26,6 @@ const CHANNEL_LABELS = {
   x: 'X',
   'shorts-linkedin': 'Shorts / LinkedIn',
   github: 'GitHub',
-  cws: 'Chrome Web Store',
-  producthunt: 'Product Hunt',
-  linkedin: 'LinkedIn',
-  og: 'OG',
 }
 
 const ASSET_LABELS = {
@@ -47,18 +43,8 @@ export function ratioOf(w, h) {
   return `${w / d}:${h / d}`
 }
 
-/** `"1-5"` → `{ min: 1, max: 5 }`; absent stays absent. */
-export function parseCount(raw) {
-  if (typeof raw !== 'string') return undefined
-  const m = /^(\d+)-(\d+)$/.exec(raw)
-  if (!m) return undefined
-  return { min: Number(m[1]), max: Number(m[2]) }
-}
-
 /** One spec row → one Destination row. */
 export function deriveDestination(spec) {
-  const count = parseCount(spec.count)
-  const kind = spec.kind === 'video' ? 'video' : count ? 'still-set' : 'still'
   const channelLabel = CHANNEL_LABELS[spec.channel] ?? spec.channel
   const assetLabel = ASSET_LABELS[spec.asset] ?? spec.asset.replace(/-/g, ' ')
   const row = {
@@ -66,29 +52,19 @@ export function deriveDestination(spec) {
     channel: spec.channel,
     asset: spec.asset,
     label: `${channelLabel} ${assetLabel}`,
-    kind,
     ratio: ratioOf(spec.w, spec.h),
     px: { w: spec.w, h: spec.h },
   }
-  if (count) row.count = count
-  if (spec.genre !== undefined) row.genre = spec.genre
   if (spec.minSeconds !== undefined) row.minSeconds = spec.minSeconds
   if (spec.maxSeconds !== undefined) row.maxSeconds = spec.maxSeconds
   if (spec.maxBytes !== undefined) row.maxBytes = spec.maxBytes
-  // The format the kit RENDERS (every image channel here accepts png; every
-  // video one accepts H.264 mp4); `accepts` keeps the channel's own words.
-  row.format = spec.kind === 'video' ? 'mp4' : 'png'
+  // The format the kit RENDERS (every channel here accepts H.264 mp4);
+  // `accepts` keeps the channel's own words.
+  row.format = 'mp4'
   row.accepts = spec.format
-  // How footage meets an off-ratio frame: a still fills the region (the CWS
-  // "full bleed" rule), a video renders at the spec's own ratio.
-  row.fit = spec.kind === 'video' ? 'contain' : 'cover'
-  // The word policy and the safe rect the picture checks read: 'none' (the
-  // picture carries it alone), 'allowed', 'expected'; every text box must
-  // sit inside `safe` (fractions of the frame).
+  // The word policy: 'none' (the picture carries it alone), 'allowed',
+  // 'expected'. A 'none' destination drops the beat captions.
   row.text = spec.text ?? 'allowed'
-  row.safe = spec.safe ?? { x: 0, y: 0, w: 1, h: 1 }
-  // The poster template a card destination renders from by default.
-  if (spec.template !== undefined) row.template = spec.template
   row.notes = spec.notes ?? ''
   return row
 }
@@ -105,8 +81,8 @@ function main() {
 // gates staleness on CHANNEL_SPECS_HASH.
 
 /**
- * A destination is where a release's media goes — the output twin of the
- * doors registry's "a door is what you bring". One row per channel asset,
+ * A destination is where a release's video goes — the output twin of the
+ * doors registry's "a door is what you bring". One row per channel video,
  * derived from the verified channel specs; \`vos deliver\` loops these and
  * the kit manifest records them.
  */
@@ -116,43 +92,22 @@ export interface Destination {
   channel: string
   asset: string
   label: string
-  kind: 'video' | 'still' | 'still-set'
   /** Reduced aspect ratio, the exportSizeFor convention. */
   ratio: string
   px: { w: number; h: number }
-  /** still-set only: how many the channel takes. */
-  count?: { min: number; max: number }
-  /**
-   * Image genre: 'screenshot' = real UI from the take (store policy demands
-   * real UX); 'card' = a COMPOSED cover — rendered from the maker's poster
-   * program when \`vos deliver --poster\` has one.
-   */
-  genre?: 'screenshot' | 'card'
   minSeconds?: number
   maxSeconds?: number
   maxBytes?: number
   /** The format the kit renders. */
-  format: 'mp4' | 'png'
+  format: 'mp4'
   /** What the channel accepts, in the spec's own words. */
   accepts: string
-  /** How footage meets an off-ratio frame (a still fills, a video letterboxes). */
-  fit: 'contain' | 'cover'
   /**
-   * The destination's word policy: 'none' = the picture carries it alone (a
-   * tile, a store screenshot), 'allowed', 'expected' = a card that should
-   * say something. The picture checks read it.
+   * The destination's word policy: 'none' = the picture carries it alone
+   * (a README loop, so the beat captions drop), 'allowed', 'expected' = a
+   * cut that should say something.
    */
   text: 'none' | 'allowed' | 'expected'
-  /**
-   * The rect, as fractions of the frame, every text box must sit inside:
-   * the platform's own chrome or crop covers the rest.
-   */
-  safe: { x: number; y: number; w: number; h: number }
-  /**
-   * The poster template a card destination renders from by default (the
-   * family that ships with the CLI); absent on screenshots and videos.
-   */
-  template?: string
   notes: string
 }
 

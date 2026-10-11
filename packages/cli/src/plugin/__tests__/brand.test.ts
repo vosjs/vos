@@ -190,7 +190,7 @@ describe('composeBrand', () => {
 })
 
 describe('renderBrandMd', () => {
-  it('writes frontmatter the poster family binds, provenance, and the avoid list', () => {
+  it('writes frontmatter the look and the end card bind, provenance, and the avoid list', () => {
     const c = composeBrand({
       url: 'https://acme.test/',
       witness: witness(),

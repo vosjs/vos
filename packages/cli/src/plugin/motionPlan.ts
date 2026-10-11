@@ -42,7 +42,14 @@ import type {
   ProjectDoc,
   TemplateAnchor,
 } from '@vosjs/studio-core'
-import type { ReleaseWords } from './posterValues'
+
+/** The release's words a plan writes into the cut's titles and end card. */
+export interface ReleaseWords {
+  headline?: string | null
+  kicker?: string | null
+  brand?: string | null
+  release?: string | null
+}
 
 /** Destinations that play sound (a feed autoplays muted; a demo has a speaker). */
 export const SOUND_DESTINATIONS = new Set([
@@ -507,13 +514,12 @@ export function proposeMotion(
  * overrides for that one render: the spec's mechanics, never taste.
  */
 export function destinationMechanics(
-  d: Pick<Destination, 'id' | 'kind' | 'px' | 'text'>,
+  d: Pick<Destination, 'id' | 'px' | 'text'>,
   doc: Pick<ProjectDoc, 'overlays' | 'freeze'>,
 ): { set: string[]; unset: string[]; notes: string[] } {
   const set: string[] = []
   const unset: string[] = []
   const notes: string[] = []
-  if (d.kind !== 'video') return { set, unset, notes }
   const loop = LOOP_DESTINATIONS.has(d.id)
   const sound = SOUND_DESTINATIONS.has(d.id)
   const portrait = d.px.w / d.px.h < 0.9

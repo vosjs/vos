@@ -41,8 +41,6 @@ import type { MotionAnchor, MotionTemplate } from './motionPlan'
 import { OFFICIAL_END_CARD_TITLE, findOfficialByRef } from './officialTemplates'
 import type { OfficialRow } from './officialTemplates'
 import { fetchMusicCatalog } from './music'
-import { judgeKit, winRate } from './judge'
-import { resolveStepTime } from './moments'
 import {
   composeCallout,
   footageFrames,
@@ -143,7 +141,6 @@ const BOOLEAN_FLAGS = new Set([
   'media',
   'print',
   'yes',
-  'composed',
   'check',
   'motion',
   'leader',
@@ -167,13 +164,12 @@ Take pipeline
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--at-still] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
-  vos deliver <take> --to cws,producthunt,x,linkedin,og,github,youtube (or all) [--launch LAUNCH.md] [--look plate|gradient|dark|none] [--brand BRAND.md] [--composed] [--set path=value] [--release v2.1] [--out dir] [--times a,b] [--range a..b] [--parallel N] [--json]
+  vos deliver <take> --to youtube,x,shorts,github (or all) [--look plate|gradient|dark|none] [--brand BRAND.md] [--set path=value] [--release v2.1] [--out dir] [--range a..b] [--parallel N] [--json]
   vos digest <take> [--out dir] [--full 960] [--crop 640] [--no-frames] [--transcript <file.json>] [--style <doc.json|vosId>] [--json]
   vos brand <url> [--out BRAND.md] [--json]
   vos open <take> [--studio <url>] [--print]
   vos callout <take> <note|tag|code> --step <id> [--title "…"] [--body "…"] [--kicker "…"] [--code "…"|--code-file f] [--seconds 3] [--side auto|right|left|below|above] [--mark ring|underline|none] [--leader] [--color #hex (the mark and leader; the kicker is --accent)] [--brand BRAND.md] [--ground #hex] [--accent #hex] [--font "…"] [--body-px <n> (the body size on the delivered frame)] [--id x] [--print] [--json]
   vos validate <actions.json|take|kit.json> [--picture] [--json]
-  vos judge <kit.json> --against <MANIFEST.json> [--out dir] [--json]
   vos actions from-agent-browser <steps.jsonl> [--out actions.json] [--url <url>] [--viewport WxH] [--json]
   vos ingest <video.webm|mp4> [--cursor <trace.zip|steps.jsonl|cursor.csv>] [--as footage|take] [--out take] [--offset <ms>] [--viewport WxH] [--background <slug|url|none>] [--json]
             a take from a recording someone else made (a cloud agent's PR video, a Playwright run's video, a Loom export): the file becomes recording.<container>, meta.json from its own dimensions and duration, and a trace beside it becomes cursor.json so the planner has clicks to zoom on; without one, nothing is planned and the done event says so. Without a trace the file opens as FINISHED footage (a render from HyperFrames or Remotion, a film): no card, no browser bar, no drawn cursor, its own frame rate; --as take gives a screen demo the card
@@ -335,47 +331,28 @@ recording cap, read live from GET /api/limits (30 min when the origin is
 unreachable): the capture stops there and says so in one line.
 frames captures PNG stills at OUTPUT times (seconds or % of duration);
 --at-zooms adds every zoom span's apex, --at-moments every digest moment —
-the agent's eyes AND exact-size posters/screenshots (--size WxH). render
+the agent's eyes (--size WxH for an exact size). render
 --range a..b --draft spot-checks a doc edit in seconds (half res, low
 bitrate; range in OUTPUT seconds); a --range render keeps its audio.
-deliver renders the take to a release's destinations in one pass — the
-channel specs (schema/channel-specs.json, verified sizes for the Chrome
-Web Store, Product Hunt, X, LinkedIn, OG, GitHub, YouTube) drive stills at
-exact pixels and video cuts, every artifact is VERIFIED against its spec
-(px, bytes, duration; misses land in skipped[] with the reason), and
-kit.json beside the assets is the manifest. Still times come from the
-STORY: every step's end plus a 0.4 s settle (the response, not the
-travel), then the zoom apexes, then an even spread; each candidate is
-read once as the real page, blank ones (a wallpaper, an empty canvas) are
-dropped and two of one frame collapse to one, with every drop said in
-skipped[]. --times overrides with seconds, percents or step:<id>[+offset]
-(the id from actions.json); --range cuts every video destination.
-The LOOK presents the card: card-genre stills with no poster document
-and every video cut sit on a ground (a cream plate, the house gradient, a
-dark plate with a light streak) at ~84% of the width with headroom, a
-soft ambient shadow plus a tight contact shadow, and a hairline when card
-and ground are both light; a wide frame runs the card off the bottom.
---look picks a house look (or none for the pre-look crops); with no flag
-the BRAND.md beside the take (or --brand <file>) decides from its look
-role or its own ground, and with no brand the house gradient.
-Screenshot-genre stills never take a look.
-A POSTER is a document, never a template: a plain take whose card sits
-where the poster wants it (frame.inset), leans (the tilt track), carries
-the words and the mark as clips (ids stage-title, stage-kicker,
-stage-brand, stage-mark) and ends on a trailing freeze whose start is the
-still. Card-genre destinations (OG, LinkedIn, X, YouTube thumbnail, the
-CWS tile + marquee, GitHub social preview) render from the poster
-document of their aspect CLASS (landscape, square, portrait, tile), found
-beside the take as poster/<class>/doc.json (poster/doc.json serves every
-class) or named in LAUNCH.md (poster: <path>, poster-landscape: …), at
-the document's rest; kit.json records source poster, the class, the file,
-the vos it tracks, the shot rect and the text boxes read FROM the
-document. A class with no document is the take's own frame, said once.
-deliver renders and verifies; it composes nothing. The composition is
-made with plan --style <poster>, which copies a poster's layout onto a
-take (its card placement, its stage clips with the release's words
-patched in from LAUNCH.md's headline and kicker roles or --headline and
---kicker, its rest lean, its freeze), or by hand in doc.json.
+deliver renders the take to a release's video destinations in one pass —
+the channel specs (schema/channel-specs.json, verified sizes for a YouTube
+demo, an X feed cut, a 9:16 cut for Shorts and LinkedIn, a GitHub README
+loop) drive each cut at exact pixels, every artifact is VERIFIED against
+its spec (px, bytes, duration; misses land in skipped[] with the reason),
+and kit.json beside the assets is the manifest. --range cuts every
+destination. A channel with no video destination is refused in words.
+The LOOK presents the card: every cut sits on a ground (a cream plate,
+the house gradient, a dark plate with a light streak) at ~84% of the width
+with headroom, a soft ambient shadow plus a tight contact shadow, and a
+hairline when card and ground are both light; a wide frame runs the card
+off the bottom. --look picks a house look (or none for the doc's own
+frame); with no flag the BRAND.md beside the take (or --brand <file>)
+decides from its look role or its own ground, and with no brand the house
+gradient.
+plan --style <doc.json|vosId> copies a signed-off take's layout onto this
+one (its card placement, its stage clips with the release's words patched
+in from LAUNCH.md's headline and kicker roles or --headline and --kicker,
+its rest lean, its freeze), or edit doc.json by hand.
 The cut's MOTION is the document's too, in ONE vocabulary: every visual
 thing (the card, a text, image or video clip, a prop) carries anim.enter,
 anim.exit and anim.idle; the output lasts until the last clip ends, and
@@ -399,40 +376,21 @@ deleted on a refresh. deliver applies each destination's MECHANICS and
 nothing more: the README loop drops the card's motion, every clip a
 template placed and every sound; a channel that autoplays muted drops the
 bed; the 9:16 cut is a reframe, not a letterbox, and the crop follows
-the camera. Screenshot-genre
-destinations (CWS screenshots, the PH gallery) are the real page at that
-moment, FULL BLEED: no zoom, no tilt, no browser bar, no padding (store
-policy); --composed keeps the cut's camera and chrome instead. --set
+the camera. --set
 path=value overrides the doc in memory for every render here (the user's
-sets apply last). Store uploads stay manual: hand the human the kit
-directory, then vos validate <kit.json> re-measures every asset from its
-bytes against the channel specs; --picture adds what each asset LOOKS
-like, read from its pixels: blank (a wallpaper or an empty canvas where
-the product should be), duplicate (two stills of one frame), subject (the
-card off the 60 to 92% band, or a crop where a card was asked for),
-separation (a light card on a light ground with no shadow), halfsize (a
-tile that loses its edges when the store shrinks it), and, where the kit
-records its text boxes, sliced, safe and contrast (APCA Lc 60/75); a
-video's first and last frames are read through ffmpeg. Every finding
-carries a code, a severity, a fix hint and a box; an error fails the
-verdict beside the spec problems.
-judge puts the kit beside its REFERENCES: for every still that has a
-reference of its role in the manifest (a template family, a card genre),
-two sheets at a common height (the asset left, then right, so order
-cannot bias the call) and the rubric in words, plus judge.json, a slot
-per pair the judge fills (win true, false or null for a tie, with the
-rule numbers). No model runs inside the verb: the skill judges the
-sheets pairwise, both orders, and the verb reports the win rate beside
-the spec and picture counts. The reference set is the maker's own
-fixture folder with a MANIFEST.json (id, file, role, layout, facts,
-rule per asset).
+sets apply last). Uploads stay manual: hand the human the kit
+directory, then vos validate <kit.json> re-measures every cut from its
+bytes against the channel specs; --picture adds what each cut LOOKS like:
+its first and last frames, read through ffmpeg, must not be blank or bled
+on all four sides. Every finding carries a code, a severity and a fix
+hint; an error fails the verdict beside the spec problems.
 brand writes the product's BRAND.md, witnessed: it reads /design.md when
 the site publishes one (the convention beside /llms.txt: fonts, logo assets,
 an avoid list), /llms.txt for the name and the claim, then the page itself
 in a browser (the body ground, the surfaces, the h1 and body faces and inks,
 the accent buttons and links agree on, theme-color, the icons, og:image).
-The frontmatter carries the roles the poster family binds (bgA/bgB/bgC,
-ink, accent, fontDisplay, logoUrl); the prose says where every value came
+The frontmatter carries the brand's roles (bgA/bgB/bgC, ink, accent,
+fontDisplay, logoUrl); the prose says where every value came
 from and quotes the site's own avoid list. Resolve the brand BEFORE any
 asset is authored; file it with vos recipe push BRAND.md --folder <slug>.
 digest is how an agent SEES a recording before it cuts: writes digest/ with
@@ -1592,7 +1550,7 @@ async function cmdDeliver(argv: string[]): Promise<number> {
   const toRaw = strFlag(flags, 'to')
   if (!dir || !toRaw)
     throw new UsageError(
-      'vos deliver <take> --to cws,producthunt,x,linkedin,og,github,youtube (or all) [--release v2.1] [--out dir] [--times a,b] [--range a..b] [--json]\n(hosted work: vos pull <id> --media first — deliver runs on a local take)',
+      'vos deliver <take> --to youtube,x,shorts,github (or all) [--release v2.1] [--out dir] [--range a..b] [--json]\n(hosted work: vos pull <id> --media first — deliver runs on a local take)',
     )
   const r = createReporter(flags.json === true)
   if (!isTakeDir(dir))
@@ -1619,23 +1577,6 @@ async function cmdDeliver(argv: string[]): Promise<number> {
   }
   const take = await loadTake(dir)
   if (!take.doc) throw new UsageError(`${dir} has no doc.json — run plan first`)
-  const duration = docOutputDuration(take.doc)
-  const timesRaw = strFlag(flags, 'times')
-  let times: number[] | undefined
-  if (timesRaw !== undefined) {
-    // Entries are seconds, percents, or `step:<id>[+offset]` against the
-    // take's step timeline (the still is the step's response, settled).
-    try {
-      const doc = take.doc
-      times = timesRaw
-        .split(',')
-        .map((s) => s.trim())
-        .filter(Boolean)
-        .map((s) => resolveStepTime(doc, s) ?? parseTimes(s, duration)[0])
-    } catch (e) {
-      throw new UsageError(e instanceof Error ? e.message : String(e))
-    }
-  }
   const parallel = numFlag(flags, 'parallel', 1)
   if (!Number.isInteger(parallel) || parallel < 1 || parallel > 16) {
     throw new UsageError('--parallel expects an integer between 1 and 16')
@@ -1651,24 +1592,15 @@ async function cmdDeliver(argv: string[]): Promise<number> {
     throw new UsageError(e instanceof Error ? e.message : String(e))
   }
   r.log(`look: ${lookPick.from}`)
-  // LAUNCH.md beside the take: its poster roles name the documents the
-  // card destinations render from. The words and the motion are the
-  // document's own since `vos plan` wrote them.
-  const launch = await readLaunchBesideTake(dir, strFlag(flags, 'launch'))
-  if (launch) r.log(`launch: ${launch.file}`)
-
   const browser = await launchBrowser()
   try {
     const result = await deliverTake(browser, dir, {
       look: lookPick.look,
-      launchRoles: launch?.roles ?? null,
       channels,
       outDir: strFlag(flags, 'out'),
       release: strFlag(flags, 'release'),
-      times,
       range,
       parallel,
-      composed: hasFlag(flags, 'composed'),
       overrides: {
         set: multi.set,
         background: strFlag(flags, 'background'),
@@ -1687,7 +1619,7 @@ async function cmdDeliver(argv: string[]): Promise<number> {
     const { kit } = result
     const assetLines = kit.assets.map(
       (a) =>
-        `${a.destination} → ${a.path} (${a.w}x${a.h}, ${(a.bytes / 1024).toFixed(0)} KB${a.seconds !== null ? `, ${a.seconds.toFixed(1)}s` : ''}${a.frameTime !== null ? `, frame ${a.frameTime.toFixed(2)}s` : ''}${a.poster ? `, poster ${a.poster.class}` : ''})`,
+        `${a.destination} → ${a.path} (${a.w}x${a.h}, ${(a.bytes / 1024).toFixed(0)} KB, ${a.seconds.toFixed(1)}s)`,
     )
     const skippedLines = kit.skipped.map((s) => `skipped: ${s}`)
     r.done(
@@ -1700,7 +1632,7 @@ async function cmdDeliver(argv: string[]): Promise<number> {
       `Wrote ${kit.assets.length} asset(s) + kit.json to ${result.outDir}` +
         (assetLines.length ? `\n  ${assetLines.join('\n  ')}` : '') +
         (skippedLines.length ? `\n  ${skippedLines.join('\n  ')}` : '') +
-        `\nStore uploads stay manual: hand the human this directory and the manifest.`,
+        `\nUploads stay manual: hand the human this directory and the manifest.`,
     )
     return kit.assets.length > 0 ? EXIT_OK : EXIT_ERROR
   } finally {
@@ -1923,47 +1855,6 @@ async function cmdOpen(argv: string[]): Promise<number> {
     process.once('SIGINT', stop)
     process.once('SIGTERM', stop)
   })
-  return EXIT_OK
-}
-
-async function cmdJudge(argv: string[]): Promise<number> {
-  const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
-  const target = positionals[0]
-  const against = strFlag(flags, 'against')
-  if (!target || !against)
-    throw new UsageError(
-      'vos judge <kit.json> --against <MANIFEST.json> [--out dir] [--json]\n(the manifest names the reference set: id, file, role, layout, facts, rule per asset)',
-    )
-  const r = createReporter(flags.json === true)
-  const kitFile = target.endsWith('kit.json')
-    ? target
-    : join(target, 'kit.json')
-  if (!existsSync(kitFile)) throw new UsageError(`${kitFile}: no kit manifest`)
-  if (!existsSync(against))
-    throw new UsageError(`${against}: no reference manifest`)
-  const result = await judgeKit(kitFile, against, strFlag(flags, 'out'))
-  const verdicts = (
-    JSON.parse(await readFile(result.verdictFile, 'utf8')) as {
-      verdicts: { win: boolean | null; reasons?: number[] }[]
-    }
-  ).verdicts
-  const rate = winRate(verdicts)
-  const lines = result.sheets.map(
-    (s) =>
-      `${s.asset} vs ${s.reference}: ${s.sheetA}, ${s.sheetB}, ${s.rubric}`,
-  )
-  r.done(
-    { ...result, winRate: rate },
-    `Wrote ${result.sheets.length} sheet pair(s) to ${result.outDir}` +
-      (lines.length ? `\n  ${lines.join('\n  ')}` : '') +
-      (result.skipped.length
-        ? `\n  skipped: ${result.skipped.join('\n  skipped: ')}`
-        : '') +
-      `\nJudge each pair both ways (the rubric is beside it) and fill ${result.verdictFile}` +
-      (rate.judged
-        ? `\nWin rate so far: ${rate.wins} win(s), ${rate.ties} tie(s) of ${rate.judged} judged (${(rate.rate! * 100).toFixed(0)}%; a tie counts a half); parity with the references is 50%, the marketability bar is 40%`
-        : ''),
-  )
   return EXIT_OK
 }
 
@@ -2460,8 +2351,6 @@ export async function run(argv: string[]): Promise<number> {
         return await cmdValidate(rest)
       case 'callout':
         return await cmdCallout(rest)
-      case 'judge':
-        return await cmdJudge(rest)
       case 'fetch':
         return await cmdFetch(rest)
       case 'duplicate':
