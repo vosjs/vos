@@ -237,11 +237,9 @@ describe('ON_FRAME drives the media under the playhead', () => {
 
   function runFrame(d: ProjectDoc, a: VideoStub, b: VideoStub, time: number) {
     const { config, data } = lowerToComposition(d)
-    const onFrame = new Function(`return (${config.onFrame as string})`)() as (
-      ctx: unknown,
-      content: unknown,
-      dt: number,
-    ) => void
+    const onFrame = new Function(
+      `"use strict"; return (${config.onFrame as string})`,
+    )() as (ctx: unknown, content: unknown, dt: number) => void
     g.window = { __vos__: { isPaused: false } }
     g.__vosTimeline = { mapTime, sample, lerpArray, rateAt, totalDuration }
     const c2d = new Proxy(

@@ -57,11 +57,9 @@ function fillFor(background: string): {
   stops: [number, string][]
 } {
   const { config, data } = lowerToComposition(makeDoc(background))
-  const onFrame = new Function(`return (${config.onFrame as string})`)() as (
-    ctx: unknown,
-    content: unknown,
-    dt: number,
-  ) => void
+  const onFrame = new Function(
+    `"use strict"; return (${config.onFrame as string})`,
+  )() as (ctx: unknown, content: unknown, dt: number) => void
 
   const g = globalThis as unknown as Record<string, unknown>
   g.window = {

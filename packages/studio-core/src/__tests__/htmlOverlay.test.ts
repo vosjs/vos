@@ -153,10 +153,9 @@ describe('a kind:html layer, lowered', () => {
 describe('one composer, two homes', () => {
   // SETUP is a function string and cannot import the pure composer, so the
   // page carries a mirror. This is what keeps the mirror honest.
-  const pageSvg = new Function(`return (${HTML_LAYER_SVG_CODE})`)() as (
-    src: unknown,
-    faces: unknown,
-  ) => string
+  const pageSvg = new Function(
+    `"use strict"; return (${HTML_LAYER_SVG_CODE})`,
+  )() as (src: unknown, faces: unknown) => string
 
   const cases: [
     string,
@@ -230,14 +229,12 @@ describe('a kind:html layer, painted', () => {
     // one set, and two programs writing `ov.sig` on one ref dirty each other
     // forever, which is not a contract, only the harness).
     const mainFrame = new Function(
-      `return (${config.onFrame as string})`,
+      `"use strict"; return (${config.onFrame as string})`,
     )() as (ctx: unknown, content: unknown, dt: number) => void
     const entry = (config.stack as { onFrame: string }[])[0]
-    const entryFrame = new Function(`return (${entry.onFrame})`)() as (
-      ctx: unknown,
-      content: unknown,
-      dt: number,
-    ) => void
+    const entryFrame = new Function(
+      `"use strict"; return (${entry.onFrame})`,
+    )() as (ctx: unknown, content: unknown, dt: number) => void
     g.window = {
       __vos__: {
         isPaused: true,
@@ -552,11 +549,9 @@ describe('a kind:html layer, painted', () => {
 })
 
 describe('one composer, two homes: assets and the live form', () => {
-  const pageSvg = new Function(`return (${HTML_LAYER_SVG_CODE})`)() as (
-    src: unknown,
-    faces: unknown,
-    assets: unknown,
-  ) => string
+  const pageSvg = new Function(
+    `"use strict"; return (${HTML_LAYER_SVG_CODE})`,
+  )() as (src: unknown, faces: unknown, assets: unknown) => string
 
   const cases: [
     string,

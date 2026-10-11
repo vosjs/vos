@@ -79,11 +79,9 @@ describe('ON_FRAME camera parity', () => {
     trackValue: readonly number[]
   } {
     const { config, data } = lowerToComposition(makeDoc(frame))
-    const onFrame = new Function(`return (${config.onFrame as string})`)() as (
-      ctx: unknown,
-      content: unknown,
-      dt: number,
-    ) => void
+    const onFrame = new Function(
+      `"use strict"; return (${config.onFrame as string})`,
+    )() as (ctx: unknown, content: unknown, dt: number) => void
     g.window = { __vos__: { isPaused: true } }
     g.__vosTimeline = { mapTime, sample, lerpArray }
     const calls: { op: string; args: number[] }[] = []

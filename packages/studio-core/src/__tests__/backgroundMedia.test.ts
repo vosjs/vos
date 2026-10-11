@@ -93,11 +93,9 @@ describe('background media', () => {
     opts: { cache?: Map<string, unknown>; time?: number } = {},
   ) {
     const { config, data } = lowerToComposition(makeDoc(media))
-    const onFrame = new Function(`return (${config.onFrame as string})`)() as (
-      ctx: unknown,
-      content: unknown,
-      dt: number,
-    ) => void
+    const onFrame = new Function(
+      `"use strict"; return (${config.onFrame as string})`,
+    )() as (ctx: unknown, content: unknown, dt: number) => void
 
     const cache = opts.cache ?? new Map<string, unknown>()
     g.window = {

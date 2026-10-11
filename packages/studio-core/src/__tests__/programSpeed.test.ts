@@ -57,10 +57,9 @@ describe('speed on a program', () => {
   it('the inlined retime agrees with mapTime over the rated segments', () => {
     const doc = program([span, { id: 's2', in: 9, out: 10, rate: 0.5 }])
     const rated = ratedSegments(doc)
-    const retime = new Function(`return (${PROGRAM_RETIME})`)() as (
-      t: number,
-      data: Record<string, unknown>,
-    ) => number
+    const retime = new Function(
+      `"use strict"; return (${PROGRAM_RETIME})`,
+    )() as (t: number, data: Record<string, unknown>) => number
     const out = docOutputDuration(doc)
     for (let t = 0; t <= out + 0.5; t += 0.25) {
       const expected = mapTime(rated, Math.min(t, out))

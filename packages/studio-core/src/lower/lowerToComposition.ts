@@ -2089,6 +2089,45 @@ const ON_FRAME = `(ctx, content, dt) => {
   if (bg.texture) bg.texture.needsUpdate = true
   }
 
+  // The two painters every pass shares, and the overlay layer after the
+  // loop too (the cam bubble, the dot across a boundary). They stand OUTSIDE
+  // the loop on purpose: the program runs as a module, so it is strict, and
+  // in strict code a function declared in a block exists only in that block.
+  function rr(x, y, w, h, rd, cx) {
+    var cc = cx || c
+    if (cc.roundRect) { cc.beginPath(); cc.roundRect(x, y, w, h, rd) }
+    else { cc.beginPath(); cc.rect(x, y, w, h) }
+  }
+
+  // The pointer's shape: an OS-style arrow (tip on the recorded point, a
+  // black body with a white edge, the shape of the pointer on the viewer's
+  // own screen) or the white dot every earlier take was cut with. One
+  // painter for both draw sites (in the card, and the ghost across a
+  // boundary); r is the dot's radius, so an arrow stands 2r tall.
+  var curArrow = !!(d.cursorStyle && d.cursorStyle.style === 'arrow')
+  function drawCur(cc, x, y, r, a, lw) {
+    cc.save()
+    if (curArrow) {
+      var h = 2 * r
+      var P = [[0, 0], [0, 0.72], [0.19, 0.55], [0.31, 0.83], [0.43, 0.78], [0.31, 0.5], [0.55, 0.5]]
+      cc.beginPath()
+      cc.moveTo(x, y)
+      for (var pi = 1; pi < P.length; pi++) cc.lineTo(x + P[pi][0] * h, y + P[pi][1] * h)
+      cc.closePath()
+      cc.lineJoin = 'round'
+      cc.fillStyle = 'rgba(0,0,0,' + (0.92 * a) + ')'
+      cc.strokeStyle = 'rgba(255,255,255,' + (0.95 * a) + ')'
+      cc.lineWidth = Math.max(1, lw * 0.75)
+      cc.fill(); cc.stroke()
+    } else {
+      cc.fillStyle = 'rgba(255,255,255,' + (0.95 * a) + ')'
+      cc.strokeStyle = 'rgba(0,0,0,' + (0.4 * a) + ')'
+      cc.lineWidth = lw
+      cc.beginPath(); cc.arc(x, y, r, 0, Math.PI * 2); cc.fill(); cc.stroke()
+    }
+    cc.restore()
+  }
+
   // The card paints in PASSES: the ghost first (the outgoing clip's last
   // frame on its own canvas, while a boundary is crossing), then the live
   // card. A pass swaps the canvas, the element, the media, the source
@@ -2201,12 +2240,6 @@ const ON_FRAME = `(ctx, content, dt) => {
   var shHex = cfr.shadowColor
   if (typeof shHex === 'string' && /^#[0-9a-fA-F]{6}$/.test(shHex)) {
     shRgb = parseInt(shHex.slice(1, 3), 16) + ',' + parseInt(shHex.slice(3, 5), 16) + ',' + parseInt(shHex.slice(5, 7), 16)
-  }
-
-  function rr(x, y, w, h, rd, cx) {
-    var cc = cx || c
-    if (cc.roundRect) { cc.beginPath(); cc.roundRect(x, y, w, h, rd) }
-    else { cc.beginPath(); cc.rect(x, y, w, h) }
   }
 
   c.save()
@@ -2385,35 +2418,6 @@ const ON_FRAME = `(ctx, content, dt) => {
   // cursor coordinate space + drawn radius (shared by click effects + the dot)
   var space = (actM ? actM.cursorSpace : d.cursorSpace) || { w: vw, h: vh }
   var curSize = ((d.cursorStyle && d.cursorStyle.size) || 24) * s2 * 0.5
-  // The pointer's shape: an OS-style arrow (tip on the recorded point, a
-  // black body with a white edge, the shape of the pointer on the viewer's
-  // own screen) or the white dot every earlier take was cut with. One
-  // painter for both draw sites (in the card, and the ghost across a
-  // boundary); r is the dot's radius, so an arrow stands 2r tall.
-  var curArrow = !!(d.cursorStyle && d.cursorStyle.style === 'arrow')
-  function drawCur(cc, x, y, r, a, lw) {
-    cc.save()
-    if (curArrow) {
-      var h = 2 * r
-      var P = [[0, 0], [0, 0.72], [0.19, 0.55], [0.31, 0.83], [0.43, 0.78], [0.31, 0.5], [0.55, 0.5]]
-      cc.beginPath()
-      cc.moveTo(x, y)
-      for (var pi = 1; pi < P.length; pi++) cc.lineTo(x + P[pi][0] * h, y + P[pi][1] * h)
-      cc.closePath()
-      cc.lineJoin = 'round'
-      cc.fillStyle = 'rgba(0,0,0,' + (0.92 * a) + ')'
-      cc.strokeStyle = 'rgba(255,255,255,' + (0.95 * a) + ')'
-      cc.lineWidth = Math.max(1, lw * 0.75)
-      cc.fill(); cc.stroke()
-    } else {
-      cc.fillStyle = 'rgba(255,255,255,' + (0.95 * a) + ')'
-      cc.strokeStyle = 'rgba(0,0,0,' + (0.4 * a) + ')'
-      cc.lineWidth = lw
-      cc.beginPath(); cc.arc(x, y, r, 0, Math.PI * 2); cc.fill(); cc.stroke()
-    }
-    cc.restore()
-  }
-
   // click effects — pure f(t): d.clicks are
   // OUTPUT-anchored records baked at lowering (sorted by ot; re-baked on every
   // edit, so they can't go stale), drawn UNDER the cursor and inside the zoom
