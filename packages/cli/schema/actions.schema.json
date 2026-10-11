@@ -121,7 +121,7 @@
               "caption": {
                 "type": "string",
                 "maxLength": 80,
-                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on loops or stills"
+                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
               }
             }
           },
@@ -150,7 +150,7 @@
               "caption": {
                 "type": "string",
                 "maxLength": 80,
-                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on loops or stills"
+                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
               }
             }
           },
@@ -178,7 +178,7 @@
               "caption": {
                 "type": "string",
                 "maxLength": 80,
-                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on loops or stills"
+                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
               }
             }
           },
@@ -220,7 +220,7 @@
               "caption": {
                 "type": "string",
                 "maxLength": 80,
-                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on loops or stills"
+                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
               }
             }
           },
@@ -248,7 +248,7 @@
               "caption": {
                 "type": "string",
                 "maxLength": 80,
-                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on loops or stills"
+                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
               }
             }
           },
@@ -276,7 +276,7 @@
               "caption": {
                 "type": "string",
                 "maxLength": 80,
-                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on loops or stills"
+                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
               }
             }
           },
@@ -321,7 +321,7 @@
               "caption": {
                 "type": "string",
                 "maxLength": 80,
-                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on loops or stills"
+                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
               }
             }
           }
