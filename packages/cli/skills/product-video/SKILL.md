@@ -1,13 +1,13 @@
 ---
 name: product-video
-description: Record and produce the demo video of a website, app, or feature with the vos CLI — the agent scripts the click path (actions.json), the recording auto-plans zooms, and every editing decision is data in doc.json, so fixes are edits and re-renders, never re-recordings. Renders are deterministic; export is free up to 4K with no watermark. Use when asked to make a product video, demo video, screen recording of a URL or feature, or a marketing clip, including a product behind a login (the session ladder: mint one from the project's own test auth before asking anyone), or when a feature was verified in agent-browser and that walk should become a take. A whole release's asset set (store listing, Product Hunt gallery, social cuts) is the launch-kit skill, which records through this one.
+description: Record and produce the demo video of a website, app, or feature with the vos CLI — the agent scripts the click path (actions.json), the recording auto-plans zooms, and every editing decision is data in doc.json, so fixes are edits and re-renders, never re-recordings. Renders are deterministic; export is free up to 4K with no watermark. Use when asked to make a product video, demo video, screen recording of a URL or feature, or a marketing clip, including a product behind a login (the session ladder: mint one from the project's own test auth before asking anyone), or when a feature was verified in agent-browser and that walk should become a take. A whole release's video set (the launch demo and its social cuts) is the launch-kit skill, which records through this one.
 license: MIT
 ---
 
 # Product video (and the assets around it), end to end
 
-You are producing a shippable product asset — a polished video, a set of
-exact-size stills, or both — from a live web page, with the `vos` CLI.
+You are producing a shippable product video from a live web page, with
+the `vos` CLI.
 Everything is data: you write a flow script, the CLI records and plans, you
 tune JSON, you re-render. **Never re-record to fix pacing or zooms — edit
 `doc.json` and render again.** Quality bar: `references/taste.md` — follow
@@ -49,7 +49,6 @@ failure / 3 no browser / 4 the recorder met a sign-in instead of the page
 |---|---|---|---|
 | **Landing-page clip** (hero/section embed) | 2560×1440 (footage-native 2K) | webm → VP9 re-encode + poster | silent loop; see `references/destinations.md` |
 | **Launch video** (PH, social, store promo) | 2560×1440 or 1280×720 | mp4 (`--format mp4`, needs system Chrome) | music bed via `doc.audio` |
-| **Launch-kit stills** (store screenshots, tiles, OG) | sized to the asset | `frames --frame <t> --size WxH` PNGs from the same take | one take → every asset |
 | **Quick demo** (issue, PR, chat) | 1280×720 | webm, defaults | speed over polish; drafts acceptable here ONLY |
 
 Per-channel dimensions and byte budgets: `references/destinations.md`.
@@ -204,14 +203,14 @@ Per-channel dimensions and byte budgets: `references/destinations.md`.
 
 7. **Package for the destination**: `references/destinations.md`.
 
-## Launch kit (one take → every store asset)
+## Launch kit (one take → every cut of a release)
 
 The `launch-kit` skill owns this destination: it establishes the release,
-loops every channel against `channel-specs.json`, verifies each artifact
-against its spec, writes the `kit.json` manifest and pushes labelled for
-the release. The mechanics it loops are this skill's:
-`vos frames take --frame <t> --size WxH` per still spec, the mp4 render for
-video. Follow it when the ask is a release, not one video.
+plans the cut's motion, delivers every video channel against
+`channel-specs.json` (the main demo, the X feed cut, the vertical cut, the
+README loop), verifies each cut, writes the `kit.json` manifest and pushes
+labelled for the release. The recording it cuts is this skill's. Follow it
+when the ask is a release, not one video.
 
 ## Gotchas
 
@@ -254,8 +253,6 @@ video. Follow it when the ask is a release, not one video.
 - A first frame or a last frame that cannot stand alone as a poster.
 - A frozen opening: a static landing page records as freeze-then-bang;
   trim it or speed it, the story opens near the money shot.
-- A store screenshot cut from the composed frame: real UX is the page, full
-  bleed (`deliver` does this; a text-heavy page also wants a store-size take).
 - A sign-in in `steps`: every step there is in the footage and a typed
   value is logged. It goes in `setup`, with the password from the shell
   (`references/sessions.md`).
@@ -264,5 +261,3 @@ video. Follow it when the ask is a release, not one video.
   `EXPOSED` list, and `mask` what is left.
 - A `mask` with `as: "text"` over product copy or a number: that is no
   longer a recording of the product.
-- A `.png` name on `vos still`: it writes WebP; convert, and `vos validate
-  <kit.json>` reads the bytes.

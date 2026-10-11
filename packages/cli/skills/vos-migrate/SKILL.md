@@ -99,6 +99,6 @@ next one with `vos record` and the camera plans itself.**
 - Old edits, camera bubbles and captions are baked pixels.
 - The migration re-encodes once (VP9); a badly compressed source stays
   badly compressed — migrating does not restore quality.
-- A spec-size deliverable ladder (store stills, posters) works from the
-  migrated take exactly as from a native one — the `launch-kit` skill
-  takes over when the ask is a release.
+- A release's set of cuts (the demo, the social cuts, the README loop)
+  works from the migrated take exactly as from a native one: the
+  `launch-kit` skill takes over when the ask is a release.
