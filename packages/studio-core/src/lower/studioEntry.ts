@@ -348,26 +348,32 @@ export const STUDIO_SETUP = `async (ctx) => {
       fontCache.set(oc.asset.url, font)
     } catch (e) { console.warn('[voila] typeface failed to load', oc.asset.url, e) }
   }
-  // Audio clips (music/SFX): pre-decode into a shared cache so first play is
-  // instant. The AudioContext starts suspended (autoplay policy) — onFrame
-  // resumes it on the first play. Failures degrade to a silent clip.
+  // Audio clips (music/SFX): start decoding into the shared cache now, but
+  // never hold the first frame for it. Playback starts on a press, so the
+  // decodes almost always land first; one that lands later clears the
+  // scheduler's signature and the next playing frame schedules it at the
+  // right offset (the onFrame path does the same for clips added later).
+  // Exports never read this cache: they mix offline. The AudioContext starts
+  // suspended (autoplay policy); onFrame resumes it on the first play.
+  // Failures degrade to a silent clip.
   const clips = ctx.data.audio || []
   if (clips.length && window.AudioContext) {
     const actx = ns.audioCtx || (ns.audioCtx = new window.AudioContext())
     const bufs = ns.audioBuffers || (ns.audioBuffers = new Map())
     const pend = ns.audioPending || (ns.audioPending = new Set())
-    await Promise.all(clips.map(async (c) => {
-      if (bufs.has(c.key) || pend.has(c.key)) return
+    for (const c of clips) {
+      if (bufs.has(c.key) || pend.has(c.key)) continue
       pend.add(c.key)
-      try {
-        const res = await fetch(c.key)
-        bufs.set(c.key, await actx.decodeAudioData(await res.arrayBuffer()))
-      } catch (e) {
-        console.warn('[voila] audio decode failed', c.key, e)
-      } finally {
-        pend.delete(c.key)
-      }
-    }))
+      fetch(c.key)
+        .then((res) => res.arrayBuffer())
+        .then((ab) => actx.decodeAudioData(ab))
+        .then((b) => {
+          bufs.set(c.key, b)
+          if (ns.audioSched) ns.audioSched.sig = ''
+        })
+        .catch((e) => console.warn('[voila] audio decode failed', c.key, e))
+        .then(() => pend.delete(c.key))
+    }
   }
 }`
 

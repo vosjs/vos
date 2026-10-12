@@ -416,20 +416,25 @@ export function previewPages(
   let ready = false
   let playing = true
   const post = (msg) => frame.contentWindow && frame.contentWindow.postMessage(msg, '*')
-  const load = () => post({ type: 'LOAD', code, autoplay: true })
+  let loaded = false
+  const loadOnce = () => { if (loaded) return; loaded = true; post({ type: 'LOAD', code, autoplay: true }) }
   window.addEventListener('message', (e) => {
     const msg = e.data || {}
-    if (msg.type === 'BRIDGE_READY') load()
+    // LOAD goes exactly once: every LOAD tears the running program down and
+    // starts it again, so repeating one restarts a program whose setup is
+    // still downloading, and it never finishes.
+    if (msg.type === 'BRIDGE_READY' || msg.type === 'STACK_STATE') loadOnce()
     if (msg.type === 'READY') { ready = true; hud.textContent = '0.0 / ' + msg.duration.toFixed(1) + 's — click to pause' }
     if (msg.type === 'UPDATE') hud.textContent = msg.time.toFixed(1) + ' / ' + msg.duration.toFixed(1) + 's — click to ' + (playing ? 'pause' : 'play')
     if (msg.type === 'ERROR') hud.textContent = 'error: ' + msg.error
   })
-  // Belt and braces: if BRIDGE_READY raced the host, retry LOAD until READY.
+  // If BRIDGE_READY raced the host's listener, find the bridge with a
+  // read-only probe (it answers STACK_STATE) rather than by repeating LOAD.
   let tries = 0
   const iv = setInterval(() => {
-    if (ready || tries++ > 20) return clearInterval(iv)
-    load()
-  }, 400)
+    if (loaded || tries++ > 40) return clearInterval(iv)
+    post({ type: 'GET_STACK_STATE', requestId: 0 })
+  }, 250)
   // The iframe swallows clicks — capture them on an overlay above it.
   document.getElementById('cover').addEventListener('click', () => {
     if (!ready) return
