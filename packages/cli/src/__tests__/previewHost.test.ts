@@ -21,16 +21,28 @@ function runHost() {
   const sent: { type: string }[] = []
   let onMessage: (e: { data: unknown }) => void = () => {}
   const el = () => ({ textContent: '', addEventListener: () => {} })
-  const frame = { contentWindow: { postMessage: (m: { type: string }) => sent.push(m) } }
-  const document = { getElementById: (id: string) => (id === 'p' ? frame : el()) }
-  const window = { addEventListener: (_t: string, fn: typeof onMessage) => { onMessage = fn } }
+  const frame = {
+    contentWindow: { postMessage: (m: { type: string }) => sent.push(m) },
+  }
+  const document = {
+    getElementById: (id: string) => (id === 'p' ? frame : el()),
+  }
+  const window = {
+    addEventListener: (_t: string, fn: typeof onMessage) => {
+      onMessage = fn
+    },
+  }
   new Function('document', 'window', script)(document, window)
   return { sent, fromPlayer: (data: unknown) => onMessage({ data }) }
 }
 
 describe('the preview host loads a program once', () => {
-  beforeEach(() => { vi.useFakeTimers() })
-  afterEach(() => { vi.useRealTimers() })
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
 
   it('sends one LOAD on BRIDGE_READY, however long the program takes to be ready', () => {
     const { sent, fromPlayer } = runHost()
