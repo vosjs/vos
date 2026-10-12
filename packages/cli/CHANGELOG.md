@@ -1,5 +1,14 @@
 # @vosjs/cli
 
+## 0.69.1
+
+### Patch Changes
+
+- a4ca66b: The actions schema's `caption` description no longer mentions stills: a caption lands on the cuts that take words, never on a loop.
+- add6e66: `vos preview` sends LOAD once. It used to repeat LOAD every 400 ms until the program reported ready, and every LOAD restarts the program, so one whose setup took longer (models, fonts or sound downloading) was restarted until it gave up. A missed BRIDGE_READY is now found with a read-only probe.
+- Updated dependencies [add6e66]
+  - @vosjs/studio-core@0.41.1
+
 ## 0.69.0
 
 ### Minor Changes

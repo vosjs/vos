@@ -1,5 +1,11 @@
 # @vosjs/studio-core
 
+## 0.41.1
+
+### Patch Changes
+
+- add6e66: A document with sound no longer holds its first frame until every clip has downloaded and decoded. The studio entry's setup starts the decodes and returns; a clip that lands after playback has begun is scheduled on the next playing frame at the right offset. Exports are unaffected: they mix offline.
+
 ## 0.41.0
 
 ### Minor Changes
