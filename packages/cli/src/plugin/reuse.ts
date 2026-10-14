@@ -42,6 +42,8 @@ import type {
 const MIN_SPAN = 0.15
 /** A span starting this long after a step's end still belongs to it. */
 const AFTER_STEP = 1
+/** A layer is about the press before it for longer: a callout lands a beat after. */
+const LAYER_AFTER_STEP = 5
 /** Slack around a step's window, seconds. */
 const WINDOW_SLACK = 0.05
 /** An unpinned layer whose step moved less than this is left unnamed. */
@@ -106,6 +108,7 @@ const stepName = (s: StepSpan): string => String(s.id ?? s.step)
 export function stepUnder(
   t: number,
   steps: readonly StepSpan[],
+  after = AFTER_STEP,
 ): StepSpan | null {
   const gestures = steps.filter((s) => s.do !== 'wait' && !s.skipped)
   const holding = gestures.find(
@@ -113,7 +116,7 @@ export function stepUnder(
   )
   if (holding) return holding
   const before = gestures
-    .filter((s) => s.tEnd <= t && t - s.tEnd <= AFTER_STEP)
+    .filter((s) => s.tEnd <= t && t - s.tEnd <= after)
     .sort((a, b) => b.tEnd - a.tEnd)
   return before[0] ?? null
 }
@@ -517,7 +520,11 @@ export function retimeOverlays(
     }
     // Unpinned (or pinned to a rect): the output-time contract holds, and
     // a layer that sat over a step which moved is named.
-    const under = stepUnder(outputToSource(oldPieces, o.start), oldSteps)
+    const under = stepUnder(
+      outputToSource(oldPieces, o.start),
+      oldSteps,
+      LAYER_AFTER_STEP,
+    )
     if (!under) return o
     const now = matchStep(under, newSteps)
     if (!now) {

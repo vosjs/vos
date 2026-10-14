@@ -499,6 +499,15 @@ describe('re-record parity: a span follows the step it was made on', () => {
             pin: { step: 'copy' },
           },
           {
+            id: 'c-late',
+            kind: 'text',
+            preset: 'caption',
+            start: 8.9,
+            duration: 3,
+            text: 'A beat after the press',
+            transform: { x: 0.5, y: 0.9, scale: 1, rotation: 0 },
+          },
+          {
             id: 'c-loose',
             kind: 'text',
             preset: 'caption',
@@ -536,6 +545,11 @@ describe('re-record parity: a span follows the step it was made on', () => {
     const flag = report.flagged.find((f) => f.startsWith('overlay c-loose'))
     expect(flag).toMatch(/now plays at 13\.60s/)
     expect(flag).toMatch(/pin: \{ step: "copy" \}/)
+    // A callout 1.9 s after the press is still about it.
+    expect(out.find((o) => o.id === 'c-late')?.start).toBe(8.9)
+    expect(report.flagged.find((f) => f.startsWith('overlay c-late'))).toMatch(
+      /now plays at 14\.90s/,
+    )
     expect(report.anchored).toBe(1)
   })
 })
