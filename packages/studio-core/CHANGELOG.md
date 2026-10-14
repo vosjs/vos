@@ -1,5 +1,13 @@
 # @vosjs/studio-core
 
+## 0.42.0
+
+### Minor Changes
+
+- 3d476ab: The digest sees consequences. After every click and typing run, `vos digest` samples the frame at the step's end and a few beats after it and names the region of the page that answered as a `changed` moment: its `rect` is the changed region, its `focus` the centre, `seed` the click or typing moment it answers, `at` the sample that changed most, and `activity` the fraction of the frame that moved. A dialog opening, a 200 landing, a panel re-laying out and a card going dark become moments a cut can hold on and a zoom can frame; a change under 2% of the frame is no moment, and what moves on its own (an animated background) is discounted: a sample a beat before the press gives each cell its own drift, and only what moved past it counts. The pure half (`changedRegion`, `pickChange`) is exported from `@vosjs/studio-core`.
+- 5676482: The planners read the flow's own structure. On a scripted take, a `wait` step between the first and the last doing step, or a hover's dwell, in which the digest's activity measured nothing moving is proposed as a speed span at 2× (`speedParams.stillRate`; only with the activity witness, so a page loading behind a wait is never compressed, and never the opening or closing wait, the clip's establishing and resting beats), the presses inside one step (a click and the dialog it opened, a drag's presses) join one zoom while their targets share a window, and a park before the first step is never a dwell. `vos plan` and `vos digest` hand the planners `meta.steps`.
+- 391cd2d: The take carries its payload. Every recorded step keeps the page it left (`meta.steps[].url`, origin and path, never a query or a hash), and a step with `read: "<selector>"` in `actions.json` keeps that element's words once the step has settled (`meta.steps[].text`, trimmed, at most 2 KB; on a click, what the click opened), so a layer quotes the take instead of a second run of the flow. `vos digest` lists the script's steps (`steps`: each with its source and output windows through the cut, the page it left and the words it kept), and `vos validate actions.json` holds `read` to a selector.
+
 ## 0.41.2
 
 ### Patch Changes

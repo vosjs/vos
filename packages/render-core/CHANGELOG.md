@@ -1,5 +1,19 @@
 # @vosjs/render-core
 
+## 0.4.0
+
+### Minor Changes
+
+- 391cd2d: The take carries its payload. Every recorded step keeps the page it left (`meta.steps[].url`, origin and path, never a query or a hash), and a step with `read: "<selector>"` in `actions.json` keeps that element's words once the step has settled (`meta.steps[].text`, trimmed, at most 2 KB; on a click, what the click opened), so a layer quotes the take instead of a second run of the flow. `vos digest` lists the script's steps (`steps`: each with its source and output windows through the cut, the page it left and the words it kept), and `vos validate actions.json` holds `read` to a selector.
+- 9b2d2d7: Three things a form needs from the recorder. `type` takes `replace: true` (the field's value is selected first, so what is typed replaces it: a form that opens filled in, a search box holding the last query) and `at: "end" | "start"` (the caret goes there after the focusing click, before the first character, so a code editor line is typed at its end). A `press` step presses one named key (`Escape`, `Enter`, `Tab`, `Backspace`, `Delete`, the arrows, `Home`, `End`, `PageUp`, `PageDown`, `Space`; never a character), recorded as a typing ping where the pointer is, or on `selector` with no click, so an Escape closes what a click opened and an Enter submits what was typed without a second click ringing on the field. `vos validate actions.json` holds all three, and `vos actions script` says them in words. And `read` on a field (an input, a textarea, a select) keeps its VALUE, what was typed, which its textContent never carried.
+
+### Patch Changes
+
+- Updated dependencies [3d476ab]
+- Updated dependencies [5676482]
+- Updated dependencies [391cd2d]
+  - @vosjs/studio-core@0.42.0
+
 ## 0.3.28
 
 ### Patch Changes
