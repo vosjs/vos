@@ -54,6 +54,7 @@ import {
   uploadManifest,
 } from './assetManifest'
 import { lintDoc } from './validateDoc'
+import { writeScriptBeside } from './takeScript'
 import { landedLines, waitForLanded } from './landed'
 import type {
   AudioClip,
@@ -239,6 +240,11 @@ export async function cmdFetch(argv: string[]): Promise<number> {
       if (flags.media === true) {
         const media = await pullMedia({ origin, key }, out, hosted, r.log)
         await recordHostedMedia(out, vosId, media)
+        // The script that recorded the take comes home with its footage,
+        // so the take can be recorded again from this directory.
+        if (await writeScriptBeside(out, hosted)) {
+          r.log('  actions.json written from the document')
+        }
         mediaLine = media.downloaded.length
           ? ` + ${media.downloaded.map((m) => m.file).join(', ')}`
           : ''

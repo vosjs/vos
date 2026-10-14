@@ -25,6 +25,7 @@ import { basename, join } from 'node:path'
 import { lowerToComposition, migrateHostedDoc } from '@vosjs/studio-core'
 import { RECORDING_NAME, loadTake, takeMediaFile, writeJson } from './take'
 import { lintDoc } from './validateDoc'
+import { embedScript, writeScriptBeside } from './takeScript'
 import {
   docMediaRefs,
   fileSha256,
@@ -362,6 +363,7 @@ export async function pushTake(
   //    pipeline so the hosted program is exactly what renders locally.
   const docForPush: ProjectDoc = structuredClone(take.doc)
   docForPush.source.videoKey = assetUrl
+  embedScript(docForPush, dir)
   // The voice and the webcam ride the same content-addressed door as the
   // recording. They used to be dropped here as "local-only", which made
   // fetch-then-push lose them from the hosted take without a word a person
@@ -640,8 +642,12 @@ export async function pullTake(
   }
   await writeJson(join(dir, 'doc.json'), doc, true)
   // --media: the footage (and sidecars) come home beside the doc, so digest,
-  // frames and render work on this directory as on a local take.
+  // frames and render work on this directory as on a local take, and the
+  // script that recorded it is written back, so it can be recorded again.
   const media = flags.media ? await pullMedia(ctx, dir, doc, r.log) : undefined
+  if (flags.media && (await writeScriptBeside(dir, doc))) {
+    r.log('  actions.json written from the document')
+  }
 
   const versions = await api(ctx, `/vos/${vosId}/versions`)
   const headRow = (
@@ -703,6 +709,7 @@ export async function pushTakeClaimable(
   const state = readSyncState(dir)
   const hosted = state?.hostedMedia ?? {}
   const docForPush: ProjectDoc = structuredClone(take.doc)
+  embedScript(docForPush, dir)
   const refs = [
     ...(isTakeRelativeKey(docForPush.source.videoKey)
       ? [

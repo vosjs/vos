@@ -275,7 +275,7 @@ export function placeFreezes(
     acc += Math.max(0, p.out - p.in) / (p.rate ?? 1)
   }
   for (let i = 0; i < rated.length; i++) {
-    let piece = rated[i]
+    const piece = rated[i]
     const next = rated[i + 1]
     // The freezes on THIS piece's media whose moment it holds, in order: a
     // freeze inside it splits it; one at its very start goes before it (the
@@ -298,21 +298,26 @@ export function placeFreezes(
           (continues ? f.at < piece.out - 1e-9 : f.at <= piece.out + 1e-9),
       )
       .sort((a, b) => a.at - b.at)
+    const media = piece.media
+    let rest: Segment | null = piece
     for (const f of mine) {
-      if (f.at <= piece.in + 1e-9) {
-        freezePiece(f, piece.media)
-      } else if (f.at < piece.out - 1e-9) {
-        push({ ...piece, out: f.at })
-        freezePiece(f, piece.media)
-        piece = { ...piece, in: f.at }
+      if (!rest) {
+        // The piece is already pushed: a second freeze at its very end
+        // (two moments on one frame, a hold beside a freeze) goes after it.
+        freezePiece(f, media)
+      } else if (f.at <= rest.in + 1e-9) {
+        freezePiece(f, media)
+      } else if (f.at < rest.out - 1e-9) {
+        push({ ...rest, out: f.at })
+        freezePiece(f, media)
+        rest = { ...rest, in: f.at }
       } else {
-        const media = piece.media
-        push(piece)
-        piece = null as unknown as Segment
+        push(rest)
+        rest = null
         freezePiece(f, media)
       }
     }
-    if (piece) push(piece)
+    if (rest) push(rest)
   }
   return { pieces, marks }
 }

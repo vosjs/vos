@@ -90,6 +90,8 @@ vos record --actions actions.json --out take --strict   # footage replaced; the 
 vos plan take --reuse                                   # re-time that cut onto the new recording; what could not follow is named
 ```
 
+Every manual span follows the step it was made on (the gesture whose window held it, or the one just before it), keeping its offset exactly; a span whose step is missing or skipped in the new recording is dropped and named with what it framed, never re-timed to a place with nothing under it. A layer pinned to a step (`pin: { step }`) plays when that step plays in the new cut; a layer that is not pinned keeps its output second, and when the step under it moved the report names it with the step's new time and the pin to write. A take fetched from vos.so can be recorded again: the script rides the document and `vos fetch --media` writes it back as `actions.json`.
+
 **Already have a video?** A Cursor cloud agent's PR video, a Playwright run's `video.webm`, a Loom export: `vos ingest` makes it a take. The file becomes `recording.<container>` (stream-copied into a seekable container, or copied as it is), `meta.json` comes from the file's own dimensions and duration, and a trace recorded beside it becomes `cursor.json`, so the planner has clicks to zoom on.
 
 ```bash
@@ -208,7 +210,7 @@ take/
   frames/          raw screencast JPEGs, indexed by frames.json (kept for re-encode)
   cursor.json      the synthesized CursorTrack: exact coordinates, element rects
   meta.json        RecordingMeta (producer: "cli", per-step source extents)
-  actions.json     the script that produced it, with the resolved url
+  actions.json     the script that produced it, with the resolved url; pushed inside the document and written back by a fetch or pull with --media
   doc.json         ProjectDoc, the editable cut
   doc.prev.json    the previous cut, kept by a re-record for `vos plan --reuse`
   vos.json         hosted tracking (vos id + base version), written by push, fetch and pull
