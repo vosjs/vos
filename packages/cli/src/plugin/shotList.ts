@@ -80,7 +80,9 @@ function beatOf(step: ActionStep): string | null {
     case 'click':
       return `${named}Click ${sayStepTarget(step)}`
     case 'type':
-      return `${named}Type "${step.text}" into ${sayStepTarget(step)}`
+      return `${named}${step.replace ? 'Replace what is in' : 'Type'}${step.replace ? ` ${sayStepTarget(step)} with "${step.text}"` : ` "${step.text}" into ${sayStepTarget(step)}`}${step.at === 'end' ? ', at the end' : step.at === 'start' ? ', at the start' : ''}`
+    case 'press':
+      return `${named}Press ${step.key}${step.selector ? ` in ${sayStepTarget(step as { selector: string; id?: string })}` : ''}`
     case 'scroll':
       return `${named}Scroll ${step.dy < 0 ? 'up' : 'down'} ${step.dy < 0 ? 'a little' : 'a little'}`
     case 'move':

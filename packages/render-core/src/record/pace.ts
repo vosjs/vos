@@ -30,6 +30,7 @@ export const MOTION_TICK_MS = 16
 export const SETTLE_MS = {
   click: 150,
   type: 150,
+  press: 150,
   scroll: 200,
   drag: 80,
 } as const
@@ -225,6 +226,8 @@ export function askedMs(step: {
       return step.ms ?? 700
     case 'type':
       return (step.text?.length ?? 0) * (step.delayMs ?? 40)
+    case 'press':
+      return step.ms ?? SETTLE_MS.press
     default:
       return 0
   }

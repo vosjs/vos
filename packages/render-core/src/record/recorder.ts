@@ -411,8 +411,10 @@ export async function recordTake(
         .first()
         .waitFor({ state: 'visible', timeout: READ_WAIT_MS })
       // The probe is a string, the one evaluate shape every driver shares.
+      // A field's words are its VALUE (what was typed), which textContent
+      // never carries; everything else keeps its textContent.
       const raw = await pg.evaluate<string>(
-        `(() => { const el = document.querySelector(${JSON.stringify(selector)}); return el && el.textContent ? el.textContent : '' })()`,
+        `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return ''; if ('value' in el && typeof el.value === 'string' && /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) return el.value; return el.textContent || '' })()`,
       )
       const words = raw.replace(/\s+/g, ' ').trim()
       return words ? words.slice(0, READ_MAX_CHARS) : null
@@ -561,6 +563,13 @@ export async function recordTake(
           // focus:false: the field is already focused and a second click
           // rings a click effect on empty space beside the text.
           if (step.focus !== false) await gesture(() => clickAt(rect))
+          // Where the caret stands before the first character: a click
+          // lands it where the pointer hit, and a code editor line is
+          // typed at its end. `replace` selects the value so the typing
+          // replaces it (a form that opens filled in).
+          if (step.at === 'end') await page.keyboard.press('End')
+          else if (step.at === 'start') await page.keyboard.press('Home')
+          if (step.replace) await page.keyboard.press('ControlOrMeta+a')
           // Typing-activity pings (TZ): one per ~350ms while characters land,
           // plus one at completion so the planner's hold starts at the true
           // typing end. When-and-where only — a ping never carries the text.
@@ -592,6 +601,38 @@ export async function recordTake(
           await gesture(() => sleep(settleMs(step)))
         } else
           skipped.push({ step: stepIdx, do: step.do, selector: step.selector })
+        break
+      }
+      case 'press': {
+        // One named key, recorded as a typing ping (when-and-where only,
+        // never the key) so the planner's typing session holds through a
+        // submitting Enter or an Escape that closes what a click opened.
+        // No click: the field is as the flow left it. With a selector the
+        // ping (and the step's rect) is that element's; without, the
+        // pointer's.
+        let rect: Rect | null = null
+        if (step.selector) {
+          rect = await boxOf(step.selector)
+          stepRect = rect
+          if (!rect) {
+            skipped.push({
+              step: stepIdx,
+              do: step.do,
+              selector: step.selector,
+            })
+            break
+          }
+        }
+        emit({
+          x: Math.round(rect ? rect.x + rect.w / 2 : cur.x),
+          y: Math.round(rect ? rect.y + rect.h / 2 : cur.y),
+          type: 'key',
+          ...(rect ? { rect } : {}),
+        })
+        await page.keyboard.press(step.key)
+        log(`press ${step.key}`)
+        const sinceChange = await gesture(() => waitSettled())
+        await sleep(holdLeftMs(settleMs(step), sinceChange))
         break
       }
       case 'scroll': {

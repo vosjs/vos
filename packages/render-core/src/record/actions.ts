@@ -51,9 +51,27 @@ export type ActionStep = (
       text: string
       delayMs?: number
       focus?: boolean
+      /**
+       * Select the field's value before typing, so what is typed REPLACES
+       * it (a form that opens filled in, a search box with the last query).
+       */
+      replace?: boolean
+      /**
+       * Where the caret goes after the focusing click, before the first
+       * character: `end` or `start` of the field (a code editor line is
+       * typed at its end; a click lands the caret where the pointer hit).
+       */
+      at?: 'end' | 'start'
       /** the settle after the last character (default 150) */
       ms?: number
     }
+  /**
+   * One named key, recorded as a typing ping where the pointer is (or on
+   * `selector` when given, with no click): Escape closes what a click
+   * opened, Enter submits what was typed, Tab moves on, an arrow nudges.
+   * Never a character: words are typed with `type`.
+   */
+  | { do: 'press'; key: PressKey; selector?: string; ms?: number }
   /** `ms` is the settle after the scroll lands (default 200). */
   | { do: 'scroll'; dy: number; ms?: number }
   | { do: 'move'; x: number; y: number }
@@ -100,10 +118,30 @@ const VERBS = new Set([
   'hover',
   'click',
   'type',
+  'press',
   'scroll',
   'move',
   'drag',
 ])
+
+/** The keys a `press` step may name: navigation and control, never a character. */
+export const PRESS_KEYS = [
+  'Escape',
+  'Enter',
+  'Tab',
+  'Backspace',
+  'Delete',
+  'ArrowUp',
+  'ArrowDown',
+  'ArrowLeft',
+  'ArrowRight',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+  'Space',
+] as const
+export type PressKey = (typeof PRESS_KEYS)[number]
 
 /** Structural validation with actionable messages. Returns [] when valid. */
 export function validateActions(value: unknown): string[] {
@@ -190,6 +228,30 @@ export function validateActions(value: unknown): string[] {
       typeof s.focus !== 'boolean'
     )
       errors.push(`${at}: type focus must be true or false`)
+    if (
+      s.do === 'type' &&
+      s.replace !== undefined &&
+      typeof s.replace !== 'boolean'
+    )
+      errors.push(`${at}: type replace must be true or false`)
+    if (
+      s.do === 'type' &&
+      s.at !== undefined &&
+      s.at !== 'end' &&
+      s.at !== 'start'
+    )
+      errors.push(`${at}: type at must be "end" or "start"`)
+    if (s.do === 'press') {
+      if (
+        typeof s.key !== 'string' ||
+        !(PRESS_KEYS as readonly string[]).includes(s.key)
+      )
+        errors.push(
+          `${at}: press needs a key, one of ${PRESS_KEYS.join(', ')}; words are typed with type`,
+        )
+      if (s.selector !== undefined && typeof s.selector !== 'string')
+        errors.push(`${at}: press selector must be a string`)
+    }
     if (s.do === 'scroll' && typeof s.dy !== 'number')
       errors.push(`${at}: scroll needs dy`)
     if (

@@ -122,4 +122,31 @@ describe('validation is the same words on both hosts', () => {
       }),
     ).toEqual(['steps[0]: read must be a selector'])
   })
+
+  it('takes a press of a named key, and a type that replaces or lands the caret', () => {
+    expect(
+      validateActions({
+        steps: [
+          { do: 'type', selector: '#q', text: 'juniper', replace: true },
+          { do: 'type', selector: '.cm-line', text: ';', at: 'end' },
+          { do: 'press', key: 'Enter' },
+          { do: 'press', key: 'Escape', selector: '[role=dialog]', ms: 300 },
+        ],
+      }),
+    ).toEqual([])
+    // A character is not a key: words are typed with type.
+    expect(
+      validateActions({ steps: [{ do: 'press', key: 'a' }] })[0],
+    ).toContain('words are typed with type')
+    expect(
+      validateActions({
+        steps: [{ do: 'type', selector: '#q', text: 'x', at: 'middle' }],
+      }),
+    ).toEqual(['steps[0]: type at must be "end" or "start"'])
+    expect(
+      validateActions({
+        steps: [{ do: 'type', selector: '#q', text: 'x', replace: 'yes' }],
+      }),
+    ).toEqual(['steps[0]: type replace must be true or false'])
+  })
 })
