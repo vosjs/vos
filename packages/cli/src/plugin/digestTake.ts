@@ -16,15 +16,21 @@ import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import {
+  CHANGE_GRID,
+  CHANGE_LEAD,
+  CHANGE_OFFSETS,
   DIGEST_CROP_MAX,
   DIGEST_FULL_MAX,
   DIGEST_VERSION,
   MOTION_DELTA,
+  ambientDrift,
   buildDigest,
+  changedRegion,
   cropBox,
   frameGeometry,
   momentsFromDoc,
   outputDurationOf,
+  pickChange,
   planForDigest,
   sceneChanges,
 } from '@vosjs/studio-core'
@@ -80,6 +86,11 @@ async function binsInPage(opts: {
   source: FrameSource
   durationS: number
   delta: number
+  /** The clicks and typing runs: luma grids at each seed and a few beats after. */
+  seeds: { id: string; t: number }[]
+  grid: { w: number; h: number }
+  offsets: number[]
+  lead: number
 }) {
   const w = window as unknown as Record<string, any>
   try {
@@ -116,7 +127,45 @@ async function binsInPage(opts: {
       prev = luma
       w.__progress = (i + 1) / n
     }
-    w.__done = { ok: true, bins, width: size.width, height: size.height }
+    // The consequences: at each seed and a few beats after it, the frame
+    // as a luma grid, coarse enough that a cursor is one cell. Node finds
+    // what changed; the page only looks.
+    const g = document.createElement('canvas')
+    g.width = opts.grid.w
+    g.height = opts.grid.h
+    const gctx = g.getContext('2d', { willReadFrequently: true })!
+    const gridAt = async (t: number): Promise<number[]> => {
+      const el = await getFrame(Math.max(0, Math.min(opts.durationS, t)))
+      gctx.drawImage(el, 0, 0, opts.grid.w, opts.grid.h)
+      const d = gctx.getImageData(0, 0, opts.grid.w, opts.grid.h).data
+      const out = new Array<number>(opts.grid.w * opts.grid.h)
+      for (let p = 0; p < out.length; p++) {
+        const o = p * 4
+        out[p] = (d[o] * 299 + d[o + 1] * 587 + d[o + 2] * 114) / 1000
+      }
+      return out
+    }
+    const changes: { id: string; samples: { dt: number; luma: number[] }[] }[] =
+      []
+    for (const seed of opts.seeds) {
+      const samples: { dt: number; luma: number[] }[] = []
+      // A beat before the seed: what moves on its own is masked out.
+      if (seed.t - opts.lead >= 0)
+        samples.push({ dt: -opts.lead, luma: await gridAt(seed.t - opts.lead) })
+      samples.push({ dt: 0, luma: await gridAt(seed.t) })
+      for (const dt of opts.offsets) {
+        if (seed.t + dt > opts.durationS) break
+        samples.push({ dt, luma: await gridAt(seed.t + dt) })
+      }
+      changes.push({ id: seed.id, samples })
+    }
+    w.__done = {
+      ok: true,
+      bins,
+      width: size.width,
+      height: size.height,
+      changes,
+    }
   } catch (e) {
     w.__error = String((e instanceof Error && e.stack) || e)
   }
@@ -377,25 +426,76 @@ export async function digestTake(
       await page.goto(`${server.base}/digest.html`)
       await page.waitForFunction('window.__pageReady__ === true')
 
-      // Pass 1: bins.
+      // Pass 1: bins, and the frames around every click and typing run,
+      // so the digest can say what each did to the page.
+      const seeds = momentsFromDoc(doc, plan, {})
+        .filter(
+          (m) => m.at !== null && (m.kind === 'click' || m.kind === 'typing'),
+        )
+        .map((m) => ({
+          id: m.id,
+          t: m.kind === 'click' ? (m.at as number) : m.source.out,
+        }))
       void page
-        .evaluate(binsInPage, { source, durationS: durS, delta: MOTION_DELTA })
+        .evaluate(binsInPage, {
+          source,
+          durationS: durS,
+          delta: MOTION_DELTA,
+          seeds,
+          grid: { ...CHANGE_GRID },
+          offsets: [...CHANGE_OFFSETS],
+          lead: CHANGE_LEAD,
+        })
         .catch(() => {})
       const b = await waitForPageDone(
         page,
         'digest bins',
         () => {},
-        60_000 + durS * 400,
+        60_000 + durS * 400 + seeds.length * 2_000,
       )
       bins = b.bins as number[]
       plan = planForDigest(doc, bins)
       frameW = b.width as number
       frameH = b.height as number
+      const sampled = (b.changes ?? []) as {
+        id: string
+        samples: { dt: number; luma: number[] }[]
+      }[]
+      const changes = seeds.flatMap((seed) => {
+        const row = sampled.find((c) => c.id === seed.id)
+        const at = row?.samples.find((smp) => smp.dt === 0)
+        const earlier = row?.samples.find((smp) => smp.dt < 0)
+        const after = row?.samples.filter((smp) => smp.dt > 0) ?? []
+        if (!row || !at || !after.length) return []
+        const before = { ...CHANGE_GRID, luma: at.luma }
+        const rate = earlier
+          ? ambientDrift(
+              { ...CHANGE_GRID, luma: earlier.luma },
+              before,
+              -earlier.dt,
+            )
+          : null
+        const w = pickChange(
+          { id: seed.id, at: seed.t },
+          after.map((smp) => ({
+            dt: smp.dt,
+            region: changedRegion(
+              before,
+              { ...CHANGE_GRID, luma: smp.luma },
+              MOTION_DELTA,
+              1,
+              rate ? { rate, dt: smp.dt } : null,
+            ),
+          })),
+        )
+        return w ? [w] : []
+      })
 
       moments = momentsFromDoc(doc, plan, {
         bins,
         scenes: sceneChanges(bins),
         transcript,
+        changes,
       })
 
       // Pass 2: frames.
