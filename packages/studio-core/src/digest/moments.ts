@@ -27,6 +27,7 @@ import { planAutoTilt } from '../planner/autoTilt'
 import { resolveZoomStyle } from '../zoomStyle'
 import { ratedSegments, spanOutputExtent } from '../lower/lowerToComposition'
 import type { Click } from '../planner/autoZoom'
+import type { ChangeWitness } from './changes'
 import type { ProjectDoc, SpeedSpan, TiltSpan, ZoomSpan } from '../types'
 
 export type MomentKind =
@@ -34,6 +35,8 @@ export type MomentKind =
   | 'tail'
   | 'click'
   | 'typing'
+  /** What a click or a typing run DID: the region of the page that answered it. */
+  | 'changed'
   | 'scroll'
   | 'dwell'
   | 'idle'
@@ -76,6 +79,8 @@ export interface Moment {
   proposed: { zoom?: string; speed?: string; tilt?: string }
   /** Transcript text over the window, when a transcript was merged. */
   said: string | null
+  /** A `changed` moment: the click or typing moment it answers. */
+  seed?: string
 }
 
 export interface DigestPlan {
@@ -99,6 +104,11 @@ export interface MomentsOptions {
   transcript?: readonly TranscriptSegment[] | null
   /** Idle threshold (seconds); defaults to the speed planner's. */
   idleMin?: number
+  /**
+   * What the clicks and typing runs did to the page, measured by the
+   * digest's decode pass (see changes.ts): each becomes a `changed` moment.
+   */
+  changes?: readonly ChangeWitness[]
 }
 
 /**
@@ -141,6 +151,9 @@ interface Draft {
   clicks?: number
   surface?: boolean
   pings?: number
+  /** A `changed` draft: the source second its seed ended at. */
+  seedAt?: number
+  fraction?: number
 }
 
 export function momentsFromDoc(
@@ -285,15 +298,33 @@ export function momentsFromDoc(
     })
   }
 
+  // What a click or a typing run did: the region that answered it, held
+  // from the press to the sample that changed most, framed at that sample.
+  for (const c of opts.changes ?? []) {
+    if (!(c.at >= 0 && c.at < dur)) continue
+    const peak = Math.min(dur, Math.max(c.at, c.peakAt))
+    drafts.push({
+      kind: 'changed',
+      in: c.at,
+      out: peak,
+      at: peak,
+      focus: { cx: c.rect.x + c.rect.w / 2, cy: c.rect.y + c.rect.h / 2 },
+      rect: c.rect,
+      seedAt: c.at,
+      fraction: c.fraction,
+    })
+  }
+
   const order: Record<MomentKind, number> = {
     head: 0,
     click: 1,
     typing: 2,
-    scroll: 3,
-    dwell: 4,
-    scene: 5,
-    idle: 6,
-    tail: 7,
+    changed: 3,
+    scroll: 4,
+    dwell: 5,
+    scene: 6,
+    idle: 7,
+    tail: 8,
   }
   drafts.sort((a, b) => a.in - b.in || order[a.kind] - order[b.kind])
 
@@ -306,8 +337,21 @@ export function momentsFromDoc(
   const covers = (s: { in: number; out: number }, d: Draft) =>
     d.in === d.out ? s.in <= d.in && d.in < s.out : s.in < d.out && s.out > d.in
 
+  const ids = drafts.map((_, i) => `m${String(i + 1).padStart(2, '0')}`)
+  // A change answers the click or typing run that ended where it began.
+  const seedOf = (d: Draft): string | undefined => {
+    if (d.kind !== 'changed' || d.seedAt === undefined) return undefined
+    const j = drafts.findIndex(
+      (x) =>
+        (x.kind === 'click' && x.at === d.seedAt) ||
+        (x.kind === 'typing' && x.out === d.seedAt),
+    )
+    return j >= 0 ? ids[j] : undefined
+  }
+
   return drafts.map((d, i) => {
     const output = outputOf(d.in, d.out)
+    const seed = seedOf(d)
     const outAt = d.at === null ? null : outputOf(d.at, d.at)
     const proposed: Moment['proposed'] = {}
     const z = plan.zoom.find((s) => covers(s, d))
@@ -317,7 +361,7 @@ export function momentsFromDoc(
     const tl = plan.tilt.find((s) => covers(s, d))
     if (tl) proposed.tilt = tl.id
     return {
-      id: `m${String(i + 1).padStart(2, '0')}`,
+      id: ids[i],
       kind: d.kind,
       source: { in: round(d.in), out: round(d.out) },
       output: output
@@ -337,9 +381,13 @@ export function momentsFromDoc(
       ...(d.clicks !== undefined ? { clicks: d.clicks } : {}),
       ...(d.surface ? { surface: true } : {}),
       ...(d.pings !== undefined ? { pings: d.pings } : {}),
-      activity: activityOf(opts.bins, d),
+      activity:
+        d.kind === 'changed' && d.fraction !== undefined
+          ? round(d.fraction)
+          : activityOf(opts.bins, d),
       proposed,
       said: saidOver(opts.transcript, d),
+      ...(seed ? { seed } : {}),
     }
   })
 }
