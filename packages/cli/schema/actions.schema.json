@@ -122,6 +122,11 @@
                 "type": "string",
                 "maxLength": 80,
                 "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
+              },
+              "read": {
+                "type": "string",
+                "minLength": 1,
+                "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
               }
             }
           },
@@ -151,6 +156,11 @@
                 "type": "string",
                 "maxLength": 80,
                 "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
+              },
+              "read": {
+                "type": "string",
+                "minLength": 1,
+                "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
               }
             }
           },
@@ -179,6 +189,11 @@
                 "type": "string",
                 "maxLength": 80,
                 "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
+              },
+              "read": {
+                "type": "string",
+                "minLength": 1,
+                "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
               }
             }
           },
@@ -221,6 +236,11 @@
                 "type": "string",
                 "maxLength": 80,
                 "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
+              },
+              "read": {
+                "type": "string",
+                "minLength": 1,
+                "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
               }
             }
           },
@@ -249,6 +269,11 @@
                 "type": "string",
                 "maxLength": 80,
                 "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
+              },
+              "read": {
+                "type": "string",
+                "minLength": 1,
+                "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
               }
             }
           },
@@ -277,6 +302,11 @@
                 "type": "string",
                 "maxLength": 80,
                 "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
+              },
+              "read": {
+                "type": "string",
+                "minLength": 1,
+                "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
               }
             }
           },
@@ -322,6 +352,11 @@
                 "type": "string",
                 "maxLength": 80,
                 "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
+              },
+              "read": {
+                "type": "string",
+                "minLength": 1,
+                "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
               }
             }
           }

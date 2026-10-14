@@ -51,6 +51,21 @@ import { WALL_PROBE } from './wall'
 import { EXPOSURE_PROBE, ExposureLog, maskInitScript } from './exposure'
 import { SetupError, runSetup } from './setup'
 import type { ActionsFile } from './actions'
+
+/** How long a `read` waits for its element after the step settled. */
+const READ_WAIT_MS = 1500
+/** The most a step's `read` keeps: a payload, never a page. */
+const READ_MAX_CHARS = 2048
+
+/** A page URL as a take keeps it: origin and path, never a query or a hash. */
+export function publicUrl(u: string): string {
+  try {
+    const x = new URL(u)
+    return `${x.origin}${x.pathname}`
+  } catch {
+    return ''
+  }
+}
 import type { Arrival, WallVerdict } from './wall'
 
 export interface FrameRec {
@@ -381,6 +396,30 @@ export async function recordTake(
     )
   }
 
+  /**
+   * The words under a selector once a step has settled: trimmed,
+   * whitespace collapsed, bounded. Null when nothing matches in time, which
+   * the step line says; a missing payload never fails a take.
+   */
+  const readText = async (
+    pg: typeof page,
+    selector: string,
+  ): Promise<string | null> => {
+    try {
+      await pg
+        .locator(selector)
+        .first()
+        .waitFor({ state: 'visible', timeout: READ_WAIT_MS })
+      // The probe is a string, the one evaluate shape every driver shares.
+      const raw = await pg.evaluate<string>(
+        `(() => { const el = document.querySelector(${JSON.stringify(selector)}); return el && el.textContent ? el.textContent : '' })()`,
+      )
+      const words = raw.replace(/\s+/g, ' ').trim()
+      return words ? words.slice(0, READ_MAX_CHARS) : null
+    } catch {
+      return null
+    }
+  }
   const boxOf = async (selector: string): Promise<Rect | null> => {
     const loc = page.locator(selector).first()
     try {
@@ -655,7 +694,15 @@ export async function recordTake(
         break
       }
     }
-    const stepInfo = step as { id?: string; selector?: string }
+    const stepInfo = step as { id?: string; selector?: string; read?: string }
+    // The take carries its payload: the page the step left (origin and
+    // path, never a query or a hash) and, when the step named a `read`,
+    // that element's words once the step has settled, so a layer quotes
+    // the take instead of a replay of it.
+    const urlAfter = publicUrl(page.url())
+    const text = stepInfo.read ? await readText(page, stepInfo.read) : null
+    if (stepInfo.read && text === null)
+      log(`   (read ${stepInfo.read}: nothing there after the step)`)
     stepSpans.push({
       step: stepIdx,
       ...(stepInfo.id ? { id: stepInfo.id } : {}),
@@ -665,6 +712,8 @@ export async function recordTake(
       tEnd: +(now() / 1000).toFixed(3),
       ...(skipped.length > skippedBefore ? { skipped: true } : {}),
       ...(page.url() !== urlBefore ? { navigated: true } : {}),
+      ...(urlAfter ? { url: urlAfter } : {}),
+      ...(text !== null ? { text } : {}),
       ...(stepRect
         ? {
             rect: {

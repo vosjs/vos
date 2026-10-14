@@ -7,6 +7,7 @@
  * a frameless digest.
  */
 import { docOutputDuration } from '../audioBeds'
+import { ratedSegments, spanOutputExtent } from '../lower/lowerToComposition'
 import { pickStyle } from './style'
 import type { ProjectDoc, RecordingMeta } from '../types'
 import type { DigestPlan, Moment, TranscriptSegment } from './moments'
@@ -52,6 +53,28 @@ export interface DigestTakeFacts {
   masks: NonNullable<RecordingMeta['masks']>
 }
 
+/**
+ * One script step as the digest tells it: when it ran in the footage and
+ * in the cut, the page it left and the words its `read` kept, so an agent
+ * places a layer by the table and quotes the take by the text.
+ */
+export interface DigestStep {
+  step: number
+  id: string | null
+  do: string
+  selector: string | null
+  /** Footage seconds the step occupied. */
+  source: { in: number; out: number }
+  /** The same window in the cut, null when trimmed away. */
+  output: { in: number; out: number } | null
+  skipped: boolean
+  navigated: boolean
+  /** The page after the step, origin and path; null on a human recording. */
+  url: string | null
+  /** The words the step's `read` kept, or null. */
+  text: string | null
+}
+
 export interface Digest {
   digestVersion: number
   take: DigestTakeFacts
@@ -66,6 +89,8 @@ export interface Digest {
     crop: string | null
     box: PxRect | null
   })[]
+  /** The script's steps (a CLI take; empty for a human recording). */
+  steps: DigestStep[]
   activity: number[] | null
   plan: DigestPlan
   doc: {
@@ -144,6 +169,7 @@ export function buildDigest(input: BuildDigestInput): Digest {
       activity: 'fraction of pixels that changed, per SOURCE second',
     },
     moments: withFiles,
+    steps: digestSteps(doc),
     activity: input.bins,
     plan: input.plan,
     doc: {
@@ -168,6 +194,28 @@ export function buildDigest(input: BuildDigestInput): Digest {
       tokensEstimateClaude: Math.round(tokens),
     },
   }
+}
+
+/** The script's steps with their output windows through the cut. */
+export function digestSteps(doc: ProjectDoc): DigestStep[] {
+  const steps = doc.source.meta.steps ?? []
+  if (!steps.length) return []
+  const rated = ratedSegments(doc)
+  return steps.map((s) => {
+    const out = spanOutputExtent(rated, s.tStart, s.tEnd)
+    return {
+      step: s.step,
+      id: s.id ?? null,
+      do: s.do,
+      selector: s.selector ?? null,
+      source: { in: round(s.tStart), out: round(s.tEnd) },
+      output: out ? { in: round(out.start), out: round(out.end) } : null,
+      skipped: s.skipped === true,
+      navigated: s.navigated === true,
+      url: s.url ?? null,
+      text: s.text ?? null,
+    }
+  })
 }
 
 /** OUTPUT seconds of a doc: its kept footage through the rate map. */
