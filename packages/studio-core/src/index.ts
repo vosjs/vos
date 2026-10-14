@@ -98,6 +98,21 @@ export {
 export type { Drag } from './planner/autoZoom'
 export type { SpeedParams } from './planner/autoSpeed'
 export { momentsFromDoc, planForDigest } from './digest/moments'
+export {
+  CHANGE_FLOOR,
+  CHANGE_GRID,
+  CHANGE_LEAD,
+  CHANGE_OFFSETS,
+  ambientDrift,
+  changedRegion,
+  pickChange,
+} from './digest/changes'
+export type {
+  ChangeSample,
+  ChangeWitness,
+  ChangedRegion,
+  LumaGrid,
+} from './digest/changes'
 export type {
   DigestPlan,
   Moment,
