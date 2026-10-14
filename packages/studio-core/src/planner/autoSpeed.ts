@@ -18,7 +18,7 @@
  * cursor track plans nothing).
  */
 import { clampSpeedRate } from '../types'
-import type { CursorEvent, SpeedSpan } from '../types'
+import type { CursorEvent, SpeedSpan, StepSpan } from '../types'
 
 export interface SpeedParams {
   /** Seconds of no input at all before a stretch counts as idle. */
@@ -33,6 +33,12 @@ export interface SpeedParams {
   scrollMin: number
   /** Rate applied to scroll runs. */
   scrollRate: number
+  /**
+   * Rate applied to a scripted `wait` or a hover's dwell in which nothing
+   * moved on screen: the flow's own pauses, read from the step timeline
+   * with the digest's activity as the witness.
+   */
+  stillRate: number
 }
 
 /** Conservative defaults: only stretches nobody wants to watch in real time. */
@@ -43,6 +49,7 @@ export const DEFAULT_SPEED_PARAMS: SpeedParams = {
   typingRate: 3,
   scrollMin: 2.5,
   scrollRate: 2,
+  stillRate: 2,
 }
 
 /** Max silence inside a typing session (mirrors the typing-zoom grouping scale). */
@@ -62,6 +69,14 @@ const MIN_SPAN = 1
  * without one (the studio's ingest) the gap still plans as idle.
  */
 export const PLAYBACK_ACTIVITY = 0.1
+/**
+ * A scripted pause (a `wait`, a hover's dwell) whose measured frame
+ * activity averages below this is STILL: nothing moved while the script
+ * waited, so the pause plays at the still rate. Needs the activity
+ * witness; without one the cursor track cannot tell a page loading from
+ * a page at rest, and no still span is proposed.
+ */
+export const STILL_ACTIVITY = 0.02
 
 interface Candidate {
   in: number
@@ -76,6 +91,12 @@ export function planAutoSpeed(
     params?: Partial<SpeedParams>
     /** Per-SOURCE-second motion bins (0..1) when a digest measured them. */
     activity?: readonly number[] | null
+    /**
+     * The step timeline of a scripted take (`meta.steps`): the flow's own
+     * pauses become still spans when the activity witness says nothing
+     * moved in them.
+     */
+    steps?: readonly StepSpan[] | null
   },
 ): SpeedSpan[] {
   const p = { ...DEFAULT_SPEED_PARAMS, ...opts.params }
@@ -101,7 +122,13 @@ export function planAutoSpeed(
     (start, last) => cands.push({ in: start, out: last, rate: p.scrollRate }),
   )
 
-  // 3. idle gaps — between ANY events, plus the head and the tail
+  // 3. the flow's own pauses: a `wait` step, or a hover's dwell, in which
+  //    the frame measured still. Only with the witness: a page loading
+  //    behind a wait is not a pause to compress.
+  for (const [a, b] of stillSteps(opts.steps, opts.activity)) {
+    if (b - a >= MIN_SPAN) cands.push({ in: a, out: b, rate: p.stillRate })
+  }
+  // 4. idle gaps — between ANY events, plus the head and the tail
   for (const [a, b] of idleGaps(evs, durS, p.idleMin)) {
     if (isPlayback(opts.activity, a, b)) continue
     const start = a + IDLE_PAD
@@ -177,6 +204,47 @@ export function idleGaps(
   }
   if (durationS - prev >= idleMin) gaps.push([prev, durationS])
   return gaps
+}
+
+/**
+ * The scripted pauses in which nothing moved, as [start, end] source
+ * seconds: every `wait` step between the first and the last doing step,
+ * and every `hover` step, whose mean activity is below STILL_ACTIVITY.
+ * Empty without steps or without the witness.
+ */
+export function stillSteps(
+  steps: readonly StepSpan[] | null | undefined,
+  activity: readonly number[] | null | undefined,
+): [number, number][] {
+  if (!steps?.length || !activity?.length) return []
+  // The flow's opening and closing waits are the clip's establishing and
+  // resting beats, where the page is seen before and after the doing:
+  // never compressed.
+  const live = steps.filter((st) => !st.skipped)
+  const doing = live.map((st) => st.do !== 'wait')
+  const first = doing.indexOf(true)
+  const last = doing.lastIndexOf(true)
+  const out: [number, number][] = []
+  for (const [i, st] of live.entries()) {
+    if (st.do !== 'wait' && st.do !== 'hover') continue
+    if (st.do === 'wait' && (first < 0 || i < first || i > last)) continue
+    if (meanActivity(activity, st.tStart, st.tEnd) >= STILL_ACTIVITY) continue
+    out.push([st.tStart, st.tEnd])
+  }
+  return out
+}
+
+function meanActivity(
+  activity: readonly number[],
+  a: number,
+  b: number,
+): number {
+  const lo = Math.max(0, Math.floor(a))
+  const hi = Math.min(activity.length, Math.ceil(b))
+  if (hi <= lo) return 0
+  let sum = 0
+  for (let i = lo; i < hi; i++) sum += activity[i]
+  return sum / (hi - lo)
 }
 
 /** Mean activity over [a, b) source seconds exceeds PLAYBACK_ACTIVITY. */

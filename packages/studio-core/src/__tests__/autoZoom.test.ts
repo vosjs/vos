@@ -169,6 +169,65 @@ describe('planAutoZoom', () => {
     expect(spans[0].level).toBeCloseTo(2.2, 2) // no rect → planner ceiling
   })
 
+  it('two presses in one step are one beat: they join past the gap while they fit', () => {
+    const btn = { x: 900, y: 500, w: 120, h: 80 }
+    const near = { x: 1000, y: 520, w: 120, h: 80 }
+    const track: CursorTrack = [
+      { t: 1000, x: 960, y: 540, type: 'down', rect: btn },
+      { t: 1080, x: 960, y: 540, type: 'up', rect: btn },
+      // 2.6 s later, past the glide gap, the dialog the click opened is
+      // pressed: the same step, one window.
+      { t: 3600, x: 1060, y: 560, type: 'down', rect: near },
+      { t: 3680, x: 1060, y: 560, type: 'up', rect: near },
+    ]
+    const opts = {
+      width: W,
+      height: H,
+      clusterGap: 1.5,
+      typingGap: 1.5,
+      typingZoom: true,
+      targetFill: 0.6,
+    }
+    expect(groupTrack(track, opts).clusters).toHaveLength(2)
+    const together = groupTrack(track, {
+      ...opts,
+      steps: [
+        {
+          step: 0,
+          id: 'open',
+          do: 'click',
+          selector: '#open',
+          tStart: 0.9,
+          tEnd: 4.0,
+        },
+      ],
+    })
+    expect(together.clusters).toHaveLength(1)
+    expect(together.clusters[0]).toHaveLength(2)
+  })
+
+  it('on a scripted take, a park before the first step is the cursor arriving, never a dwell', () => {
+    const track: CursorTrack = [
+      { t: 0, x: 10, y: 10, type: 'move' },
+      { t: 200, x: 120, y: 60, type: 'move' },
+      { t: 1400, x: 122, y: 61, type: 'move' },
+      { t: 1500, x: 900, y: 600, type: 'move' },
+      { t: 3800, x: 905, y: 602, type: 'move' },
+      { t: 3900, x: 300, y: 300, type: 'move' },
+    ]
+    const bare = planAutoZoom(track, { width: W, height: H, style: 'glide' })
+    expect(bare.filter((z) => z.id.startsWith('d'))).toHaveLength(2)
+    const scripted = planAutoZoom(track, {
+      width: W,
+      height: H,
+      style: 'glide',
+      steps: [{ step: 0, do: 'hover', selector: '#a', tStart: 1.5, tEnd: 4.1 }],
+    })
+    const dwells = scripted.filter((z) => z.id.startsWith('d'))
+    expect(dwells).toHaveLength(1)
+    expect(dwells[0].in).toBeGreaterThanOrEqual(1.4)
+  })
+
   it('never dwells on the opening run (the parked cursor before the first move)', () => {
     // A CLI take's synthetic cursor rests at the corner until the first
     // step; six of eight real takes opened on a corner zoom at the ceiling.

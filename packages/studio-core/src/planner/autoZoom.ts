@@ -18,7 +18,7 @@
  */
 import { clampZoomLevel } from '../types'
 import { resolveZoomStyle } from '../zoomStyle'
-import type { CursorTrack, Rect, ZoomSpan } from '../types'
+import type { CursorTrack, Rect, StepSpan, ZoomSpan } from '../types'
 import type { ZoomStyleName, ZoomStyleParams } from '../zoomStyle'
 
 /** Normalized step distance that ends a dwell run (OpenScreen's 0.02). */
@@ -182,6 +182,11 @@ export interface PlanOptions {
   typingHold?: number
   /** level floor for typing spans (a wide field still reads punchier). */
   typingMinLevel?: number
+  /**
+   * The step timeline of a scripted take (`meta.steps`): one zoom per step
+   * where its presses share a window, never one per press.
+   */
+  steps?: readonly StepSpan[] | null
 }
 
 /** One press (or ping) in seconds, with the target element when known. */
@@ -216,9 +221,24 @@ export function groupTrack(
      * Absent = the default style's.
      */
     minLevel?: number
+    /**
+     * The step timeline of a scripted take: presses inside one step's
+     * window are one beat (a click and the dialog it opened, a drag's
+     * presses) and join one cluster past the time gap, while their
+     * targets still share a window.
+     */
+    steps?: readonly StepSpan[] | null
   },
 ): { sessions: TypingSession[]; clusters: Click[][]; surfaces: Click[][] } {
   const { width, height, clusterGap, typingGap, typingZoom, targetFill } = opts
+  const stepOf = (t: number): StepSpan | null =>
+    opts.steps?.find(
+      (st) => st.do !== 'wait' && !st.skipped && st.tStart <= t && t <= st.tEnd,
+    ) ?? null
+  const sameStep = (a: Click, b: Click): boolean => {
+    const sa = stepOf(a.t)
+    return sa !== null && sa === stepOf(b.t)
+  }
   const minLevel = opts.minLevel ?? resolveZoomStyle().minLevel
   const clicks: Click[] = dedupePresses(
     track.filter((e) => e.type === 'down'),
@@ -271,7 +291,7 @@ export function groupTrack(
       const joins =
         last &&
         prev &&
-        c.t - prev.t <= clusterGap &&
+        (c.t - prev.t <= clusterGap || sameStep(prev, c)) &&
         (!spatial ||
           unionFitLevel(unionRect([...last, c]), width, height) >= minLevel)
       if (joins) last!.push(c)
@@ -403,6 +423,7 @@ export function planAutoZoom(
     typingZoom,
     targetFill,
     minLevel,
+    steps: options.steps,
   })
   const { sessions } = grouped
 
@@ -567,10 +588,14 @@ export function planAutoZoom(
 
   // Dwell augmentation: sustained cursor rests no click/typing/drag span
   // covers.
+  // On a scripted take, a park before the first step is the cursor
+  // arriving (the recorder parks it on the page's first target, often the
+  // logo, until the flow begins), not a thing being read.
+  const firstStep = options.steps?.find((st) => !st.skipped)?.tStart
   const dwells = dwellSpans(track, width, height, maxLevel, [
     ...spans,
     ...dragReserved,
-  ])
+  ]).filter((d) => firstStep === undefined || d.out > firstStep)
   return within([...spans, ...dwells]).sort((a, b) => a.in - b.in)
 }
 

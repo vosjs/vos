@@ -126,11 +126,13 @@ export function planForDigest(
     height: meta.height,
     style: doc.zoomStyle,
     params: doc.zoomParams,
+    steps: meta.steps,
   })
   const speed = planAutoSpeed(cursor, {
     durationMs: meta.durationMs,
     params: doc.speedParams,
     activity,
+    steps: meta.steps,
   })
   const style = resolveZoomStyle(doc.zoomStyle, doc.zoomParams)
   const intensity = doc.tiltStyle ?? style.tilt.intensity
@@ -196,6 +198,7 @@ export function momentsFromDoc(
       typingZoom: style.typingZoom,
       targetFill: style.targetFill,
       minLevel: style.minLevel,
+      steps: meta.steps,
     })
     const pressed = (c: Click[], surface: boolean) => {
       const f = clusterFocus(c, width, height)
