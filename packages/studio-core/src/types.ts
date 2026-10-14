@@ -318,6 +318,14 @@ export interface StepSpan {
    * (a pin then reads the presses inside the step's window).
    */
   rect?: Rect
+  /** The page the step left, origin and path only (never a query or a hash). */
+  url?: string
+  /**
+   * The words of the element the step's `read` named, once the step had
+   * settled: trimmed, whitespace collapsed, at most 2 KB. The take's own
+   * payload, which a layer quotes instead of replaying the flow.
+   */
+  text?: string
 }
 
 /** Everything the capture extension hands off to the studio. */

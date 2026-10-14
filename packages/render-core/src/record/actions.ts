@@ -84,6 +84,15 @@ export type ActionStep = (
    * `vos actions script` leads the beat with it.
    */
   caption?: string
+  /**
+   * A selector whose words the recorder keeps once the step has settled
+   * (`meta.steps[].text`: trimmed, whitespace collapsed, at most 2 KB), so
+   * a layer quotes the take instead of a replay: the URL a share button
+   * minted, the code a dialog printed, the status a request answered. On
+   * a click it reads after the click's settle, so what the click opened is
+   * what is read. Only what the flow names, never a secret it did not.
+   */
+  read?: string
 }
 
 const VERBS = new Set([
@@ -146,6 +155,8 @@ export function validateActions(value: unknown): string[] {
       return
     }
     const s = raw as Record<string, unknown>
+    if (s.read !== undefined && (typeof s.read !== 'string' || !s.read.trim()))
+      errors.push(`${at}: read must be a selector`)
     if (typeof s.do !== 'string' || !VERBS.has(s.do)) {
       errors.push(`${at}: "do" must be one of ${[...VERBS].join(', ')}`)
       return

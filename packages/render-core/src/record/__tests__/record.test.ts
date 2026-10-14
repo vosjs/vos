@@ -110,5 +110,16 @@ describe('validation is the same words on both hosts', () => {
       ])[0],
     ).toContain('committed and pushed')
     expect(validateActions({ steps: [{ do: 'wait', ms: 100 }] })).toEqual([])
+    // A step's `read` is a selector, and the take keeps that element's words.
+    expect(
+      validateActions({
+        steps: [{ do: 'click', selector: '#share', read: '.share-url' }],
+      }),
+    ).toEqual([])
+    expect(
+      validateActions({
+        steps: [{ do: 'click', selector: '#share', read: '' }],
+      }),
+    ).toEqual(['steps[0]: read must be a selector'])
   })
 })
