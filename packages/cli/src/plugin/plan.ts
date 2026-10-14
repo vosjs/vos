@@ -33,7 +33,7 @@ import {
   migrateMotion,
 } from '@vosjs/studio-core'
 import { loadTake, writeJson } from './take'
-import { retimeCut } from './reuse'
+import { retimeCut, retimeOverlays } from './reuse'
 import { proposeMotion } from './motionPlan'
 import type { MotionProposalInput, ReleaseWords } from './motionPlan'
 import type { ReuseReport } from './reuse'
@@ -292,8 +292,13 @@ export async function planTake(
     }
     if (rt.tilt.length) doc.tilt = rt.tilt
     // Output-anchored work carries at its output times — a title at 1s is
-    // still a title at 1s (the constant-perceived-position contract).
-    if (prev.overlays?.length) doc.overlays = prev.overlays
+    // still a title at 1s (the constant-perceived-position contract). A
+    // layer pinned to a step is about that step and follows its new
+    // output time, now that the cut's rate is final; an unpinned layer
+    // over a step that moved is named in the report.
+    if (prev.overlays?.length) {
+      doc.overlays = retimeOverlays(prev, doc, rt.report)
+    }
     if (prev.objects?.length) doc.objects = prev.objects
     if (prev.audio.length) doc.audio = prev.audio
     if (prev.camMotion?.length) doc.camMotion = prev.camMotion

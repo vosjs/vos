@@ -1676,6 +1676,16 @@ export interface ProjectDoc {
      * the full frame). Present ⟺ crop derivation succeeded at ingest.
      */
     chromeCrop?: { rect: Rect; frameW: number; frameH: number }
+    /**
+     * The actions.json that recorded this take, as written (the resolved
+     * url, every step with its id). It rides the document so the take can
+     * be recorded again from wherever the document is: `vos push` embeds
+     * it and `vos fetch --media` writes it back beside the recording. A
+     * script never holds a secret by construction (a typed secret is an
+     * env reference, a literal in a password field is refused), so it
+     * travels as the cut does. Absent on a human recording.
+     */
+    script?: Record<string, unknown>
   }
   /**
    * Kept SOURCE-time spans (@vosjs/timeline `Segment`s); the output timeline is

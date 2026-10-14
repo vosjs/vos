@@ -106,6 +106,23 @@ describe('placeFreezes', () => {
     expect(pieces[1]).toEqual({ in: 0, out: 10 })
   })
 
+  it("two moments at one piece's end both go after it (a hold beside a freeze)", () => {
+    const { pieces, marks } = placeFreezes(
+      [{ in: 0, out: 4 }],
+      [
+        { id: 'a', at: 4, seconds: 1 },
+        { id: 'b', at: 4, seconds: 2 },
+      ],
+    )
+    expect(pieces.map((p) => [p.in, p.out])).toEqual([
+      [0, 4],
+      [3.998, 4],
+      [3.998, 4],
+    ])
+    expect(marks.get('a')?.t).toBe(4)
+    expect(marks.get('b')?.t).toBe(5)
+  })
+
   it('a legacy segment hold places exactly where its freeze does', () => {
     const segs = [
       { in: 0, out: 4, hold: 2 },

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { buildStepMap, resolveAnchor, retimeCut } from '../reuse'
+import {
+  buildStepMap,
+  resolveAnchor,
+  retimeCut,
+  retimeOverlays,
+  stepUnder,
+} from '../reuse'
 import type { ProjectDoc, StepSpan } from '@vosjs/studio-core'
 
 /**
@@ -152,10 +158,9 @@ describe('retimeCut', () => {
       12000,
     )
     expect(cut.zoom.map((z) => z.id)).toEqual(['u1'])
-    // 5.8 sits in the 3..6 stretch, which maps to 3..8 — piecewise lerp
-    // puts it at 7.667. (An explicit anchor would preserve the 0.2s offset
-    // to #b exactly; the map interpolates — that difference is why anchors
-    // exist.)
+    // 5.8 sits in the 3..6 stretch, between steps (#a ended at 3, more
+    // than a second before; #b starts at 6), so it goes through the map:
+    // 3..6 maps to 3..8 and the piecewise lerp puts it at 7.667.
     expect(cut.zoom[0].in).toBeCloseTo(7.667, 2)
     expect(cut.zoom[0].out - cut.zoom[0].in).toBeCloseTo(1.4, 5) // length kept
     expect(cut.report.mapped).toBe(1)
@@ -231,7 +236,11 @@ describe('retimeCut', () => {
       12000,
     )
     expect(missing.report.flagged.some((f) => f.includes('u3'))).toBe(true)
-    expect(missing.zoom).toHaveLength(1) // fell back to the map, not dropped
+    // A span whose step is gone is dropped and named with what it framed,
+    // never re-timed to a place with nothing under it.
+    expect(missing.zoom).toHaveLength(0)
+    expect(missing.report.flagged[0]).toMatch(/dropped; re-aim/)
+    expect(missing.report.flagged[0]).toMatch(/0\.50, 0\.50 at 2\.0×/)
   })
 
   it('re-times a freeze moment (a legacy hold too) onto the new take', () => {
@@ -298,5 +307,235 @@ describe('retimeCut', () => {
     )
     expect(cut.zoom).toHaveLength(0)
     expect(cut.report.flagged.some((f) => f.includes('u9'))).toBe(true)
+  })
+})
+
+describe('re-record parity: a span follows the step it was made on', () => {
+  const steps3 = (rows: Partial<StepSpan>[]): StepSpan[] =>
+    rows.map((r, i) => ({
+      step: r.step ?? i,
+      do: r.do ?? 'click',
+      tStart: r.tStart ?? i,
+      tEnd: r.tEnd ?? i + 0.5,
+      ...(r.id ? { id: r.id } : {}),
+      ...(r.selector ? { selector: r.selector } : {}),
+      ...(r.skipped ? { skipped: true } : {}),
+    }))
+  const base = (over: Partial<ProjectDoc>, oldSteps: StepSpan[]): ProjectDoc =>
+    ({
+      source: {
+        videoKey: 'recording.webm',
+        cursor: [],
+        meta: {
+          dpr: 1,
+          zoom: 1,
+          t0: 0,
+          durationMs: 20000,
+          width: 1280,
+          height: 720,
+          fps: 30,
+          steps: oldSteps,
+        },
+      },
+      segments: [{ in: 0, out: 20 }],
+      zoom: [],
+      audio: [],
+      cursor: { smoothing: 0.5, size: 1 },
+      cam: {},
+      frame: {
+        background: '#111',
+        padding: 0,
+        radius: 0,
+        shadow: 0,
+        border: 0,
+        aspectRatio: 'auto',
+        browserBar: { kind: 'none' },
+      },
+      export: { resolution: '720p', fps: 30, format: 'mp4' },
+      ...over,
+    }) as unknown as ProjectDoc
+  // The product grew a panel: the drag runs 1.5 s longer and everything
+  // after it lands 6 s later, the shape a real re-record showed.
+  const oldS = steps3([
+    { id: 'open', do: 'click', selector: '#open', tStart: 1, tEnd: 1.5 },
+    { id: 'drag', do: 'drag', selector: '#speed', tStart: 3, tEnd: 5 },
+    { step: 2, do: 'wait', tStart: 5, tEnd: 6 },
+    { id: 'copy', do: 'click', selector: '#copy', tStart: 10, tEnd: 10.5 },
+  ])
+  const newS = steps3([
+    { id: 'open', do: 'click', selector: '#open', tStart: 1, tEnd: 1.5 },
+    { id: 'drag', do: 'drag', selector: '#speed', tStart: 3, tEnd: 6.5 },
+    { step: 2, do: 'wait', tStart: 6.5, tEnd: 7.5 },
+    { id: 'copy', do: 'click', selector: '#copy', tStart: 16, tEnd: 16.5 },
+  ])
+
+  it('finds the step under a moment: its window, or the gesture that just ended', () => {
+    expect(stepUnder(3.4, oldS)?.id).toBe('drag') // inside the window
+    expect(stepUnder(5.6, oldS)?.id).toBe('drag') // 0.6 s after it ended
+    expect(stepUnder(7, oldS)).toBeNull() // between steps
+    expect(stepUnder(10.2, oldS)?.id).toBe('copy')
+  })
+
+  it("keeps a manual span's offset from its step exactly, without an anchor", () => {
+    const cut = retimeCut(
+      base(
+        {
+          zoom: [
+            {
+              id: 'z-drag',
+              in: 3.4,
+              out: 5.2,
+              level: 2,
+              cx: 0.2,
+              cy: 0.5,
+              source: 'manual',
+            },
+            {
+              id: 'z-copy',
+              in: 10.2,
+              out: 11,
+              level: 2.5,
+              cx: 0.8,
+              cy: 0.3,
+              source: 'manual',
+            },
+          ],
+          speed: [{ id: 's-gap', in: 7, out: 9, rate: 3, source: 'manual' }],
+        },
+        oldS,
+      ),
+      newS,
+      26000,
+    )
+    // The drag's span keeps its 0.4 s offset; the copy's its 0.2 s.
+    expect(cut.zoom.map((z) => [z.id, z.in])).toEqual([
+      ['z-drag', 3.4],
+      ['z-copy', 16.2],
+    ])
+    expect(cut.zoom[0].out - cut.zoom[0].in).toBeCloseTo(1.8, 5)
+    // The gap span sat between steps and went through the map.
+    expect(cut.speed[0].in).toBeGreaterThan(9)
+    expect(cut.report.anchored).toBe(2)
+    expect(cut.report.mapped).toBe(1)
+  })
+
+  it('drops a span whose step is gone and names what it framed', () => {
+    const gone = newS.filter((s) => s.id !== 'drag')
+    const cut = retimeCut(
+      base(
+        {
+          zoom: [
+            {
+              id: 'z-drag',
+              in: 3.4,
+              out: 5.2,
+              level: 2,
+              cx: 0.2,
+              cy: 0.5,
+              source: 'manual',
+            },
+          ],
+          speed: [{ id: 's-drag', in: 3, out: 5, rate: 2, source: 'manual' }],
+          freeze: [{ id: 'f-drag', at: 4, seconds: 1.5 }],
+        },
+        oldS,
+      ),
+      gone,
+      26000,
+    )
+    expect(cut.zoom).toHaveLength(0)
+    expect(cut.speed).toHaveLength(0)
+    expect(cut.freeze).toHaveLength(0)
+    const words = cut.report.flagged.join('\n')
+    expect(words).toMatch(
+      /zoom z-drag: it sat on step drag \(drag #speed\), which is missing/,
+    )
+    expect(words).toMatch(/0\.20, 0\.50 at 2\.0×/)
+    expect(words).toMatch(/speed s-drag: .*\(2× speed\)/)
+    expect(words).toMatch(/freeze f-drag: .*a 1\.5 s hold/)
+  })
+
+  it('never trims rejected proposals against each other', () => {
+    const cut = retimeCut(
+      base(
+        {
+          rejected: [
+            { id: 'g0', lane: 'zoom', in: 3.2, out: 4.8 },
+            { id: 'g1', lane: 'zoom', in: 3, out: 12 },
+            { id: 'g2', lane: 'zoom', in: 10.1, out: 11 },
+          ],
+        },
+        oldS,
+      ),
+      newS,
+      26000,
+    )
+    expect(cut.rejected.map((r) => r.id).sort()).toEqual(['g0', 'g1', 'g2'])
+    expect(cut.report.flagged.some((f) => f.includes('overlapped'))).toBe(false)
+  })
+
+  it("a pinned layer follows its step's new output time; an unpinned one over a moved step is named", () => {
+    const prev = base(
+      {
+        speed: [{ id: 'sp', in: 6, out: 10, rate: 4, source: 'manual' }],
+        overlays: [
+          {
+            id: 'title',
+            kind: 'text',
+            preset: 'caption',
+            start: 0.3,
+            duration: 2,
+            text: 'Hello',
+            transform: { x: 0.5, y: 0.2, scale: 1, rotation: 0 },
+          },
+          {
+            id: 'c-copy',
+            kind: 'text',
+            preset: 'caption',
+            start: 7.5,
+            duration: 3,
+            text: 'Copy it',
+            transform: { x: 0.5, y: 0.8, scale: 1, rotation: 0 },
+            pin: { step: 'copy' },
+          },
+          {
+            id: 'c-loose',
+            kind: 'text',
+            preset: 'caption',
+            start: 7.6,
+            duration: 3,
+            text: 'Also copy',
+            transform: { x: 0.5, y: 0.9, scale: 1, rotation: 0 },
+          },
+        ],
+      },
+      oldS,
+    )
+    // The new cut, with its rate final: the same 4× span re-timed onto the
+    // new drag's tail.
+    const next = base(
+      {
+        source: {
+          ...prev.source,
+          meta: { ...prev.source.meta, durationMs: 26000, steps: newS },
+        },
+        segments: [{ in: 0, out: 26 }],
+        speed: [{ id: 'sp', in: 7.5, out: 11.5, rate: 4, source: 'manual' }],
+      },
+      newS,
+    )
+    const report = { anchored: 0, mapped: 0, flagged: [] as string[] }
+    const out = retimeOverlays(prev, next, report)
+    // Old cut: copy's press at source 10 is output 6 + (10 - 6) / 4 = 7;
+    // the callout sat 0.5 s after it. New cut: the press at source 16 is
+    // output 7.5 + 1 + (16 - 11.5) = 13; the callout follows to 13.5.
+    expect(out.find((o) => o.id === 'c-copy')?.start).toBeCloseTo(13.5, 3)
+    expect(out.find((o) => o.id === 'title')?.start).toBe(0.3)
+    // The loose callout keeps its second and is named with the step's new time.
+    expect(out.find((o) => o.id === 'c-loose')?.start).toBe(7.6)
+    const flag = report.flagged.find((f) => f.startsWith('overlay c-loose'))
+    expect(flag).toMatch(/now plays at 13\.60s/)
+    expect(flag).toMatch(/pin: \{ step: "copy" \}/)
+    expect(report.anchored).toBe(1)
   })
 })

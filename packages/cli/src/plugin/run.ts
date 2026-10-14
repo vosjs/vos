@@ -317,12 +317,16 @@ The re-render loop (re-recording the same script after the product
 changed): record into the SAME take dir — footage/cursor/meta are
 replaced, the cut survives as doc.prev.json — then plan --reuse re-times
 it onto the new recording. meta.json carries steps (when each actions
-step ran); a span may carry anchor {step, at, offset} tying it to a step
-id/index for exact re-timing; unanchored human spans map piecewise
-through matched step edges; autos re-plan; overlays/audio keep OUTPUT
-times. The done event's reuse block NAMES whatever could not follow —
-fix by exception, never re-cut from scratch. Give steps ids in
-actions.json so anchors survive script edits.
+step ran); a human span follows the step it was made on (its window, or
+the gesture just before it), keeping its offset exactly, or an explicit
+anchor {step, at, offset}; a span between steps maps piecewise through
+matched step edges; a span whose step vanished is dropped and named with
+what it framed; autos re-plan; a layer pinned to a step follows its new
+output time, every other layer and audio keep OUTPUT times, and a layer
+over a step that moved is named with the pin to write. The done event's
+reuse block NAMES whatever could not follow — fix by exception, never
+re-cut from scratch. Give steps ids in actions.json so re-timing survives
+script edits.
 
 record --strict exits 2 when any selector was skipped, the page never
 reached networkidle, or the take hit --max-duration (the done event lists
