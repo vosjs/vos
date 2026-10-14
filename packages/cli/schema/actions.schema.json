@@ -41,11 +41,17 @@
             "type": "string",
             "enum": ["wait", "click", "type", "press", "goto"]
           },
-          "id": { "type": "string" },
-          "selector": { "type": "string" },
+          "id": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          },
           "text": {
             "oneOf": [
-              { "type": "string" },
+              {
+                "type": "string"
+              },
               {
                 "type": "object",
                 "required": ["env"],
@@ -82,7 +88,9 @@
         "required": ["selector"],
         "additionalProperties": false,
         "properties": {
-          "selector": { "type": "string" },
+          "selector": {
+            "type": "string"
+          },
           "as": {
             "type": "string",
             "enum": ["blur", "text"],
@@ -226,6 +234,70 @@
                 "type": "boolean",
                 "default": true,
                 "description": "The recorder clicks the field before typing, and that click is what opens the typing zoom on it. false types into the field as it is already focused: for a keystroke that finishes earlier typing (a submitting Enter) rather than starting it, where a second click rings a click effect on empty space beside the text."
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
+              },
+              "caption": {
+                "type": "string",
+                "maxLength": 80,
+                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
+              },
+              "read": {
+                "type": "string",
+                "minLength": 1,
+                "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
+              },
+              "replace": {
+                "type": "boolean",
+                "default": false,
+                "description": "select the field's value before typing, so what is typed replaces it: a form that opens filled in, a search box holding the last query"
+              },
+              "at": {
+                "type": "string",
+                "enum": ["end", "start"],
+                "description": "where the caret goes after the focusing click, before the first character: a click lands it where the pointer hit, and a code editor line is typed at its end"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["do", "key"],
+            "additionalProperties": false,
+            "description": "One named key, recorded as a typing ping where the pointer is (or on selector when given, with no click): Escape closes what a click opened, Enter submits what was typed, Tab moves on, an arrow nudges. Never a character: words are typed with type.",
+            "properties": {
+              "do": {
+                "const": "press"
+              },
+              "key": {
+                "type": "string",
+                "enum": [
+                  "Escape",
+                  "Enter",
+                  "Tab",
+                  "Backspace",
+                  "Delete",
+                  "ArrowUp",
+                  "ArrowDown",
+                  "ArrowLeft",
+                  "ArrowRight",
+                  "Home",
+                  "End",
+                  "PageUp",
+                  "PageDown",
+                  "Space"
+                ]
+              },
+              "selector": {
+                "type": "string",
+                "description": "the element the key is about: the ping and the step's rect are its, with no click"
+              },
+              "ms": {
+                "type": "number",
+                "minimum": 0,
+                "description": "the read after the key, ms (default 150), held from the page's last visual change like a click's"
               },
               "id": {
                 "type": "string",

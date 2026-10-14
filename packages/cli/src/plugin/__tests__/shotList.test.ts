@@ -63,6 +63,24 @@ describe('shotList', () => {
     expect(list.aboutS).toBeGreaterThan(5)
   })
 
+  it('says a press and a replacing type in words', () => {
+    const list = shotList({
+      url: 'http://localhost:4101/',
+      steps: [
+        { do: 'type', selector: '#q', text: 'juniper', replace: true },
+        { do: 'press', key: 'Enter' },
+        { do: 'press', key: 'Escape', selector: '[role=dialog]' },
+        { do: 'type', selector: '.cm-line', text: ';', at: 'end' },
+      ],
+    })
+    expect(list.beats.map((b) => b.line)).toEqual([
+      'Replace what is in `#q` with "juniper"',
+      'Press Enter',
+      'Press Escape in `[role=dialog]`',
+      'Type ";" into `.cm-line`, at the end',
+    ])
+  })
+
   it('reads as instructions to a person', () => {
     const text = formatShotList(shotList(actions))
     expect(text).toContain(
