@@ -195,6 +195,7 @@ function planOtherMedia(
         duration: m.meta.durationMs / 1000,
         style: doc.zoomStyle,
         params: doc.zoomParams,
+        steps: m.meta.steps,
       })
         .filter((z) => !manualZoom.some((x) => overlaps(z, x)))
         .filter((z) => !isRejected('zoom', z, rejected))
@@ -208,6 +209,7 @@ function planOtherMedia(
         durationMs: m.meta.durationMs,
         params: doc.speedParams,
         activity,
+        steps: m.meta.steps,
       })
         .filter((x) => !manualSpeed.some((y) => x.in < y.out && x.out > y.in))
         .filter((x) => !isRejected('speed', x, rejected))
@@ -266,6 +268,7 @@ export async function planTake(
       duration: doc.source.meta.durationMs / 1000,
       style: doc.zoomStyle,
       params: doc.zoomParams,
+      steps: doc.source.meta.steps,
     })
       .filter((z) => !manualZoom.some((m) => overlaps(z, m)))
       .filter((z) => !isRejected('zoom', z, doc.rejected))
@@ -275,6 +278,7 @@ export async function planTake(
       durationMs: doc.source.meta.durationMs,
       params: doc.speedParams,
       activity,
+      steps: doc.source.meta.steps,
     })
       .filter((s) => !manualSpeed.some((m) => s.in < m.out && s.out > m.in))
       .filter((s) => !isRejected('speed', s, doc.rejected))
@@ -332,6 +336,7 @@ export async function planTake(
       duration: doc.source.meta.durationMs / 1000,
       style: doc.zoomStyle,
       params: doc.zoomParams,
+      steps: doc.source.meta.steps,
     })
       .filter((z) => !manual.some((m) => overlaps(z, m)))
       .filter((z) => !isRejected('zoom', z, doc.rejected))
@@ -345,6 +350,7 @@ export async function planTake(
       durationMs: doc.source.meta.durationMs,
       params: doc.speedParams,
       activity,
+      steps: doc.source.meta.steps,
     })
       .filter((s) => !manualSpeed.some((m) => s.in < m.out && s.out > m.in))
       .filter((s) => !isRejected('speed', s, doc.rejected))
@@ -378,11 +384,13 @@ export async function planTake(
       duration: doc.source.meta.durationMs / 1000,
       style: doc.zoomStyle,
       params: doc.zoomParams,
+      steps: doc.source.meta.steps,
     })
     doc.speed = planAutoSpeed(doc.source.cursor, {
       durationMs: doc.source.meta.durationMs,
       params: doc.speedParams,
       activity,
+      steps: doc.source.meta.steps,
     })
     fresh = true
   }

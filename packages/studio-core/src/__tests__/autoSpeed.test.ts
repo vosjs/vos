@@ -37,6 +37,37 @@ describe('planAutoSpeed', () => {
     expect(planAutoSpeed(track, { durationMs: 14_000 })).toHaveLength(1)
   })
 
+  it('a scripted wait or hover in which nothing moved plays at the still rate, with the witness', () => {
+    const track = [ev(1, 'move'), ev(4.5, 'move'), ev(6, 'move'), ev(9, 'move')]
+    const steps = [
+      // The opening wait is the establishing beat: never compressed.
+      { step: 0, do: 'wait', tStart: 0.0, tEnd: 1.1 },
+      { step: 1, do: 'click', selector: '#go', tStart: 1.1, tEnd: 1.2 },
+      { step: 2, do: 'wait', tStart: 1.2, tEnd: 4.0 },
+      { step: 3, do: 'hover', selector: '#a', tStart: 6.0, tEnd: 8.4 },
+      { step: 4, do: 'wait', tStart: 8.5, tEnd: 8.9 },
+      // The closing wait is the resting beat: never compressed.
+      { step: 5, do: 'wait', tStart: 8.9, tEnd: 10.0 },
+    ]
+    const still = new Array(10).fill(0.005)
+    const spans = planAutoSpeed(track, {
+      durationMs: 10_000,
+      activity: still,
+      steps,
+    })
+    expect(spans).toEqual([
+      { id: 's0', in: 1.2, out: 4, rate: 2, source: 'auto' },
+      { id: 's1', in: 6, out: 8.4, rate: 2, source: 'auto' },
+    ])
+    // The page was loading behind the first wait: not still, not compressed.
+    const loading = still.map((v, i) => (i >= 1 && i < 4 ? 0.3 : v))
+    expect(
+      planAutoSpeed(track, { durationMs: 10_000, activity: loading, steps }),
+    ).toEqual([{ id: 's0', in: 6, out: 8.4, rate: 2, source: 'auto' }])
+    // No witness, no still span: the track cannot tell rest from a load.
+    expect(planAutoSpeed(track, { durationMs: 10_000, steps })).toEqual([])
+  })
+
   it('covers the head and the tail when nothing happens there', () => {
     const spans = planAutoSpeed([ev(8, 'move'), ev(9, 'move')], {
       durationMs: 20_000,
