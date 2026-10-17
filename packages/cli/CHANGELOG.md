@@ -1,5 +1,16 @@
 # @vosjs/cli
 
+## 0.72.0
+
+### Minor Changes
+
+- 5305641: Remove the deprecated hidden `vos voila <verb>` alias: run `vos <verb>` instead. The chunk debug switch is now `VOS_DEBUG_CHUNKS=1`.
+
+### Patch Changes
+
+- Updated dependencies [5305641]
+  - @vosjs/studio-core@0.42.1
+
 ## 0.71.0
 
 ### Minor Changes
