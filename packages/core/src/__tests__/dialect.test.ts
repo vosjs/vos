@@ -76,7 +76,7 @@ describe('lintVosDialect', () => {
   it('leaves JavaScript that is not a tween alone: a Map, Array.from, a registry', () => {
     const issues = lintVosDialect(
       ct(
-        "(ctx) => { const seen = new Map(); seen.set('title', 1); const letters = Array.from('vos'); ns.framePrep.set('voila.card', (t) => t); params.set('a', 'b'); return ctx.gsap.timeline() }",
+        "(ctx) => { const seen = new Map(); seen.set('title', 1); const letters = Array.from('vos'); ns.framePrep.set('studio.card', (t) => t); params.set('a', 'b'); return ctx.gsap.timeline() }",
       ),
     )
     expect(issues.filter((i) => i.rule === 'dom-target')).toEqual([])

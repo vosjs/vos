@@ -118,7 +118,7 @@ export const STUDIO_SETUP = `async (ctx) => {
       // The MediaError rides along: code 4 is an unreadable/unsupported source
       // (a dead blob URL, a 404), code 3 a decode failure, code 2 a network
       // stall. A bare "failed to load" gave the fleet log nothing to act on.
-      v.onerror = () => rej(new Error('[voila] video failed to load' + (v.error ? ' (' + v.error.code + (v.error.message ? ': ' + v.error.message : '') + ')' : '')))
+      v.onerror = () => rej(new Error('[studio] video failed to load' + (v.error ? ' (' + v.error.code + (v.error.message ? ': ' + v.error.message : '') + ')' : '')))
       v.load()
     })
     cache.set(src, v)
@@ -131,7 +131,7 @@ export const STUDIO_SETUP = `async (ctx) => {
       const img = new Image()
       img.crossOrigin = 'anonymous'
       img.onload = () => { cache.set(src, img); res(img) }
-      img.onerror = () => rej(new Error('[voila] image failed to load'))
+      img.onerror = () => rej(new Error('[studio] image failed to load'))
       img.src = src
     })
   }
@@ -145,7 +145,7 @@ export const STUDIO_SETUP = `async (ctx) => {
       const faces = ctx.data.overlayFonts || ${JSON.stringify(OVERLAY_FONT_FACES)}
       // Mark what SETUP registers, so ON_FRAME's live path (a text overlay
       // arriving through SET_DATA) never adds the same face twice.
-      const ofSet = window.__voilaFontSet || (window.__voilaFontSet = {})
+      const ofSet = window.__vosFontSet || (window.__vosFontSet = {})
       const loads = faces.map((f) => {
         ofSet[f.family + '|' + f.weight] = 1
         const ff = new FontFace(f.family, 'url(' + f.url + ')', { weight: String(f.weight) })
@@ -156,7 +156,7 @@ export const STUDIO_SETUP = `async (ctx) => {
         Promise.all(loads).catch(() => {}),
         new Promise((res) => setTimeout(res, 4000)),
       ])
-    } catch (e) { console.warn('[voila] overlay fonts failed to load', e) }
+    } catch (e) { console.warn('[studio] overlay fonts failed to load', e) }
   }
   // An HTML layer arrives as SOURCE, and the picture is built HERE.
   //
@@ -199,7 +199,7 @@ export const STUDIO_SETUP = `async (ctx) => {
       // Fail open per URL, and NOT sticky: the layer paints without it now
       // and the next build asks again.
       faceData.delete(url)
-      console.warn('[voila] html layer ' + what + ' failed to load', url, e)
+      console.warn('[studio] html layer ' + what + ' failed to load', url, e)
       return ''
     })
     faceData.set(url, p)
@@ -251,7 +251,7 @@ export const STUDIO_SETUP = `async (ctx) => {
         ns.htmlSafe = true
       } catch (e) {
         ns.htmlSafe = false
-        console.error('[voila] html layers are off: this browser taints a canvas that draws a foreignObject SVG', e)
+        console.error('[studio] html layers are off: this browser taints a canvas that draws a foreignObject SVG', e)
       }
     }
     // One picture per clip in the cache: the previous key goes when a new
@@ -268,7 +268,7 @@ export const STUDIO_SETUP = `async (ctx) => {
   // recorded on the clip and said at the level a render page forwards.
   ns.buildHtmlLayer = (oc, live) => buildHtmlLayer(oc, live).catch((e) => {
     ns.htmlErrors[oc.id] = String((e && e.message) || e)
-    console.error('[voila] html layer ' + oc.id + ' ' + ns.htmlErrors[oc.id])
+    console.error('[studio] html layer ' + oc.id + ' ' + ns.htmlErrors[oc.id])
   })
   // The capture contract for a LIVE layer, on ANY anchor. A recording's own
   // program installs the settle machinery (pendingDecodes, the wait a
@@ -311,7 +311,7 @@ export const STUDIO_SETUP = `async (ctx) => {
     try {
       if (oc.kind === 'image') await loadImage(oc.key)
       else await load(oc.key, true)
-    } catch (e) { console.warn('[voila] overlay media failed to load', oc.key, e) }
+    } catch (e) { console.warn('[studio] overlay media failed to load', oc.key, e) }
   }
   // GLB object assets (V3b): load via the engine's GLTFLoader addon into a
   // shared cache, bbox-NORMALIZED (norm = 1/maxDim) so transform3d.scale means
@@ -323,7 +323,7 @@ export const STUDIO_SETUP = `async (ctx) => {
     if (!oc.asset || oc.asset.kind !== 'gltf' || !oc.asset.key || objCache.has(oc.asset.key)) continue
     try {
       const GL = ctx.loaders && ctx.loaders.GLTFLoader
-      if (!GL) { console.warn('[voila] GLTFLoader unavailable'); continue }
+      if (!GL) { console.warn('[studio] GLTFLoader unavailable'); continue }
       const gltf = await new Promise((res, rej) => new GL().load(oc.asset.key, res, undefined, rej))
       const box = new ctx.THREE.Box3().setFromObject(gltf.scene)
       const size = new ctx.THREE.Vector3()
@@ -332,7 +332,7 @@ export const STUDIO_SETUP = `async (ctx) => {
       box.getCenter(center)
       const maxDim = Math.max(size.x, size.y, size.z) || 1
       objCache.set(oc.asset.key, { scene: gltf.scene, norm: 1 / maxDim, center: center })
-    } catch (e) { console.warn('[voila] glb failed to load', oc.asset.key, e) }
+    } catch (e) { console.warn('[studio] glb failed to load', oc.asset.key, e) }
   }
   // 3D-text typefaces: FontLoader JSONs into a shared cache, keyed by
   // URL. Awaited here so frame 0 is complete on cold loads (export/chunk
@@ -343,10 +343,10 @@ export const STUDIO_SETUP = `async (ctx) => {
     if (!oc.asset || oc.asset.kind !== 'text3d' || !oc.asset.url || fontCache.has(oc.asset.url)) continue
     try {
       const FL = ctx.loaders && ctx.loaders.FontLoader
-      if (!FL) { console.warn('[voila] FontLoader unavailable'); continue }
+      if (!FL) { console.warn('[studio] FontLoader unavailable'); continue }
       const font = await new Promise((res, rej) => new FL().load(oc.asset.url, res, undefined, rej))
       fontCache.set(oc.asset.url, font)
-    } catch (e) { console.warn('[voila] typeface failed to load', oc.asset.url, e) }
+    } catch (e) { console.warn('[studio] typeface failed to load', oc.asset.url, e) }
   }
   // Audio clips (music/SFX): start decoding into the shared cache now, but
   // never hold the first frame for it. Playback starts on a press, so the
@@ -371,7 +371,7 @@ export const STUDIO_SETUP = `async (ctx) => {
           bufs.set(c.key, b)
           if (ns.audioSched) ns.audioSched.sig = ''
         })
-        .catch((e) => console.warn('[voila] audio decode failed', c.key, e))
+        .catch((e) => console.warn('[studio] audio decode failed', c.key, e))
         .then(() => pend.delete(c.key))
     }
   }
@@ -497,7 +497,7 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
           .then(function (res) { return res.arrayBuffer() })
           .then(function (ab) { return actx.decodeAudioData(ab) })
           .then(function (b) { bufs.set(cc.key, b); AS.sig = '' })
-          .catch(function (e) { console.warn('[voila] audio decode failed', cc.key, e) })
+          .catch(function (e) { console.warn('[studio] audio decode failed', cc.key, e) })
           .then(function () { pend.delete(cc.key) })
       })(clips[di])
     }
@@ -883,7 +883,7 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
     // Keyed per window, so SETUP's cold-load faces and repeat frames never
     // re-register; fail-open, frames repaint as each face lands.
     if (typeof FontFace !== 'undefined') {
-      var ofSet = window.__voilaFontSet || (window.__voilaFontSet = {})
+      var ofSet = window.__vosFontSet || (window.__vosFontSet = {})
       var ofBase = d.overlayFonts || ${JSON.stringify(OVERLAY_FONT_FACES)}
       for (var ofi = 0; ofi < ofBase.length; ofi++) {
         var ofB = ofBase[ofi]

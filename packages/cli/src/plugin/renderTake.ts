@@ -28,7 +28,7 @@ import type { EnvelopePoint, LoweredAudioClip } from '@vosjs/studio-core'
 import type { DocOverrides } from './docOverride'
 import type { Browser } from 'playwright'
 
-const VIDEO_TOKEN = '__VOILA_CLI_VIDEO__'
+const VIDEO_TOKEN = '__VOS_CLI_VIDEO__'
 
 export interface RenderTakeOptions {
   width?: number

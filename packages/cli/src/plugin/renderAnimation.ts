@@ -376,7 +376,7 @@ async function renderChunk(
         bitrate: opts.bitrate ?? 10_000_000,
         mediabunnyUrl: MEDIABUNNY_URL,
         outName,
-        debug: process.env.VOILA_DEBUG_CHUNKS === '1',
+        debug: process.env.VOS_DEBUG_CHUNKS === '1',
         audioProducerCode: audio?.producerCode,
         audioDataJson: audio ? JSON.stringify(audio.data) : undefined,
         audioDuration: audio?.duration,
