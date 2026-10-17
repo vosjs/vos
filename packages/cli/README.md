@@ -15,7 +15,7 @@ npx vos render animation.json out.webm
 
 Deterministic: the preview is the render, and every edit is a data patch to `doc.json`, never a re-record. Rendering is local and free at every resolution up to 4K, no watermark. The workflow skills for agents install with `npx skills add vosjs/skills` (`product-video` records and cuts one video, `vos-cut` cuts an existing recording, `launch-kit` ships the media with a release); `vos setup` runs that for you, and falls back to the copy of the catalog this package ships when skills.sh cannot be reached. A coding agent gets the whole procedure from one line: `Read https://vos.so/agent.md and do what it says.`
 
-Until 0.9 the take pipeline and the vos.so verbs shipped separately as `@vosso/vos-plugin`, and before that as `@vosso/cli` and `@vosso/voila-cli`; those names are deprecated on npm and forward here.
+Until 0.9 the take pipeline and the vos.so verbs shipped separately as `@vosso/vos-plugin`, and before that as `@vosso/cli`; those names are deprecated on npm and forward here.
 
 ## Contents
 
@@ -369,7 +369,7 @@ vos push /tmp/take --label "$TAG launch" --yes --json       # VOS_API_KEY as a r
 - **`--max-duration <s>`** on `record` and `create` defaults to the hosted recording cap, read live from `GET /api/limits` (2 s, fail-open to 30 min when the origin is unreachable): the capture stops there and the done event says so. Cut the flow rather than raising the cap; the platform refuses a longer take.
 - **`create`** is the one-shot verb: record, auto-plan and render in one command and one browser session. The take directory still lands on disk, so the full loop (frames, edit `doc.json`, re-render) stays open afterwards.
 - **`vos validate <thing>`** takes an `actions.json`, a take directory, a program directory (`config.json`, plus its program document when present), or a `kit.json`; exit 1 on any problem.
-- **Environment.** `VOS_ORIGIN` (the platform, and the studio `vos open` opens), `VOS_API_KEY`, `VOS_BROWSER_PATH`, `VOS_CLIENT` (the client string a push self-reports; unset, a push names the coding agent that spawned the CLI, read from its environment the way `@vercel/detect-agent` reads it, e.g. `claude-code vos-cli`, else `vos-cli`). `vos voila <verb>` is still accepted as an alias of `vos <verb>` and says so.
+- **Environment.** `VOS_ORIGIN` (the platform, and the studio `vos open` opens), `VOS_API_KEY`, `VOS_BROWSER_PATH`, `VOS_CLIENT` (the client string a push self-reports; unset, a push names the coding agent that spawned the CLI, read from its environment the way `@vercel/detect-agent` reads it, e.g. `claude-code vos-cli`, else `vos-cli`).
 
 ## Programmatic use
 

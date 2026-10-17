@@ -84,7 +84,7 @@ describe('webcodecs provider wiring', () => {
   })
 
   it('services capture seeks from the provider inside the paused branch', () => {
-    expect(program).toContain('vid.__voilaWc')
+    expect(program).toContain('vid.__vosWc')
     // Provider seeks register in pendingDecodes so the deterministic export
     // awaits them exactly like element seeks.
     expect(program).toMatch(/wdp = wcp\.seek\(wcT\)/)

@@ -33,7 +33,7 @@ import type { DocOverrides } from './docOverride'
 import type { Moment, ProjectDoc } from '@vosjs/studio-core'
 import type { Browser } from 'playwright'
 
-const VIDEO_TOKEN = '__VOILA_CLI_VIDEO__'
+const VIDEO_TOKEN = '__VOS_CLI_VIDEO__'
 
 /**
  * The supersample factor a still renders at: a small --size (a 440

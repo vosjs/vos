@@ -154,8 +154,7 @@ describe('house faces on a live text overlay', () => {
     frame(1.6)
     frame(2.0)
     expect(made).toEqual(BASE_KEYS) // never twice
-    const set = (g.window as { __voilaFontSet: Record<string, 1> })
-      .__voilaFontSet
+    const set = (g.window as { __vosFontSet: Record<string, 1> }).__vosFontSet
     expect(Object.keys(set).sort()).toEqual([...BASE_KEYS].sort())
   })
 
@@ -169,7 +168,7 @@ describe('house faces on a live text overlay', () => {
   it('skips what SETUP already registered (the cold-load path marks its faces)', () => {
     const { made } = fakeFonts()
     const frame = frameRunner([title])
-    ;(g.window as Record<string, unknown>).__voilaFontSet = {
+    ;(g.window as Record<string, unknown>).__vosFontSet = {
       'Lexend|600': 1,
     }
     frame(1.5)
@@ -187,13 +186,13 @@ describe('house faces on a live text overlay', () => {
   it('does nothing without FontFace (a server render harness, an export page before fonts)', () => {
     const frame = frameRunner([title])
     expect(() => frame(1.5)).not.toThrow()
-    expect((g.window as Record<string, unknown>).__voilaFontSet).toBe(undefined)
+    expect((g.window as Record<string, unknown>).__vosFontSet).toBe(undefined)
   })
 
   it('SETUP marks the faces it loads under the same key', () => {
     const { config } = lowerMerged(makeDoc([title]))
     const setup = studioEntryOf(config).setup
-    expect(setup).toContain('__voilaFontSet')
+    expect(setup).toContain('__vosFontSet')
     expect(setup).toContain("f.family + '|' + f.weight")
   })
 })

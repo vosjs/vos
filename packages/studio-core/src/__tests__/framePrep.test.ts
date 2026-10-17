@@ -86,7 +86,7 @@ describe('frame prep wiring', () => {
 
   it('registers the card hook in setup, keyed so a warm LOAD re-registers', () => {
     expect(config.setup).toContain('ns.framePrep = ns.framePrep || new Map()')
-    expect(config.setup).toContain("ns.framePrep.set('voila.card'")
+    expect(config.setup).toContain("ns.framePrep.set('studio.card'")
     // Playback never prepares a frame: the hook stands down while playing.
     expect(config.setup).toContain('if (ns.isPaused === false) return')
   })
@@ -122,7 +122,7 @@ describe('the paused step', () => {
         return Promise.resolve()
       },
     }
-    const vid = videoStub({ __voilaWc: wcp })
+    const vid = videoStub({ __vosWc: wcp })
     stepPaused(vid, 1.5)
     expect(seeks).toEqual([1.5])
     expect(ns.pendingDecodes.size).toBe(1)
@@ -184,7 +184,7 @@ describe('the paused step', () => {
         return Promise.resolve()
       },
     }
-    const bg = videoStub({ seeking: false, currentTime: 0, __voilaWc: wcp })
+    const bg = videoStub({ seeking: false, currentTime: 0, __vosWc: wcp })
     stepBg(bg, 0.5)
     // The paint's own call finds the target met: one ask per frame.
     stepBg(bg, 0.5)
@@ -208,7 +208,7 @@ describe('the background loop on a capture page', () => {
 
   it('gets a provider in setup under the webcodecs mode only, fail-open', () => {
     expect(config.setup).toContain(
-      "if (ctx.data.videoDecodeMode === 'webcodecs' && !bgV.__voilaWc)",
+      "if (ctx.data.videoDecodeMode === 'webcodecs' && !bgV.__vosWc)",
     )
     expect(config.setup).toContain('const bgWc = await makeWcProvider(bgm.key)')
     expect(config.setup).toContain('seeks stay html5')
@@ -216,12 +216,12 @@ describe('the background loop on a capture page', () => {
 
   it("draws the provider's sample while paused, the element otherwise", () => {
     expect(config.onFrame).toContain(
-      'var bgWcp = !bgIsImg && !playing ? bgEl.__voilaWc : null',
+      'var bgWcp = !bgIsImg && !playing ? bgEl.__vosWc : null',
     )
     expect(config.onFrame).toContain('bgWcp.draw(bgC, null,')
   })
 
   it('reports which path decodes the recording and the backdrop', () => {
-    expect(config.setup).toContain('ns.voilaDecode = {')
+    expect(config.setup).toContain('ns.studioDecode = {')
   })
 })

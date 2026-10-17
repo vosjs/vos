@@ -71,7 +71,7 @@ Bottom layer first. Each package's README is its reference.
 | [`@vosjs/render-core`](./packages/render-core) | [![npm](https://img.shields.io/npm/v/%40vosjs%2Frender-core)](https://www.npmjs.com/package/@vosjs/render-core) | The render harness: sharding a timeline into parallel chunks and stream-copying the encoded chunks back into one file. Pure Node.                                           |
 | [`@vosjs/cli`](./packages/cli)                 | [![npm](https://img.shields.io/npm/v/%40vosjs%2Fcli)](https://www.npmjs.com/package/@vosjs/cli)                 | The `vos` binary: render configs, record the real product, plan and cut as data, deliver a release's media per channel spec, and sync with vos.so. One package, every verb. |
 
-The old package names `@vosso/vos-plugin`, `@vosso/cli` and `@vosso/voila-cli` are deprecated on npm; everything they held now lives in `@vosjs/cli`.
+The older package names `@vosso/vos-plugin` and `@vosso/cli` are deprecated on npm; everything they held now lives in `@vosjs/cli`.
 
 ## How the pieces fit
 

@@ -52,7 +52,7 @@ describe('ON_FRAME autoplay-mute fallback', () => {
     muted: boolean
     paused: boolean
     playCalls: number
-    __voilaAutoMuted?: boolean
+    __vosAutoMuted?: boolean
     [key: string]: unknown
   }
 
@@ -142,7 +142,7 @@ describe('ON_FRAME autoplay-mute fallback', () => {
     runFrame(video, data, true)
     await new Promise((r) => setTimeout(r, 0)) // let the rejection handler run
     expect(video.muted).toBe(true)
-    expect(video.__voilaAutoMuted).toBe(true)
+    expect(video.__vosAutoMuted).toBe(true)
     expect(video.paused).toBe(false) // the muted retry actually played
     expect(video.playCalls).toBe(2)
   })
@@ -154,7 +154,7 @@ describe('ON_FRAME autoplay-mute fallback', () => {
     await new Promise((r) => setTimeout(r, 0))
     runFrame(video, { ...data, audioUnlocked: true }, true)
     expect(video.muted).toBe(false)
-    expect(video.__voilaAutoMuted).toBe(false)
+    expect(video.__vosAutoMuted).toBe(false)
   })
 
   it('leaves an unblocked unmuted video alone', async () => {

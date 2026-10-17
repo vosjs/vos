@@ -26,7 +26,7 @@ function track(): CursorEvent[] {
 }
 
 async function makeTake(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), 'voila-take-'))
+  const dir = await mkdtemp(join(tmpdir(), 'vos-take-'))
   const paths = await ensureTakeDir(dir)
   await writeJson(paths.cursor, track())
   await writeJson(paths.meta, {
@@ -122,7 +122,7 @@ describe('planTake', () => {
   it('typing pings plan a typing span framed on the field (TZ)', async () => {
     // The shape the recorder's `type` verb synthesizes: click into the field,
     // then throttled `key` pings while the characters land.
-    const dir = await mkdtemp(join(tmpdir(), 'voila-take-'))
+    const dir = await mkdtemp(join(tmpdir(), 'vos-take-'))
     const paths = await ensureTakeDir(dir)
     const rect = { x: 400, y: 300, w: 320, h: 40 }
     const events: CursorEvent[] = [

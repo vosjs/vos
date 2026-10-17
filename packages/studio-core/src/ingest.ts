@@ -68,7 +68,7 @@ export function projectFromArtifact(
       : norm.coverage
   if (artifact.cursor.length > 0 && coverage < CAPTURE_COVERAGE_MIN) {
     console.warn(
-      '[voila/studio] dropping cursor track —',
+      '[studio] dropping cursor track —',
       surface === 'monitor'
         ? 'entire-screen takes have no cursor effects (untrackable outside browser pages)'
         : artifact.meta.windowMovedDuringTake

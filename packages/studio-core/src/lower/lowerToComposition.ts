@@ -1040,7 +1040,7 @@ export const FRAME_STEP_SRC = `
     // A WebCodecs provider (capture pages) services the frame by PTS at
     // decode speed — no element seek, no 250ms settle cap. The element stays
     // paused as the dimension source and fallback.
-    var wcp = vid.__voilaWc
+    var wcp = vid.__vosWc
     if (wcp) {
       var wcT = Math.min(srcT, wcp.duration || srcT)
       if (wcp.req !== wcT) {
@@ -1071,7 +1071,7 @@ export const FRAME_STEP_SRC = `
     // Capture pages: the loop's frame by PTS from its own provider, like the
     // footage. The loop clock only moves forward between wraps, so the walk
     // stays sequential and a wrap is one re-seek to the keyframe at 0.
-    var bwc = bgEl.__voilaWc
+    var bwc = bgEl.__vosWc
     if (bwc) {
       var bwT = Math.min(bgT, bwc.duration || bgT)
       if (bwc.req !== bwT) {
@@ -1118,9 +1118,9 @@ export const FRAME_STEP_SRC = `
         if (fired) return
         fired = true
         g.removeEventListener('loadeddata', done)
-        if (g.__voilaWant != null && g.readyState >= 1) {
-          var want = g.__voilaWant
-          g.__voilaWant = null
+        if (g.__vosWant != null && g.readyState >= 1) {
+          var want = g.__vosWant
+          g.__vosWant = null
           var seeked = function () { g.removeEventListener('seeked', seeked); resolve() }
           g.addEventListener('seeked', seeked)
           setTimeout(seeked, 250)
@@ -1140,8 +1140,8 @@ export const FRAME_STEP_SRC = `
     return g
   }
   function stepGhost(g, at) {
-    if (g.readyState >= 1) { g.__voilaWant = null; stepPaused(g, at); return }
-    g.__voilaWant = at
+    if (g.readyState >= 1) { g.__vosWant = null; stepPaused(g, at); return }
+    g.__vosWant = at
   }`
 
 // Load the recording as an HTMLVideoElement (any container/codec the browser plays).
@@ -1179,11 +1179,11 @@ const SETUP = `async (ctx) => {
   const BG_BLOB_MAX = 64 * 1024 * 1024
   const toBlobUrl = async (src) => {
     const resp = await fetch(src)
-    if (!resp.ok) throw new Error('[voila] blob fetch HTTP ' + resp.status)
+    if (!resp.ok) throw new Error('[studio] blob fetch HTTP ' + resp.status)
     const len = Number(resp.headers.get('content-length') || 0)
     if (len > BLOB_FETCH_MAX) {
       try { if (resp.body) await resp.body.cancel() } catch (e) { void e }
-      throw new Error('[voila] blob fetch over size cap')
+      throw new Error('[studio] blob fetch over size cap')
     }
     const fetched = await resp.blob()
     // Keep the Blob itself: the WebCodecs provider demuxes the SAME
@@ -1197,7 +1197,7 @@ const SETUP = `async (ctx) => {
     let url = src
     if (ctx.data.videoFetchMode === 'blob') {
       try { url = await toBlobUrl(src) }
-      catch (e) { console.warn('[voila] blob fetch failed, using network src', e) }
+      catch (e) { console.warn('[studio] blob fetch failed, using network src', e) }
     }
     v = document.createElement('video')
     v.src = url
@@ -1210,7 +1210,7 @@ const SETUP = `async (ctx) => {
       // The MediaError rides along: code 4 is an unreadable/unsupported source
       // (a dead blob URL, a 404), code 3 a decode failure, code 2 a network
       // stall. A bare "failed to load" gave the fleet log nothing to act on.
-      v.onerror = () => rej(new Error('[voila] video failed to load' + (v.error ? ' (' + v.error.code + (v.error.message ? ': ' + v.error.message : '') + ')' : '')))
+      v.onerror = () => rej(new Error('[studio] video failed to load' + (v.error ? ' (' + v.error.code + (v.error.message ? ': ' + v.error.message : '') + ')' : '')))
       v.load()
     })
     cache.set(src, v)
@@ -1225,7 +1225,7 @@ const SETUP = `async (ctx) => {
       const img = new Image()
       img.crossOrigin = 'anonymous'
       img.onload = () => { cache.set(src, img); res(img) }
-      img.onerror = () => rej(new Error('[voila] image failed to load'))
+      img.onerror = () => rej(new Error('[studio] image failed to load'))
       img.src = src
     })
   }
@@ -1301,7 +1301,7 @@ const SETUP = `async (ctx) => {
           provider.req = t
           chain = chain
             .then(() => advanceTo(t))
-            .catch((e) => { console.warn('[voila] webcodecs frame failed', e) })
+            .catch((e) => { console.warn('[studio] webcodecs frame failed', e) })
           return chain
         },
         // Draw the CURRENT frame into the card. Returns false (element path
@@ -1336,12 +1336,12 @@ const SETUP = `async (ctx) => {
           (wcProvider.width === video.videoWidth &&
             wcProvider.height === video.videoHeight))
       ) {
-        video.__voilaWc = wcProvider
+        video.__vosWc = wcProvider
       } else if (wcProvider) {
-        console.warn('[voila] webcodecs dims mismatch — element path keeps the frame')
+        console.warn('[studio] webcodecs dims mismatch — element path keeps the frame')
       }
     } catch (e) {
-      console.warn('[voila] webcodecs provider unavailable, seeks stay html5', e)
+      console.warn('[studio] webcodecs provider unavailable, seeks stay html5', e)
     }
   }
   // The webcam is a separate recording (video-only) drawn as an editable bubble overlay.
@@ -1360,14 +1360,14 @@ const SETUP = `async (ctx) => {
       if (!m.isImage && ctx.data.videoDecodeMode === 'webcodecs') {
         try {
           const wp = await makeWcProvider(m.src)
-          if (wp && (!el.videoWidth || (wp.width === el.videoWidth && wp.height === el.videoHeight))) el.__voilaWc = wp
+          if (wp && (!el.videoWidth || (wp.width === el.videoWidth && wp.height === el.videoHeight))) el.__vosWc = wp
         } catch (e) {
-          console.warn('[voila] webcodecs provider unavailable for a media, seeks stay html5', e)
+          console.warn('[studio] webcodecs provider unavailable for a media, seeks stay html5', e)
         }
       }
       mediaEls[m.id] = el
     } catch (e) {
-      console.warn('[voila] a media failed to load', m.id, e)
+      console.warn('[studio] a media failed to load', m.id, e)
     }
   }
   // Background media (frame.backgroundMedia): warm-load so the first paint is
@@ -1387,7 +1387,7 @@ const SETUP = `async (ctx) => {
         // into a Blob first when it is small enough (one request instead
         // of ranged reads against a CDN). FAIL-OPEN to the element at
         // every step, like the footage.
-        if (ctx.data.videoDecodeMode === 'webcodecs' && !bgV.__voilaWc) {
+        if (ctx.data.videoDecodeMode === 'webcodecs' && !bgV.__vosWc) {
           try {
             if (!(ns.videoBlobs && ns.videoBlobs.get(bgm.key)) && bgm.key.indexOf('blob:') !== 0 && bgm.key.indexOf('data:') !== 0) {
               try {
@@ -1401,22 +1401,22 @@ const SETUP = `async (ctx) => {
               } catch (e) { void e }
             }
             const bgWc = await makeWcProvider(bgm.key)
-            if (bgWc && (!bgV.videoWidth || (bgWc.width === bgV.videoWidth && bgWc.height === bgV.videoHeight))) bgV.__voilaWc = bgWc
+            if (bgWc && (!bgV.videoWidth || (bgWc.width === bgV.videoWidth && bgWc.height === bgV.videoHeight))) bgV.__vosWc = bgWc
           } catch (e) {
-            console.warn('[voila] webcodecs provider unavailable for the background, seeks stay html5', e)
+            console.warn('[studio] webcodecs provider unavailable for the background, seeks stay html5', e)
           }
         }
       }
-    } catch (e) { console.warn('[voila] background media failed to load', e) }
+    } catch (e) { console.warn('[studio] background media failed to load', e) }
   }
   // Which path decodes what, for a host's telemetry: 'provider' is the
   // sequential WebCodecs walk, 'element' an HTMLVideoElement seek per frame.
-  ns.voilaDecode = {
-    recording: ctx.data.isImage ? 'none' : video.__voilaWc ? 'provider' : 'element',
+  ns.studioDecode = {
+    recording: ctx.data.isImage ? 'none' : video.__vosWc ? 'provider' : 'element',
     backdrop: (function () {
       if (!bgm || !bgm.key || bgm.kind === 'image') return 'none'
       const bgHit = cache.get(bgm.key)
-      return bgHit && bgHit.__voilaWc ? 'provider' : 'element'
+      return bgHit && bgHit.__vosWc ? 'provider' : 'element'
     })(),
   }
   // Frame prep: a capture harness calls every ns.framePrep hook right after
@@ -1432,7 +1432,7 @@ const SETUP = `async (ctx) => {
   // chaining; playback never calls it; a harness without it keeps the
   // two-phase loop and stays correct.
   ns.framePrep = ns.framePrep || new Map()
-  ns.framePrep.set('voila.card', (t) => {
+  ns.framePrep.set('studio.card', (t) => {
     if (ns.isPaused === false) return
     const d = ctx.data
     const TL = globalThis.__vosTimeline
@@ -1743,17 +1743,17 @@ const ON_FRAME = `(ctx, content, dt) => {
             // allow="autoplay" so the top frame's activation counts here).
             if (!vid.muted && err && err.name === 'NotAllowedError') {
               vid.muted = true
-              vid.__voilaAutoMuted = true
+              vid.__vosAutoMuted = true
               var p2 = vid.play()
               if (p2 && p2.catch) p2.catch(function () {})
             }
           })
-        } else if (vid.__voilaAutoMuted && d.audioUnlocked) {
+        } else if (vid.__vosAutoMuted && d.audioUnlocked) {
           // First user gesture happened — lift the policy fallback. If the
           // browser still objects it pauses the element, and the paused branch
           // above self-heals (re-mute + resume) on the next frame.
           vid.muted = false
-          vid.__voilaAutoMuted = false
+          vid.__vosAutoMuted = false
         }
       } else {
         // The paused step (FRAME_STEP_SRC): the provider by PTS, else the
@@ -2073,7 +2073,7 @@ const ON_FRAME = `(ctx, content, dt) => {
       // The loop's provider draws its current sample (paused capture
       // pages); false ⇒ the element (playback, or before the first ask).
       try {
-        var bgWcp = !bgIsImg && !playing ? bgEl.__voilaWc : null
+        var bgWcp = !bgIsImg && !playing ? bgEl.__vosWc : null
         if (!(bgWcp && bgWcp.draw(bgC, null, (W - bgDw) / 2 + bgOx, (H - bgDh) / 2 + bgOy, bgDw, bgDh))) {
           bgC.drawImage(bgEl, (W - bgDw) / 2 + bgOx, (H - bgDh) / 2 + bgOy, bgDw, bgDh)
         }
@@ -2335,7 +2335,7 @@ const ON_FRAME = `(ctx, content, dt) => {
     // The provider draws the current sample directly (crop-capable,
     // dimension-checked at attach); false ⇒ element path (pre-first-seek,
     // or the provider never attached).
-    var wcp3 = video.__voilaWc
+    var wcp3 = video.__vosWc
     if (!(wcp3 && wcp3.draw(c, crp, ceX, ceY, ceW, ceH))) {
       if (crp) c.drawImage(video, crp.x, crp.y, crp.w, crp.h, ceX, ceY, ceW, ceH)
       else c.drawImage(video, ceX, ceY, ceW, ceH)
@@ -2894,10 +2894,10 @@ const ON_FRAME = `(ctx, content, dt) => {
   // gated inside their blocks (dirty-tracking above).
   if (card.texture) card.texture.needsUpdate = true
 
-  // verification hook (no-op unless the harness sets window.__VOILA_DEBUG__).
+  // verification hook (no-op unless the harness sets window.__STUDIO_DEBUG__).
   // cv = the CARD 2D canvas; bgCv/ovCv are the background/overlay layers (v2).
-  if (typeof window !== 'undefined' && window.__VOILA_DEBUG__) {
-    window.__voilaDebug = { cv: cv, bgCv: bg.canvas, ovCv: ov.canvas, W: W, H: H, glW: gl && gl.width, glH: gl && gl.height, t: t, canvases: document.querySelectorAll('canvas').length }
+  if (typeof window !== 'undefined' && window.__STUDIO_DEBUG__) {
+    window.__studioDebug = { cv: cv, bgCv: bg.canvas, ovCv: ov.canvas, W: W, H: H, glW: gl && gl.width, glH: gl && gl.height, t: t, canvases: document.querySelectorAll('canvas').length }
   }
 }`
 

@@ -1829,8 +1829,7 @@ async function cmdOpen(argv: string[]): Promise<number> {
     '',
   )
   const server = await startTakeServer(resolve(dir), {})
-  // /studio is the one editor route (older CLIs that open
-  // /voila/studio ride a query-preserving 301 forever).
+  // /studio is the one editor route.
   const url = `${studio}/studio?take=${encodeURIComponent(server.base)}`
   r.event({ event: 'open', server: server.base, url })
   r.log(`take served at ${server.base}`)
@@ -2317,8 +2316,7 @@ export function verbHelp(verb: string): string {
 }
 
 /** Entry point — the delegation contract for @vosjs/cli: the host forwards
-    every non-engine verb here (`vos <verb>`; `vos voila <verb>` stays a
-    hidden alias until public launch). The exported `manifest` (index.ts)
+    every non-engine verb here (`vos <verb>`). The exported `manifest` (index.ts)
     tells the host which verbs exist and how to summarize them in help. */
 export async function run(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv

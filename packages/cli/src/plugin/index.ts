@@ -1,8 +1,8 @@
 /**
  * The take pipeline and the vos.so verbs of the vos CLI, as a library.
  * `run(argv)` dispatches every non-engine verb; `manifest` lists them for
- * `vos help`. This directory used to ship separately as @vosso/vos-plugin
- * (and before that as @vosso/cli and @vosso/voila-cli); it folded into
+ * `vos help`. This directory used to ship separately under older package
+ * names; it folded into
  * @vosjs/cli so one install carries the whole loop.
  */
 export { run } from './run'

@@ -556,18 +556,11 @@ async function cmdCheck(argv: string[]): Promise<number> {
 // ---------------------------------------------------------------------------
 // Every verb this file does not own is a take-pipeline or vos.so verb from
 // `./plugin` (what used to ship separately as @vosso/vos-plugin). It loads on
-// demand, so the engine verbs never pay for the recorder's imports, and the
-// old names (`@vosso/cli`, `@vosso/voila-cli`, the `vos voila` alias) keep
-// resolving here for scripts that still use them.
+// demand, so the engine verbs never pay for the recorder's imports.
 // ---------------------------------------------------------------------------
 
-async function delegate(argv: string[], viaAlias = false): Promise<number> {
+async function delegate(argv: string[]): Promise<number> {
   const { run } = await import('./plugin/run')
-  if (viaAlias && argv[0]) {
-    process.stderr.write(
-      `note: "vos voila ${argv[0]}" is now "vos ${argv[0]}".\n`,
-    )
-  }
   return await run(argv)
 }
 
@@ -598,7 +591,7 @@ async function main(): Promise<number> {
     return cmd ? EXIT_OK : EXIT_USAGE
   }
   if (cmd === '--version') return cmdVersions(['--json'])
-  if (!ENGINE_VERBS.has(cmd) && cmd !== 'voila') return delegate([cmd, ...rest])
+  if (!ENGINE_VERBS.has(cmd)) return delegate([cmd, ...rest])
   // An engine verb asked for its flags: the engine's usage lines, plus the
   // take pipeline's where the verb is shared (render takes a config OR a take).
   if (rest.includes('--help') || rest.includes('-h')) {
@@ -625,10 +618,6 @@ async function main(): Promise<number> {
       return cmdPreview(rest)
     case 'check':
       return cmdCheck(rest)
-    // Hidden alias for existing scripts; not in HELP. Same code path as the
-    // promoted verbs, plus a one-line pointer at the new spelling.
-    case 'voila':
-      return delegate(rest, true)
     default:
       throw new UsageError(`unknown command "${cmd}" — run vos help`)
   }
