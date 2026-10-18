@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The Release workflow dispatches this one on the Version Packages PR's
+  # branch, because GitHub starts no pull_request run for a PR made with
+  # GITHUB_TOKEN. Nothing here reads the event, so a dispatched run checks the
+  # branch head exactly as a pull_request run would.
+  workflow_dispatch:
 
 jobs:
   build:

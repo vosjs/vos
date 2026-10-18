@@ -69,7 +69,7 @@ Consumers that develop against a local checkout use `link:` specifiers in their 
 Merging PRs that carry changesets accumulates a "Version Packages" pull request. Merging that PR runs `release.yml`, which builds and publishes every bumped package to npm through OIDC trusted publishing (no token is stored in the repo). Two things to know:
 
 - A brand-new package name needs one manual `npm publish` from a logged-in terminal before OIDC can publish it, then a Trusted Publisher entry on npmjs.com pointing at this repository's `release.yml`.
-- The release PR is opened by a bot token, and GitHub does not run CI on it; push an empty commit to the `changeset-release/main` branch to trigger the checks before merging.
+- The release PR is opened with the workflow's own token, and GitHub starts no CI for a pull request made that way. So after `release.yml` opens or refreshes the PR, its second job dispatches the `CI` workflow on the `changeset-release/main` branch, and the PR shows its three required checks within a minute or two without anyone pushing to it. If they are ever missing, start them by hand: Actions, CI, Run workflow, branch `changeset-release/main` (an empty commit pushed to the branch works too).
 
 ## Code of Conduct
 

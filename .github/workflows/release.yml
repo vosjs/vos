@@ -1,3 +1,23 @@
+# The release flow.
+#
+# Every push to main runs this workflow. With unreleased changesets on main, the
+# changesets action opens or refreshes the "Version Packages" pull request on the
+# changeset-release/main branch; merging that PR runs this workflow again, which
+# finds no changesets left, builds, and publishes every bumped package to npm
+# through OIDC trusted publishing (id-token: write; there is no NPM_TOKEN and
+# there must never be one).
+#
+# The Version Packages PR is opened and refreshed with the workflow's own
+# GITHUB_TOKEN, and GitHub starts no workflow for a pull request that token
+# makes: the run is created, held with no jobs, and never produces the check
+# runs the branch ruleset requires (CI's build (18), build (20), build (22)).
+# workflow_dispatch is the one event that token may trigger, so once the PR is
+# in place the release-pr-checks job starts the CI workflow on the release
+# branch itself. The check runs attach to the branch head, which is the PR's
+# head commit, so the PR shows its checks without anyone pushing to it. The
+# action force-pushes the branch on every refresh, and every refresh comes
+# from a run of this workflow, so each new head is dispatched too.
+
 name: Release
 
 on:
@@ -14,6 +34,10 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      # The number of the Version Packages PR this run opened or refreshed;
+      # empty when there was nothing to version or the run published instead.
+      pr: ${{ steps.changesets.outputs.pullRequestNumber }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -29,6 +53,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - name: Create release PR or publish
+        id: changesets
         uses: changesets/action@v1
         with:
           version: pnpm version-packages
@@ -37,3 +62,20 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # No NPM_TOKEN — auth comes from OIDC trusted publishing (id-token: write).
           NPM_CONFIG_PROVENANCE: 'true'
+
+  # Start CI on the Version Packages PR, since GitHub will not start it for a
+  # pull request GITHUB_TOKEN made (see the header). Dispatching a workflow is
+  # the one thing this job does, so it holds the one permission that needs.
+  release-pr-checks:
+    needs: release
+    if: needs.release.outputs.pr != ''
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Run CI on the release branch
+        # The changesets action names the branch after the base branch, which
+        # is the branch this workflow runs on.
+        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "changeset-release/$GITHUB_REF_NAME"
+        env:
+          GH_TOKEN: ${{ github.token }}
