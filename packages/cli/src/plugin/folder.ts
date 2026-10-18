@@ -68,6 +68,76 @@ export function resolveFolder(rows: FolderRow[], ref: string): FolderRow {
   return hit
 }
 
+/**
+ * A project ADDRESS, `<handle>/<slug>` (an `@` before the handle is
+ * allowed): anyone's project, as its page on vos.so names it. Null for a
+ * bare id or slug, which names a project on the caller's own shelf.
+ */
+export function projectAddress(
+  ref: string,
+): { handle: string; slug: string } | null {
+  const m = /^@?([A-Za-z0-9_]{1,30})\/([A-Za-z0-9][\w-]{0,99})$/.exec(
+    ref.trim(),
+  )
+  return m ? { handle: m[1], slug: m[2].toLowerCase() } : null
+}
+
+export interface PushFolder {
+  id: string
+  /** What the push will do there, in words for the person; null on your own shelf. */
+  note: string | null
+}
+
+/**
+ * Where a CREATED vos is filed. A bare id or slug names a project on the
+ * caller's own shelf, as it always has. A project address asks the server
+ * where a push meant for that project lands, because the answer depends on
+ * the credential: its owner CONTINUES the project; anyone else STARTS FROM
+ * it, in a private project of their own made once, named after it, with its
+ * recipes copied in. The CLI never decides which.
+ */
+export async function resolvePushFolder(
+  origin: string,
+  key: string,
+  ref: string,
+): Promise<PushFolder> {
+  const at = projectAddress(ref)
+  if (!at) {
+    return {
+      id: resolveFolder(await listFolders(origin, key), ref).id,
+      note: null,
+    }
+  }
+  const r = await apiJson(
+    origin,
+    `/api/folders/public/${encodeURIComponent(at.handle)}/${encodeURIComponent(at.slug)}/push-target`,
+    { method: 'POST', key },
+  )
+  if (r.status !== 200 && r.status !== 201) {
+    throw new Error(apiError(`find the project ${at.handle}/${at.slug}`, r))
+  }
+  const body = r.body as {
+    target?: string
+    created?: boolean
+    recipes?: number
+    folder?: { id: string; slug: string; name: string }
+    source?: { name: string }
+  }
+  if (!body.folder) {
+    throw new Error(
+      `find the project ${at.handle}/${at.slug}: no project in the answer`,
+    )
+  }
+  const source = body.source?.name ?? `${at.handle}/${at.slug}`
+  const note =
+    body.target === 'continue'
+      ? `continuing ${source}`
+      : body.created
+        ? `starting your own ${source} (${body.folder.slug}), its ${body.recipes ?? 0} recipe${body.recipes === 1 ? '' : 's'} copied in`
+        : `adding to your own ${source} (${body.folder.slug})`
+  return { id: body.folder.id, note }
+}
+
 function printTree(rows: FolderRow[]): void {
   const children = new Map<string | null, FolderRow[]>()
   for (const f of rows) {

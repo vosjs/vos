@@ -39,7 +39,7 @@ import {
 } from './platform'
 import { programPushTarget } from './sync'
 import { hostedAssetId, manifestRefs } from '../programAssets'
-import { listFolders, resolveFolder } from './folder'
+import { resolvePushFolder } from './folder'
 import {
   docLayerRefs,
   pullMedia,
@@ -434,7 +434,7 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
   const target = positionals[0]
   if (!target) {
     throw new UsageError(
-      'vos push <config.json|take> [--vos id] [--title t] [--slug s] [--desc d] [--tags a,b] [--folder <id|slug>] [--remix-of id] [--note n] [--label l] [--base versionId] [--override id]... [--prompt "<the prompt that made it>"] [--claimable [--share]]',
+      'vos push <config.json|take> [--vos id] [--title t] [--slug s] [--desc d] [--tags a,b] [--folder <id|slug|handle/slug>] [--remix-of id] [--note n] [--label l] [--base versionId] [--override id]... [--prompt "<the prompt that made it>"] [--claimable [--share]]',
     )
   }
   const source = resolveConfigPath(target)
@@ -723,9 +723,13 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
     ? `${state.title} remix`
     : basename(source).replace(/\.json$/i, '') || 'vos remix'
   const title = (strFlag(flags, 'title') ?? fallbackTitle).slice(0, 100)
-  const folderId = folderRef
-    ? resolveFolder(await listFolders(origin, key), folderRef).id
+  // A project address asks the server where it lands (continue or start
+  // from); a bare slug or id is the caller's own shelf.
+  const pushFolder = folderRef
+    ? await resolvePushFolder(origin, key, folderRef)
     : undefined
+  const folderId = pushFolder?.id
+  if (pushFolder?.note) r.log(pushFolder.note)
 
   const created = await createProgramVos({
     origin,
@@ -778,6 +782,7 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
       title,
       visibility: 'private',
       folder: folderRef ?? null,
+      ...(pushFolder?.note ? { folderNote: pushFolder.note } : {}),
       remixOfId: remixOfId ?? null,
       currentVersionId: created.currentVersionId,
       watchUrl,
@@ -795,7 +800,7 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
     `Created private vos ${created.id} (${title})\n` +
       `  watch:  ${watchUrl}\n  studio: ${studioUrl}\n` +
       (landed ? `${landedLines(landed)}\n` : '') +
-      `  shelf:  ${folderRef ? `in ${folderRef}` : `unfiled, at the root of your shelf (file it: vos folder move ${created.id} --to <slug>)`}\n` +
+      `  shelf:  ${folderRef ? `in ${folderRef}${pushFolder?.note ? ` (${pushFolder.note})` : ''}` : `unfiled, at the root of your shelf (file it: vos folder move ${created.id} --to <slug>)`}\n` +
       `  cover:  ${typeof programDoc?.still === 'number' ? `${String(programDoc.still)}s` : 'the platform picks an early frame; choose one with --still <seconds>'}\n` +
       (prompt
         ? `  prompt: shown on the watch page\n`
