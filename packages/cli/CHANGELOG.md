@@ -1,5 +1,11 @@
 # @vosjs/cli
 
+## 0.74.0
+
+### Minor Changes
+
+- 22b6800: The bundled skills are 0.24.0 and now include `vos-score`, which composes an original score on a program's own beat grid.
+
 ## 0.73.0
 
 ### Minor Changes
