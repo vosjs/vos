@@ -8,15 +8,22 @@
 # there must never be one).
 #
 # The Version Packages PR is opened and refreshed with the workflow's own
-# GITHUB_TOKEN, and GitHub starts no workflow for a pull request that token
-# makes: the run is created, held with no jobs, and never produces the check
-# runs the branch ruleset requires (CI's build (18), build (20), build (22)).
-# workflow_dispatch is the one event that token may trigger, so once the PR is
-# in place the release-pr-checks job starts the CI workflow on the release
-# branch itself. The check runs attach to the branch head, which is the PR's
-# head commit, so the PR shows its checks without anyone pushing to it. The
-# action force-pushes the branch on every refresh, and every refresh comes
-# from a run of this workflow, so each new head is dispatched too.
+# GITHUB_TOKEN. GitHub does create the pull_request CI run for a PR that token
+# opens or updates, but it HOLDS it: the run waits with no jobs (conclusion
+# action_required) until someone with write access approves it, and until then
+# the PR has none of the check runs the main ruleset requires (CI's build (18),
+# build (20), build (22)). Passing checks from any other run on the same commit,
+# a workflow_dispatch of CI included, do not unblock it: the PR reads the held
+# pull_request run, as the first release to try a dispatch measured.
+#
+# So once the PR is in place, the release-pr-checks job finds that held run for
+# the PR's head commit and approves it through the REST API, and CI then runs as
+# an ordinary pull_request run. The action force-pushes the branch on every
+# refresh, and every refresh comes from a run of this workflow, so each new head
+# is approved too. If the approval is refused, or no held run shows up, the job
+# says so in a comment on the PR naming the one manual step: press "Approve
+# workflows to run" on the PR (an empty commit pushed to the branch by a person
+# starts the checks too).
 
 name: Release
 
@@ -63,19 +70,60 @@ jobs:
           # No NPM_TOKEN — auth comes from OIDC trusted publishing (id-token: write).
           NPM_CONFIG_PROVENANCE: 'true'
 
-  # Start CI on the Version Packages PR, since GitHub will not start it for a
-  # pull request GITHUB_TOKEN made (see the header). Dispatching a workflow is
-  # the one thing this job does, so it holds the one permission that needs.
+  # Approve the Version Packages PR's held CI run (see the header). It holds
+  # actions: write to list and approve the run, and pull-requests: write to read
+  # the PR's head and to comment when the approval does not go through.
   release-pr-checks:
     needs: release
     if: needs.release.outputs.pr != ''
     runs-on: ubuntu-latest
     permissions:
       actions: write
+      pull-requests: write
     steps:
-      - name: Run CI on the release branch
-        # The changesets action names the branch after the base branch, which
-        # is the branch this workflow runs on.
-        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "changeset-release/$GITHUB_REF_NAME"
+      - name: Approve the held CI run
         env:
           GH_TOKEN: ${{ github.token }}
+          PR: ${{ needs.release.outputs.pr }}
+        run: |
+          set -uo pipefail
+          repo="$GITHUB_REPOSITORY"
+          sha=$(gh api "repos/$repo/pulls/$PR" --jq .head.sha)
+          if [ -z "$sha" ]; then
+            echo "::error::Could not read the head of PR #$PR"
+            exit 1
+          fi
+          echo "Version Packages PR #$PR, head $sha"
+
+          # Says what went wrong as a warning on this run and as a comment on
+          # the PR, where the person about to merge it will see it.
+          note() {
+            echo "::warning::$1"
+            gh api "repos/$repo/issues/$PR/comments" --silent -f body="$1
+
+          Approve it with **Approve workflows to run** at the bottom of this pull request, or from the held CI run's own page. An empty commit pushed to \`changeset-release/main\` by a person starts the checks too. (Posted by [the release run]($GITHUB_SERVER_URL/$repo/actions/runs/$GITHUB_RUN_ID) for $sha.)"
+          }
+
+          # GitHub creates the pull_request run within seconds of the push that
+          # opened or refreshed the PR; wait up to five minutes for it.
+          for try in $(seq 1 30); do
+            runs=$(gh api "repos/$repo/actions/workflows/ci.yml/runs?event=pull_request&head_sha=$sha&per_page=20" \
+              --jq '.workflow_runs[] | "\(.id) \(.status) \(.conclusion)"' || true)
+            held=$(echo "$runs" | awk '$2 == "action_required" || $3 == "action_required" { print $1; exit }')
+            if [ -n "$held" ]; then
+              if out=$(gh api -X POST "repos/$repo/actions/runs/$held/approve" 2>&1); then
+                echo "Approved CI run $held; the required checks now run on the PR."
+                exit 0
+              fi
+              note "The release workflow could not approve the CI run held on this pull request (run $held: $out), so its required checks have not started."
+              exit 0
+            fi
+            if [ -n "$runs" ]; then
+              echo "CI already runs on $sha without waiting for approval:"
+              echo "$runs"
+              exit 0
+            fi
+            echo "No pull_request CI run for $sha yet (try $try of 30)"
+            sleep 10
+          done
+          note "The release workflow found no CI run for this pull request's head within five minutes, so its required checks may not have started."
