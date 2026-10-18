@@ -36,7 +36,7 @@ import {
   uploadDocRefs,
 } from './media'
 import { MEDIA_HEAD_BYTES, nameForType, resolveMediaType } from './container'
-import { listFolders, resolveFolder } from './folder'
+import { resolvePushFolder } from './folder'
 import { uploadAsset } from './uploadAsset'
 import { looksLikeStorageState } from './session'
 import {
@@ -293,10 +293,11 @@ export async function pushTake(
         '--folder applies when CREATING a vos — this take is already pushed; file it with: vos folder move <vosId> --to <folder>',
       )
     }
-    folderId = resolveFolder(
-      await listFolders(ctx.origin, ctx.key),
-      flags.folder,
-    ).id
+    // A project address asks the server where it lands (continue or
+    // start from); a bare slug or id is the caller's own shelf.
+    const target = await resolvePushFolder(ctx.origin, ctx.key, flags.folder)
+    folderId = target.id
+    if (target.note) r.log(target.note)
   }
 
   // Never upload unprompted: explicit consent on the first push.
