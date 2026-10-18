@@ -3,12 +3,11 @@ name: CI
 on:
   push:
     branches: [main]
+  # On the Version Packages PR this run is held for approval, because the
+  # Release workflow's own token opened the PR; that workflow approves it (see
+  # the header of release.yml). Only this pull_request run counts toward the
+  # PR's required checks, so there is no dispatch trigger here.
   pull_request:
-  # The Release workflow dispatches this one on the Version Packages PR's
-  # branch, because GitHub starts no pull_request run for a PR made with
-  # GITHUB_TOKEN. Nothing here reads the event, so a dispatched run checks the
-  # branch head exactly as a pull_request run would.
-  workflow_dispatch:
 
 jobs:
   build:
