@@ -1,0 +1,38 @@
+{
+  "title": "A 124 BPM new jack swing dance film",
+  "bpm": 124,
+  "bars": 30,
+  "swing": 0.24,
+  "seed": 1990,
+  "harmony": "E dorian: Em9 and A13 vamps, a descending stop-time line (Em9 D C B7), Am9 to B7 for the dark section, C D Em for the chorus",
+  "chords": {
+    "Em9": { "root": "E1", "voicing": ["G3", "B3", "D4", "F#4"] },
+    "A13": { "root": "A1", "voicing": ["G3", "C#4", "F#4"] },
+    "Cmaj7": { "root": "C2", "voicing": ["G3", "B3", "E4"] },
+    "D6": { "root": "D2", "voicing": ["A3", "D4", "F#4", "B4"] },
+    "Am9": { "root": "A1", "voicing": ["G3", "C4", "E4", "B4"] },
+    "B7": { "root": "B1", "voicing": ["F#3", "B3", "D#4", "A4"] },
+    "Dmaj": { "root": "D2", "voicing": ["F#3", "A3", "D4"] }
+  },
+  "riff": [[0, 12, 2], [3, 12, 1], [4, 0, 1], [6, 15, 2], [8, 17, 1], [10, 19, 2], [13, 22, 1], [14, 24, 1]],
+  "hook": [
+    [[0, "B4", 2], [2, "D5", 1], [3, "E5", 3], [6, "G5", 1], [7, "E5", 2], [10, "D5", 4], [14, "B4", 2]],
+    [[0, "A4", 2], [2, "B4", 2], [4, "D5", 3], [8, "E5", 2], [11, "D5", 1], [12, "B4", 4]]
+  ],
+  "sections": [
+    { "name": "intro", "bars": [0, 2], "texture": "intro", "chords": ["Em9"], "picture": "the title card" },
+    { "name": "build", "bars": [2, 4], "texture": "build", "energy": 0.65, "chords": ["Em9", "A13"], "picture": "a half-strength shuffle" },
+    { "name": "i. the shuffle", "bars": [4, 8], "texture": "groove", "energy": 0.72, "chords": ["Em9", "A13"], "crash": 0.25, "picture": "the side-to-side shuffle on the eighths" },
+    { "name": "ii. the palm stop", "bars": [8, 12], "texture": "stop", "energy": 0.75, "chords": ["Em9", "Dmaj", "Cmaj7", "B7"], "hits": [0, 8], "picture": "poses snap on beats 1 and 3" },
+    { "name": "iii. the arm pump", "bars": [12, 15], "texture": "pump", "energy": 1.0, "chords": ["A13", "A13", "Em9"], "crash": 0.22, "picture": "a fist driven up on every beat" },
+    { "name": "spin 1", "bars": [15, 16], "texture": "spin", "picture": "a full spin into the drop" },
+    { "name": "iv. the drop", "bars": [16, 20], "texture": "drop", "energy": 1.05, "chords": ["Em9", "A13"], "crash": 0.35, "hit": "Em9", "picture": "the shuffle again, bigger" },
+    { "name": "v. the split drop", "bars": [20, 24], "texture": "dark", "energy": 0.8, "chords": ["Am9", "Am9", "B7", "B7"], "crash": 0.28, "picture": "down into a split and up, on every beat, the night palette" },
+    { "name": "vi. the chorus line", "bars": [24, 27], "texture": "chorus", "energy": 1.25, "chords": ["Cmaj7", "D6", "Em9"], "crash": 0.38, "hit": "Cmaj7", "picture": "the biggest moment: the pump, everyone" },
+    { "name": "the final pose", "bars": [27, 30], "texture": "ending", "pickup": 0.5, "hits": [{ "at": 27.5, "chord": "B7" }, { "at": 28, "chord": "Em9" }], "picture": "a half-bar spin, then the pose held to the end" }
+  ],
+  "fills": [
+    { "bar": 11, "from": 12, "to": 16, "level": 0.75 },
+    { "bar": 23, "from": 8, "to": 16, "level": 0.6 }
+  ]
+}
