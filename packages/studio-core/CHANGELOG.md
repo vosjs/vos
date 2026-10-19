@@ -1,5 +1,13 @@
 # @vosjs/studio-core
 
+## 0.42.3
+
+### Patch Changes
+
+- ed34744: The composition's WebCodecs frame provider imports mediabunny from where the page says (`window.__vos__.modules.mediabunny`), falling back to esm.sh at the engine's pinned version; the `@vosjs/core` peer range admits 0.31.
+- Updated dependencies [ed34744]
+  - @vosjs/elements@0.12.1
+
 ## 0.42.2
 
 ### Patch Changes
