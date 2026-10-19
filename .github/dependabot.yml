@@ -10,3 +10,8 @@ updates:
     groups:
       actions:
         patterns: ['*']
+    ignore:
+      # The v2 action needs Changesets CLI v3 and renamed inputs: moved by
+      # hand, together with the CLI, never by a weekly bump.
+      - dependency-name: changesets/action
+        update-types: ['version-update:semver-major']
