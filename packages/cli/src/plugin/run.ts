@@ -35,6 +35,7 @@ import {
   resolveLook,
   readBrandBesideTake,
 } from './deliver'
+import { launchDefaultBrowser } from './login'
 import { fetchBrandMarks } from './markAsset'
 import { endCardInk } from './motionPlan'
 import type { MotionAnchor, MotionTemplate } from './motionPlan'
@@ -846,7 +847,9 @@ async function cmdRecord(argv: string[]): Promise<number> {
           ? [`--storage-state ${strFlag(flags, 'storage-state')}`]
           : []),
         ...browserArgs.map((a) => `--browser-arg=${a}`),
-        ...Object.entries(headers).map(([k, v]) => `--header ${k}=${v}`),
+        // A header value is a bypass token more often than not: named, never
+        // printed.
+        ...Object.keys(headers).map((k) => `--header ${k}=…`),
         ...(sessionName ? [`--session ${sessionName}`] : []),
         ...(flags['allow-wall'] === true ? ['--allow-wall'] : []),
       ].join(' ')
@@ -1837,14 +1840,7 @@ async function cmdOpen(argv: string[]): Promise<number> {
   if (flags.print !== true) {
     r.log('opening the studio… (Ctrl-C to stop serving)')
     // Best-effort browser launch; the printed URL is the contract.
-    const opener =
-      process.platform === 'darwin'
-        ? 'open'
-        : process.platform === 'win32'
-          ? 'start'
-          : 'xdg-open'
-    const { exec } = await import('node:child_process')
-    exec(`${opener} ${JSON.stringify(url)}`, () => {})
+    await launchDefaultBrowser(url)
   } else {
     r.log('serving (— --print: not launching a browser; Ctrl-C to stop)')
   }

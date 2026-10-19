@@ -36,16 +36,35 @@ export interface BrowserLoginOptions {
   store?: (key: string) => string
 }
 
-/** Best-effort OS launch — the printed URL stays the contract (vos open). */
-async function launchDefaultBrowser(url: string): Promise<void> {
-  const opener =
+/**
+ * Best-effort OS launch — the printed URL stays the contract (vos open).
+ * The URL is an ARGUMENT, never part of a shell line: a server answer is
+ * not a thing to hand a shell.
+ */
+export async function launchDefaultBrowser(url: string): Promise<void> {
+  const { spawn } = await import('node:child_process')
+  const [cmd, args] =
     process.platform === 'darwin'
-      ? 'open'
+      ? ['open', [url]]
       : process.platform === 'win32'
-        ? 'start'
-        : 'xdg-open'
-  const { exec } = await import('node:child_process')
-  exec(`${opener} ${JSON.stringify(url)}`, () => {})
+        ? ['cmd', ['/c', 'start', '', url]]
+        : ['xdg-open', [url]]
+  try {
+    const child = spawn(cmd, args, { detached: true, stdio: 'ignore' })
+    child.on('error', () => {})
+    child.unref()
+  } catch {
+    // The printed URL is the contract.
+  }
+}
+
+/** The address a sign-in may open: a page on the origin the CLI asked. */
+export function verifyUrlOk(verifyUrl: string, origin: string): boolean {
+  try {
+    return new URL(verifyUrl).origin === new URL(origin).origin
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -81,7 +100,8 @@ export async function browserLogin(
   r.event({ event: 'login_await', url: verifyUrl, code, expiresAt })
   r.log(`Confirm this code in the browser: ${code}`)
   r.log(`Sign in at ${verifyUrl}`)
-  if (opts.openBrowser) void launchDefaultBrowser(verifyUrl)
+  if (opts.openBrowser && verifyUrlOk(verifyUrl, origin))
+    void launchDefaultBrowser(verifyUrl)
   r.log('Waiting for approval… (Ctrl-C to cancel)')
 
   const sleep =

@@ -39,7 +39,7 @@
  * holds it to the installed package): render-core has no engine dependency.
  */
 export const CORE_AUDIO_CDN_URL =
-  'https://esm.sh/@vosjs/core@0.29.1/audio?target=es2022'
+  'https://esm.sh/@vosjs/core@0.29.2/audio?target=es2022'
 
 /**
  * A sampled audio plan, structurally `@vosjs/core/audio`'s `AudioPlan` (and
@@ -102,8 +102,10 @@ export function audioProducerCode(
   options: AudioProducerCodeOptions = {},
 ): string {
   const coreAudioUrl = options.coreAudioUrl ?? CORE_AUDIO_CDN_URL
+  // The plan is data inlined into a <script>: `<` leaves as its escape so a
+  // key or a name can never end the element.
   const bakedPlan = options.plan
-    ? `window.__vosAudioPlan__ = ${JSON.stringify(options.plan)};`
+    ? `window.__vosAudioPlan__ = ${JSON.stringify(options.plan).replace(/</g, '\\u003c')};`
     : ''
   return `
 ${bakedPlan}

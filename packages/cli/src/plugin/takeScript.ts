@@ -41,12 +41,45 @@ export function scriptToWrite(
   return `${JSON.stringify(script, null, 2)}\n`
 }
 
+/**
+ * The script as it may travel: every setup value a person typed replaced by
+ * a word, and every setup address stripped to its origin and path. A setup
+ * exists to pass a sign-in, so its literals are the one place a secret is
+ * typed and its addresses the one place a magic link is pasted; a pushed
+ * document is read by the fleet, by grants and, once public, by anyone. An
+ * `{ env }` reference keeps its NAME, which is what a re-record needs.
+ */
+export function publicScript(
+  script: Record<string, unknown>,
+): Record<string, unknown> {
+  const setup = script.setup
+  if (!Array.isArray(setup)) return script
+  return {
+    ...script,
+    setup: setup.map((step: unknown) => {
+      if (!step || typeof step !== 'object') return step
+      const s = step as Record<string, unknown>
+      if (s.do === 'type' && typeof s.text === 'string')
+        return { ...s, text: '[typed value not stored]' }
+      if (s.do === 'goto' && typeof s.url === 'string') {
+        try {
+          const u = new URL(s.url)
+          return { ...s, url: `${u.origin}${u.pathname}` }
+        } catch {
+          return s
+        }
+      }
+      return s
+    }),
+  }
+}
+
 /** Embed the take directory's actions.json into the document about to be pushed. */
 export function embedScript(doc: ProjectDoc, dir: string): void {
   const path = join(dir, 'actions.json')
   if (!existsSync(path)) return
   const script = scriptFromText(readFileSync(path, 'utf8'))
-  if (script) doc.source.script = script
+  if (script) doc.source.script = publicScript(script)
 }
 
 /** Write the document's script beside the take when none is there; true when written. */

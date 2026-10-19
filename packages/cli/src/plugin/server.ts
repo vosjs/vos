@@ -1,7 +1,8 @@
 import { createServer } from 'node:http'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { randomBytes } from 'node:crypto'
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
-import { extname, join } from 'node:path'
+import { extname, join, resolve, sep } from 'node:path'
 import { MEDIA_HEAD_BYTES, sniffMediaType } from './container'
 import type { Page } from 'playwright'
 
@@ -33,6 +34,53 @@ export interface TakeServer {
 }
 
 /**
+ * A `/save` name is a file the CLI's own pages write: a render, a frame,
+ * the encoded recording, a digest picture. Never a path, a dotfile, or one
+ * of the take's own records, which no page has a reason to replace.
+ */
+const SAVE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+const SAVE_NEVER = new Set([
+  'doc.json',
+  'actions.json',
+  'vos.json',
+  'meta.json',
+  'cursor.json',
+])
+export function saveNameOk(name: string): boolean {
+  return SAVE_NAME.test(name) && !name.includes('..') && !SAVE_NEVER.has(name)
+}
+
+/**
+ * The file a request path names inside the take directory, or null when it
+ * names nothing there: the resolved real path must stay under the real
+ * root, so an encoded `..` or a symlink out of the directory answers 404.
+ */
+export function fileInRoot(rootDir: string, pathname: string): string | null {
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(pathname)
+  } catch {
+    return null
+  }
+  const file = resolve(rootDir, `.${decoded}`)
+  if (!existsSync(file) || !statSync(file).isFile()) return null
+  const root = realpathSync(rootDir)
+  const real = realpathSync(file)
+  return real.startsWith(root + sep) ? real : null
+}
+
+/**
+ * Who may read a bare path (one without the token prefix): the server's own
+ * pages, which fetch as same-origin, and a person at the address bar. A
+ * page on any other origin reads only through the tokened base the studio
+ * was handed, so a stray page on the machine cannot list the take.
+ */
+function ownReader(req: { headers: Record<string, unknown> }): boolean {
+  const site = req.headers['sec-fetch-site']
+  return site === undefined || site === 'same-origin' || site === 'none'
+}
+
+/**
  * Static server over the take dir + generated pages + a POST /save endpoint
  * the in-page encoder/renderer uses to hand bytes back to node. The recording
  * is fetched → blob URL (seekable), but a take-dir VIDEO BACKGROUND
@@ -44,8 +92,23 @@ export function startTakeServer(
   rootDir: string,
   pages: Record<string, string>,
 ): Promise<TakeServer> {
+  // The base the studio is handed carries a per-start token in its path,
+  // and a cross-site read must carry it back; the server's own pages keep
+  // their bare absolute paths (`/save`, `/recording.webm`).
+  const token = randomBytes(16).toString('hex')
+  const prefix = `/t/${token}`
   const server = createServer((req, res) => {
-    const url = new URL(req.url ?? '/', 'http://x')
+    const raw = new URL(req.url ?? '/', 'http://x')
+    const tokened =
+      raw.pathname === prefix || raw.pathname.startsWith(`${prefix}/`)
+    if (!tokened && req.method !== 'OPTIONS' && !ownReader(req)) {
+      res.writeHead(404).end()
+      return
+    }
+    const url = tokened
+      ? new URL(raw.pathname.slice(prefix.length) || '/', 'http://x')
+      : raw
+    url.search = raw.search
     // The studio (a different origin, https://vos.so) fetches take files for
     // `vos open`. Two doors a public page must pass to reach localhost:
     // CORS, answered on every response, and Chrome's private-network
@@ -69,10 +132,12 @@ export function startTakeServer(
       return
     }
     if (req.method === 'POST' && url.pathname === '/save') {
-      const name = (url.searchParams.get('name') ?? 'out.bin').replace(
-        /[^\w.-]/g,
-        '',
-      )
+      const name = url.searchParams.get('name') ?? 'out.bin'
+      // Only the server's own pages write, and only a file name.
+      if (tokened || !ownReader(req) || !saveNameOk(name)) {
+        res.writeHead(404).end()
+        return
+      }
       const chunks: Buffer[] = []
       req.on('data', (c: Buffer) => chunks.push(c))
       req.on('end', () => {
@@ -88,8 +153,8 @@ export function startTakeServer(
       res.end(pages[url.pathname])
       return
     }
-    const file = join(rootDir, decodeURIComponent(url.pathname))
-    if (existsSync(file) && statSync(file).isFile()) {
+    const file = fileInRoot(rootDir, url.pathname)
+    if (file) {
       const size = statSync(file).size
       const buf = readFileSync(file)
       // The BYTES outrank the extension for anything carrying a container
@@ -129,11 +194,15 @@ export function startTakeServer(
     }
     res.writeHead(404).end()
   })
-  return new Promise((resolve) =>
-    server.listen(0, () => {
+  // Loopback only: a take is this machine's, never the LAN's.
+  return new Promise((done) =>
+    server.listen(0, '127.0.0.1', () => {
       const addr = server.address()
       const port = typeof addr === 'object' && addr ? addr.port : 0
-      resolve({ base: `http://localhost:${port}`, close: () => server.close() })
+      done({
+        base: `http://127.0.0.1:${port}${prefix}`,
+        close: () => server.close(),
+      })
     }),
   )
 }

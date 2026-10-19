@@ -1,5 +1,35 @@
 import { describe, expect, it } from 'vitest'
-import { scriptFromText, scriptToWrite } from '../takeScript'
+import { publicScript, scriptFromText, scriptToWrite } from '../takeScript'
+
+describe('a pushed script carries no setup value', () => {
+  it('replaces a typed literal, keeps an env name, strips a setup address to its path', () => {
+    const out = publicScript({
+      url: 'https://x.test/app?tab=2',
+      setup: [
+        { do: 'type', selector: '#email', text: 'robin@example.com' },
+        { do: 'type', selector: '#pw', text: { env: 'DEMO_PW' } },
+        { do: 'goto', url: 'https://x.test/magic?token=abc#frag' },
+        { do: 'click', selector: '#go' },
+      ],
+      steps: [{ do: 'type', selector: '#q', text: 'on camera' }],
+    })
+    expect(out.setup).toEqual([
+      { do: 'type', selector: '#email', text: '[typed value not stored]' },
+      { do: 'type', selector: '#pw', text: { env: 'DEMO_PW' } },
+      { do: 'goto', url: 'https://x.test/magic' },
+      { do: 'click', selector: '#go' },
+    ])
+    // The take's own address and the on-camera steps are what the take shows.
+    expect(out.url).toBe('https://x.test/app?tab=2')
+    expect(out.steps).toEqual([
+      { do: 'type', selector: '#q', text: 'on camera' },
+    ])
+    expect(publicScript({ url: 'https://x.test', steps: [] })).toEqual({
+      url: 'https://x.test',
+      steps: [],
+    })
+  })
+})
 
 describe('the script travels with the take', () => {
   it('reads an object and refuses anything else', () => {

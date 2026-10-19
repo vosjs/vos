@@ -10,6 +10,7 @@ import { ADDON_REGISTRY } from '../addons/registry'
 import { VOS_BRIDGE_PROTOCOL } from './bridge'
 import { ELEMENT_PICK_JS } from './elementPick'
 import { transformModuleCode } from './transformModuleCode'
+import { inlineScriptSafe } from './inlineScript'
 
 export interface RenderTemplateOptions {
   mode: 'playback' | 'capture-video' | 'capture-thumbnail'
@@ -985,7 +986,7 @@ ${audioProducerBlock}
 
         // Animation code (transformed) — await the async IIFE so initVos is ready
         try {
-          await ${transformedCode}
+          await ${inlineScriptSafe(transformedCode)}
         } catch (codeError) {
           console.error('Animation code error:', codeError);
           window.__renderComplete = { success: false, error: 'Animation code error: ' + codeError.message };
@@ -1196,7 +1197,7 @@ ${elementsBlock}
 
         // Animation code (transformed) — await the async IIFE so initVos is ready
         try {
-          await ${transformedCode}
+          await ${inlineScriptSafe(transformedCode)}
         } catch (codeError) {
           console.error('Animation code error:', codeError);
           window.__renderComplete = { success: false, error: 'Animation code error: ' + codeError.message };

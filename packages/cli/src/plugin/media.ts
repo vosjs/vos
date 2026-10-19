@@ -25,6 +25,7 @@ import {
 import { basename, dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
+import { localFile } from '../programAssets'
 import { takeMediaFiles, writeJson } from './take'
 import {
   MEDIA_HEAD_BYTES,
@@ -291,13 +292,16 @@ export async function uploadDocRefs(
   log: (line: string) => void,
 ): Promise<void> {
   for (const ref of refs) {
-    const file = join(dir, takeRelativeFile(ref.key))
-    if (!existsSync(file)) {
+    // The key names a file in the take directory or below, never outside
+    // it: a fetched or pasted document is not trusted with the disk.
+    const local = localFile(takeRelativeFile(ref.key), dir)
+    if ('refused' in local) {
       log(
         `warning ${ref.where}: ${ref.key} is not beside the document, so it was not uploaded`,
       )
       continue
     }
+    const file = local.file
     const media = await readFile(file)
     const mediaHash = createHash('sha256').update(media).digest('hex')
     const { type } = resolveMediaType({
@@ -382,14 +386,40 @@ export interface DownloadTarget {
  * re-uploads that file, so a wrong name here becomes a wrong Content-Type on
  * the asset, and a render that dies inside the video element.
  */
+/**
+ * Where a document key is fetched from, and whether the content key rides
+ * along. The key goes ONLY to the configured origin: a hosted file named
+ * as a file-door address on some other host is read from the home door by
+ * its id, and any other URL is fetched bare, so a stranger's document
+ * can never send the reader's credential elsewhere.
+ */
+export function downloadPlan(
+  ctx: { origin: string },
+  url: string,
+): { url: string; bearer: boolean } {
+  const home = new URL(ctx.origin).origin
+  if (!/^https?:/.test(url)) return { url: `${home}${url}`, bearer: true }
+  let abs: URL
+  try {
+    abs = new URL(url)
+  } catch {
+    return { url, bearer: false }
+  }
+  if (abs.origin === home) return { url: abs.href, bearer: true }
+  const id = assetIdOf(url)
+  if (id) return { url: `${home}/api/assets/${id}/file`, bearer: true }
+  return { url: abs.href, bearer: false }
+}
+
 export async function downloadMedia(
   ctx: { origin: string; key: string | null },
   url: string,
   target: DownloadTarget,
 ): Promise<{ file: string; bytes: number }> {
-  const abs = /^https?:/.test(url) ? url : `${ctx.origin}${url}`
-  const res = await fetch(abs, {
-    headers: ctx.key ? { authorization: `Bearer ${ctx.key}` } : {},
+  const plan = downloadPlan(ctx, url)
+  const res = await fetch(plan.url, {
+    headers:
+      plan.bearer && ctx.key ? { authorization: `Bearer ${ctx.key}` } : {},
   })
   if (!res.ok || !res.body) {
     throw new Error(
