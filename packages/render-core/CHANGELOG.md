@@ -1,5 +1,13 @@
 # @vosjs/render-core
 
+## 0.5.1
+
+### Patch Changes
+
+- 5e53e20: The audio build pin follows core to 0.30.0.
+- Updated dependencies [5e53e20]
+  - @vosjs/studio-core@0.42.2
+
 ## 0.5.0
 
 ### Minor Changes
