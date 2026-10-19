@@ -118,7 +118,8 @@ import { cmdCompare } from './compare'
 import { cmdPort } from './port'
 import { cmdRecipe } from './recipe'
 import { cmdBrand } from './brand'
-import { hostedEnv, recordHosted } from './hostedRecord'
+import { announceEnvNames, hostedEnv, recordHosted } from './hostedRecord'
+import { urlSchemeProblem } from '@vosjs/render-core/record'
 import { cmdActions } from './agentBrowser'
 import { cmdIngest } from './ingest'
 import { cmdDoctor, cmdLogout, cmdSetup, cmdWhoami } from './machineCmd'
@@ -701,6 +702,10 @@ async function cmdRecord(argv: string[]): Promise<number> {
   const url = strFlag(flags, 'url') ?? actions.url
   if (!url)
     throw new UsageError('no URL — set "url" in the actions file or pass --url')
+  const scheme = urlSchemeProblem(url)
+  if (scheme) throw new UsageError(scheme)
+  // What the script reads from this shell, by name, before any value is.
+  announceEnvNames(actions, r)
   const outDir = resolve(strFlag(flags, 'out') ?? 'take')
   const storageState = takeStorageState(flags)
   const sessionName = takeSessionName(flags, storageState)
@@ -985,6 +990,9 @@ async function cmdCreate(argv: string[]): Promise<number> {
   const url = strFlag(flags, 'url') ?? actions.url
   if (!url)
     throw new UsageError('no URL — set "url" in the actions file or pass --url')
+  const scheme = urlSchemeProblem(url)
+  if (scheme) throw new UsageError(scheme)
+  announceEnvNames(actions, r)
   const outDir = resolve(strFlag(flags, 'out') ?? 'take')
   const format = videoFormat(strFlag(flags, 'format'), positionals[0])
   const out = positionals[0] ?? join(outDir, `out.${format}`)

@@ -13,6 +13,7 @@
  *   untouched; the platform validates and compiles server-side
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { writeFileSafeSync } from './safeWrite'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { UsageError } from './args'
@@ -327,7 +328,7 @@ export function writeSyncState(
     ...(readSyncState(dir) ?? { versionId: null }),
     ...patch,
   } as SyncState
-  writeFileSync(
+  writeFileSafeSync(
     join(dir, SYNC_STATE_NAME),
     `${JSON.stringify(merged, null, 2)}\n`,
   )

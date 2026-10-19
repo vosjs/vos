@@ -291,10 +291,13 @@ async function fetchHosted(
  * studio entry as `html.faces`), as refs a caller can re-point. The page
  * fetches each `url` itself, so a path is resolved against the page.
  */
-function htmlFaceRefs(
-  config: Record<string, unknown>,
-): { where: string; url: string; set: (next: string) => void }[] {
-  const out: { where: string; url: string; set: (next: string) => void }[] = []
+function htmlFaceRefs(config: Record<string, unknown>): {
+  where: string
+  url: string
+  set: (next: string) => void
+  drop: () => void
+}[] {
+  const out: ReturnType<typeof htmlFaceRefs> = []
   const stack = Array.isArray(config.stack) ? config.stack : []
   for (const entry of stack as Record<string, unknown>[]) {
     const data = entry?.data as Record<string, unknown> | undefined
@@ -310,12 +313,19 @@ function htmlFaceRefs(
           set: (next) => {
             face.url = next
           },
+          drop: () => {
+            const at = faces.indexOf(face)
+            if (at >= 0) faces.splice(at, 1)
+          },
         })
       }
     }
   }
   return out
 }
+
+/** The one host a page fetches a face or an image from by URL. */
+const FACE_HOST = /^https:\/\/assets\.vos\.so\//
 
 /**
  * Make every declared file reachable for a local page: the manifest's, and
@@ -328,10 +338,20 @@ export async function programAssets(
   opts: ProgramAssetsOptions,
 ): Promise<ProgramAssets | null> {
   const refs = manifestRefs(config)
-  const faces = htmlFaceRefs(config).filter(
-    (f) =>
-      !isUrl(f.url) || hostedAssetId(f.url, opts.origin ? [opts.origin] : []),
-  )
+  const faces: ReturnType<typeof htmlFaceRefs> = []
+  for (const f of htmlFaceRefs(config)) {
+    const hosted = hostedAssetId(f.url, opts.origin ? [opts.origin] : [])
+    if (!isUrl(f.url) || hosted) {
+      faces.push(f)
+    } else if (!FACE_HOST.test(f.url)) {
+      // A face is fetched by the page and inlined, like its images, so it
+      // is held to the same host; one on another host is dropped and said.
+      opts.log(
+        `note: ${f.where} names ${f.url}, which is not on https://assets.vos.so, so the render does not fetch it (a face comes from the hosted catalog, a hosted file, or a .woff2 beside the document)`,
+      )
+      f.drop()
+    }
+  }
   if (refs.length === 0 && faces.length === 0) return null
   const files: Record<string, string> = {}
   const served = new Map<string, string>()

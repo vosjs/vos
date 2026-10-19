@@ -9,15 +9,11 @@
  * never collected. A push is the crossing one way, `vos fetch --media` the
  * other; neither rewrites the other side's spelling in place.
  */
-import {
-  existsSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { existsSync, readFileSync, realpathSync, rmSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { hostedAssetId, localFile, manifestRefs } from '../programAssets'
+import { safePathName } from './pathName'
+import { writeFileSafeSync } from './safeWrite'
 import { downloadMedia, uploadDocRefs } from './media'
 import type { DocMediaRef } from './media'
 import type { UploadTarget } from './uploadAsset'
@@ -145,7 +141,9 @@ export async function pullManifest(
   const files: string[] = []
   for (const { name, index: at, ref } of hosted) {
     const id = hostedAssetId(ref, home)!
-    const stem = at === null ? name : `${name}-${at}`
+    // The manifest name is the config's word and becomes a file name here,
+    // so it is held to a plain path segment (the asset id stands in).
+    const stem = safePathName(at === null ? name : `${name}-${at}`, id)
     const known = Object.keys(index).find(
       (f) => f === stem || f.startsWith(`${stem}.`),
     )
@@ -180,7 +178,7 @@ export async function pullManifest(
     files.push(file)
     setRef(manifest, name, at, `./${file}`)
   }
-  writeFileSync(indexPath, JSON.stringify(index, null, 2) + '\n')
+  writeFileSafeSync(indexPath, JSON.stringify(index, null, 2) + '\n')
   return { assets: manifest, files }
 }
 
