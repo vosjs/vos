@@ -12,7 +12,7 @@ Please do not open a public issue for a security vulnerability. Report it privat
 - the `vos` CLI writing outside the take directory it was pointed at, or sending a credential anywhere but the configured origin
 - a schema or lint bypass that lets a config claim to be deterministic while it is not
 
-Out of scope: the content of a config you chose to run (a program can draw anything), and issues in the hosted platform at vos.so, which has its own reporting path.
+Out of scope: the content of a config you chose to run (a program can draw anything). Issues in the hosted platform at vos.so go to security@vos.so, as https://vos.so/.well-known/security.txt says; a finding that touches both is welcome in either place.
 
 ## Supported versions
 
