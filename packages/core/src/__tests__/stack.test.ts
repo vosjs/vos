@@ -199,7 +199,7 @@ describe('stack — bridge (protocol 5)', () => {
   )
 
   it('advertises the stack in READY and pushes STACK_ERROR', () => {
-    expect(VOS_BRIDGE_PROTOCOL).toBe(10)
+    expect(VOS_BRIDGE_PROTOCOL).toBe(11)
     expect(html).toContain('stack: result.stack ? result.stack.ids : []')
     expect(html).toContain(
       "__post({ type: 'STACK_ERROR', id: e.id, error: e.error })",
@@ -207,7 +207,7 @@ describe('stack — bridge (protocol 5)', () => {
   })
 
   it('routes a targeted SET_DATA to the entry and answers GET_STACK_STATE', () => {
-    expect(html).toContain('__current.setData(msg.data, msg.target)')
+    expect(html).toContain('__current.setData(data, msg.target)')
     expect(html).toContain("case 'GET_STACK_STATE':")
     expect(html).toContain("type: 'STACK_STATE'")
     // LOAD carries per-entry data beside deps.data.

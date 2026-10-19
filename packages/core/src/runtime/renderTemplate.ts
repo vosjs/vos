@@ -411,6 +411,32 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
         let __stackData = null; // last applied per-entry data, by id
         let __tweenEdits = null;
         let __stackUnsub = null;
+        let __assets = null;    // the manifest as the host resolved it, by name (deps.assets)
+        // A blob: URL is bound to the origin that made it, so a host on
+        // another origin hands the Blob itself (a structured clone shares
+        // the bytes) under the key its data names, and the key is rewritten
+        // to an object URL of this document's own before the program sees it.
+        const __blobUrls = {};
+        const __takeBlobs = (blobs) => {
+            if (!blobs || typeof blobs !== 'object') return;
+            for (const key of Object.keys(blobs)) {
+                const blob = blobs[key];
+                if (!(blob instanceof Blob)) continue;
+                if (__blobUrls[key]) { try { URL.revokeObjectURL(__blobUrls[key]); } catch (e) {} }
+                __blobUrls[key] = URL.createObjectURL(blob);
+            }
+        };
+        const __rewriteBlobs = (value) => {
+            if (typeof value === 'string') return __blobUrls[value] || value;
+            if (Array.isArray(value)) return value.map(__rewriteBlobs);
+            if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+                const out = {};
+                for (const k of Object.keys(value)) out[k] = __rewriteBlobs(value[k]);
+                return out;
+            }
+            return value;
+        };
+        const __withBlobs = (value) => (value != null && Object.keys(__blobUrls).length ? __rewriteBlobs(value) : value);
 
         // The transport reports the LIVE timeline. A data swap can rebuild the
         // content and its timeline in place (a bound split text, a program
@@ -460,10 +486,12 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
             if (__current && __current.cleanup) { try { __current.cleanup(); } catch (e) {} }
             __current = null;
 
-            const data = (payload && payload.data != null) ? payload.data : __data;
+            __takeBlobs(payload && payload.blobs);
+            const data = (payload && payload.data != null) ? __withBlobs(payload.data) : __data;
             __data = data;
-            const stackData = (payload && payload.stack != null) ? payload.stack : __stackData;
+            const stackData = (payload && payload.stack != null) ? __withBlobs(payload.stack) : __stackData;
             __stackData = stackData;
+            if (payload && payload.assets != null) __assets = payload.assets;
             if (payload && payload.tweenEdits != null) __tweenEdits = payload.tweenEdits;
             if (__stackUnsub) { try { __stackUnsub(); } catch (e) {} __stackUnsub = null; }
 
@@ -476,6 +504,7 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
             const deps = __deps();
             if (data != null) deps.data = data;
             if (stackData != null) deps.stack = stackData;
+            if (__assets != null) deps.assets = __assets;
 
             let result;
             try {
@@ -516,19 +545,35 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
         };
 
         window.addEventListener('message', (e) => {
+            // Commands come from the host that framed this document (or from
+            // a script of its own): a window that merely holds a reference
+            // to this one drives nothing.
+            if (e.source !== window.parent && e.source !== window) return;
             const msg = e.data || {};
             switch (msg.type) {
                 case 'LOAD': __load(msg); break;
                 case 'SET_DATA': {
                     const before = __current && __current.timeline;
+                    __takeBlobs(msg.blobs);
+                    const data = __withBlobs(msg.data);
                     if (msg.target != null) {
-                        __stackData = Object.assign({}, __stackData || {}, { [msg.target]: msg.data });
-                        if (__current && __current.setData) __current.setData(msg.data, msg.target);
+                        __stackData = Object.assign({}, __stackData || {}, { [msg.target]: data });
+                        if (__current && __current.setData) __current.setData(data, msg.target);
                     } else {
-                        __data = msg.data;
-                        if (__current && __current.setData) __current.setData(msg.data);
+                        __data = data;
+                        if (__current && __current.setData) __current.setData(data);
                     }
                     __afterDataSwap(before);
+                    break;
+                }
+                case 'CAPTURE_FRAME': {
+                    // The frame as drawn, handed back as a Blob (a structured
+                    // clone shares it): a host on another origin cannot read
+                    // this document's canvas itself.
+                    const canvas = document.querySelector('canvas');
+                    const done = (blob) => __post({ type: 'FRAME', requestId: msg.requestId, blob: blob || null });
+                    if (!canvas) { done(null); break; }
+                    try { canvas.toBlob((b) => done(b), msg.format || 'image/png'); } catch (e) { done(null); }
                     break;
                 }
                 case 'GET_STACK_STATE':
