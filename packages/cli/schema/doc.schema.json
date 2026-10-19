@@ -946,7 +946,7 @@
                 "family": { "type": "string" },
                 "url": {
                   "type": "string",
-                  "description": "https URL of a woff2 face"
+                  "description": "A woff2 face: an https URL on assets.vos.so, a hosted file (/api/assets/<id>/file), or a path beside the document; any other host is refused, like an image"
                 },
                 "weight": { "type": "number", "minimum": 100, "maximum": 900 },
                 "style": { "enum": ["normal", "italic"] }

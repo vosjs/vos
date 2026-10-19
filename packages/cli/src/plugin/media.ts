@@ -20,12 +20,12 @@ import {
   rename,
   rm,
   stat,
-  writeFile,
 } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { localFile } from '../programAssets'
+import { refuseSymlink, writeFileSafe } from './safeWrite'
 import { takeMediaFiles, writeJson } from './take'
 import {
   MEDIA_HEAD_BYTES,
@@ -433,6 +433,8 @@ export async function downloadMedia(
   const into = target.subdir ? join(target.dir, target.subdir) : target.dir
   const partial = join(into, `${target.stem}.part`)
   await mkdir(dirname(partial), { recursive: true })
+  // A link already at the path would carry the bytes wherever it points.
+  await refuseSymlink(partial)
   try {
     await pipeline(
       Readable.fromWeb(res.body as never),
@@ -444,6 +446,7 @@ export async function downloadMedia(
       filename: `${target.stem}${target.fallbackExt}`,
     })
     const name = `${target.stem}${extensionFor(type) || target.fallbackExt}`
+    await refuseSymlink(join(into, name))
     await rename(partial, join(into, name))
     const file = target.subdir ? `${target.subdir}/${name}` : name
     return { file, bytes: (await stat(join(target.dir, file))).size }
@@ -524,7 +527,7 @@ export async function pullMedia(
   if (!existsSync(metaPath)) await writeJson(metaPath, doc.source.meta, true)
   const cursorPath = join(dir, 'cursor.json')
   if (!existsSync(cursorPath)) await writeJson(cursorPath, doc.source.cursor)
-  await writeFile(join(dir, 'doc.json'), JSON.stringify(doc, null, 2))
+  await writeFileSafe(join(dir, 'doc.json'), JSON.stringify(doc, null, 2))
   return result
 }
 

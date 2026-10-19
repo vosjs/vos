@@ -28,6 +28,7 @@ import { resolve } from 'node:path'
 import { parseFrontmatter } from '@vosjs/shared/frontmatter'
 import { lookKindForGround } from '@vosjs/studio-core'
 import { UsageError, parseArgs, strFlag } from './args'
+import { fetchPublic, fetchRefusal } from './netAddress'
 import { createReporter } from './output'
 import { launchBrowser } from '../browser'
 import type { Browser } from 'playwright'
@@ -523,7 +524,8 @@ export function renderBrandMd(
 
 async function fetchText(url: string): Promise<string | null> {
   try {
-    const res = await fetch(url, { redirect: 'follow' })
+    // Each redirect hop is held to the public internet, like the first.
+    const res = await fetchPublic(url)
     if (!res.ok) return null
     const type = res.headers.get('content-type') ?? ''
     if (/text\/html/i.test(type)) return null // a soft 404 page is not a file
@@ -544,6 +546,10 @@ export async function cmdBrand(argv: string[]): Promise<number> {
   } catch {
     throw new UsageError(`not a URL: ${raw}`)
   }
+  // A brand is witnessed on the public internet, never on this machine's
+  // own network: the address is judged before a page or a file is asked.
+  const refused = fetchRefusal(url)
+  if (refused) throw new UsageError(refused)
   const r = createReporter(flags.json === true)
   const out = resolve(strFlag(flags, 'out') ?? 'BRAND.md')
 

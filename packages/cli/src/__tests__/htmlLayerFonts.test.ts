@@ -34,9 +34,9 @@ const htmlLayer = (url: string) => ({
 })
 
 describe("an HTML layer's own face", () => {
-  it('the lint takes a URL, a hosted file and a woff2 beside the document', () => {
+  it('the lint takes a catalog URL, a hosted file and a woff2 beside the document', () => {
     for (const ok of [
-      'https://example.com/Brand.woff2',
+      'https://assets.vos.so/fonts/brand/400.woff2',
       '/api/assets/11111111-2222-3333-4444-555555555555/file',
       'fonts/Brand.woff2',
       'Brand.WOFF2',
@@ -49,9 +49,18 @@ describe("an HTML layer's own face", () => {
     expect(htmlFontUrlProblem('fonts/Brand.ttf')).toMatch(
       /embeds its faces as woff2/,
     )
+    // A face is fetched by the page like an image, so any other host is out.
+    for (const other of [
+      'https://example.com/Brand.woff2',
+      'http://assets.vos.so/x.woff2',
+      'https://assets.vos.so.evil.com/x.woff2',
+      'https://vos.so/fonts/x.woff2',
+    ]) {
+      expect(htmlFontUrlProblem(other), other).toMatch(/never another host/)
+    }
     expect(htmlFontUrlProblem('../Brand.woff2')).toMatch(/outside the document/)
     expect(htmlFontUrlProblem('/Users/me/Brand.woff2')).toMatch(
-      /must be an https URL/,
+      /must be an https:\/\/assets\.vos\.so URL/,
     )
     expect(htmlFontUrlProblem('data:font/woff2;base64,AA')).toMatch(/must be/)
   })
@@ -88,5 +97,45 @@ describe("an HTML layer's own face", () => {
       }[]
     )[0].data.overlays[0].html.faces.find((f) => f.url === served[0][0])
     expect(face).toBeTruthy()
+  })
+
+  it('a local render drops a face on another host and says so', async () => {
+    const config = lowerProgramDoc({
+      program: { config: CONFIG },
+      overlays: [htmlLayer('https://example.com/Brand.woff2')],
+    } as never).config as Record<string, unknown>
+    const notes: string[] = []
+    const got = await programAssets(config, {
+      baseDir: null,
+      log: (l) => notes.push(l),
+    })
+    expect(got).toBeNull()
+    expect(notes).toHaveLength(1)
+    expect(notes[0]).toMatch(
+      /overlay h1 font Brand names https:\/\/example\.com\/Brand\.woff2, which is not on https:\/\/assets\.vos\.so/,
+    )
+    const faces = (
+      config.stack as {
+        data: { overlays: { html: { faces: { url: string }[] } }[] }
+      }[]
+    )[0].data.overlays[0].html.faces
+    expect(faces).toEqual([])
+  })
+
+  it('a local render keeps a catalog face as it is', async () => {
+    const url = 'https://assets.vos.so/fonts/brand/400.woff2'
+    const config = lowerProgramDoc({
+      program: { config: CONFIG },
+      overlays: [htmlLayer(url)],
+    } as never).config as Record<string, unknown>
+    const notes: string[] = []
+    await programAssets(config, { baseDir: null, log: (l) => notes.push(l) })
+    expect(notes).toEqual([])
+    const faces = (
+      config.stack as {
+        data: { overlays: { html: { faces: { url: string }[] } }[] }
+      }[]
+    )[0].data.overlays[0].html.faces
+    expect(faces.map((f) => f.url)).toEqual([url])
   })
 })

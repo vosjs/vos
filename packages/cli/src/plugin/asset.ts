@@ -43,6 +43,7 @@ import {
 } from './assetWords'
 import { hostedFile } from './assetWords'
 import type { HostedFile } from './assetWords'
+import { fetchPublic, fetchRefusal } from './netAddress'
 import { uploadAsset } from './uploadAsset'
 import { UsageError, numFlag, parseArgs, strFlag } from './args'
 import { listFolders, resolveFolder } from './folder'
@@ -214,8 +215,12 @@ async function cmdImport(argv: string[]): Promise<number> {
     ? resolveFolder(await listFolders(origin, key), folderRef)
     : null
 
+  // An address on this machine's own network is refused before anything
+  // is fetched, and so is a redirect landing on one.
+  const refused = fetchRefusal(url)
+  if (refused) throw new UsageError(`import: ${refused}`)
   r.log(`fetching ${url}`)
-  const res = await fetch(url, { redirect: 'follow' })
+  const res = await fetchPublic(url)
   if (!res.ok)
     throw new Error(`import ${url}: the address answered ${res.status}`)
   const declared = Number(res.headers.get('content-length') ?? 0)

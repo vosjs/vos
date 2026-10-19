@@ -22,7 +22,9 @@
  * first and falls back to the asset route on 404, so the caller never has
  * to say which kind an id is.
  */
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
+import { safePathName } from './pathName'
+import { writeFileSafe } from './safeWrite'
 import { join } from 'node:path'
 import { recipeHints } from '@vosjs/shared/frontmatter'
 import { migrateHostedDoc } from '@vosjs/studio-core'
@@ -319,13 +321,6 @@ export function recipeLine(filename: string, body: string): string {
   return `${filename}${facts.length ? `  (${facts.join(' · ')})` : ''}`
 }
 
-const safeName = (v: string) =>
-  v
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60) || 'file'
-
 async function cmdPull(argv: string[]): Promise<number> {
   const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
   const ref = positionals[0]
@@ -344,27 +339,31 @@ async function cmdPull(argv: string[]): Promise<number> {
   if (res.status !== 200)
     throw new Error(apiError(`pull folder ${folder.slug}`, res))
   const payload = res.body as unknown as PullPayload
-  const out = strFlag(flags, 'out') ?? folder.slug
+  // Every name the server chose becomes a path here, so each is held to a
+  // plain lowercase segment, with the row's id standing in for an empty one.
+  const safeName = (v: string | undefined, id: string) =>
+    safePathName((v ?? '').toLowerCase(), id)
+  const out = strFlag(flags, 'out') ?? safeName(folder.slug, folder.id)
   await mkdir(join(out, 'recipes'), { recursive: true })
 
   const lines: string[] = []
   const recipes: { path: string; line: string }[] = []
   for (const rec of payload.recipes) {
-    const path = join(out, 'recipes', safeName(rec.filename))
-    await writeFile(path, rec.body ?? '')
+    const path = join(out, 'recipes', safeName(rec.filename, rec.id))
+    await writeFileSafe(path, rec.body ?? '')
     recipes.push({ path, line: recipeLine(rec.filename, rec.body ?? '') })
   }
   for (const rec of payload.inheritedRecipes) {
-    const from = safeName(rec.folderSlug ?? 'inherited')
+    const from = safeName(rec.folderSlug ?? 'inherited', 'inherited')
     await mkdir(join(out, 'recipes', '_inherited', from), { recursive: true })
     const path = join(
       out,
       'recipes',
       '_inherited',
       from,
-      safeName(rec.filename),
+      safeName(rec.filename, rec.id),
     )
-    await writeFile(path, rec.body ?? '')
+    await writeFileSafe(path, rec.body ?? '')
     recipes.push({
       path,
       line: `${recipeLine(rec.filename, rec.body ?? '')}  [inherited from ${rec.folderName ?? from}]`,
@@ -374,14 +373,14 @@ async function cmdPull(argv: string[]): Promise<number> {
   const members: { dir: string; id: string; title: string; take: boolean }[] =
     []
   for (const v of payload.voses) {
-    const dir = join(out, 'members', safeName(v.slug || v.title || v.id))
+    const dir = join(out, 'members', safeName(v.slug || v.title, v.id))
     await mkdir(dir, { recursive: true })
     const cfg = await apiJson(origin, `/api/vos/${v.id}/config`, { key })
     if (cfg.status !== 200) {
       lines.push(`skipped ${v.title}: ${apiError('fetch config', cfg)}`)
       continue
     }
-    await writeFile(
+    await writeFileSafe(
       join(dir, 'config.json'),
       JSON.stringify(cfg.body.config, null, 2),
     )
@@ -393,7 +392,7 @@ async function cmdPull(argv: string[]): Promise<number> {
         { key },
       )
       if (doc.status === 200) {
-        await writeFile(
+        await writeFileSafe(
           join(dir, 'doc.json'),
           JSON.stringify(doc.body, null, 2),
         )

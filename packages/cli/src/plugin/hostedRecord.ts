@@ -76,6 +76,37 @@ export function hostedEnv(
   return { env, missing }
 }
 
+/**
+ * The env NAMES a script's setup reads, said before any value is resolved,
+ * so a person running a script they did not write sees what it is about to
+ * read from their shell. Names only: a value is never printed. Null when
+ * the script reads nothing.
+ */
+export function envNamesNotice(
+  actions: Pick<ActionsFile, 'setup'>,
+): { names: string[]; line: string } | null {
+  const names = setupEnvNames(actions.setup)
+  if (names.length === 0) return null
+  return {
+    names,
+    line: `the setup reads ${names.length === 1 ? 'this environment variable' : 'these environment variables'} from this shell: ${names.join(', ')} (names only; a value is never printed or stored)`,
+  }
+}
+
+/** Say the names, as a line for a person or an `env` event for a machine. */
+export function announceEnvNames(
+  actions: Pick<ActionsFile, 'setup'>,
+  r: {
+    log: (line: string) => void
+    event: (obj: Record<string, unknown>) => void
+  },
+): void {
+  const notice = envNamesNotice(actions)
+  if (!notice) return
+  r.log(notice.line)
+  r.event({ event: 'env', names: notice.names })
+}
+
 /** A refusal the fleet wrote for a sign-in, told apart from every other failure. */
 export function isWallError(error: string | null | undefined): boolean {
   // The row's error wears the job's `[kind]` prefix; the sentence is the tell.

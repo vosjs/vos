@@ -1,6 +1,6 @@
 import type { MaskRule } from './exposure'
 import type { SetupStep } from './setup'
-import { validateSetup } from './setup'
+import { urlSchemeProblem, validateSetup } from './setup'
 
 /**
  * The action script — the declarative recipe an agent (or human) writes to
@@ -149,8 +149,13 @@ export function validateActions(value: unknown): string[] {
   if (typeof value !== 'object' || value === null)
     return ['actions file must be a JSON object']
   const obj = value as Record<string, unknown>
-  if (obj.url !== undefined && typeof obj.url !== 'string')
-    errors.push('url must be a string')
+  if (obj.url !== undefined) {
+    if (typeof obj.url !== 'string') errors.push('url must be a string')
+    else {
+      const problem = urlSchemeProblem(obj.url)
+      if (problem) errors.push(`url ${problem}`)
+    }
+  }
   if (obj.viewport !== undefined) {
     const v: unknown = obj.viewport
     if (typeof v !== 'object' || v === null) {

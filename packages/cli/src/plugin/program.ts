@@ -8,7 +8,9 @@
  * all MIT @vosjs/core) so an obviously broken config never burns a request.
  */
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
+import { safePathName } from './pathName'
+import { writeFileSafe } from './safeWrite'
 import { createInterface } from 'node:readline/promises'
 import { basename, dirname, join } from 'node:path'
 import {
@@ -192,11 +194,13 @@ export async function cmdFetch(argv: string[]): Promise<number> {
 
   const slug =
     typeof vosMeta.slug === 'string' && vosMeta.slug ? vosMeta.slug : vosId
-  const out = strFlag(flags, 'out') ?? slug
+  // The slug is the server's word; as a directory name it is held to a
+  // plain path segment, and the id stands in when nothing of it is left.
+  const out = strFlag(flags, 'out') ?? safePathName(slug, vosId)
   await mkdir(out, { recursive: true })
   // The config is written EXACTLY as stored (params/presets included) — this
   // file round-trips back through `vos push`.
-  await writeFile(
+  await writeFileSafe(
     join(out, 'config.json'),
     JSON.stringify(cfg.body.config, null, 2),
   )
@@ -231,12 +235,18 @@ export async function cmdFetch(argv: string[]): Promise<number> {
       const hosted = migrateHostedDoc(doc.body)
       const { config: own } = await writeProgramDoc(out, hosted)
       if (own) {
-        await writeFile(join(out, 'config.json'), JSON.stringify(own, null, 2))
+        await writeFileSafe(
+          join(out, 'config.json'),
+          JSON.stringify(own, null, 2),
+        )
       }
     } else if (doc.status === 200) {
       take = true
       const hosted = migrateHostedDoc(doc.body) as unknown as ProjectDoc
-      await writeFile(join(out, 'doc.json'), JSON.stringify(hosted, null, 2))
+      await writeFileSafe(
+        join(out, 'doc.json'),
+        JSON.stringify(hosted, null, 2),
+      )
       if (flags.media === true) {
         const media = await pullMedia({ origin, key }, out, hosted, r.log)
         await recordHostedMedia(out, vosId, media)
@@ -268,7 +278,7 @@ export async function cmdFetch(argv: string[]): Promise<number> {
     if (hostedCount && flags.media === true) {
       const pulled = await pullManifest({ origin, key }, out, written, r.log)
       if (pulled) {
-        await writeFile(
+        await writeFileSafe(
           configPath,
           JSON.stringify({ ...written, assets: pulled.assets }, null, 2),
         )
@@ -899,7 +909,10 @@ export async function cmdPullProgram(argv: string[]): Promise<number> {
   const configPath = join(dir, 'config.json')
   let backedUp = false
   if (existsSync(configPath)) {
-    await writeFile(join(dir, 'config.backup.json'), await readFile(configPath))
+    await writeFileSafe(
+      join(dir, 'config.backup.json'),
+      await readFile(configPath),
+    )
     backedUp = true
   }
   // A program DOCUMENT on the head: the user's config is the doc's
@@ -921,7 +934,7 @@ export async function cmdPullProgram(argv: string[]): Promise<number> {
       if (own) headConfig = own
     }
   }
-  await writeFile(configPath, JSON.stringify(headConfig, null, 2))
+  await writeFileSafe(configPath, JSON.stringify(headConfig, null, 2))
   writeSyncState(dir, {
     vosId,
     versionId: typeof head.id === 'string' ? head.id : since,
@@ -1156,7 +1169,10 @@ export async function setProgramStill(dir: string, t: number): Promise<void> {
       )
     doc = parsed as Record<string, unknown>
   }
-  await writeFile(docPath, JSON.stringify({ ...doc, still: t }, null, 2) + '\n')
+  await writeFileSafe(
+    docPath,
+    JSON.stringify({ ...doc, still: t }, null, 2) + '\n',
+  )
 }
 
 export async function writeProgramDoc(
@@ -1169,7 +1185,7 @@ export async function writeProgramDoc(
       : {}
   const { config, ...rest } = program
   const onDisk = { ...hosted, program: rest }
-  await writeFile(join(dir, 'doc.json'), JSON.stringify(onDisk, null, 2))
+  await writeFileSafe(join(dir, 'doc.json'), JSON.stringify(onDisk, null, 2))
   return {
     config:
       config && typeof config === 'object'

@@ -8,7 +8,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cmdAsset } from '../asset'
 import { uploadDoor } from './uploadDoor'
 import { UsageError } from '../args'
@@ -241,43 +241,92 @@ describe('vos asset', () => {
   it('import fetches the address and states where the file came from', async () => {
     const seen: Seen[] = []
     const origin = await serve(seen)
-    const out = await captured(() =>
-      cmdAsset([
-        'import',
-        `${origin}/pic.png`,
-        '--license',
-        'CC0',
-        '--attribution',
-        'A. Person',
-        '--origin',
-        origin,
-        ...KEY,
-      ]),
+    // The address is a public name; the test server answers for it, since
+    // an address on this machine is refused before anything is fetched.
+    const picture = 'https://pictures.example/pic.png'
+    const real = globalThis.fetch
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) =>
+      String(input) === picture
+        ? real(`${origin}/pic.png`, init)
+        : real(input, init),
     )
-    const begin = seen.find((s) => s.url === '/api/assets/uploads')
-    expect(begin?.body).toMatchObject({
-      filename: 'pic.png',
-      intent: 'library',
-    })
-    const complete = seen.find((s) => s.url.endsWith('/complete'))
-    expect(complete?.body?.provenance).toEqual({
-      sourceUrl: `${origin}/pic.png`,
-      license: 'CC0',
-      attribution: 'A. Person',
-    })
-    expect(out).toMatchObject({
-      license: 'CC0',
-      sourceUrl: `${origin}/pic.png`,
-    })
+    try {
+      const out = await captured(() =>
+        cmdAsset([
+          'import',
+          picture,
+          '--license',
+          'CC0',
+          '--attribution',
+          'A. Person',
+          '--origin',
+          origin,
+          ...KEY,
+        ]),
+      )
+      const begin = seen.find((s) => s.url === '/api/assets/uploads')
+      expect(begin?.body).toMatchObject({
+        filename: 'pic.png',
+        intent: 'library',
+      })
+      const complete = seen.find((s) => s.url.endsWith('/complete'))
+      expect(complete?.body?.provenance).toEqual({
+        sourceUrl: `${origin}/pic.png`,
+        license: 'CC0',
+        attribution: 'A. Person',
+      })
+      expect(out).toMatchObject({
+        license: 'CC0',
+        sourceUrl: `${origin}/pic.png`,
+      })
+    } finally {
+      vi.restoreAllMocks()
+    }
   })
 
-  it('import takes only a web address', async () => {
+  it('import takes only a web address on the public internet', async () => {
     await expect(cmdAsset(['import', './local.png'])).rejects.toThrowError(
       UsageError,
     )
     await expect(
       cmdAsset(['import', 'file:///etc/passwd']),
     ).rejects.toThrowError(UsageError)
+    const origin = await serve([])
+    await expect(
+      cmdAsset(['import', `${origin}/pic.png`, '--origin', origin, ...KEY]),
+    ).rejects.toThrow(/127\.0\.0\.1 is this machine/)
+    await expect(
+      cmdAsset([
+        'import',
+        'http://169.254.169.254/latest/meta-data/',
+        '--origin',
+        origin,
+        ...KEY,
+      ]),
+    ).rejects.toThrow(/link-local/)
+  })
+
+  it('import refuses a redirect that lands on this machine', async () => {
+    const origin = await serve([])
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(null, {
+        status: 302,
+        headers: { location: `${origin}/pic.png` },
+      }),
+    )
+    try {
+      await expect(
+        cmdAsset([
+          'import',
+          'https://pictures.example/pic.png',
+          '--origin',
+          origin,
+          ...KEY,
+        ]),
+      ).rejects.toThrow(/127\.0\.0\.1 is this machine/)
+    } finally {
+      vi.restoreAllMocks()
+    }
   })
 
   it('assets ls asks for a page with the filters it was given', async () => {

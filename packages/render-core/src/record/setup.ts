@@ -27,6 +27,24 @@ export type SetupStep = (
 
 const VERBS = new Set(['wait', 'click', 'type', 'press', 'goto'])
 
+/**
+ * Why a page address is not one the recorder opens, or null. A script's
+ * `url` and a setup's `goto` open a browser, so only http and https are
+ * taken: a `file:` address would read this machine's disk into a take
+ * and a `javascript:` one would run in the page.
+ */
+export function urlSchemeProblem(url: string): string | null {
+  let u: URL
+  try {
+    u = new URL(url)
+  } catch {
+    return `${url} is not a URL`
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:')
+    return `${url} is not an http(s) address, and the recorder opens only http and https pages`
+  return null
+}
+
 /** Structural validation, mirrored on `validateActions` for `steps`. */
 export function validateSetup(value: unknown): string[] {
   const errors: string[] = []
@@ -48,8 +66,13 @@ export function validateSetup(value: unknown): string[] {
       errors.push(`${at}: wait needs ms`)
     if (s.do === 'press' && typeof s.key !== 'string')
       errors.push(`${at}: press needs a key`)
-    if (s.do === 'goto' && typeof s.url !== 'string')
-      errors.push(`${at}: goto needs a url`)
+    if (s.do === 'goto') {
+      if (typeof s.url !== 'string') errors.push(`${at}: goto needs a url`)
+      else {
+        const problem = urlSchemeProblem(s.url)
+        if (problem) errors.push(`${at}: goto ${problem}`)
+      }
+    }
     if (s.do === 'type') {
       const t = s.text
       const isEnv =

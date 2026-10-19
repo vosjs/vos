@@ -9,8 +9,9 @@
  *     actions.json     the script that produced it (replay recipe)
  *     doc.json         ProjectDoc — the agent-editable surface
  */
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm } from 'node:fs/promises'
 import { existsSync, readdirSync, statSync } from 'node:fs'
+import { writeFileSafe } from './safeWrite'
 import { basename, join } from 'node:path'
 import { TAKE_MEDIA_EXTENSIONS } from './container'
 import type { CursorTrack, ProjectDoc, RecordingMeta } from '@vosjs/studio-core'
@@ -162,7 +163,7 @@ export async function writeJson(
   value: unknown,
   pretty = false,
 ): Promise<void> {
-  await writeFile(
+  await writeFileSafe(
     file,
     pretty ? JSON.stringify(value, null, 2) : JSON.stringify(value),
   )

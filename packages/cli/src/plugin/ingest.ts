@@ -17,7 +17,7 @@
 import { existsSync } from 'node:fs'
 import { copyFile, mkdir, readFile, stat } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
-import { inflateRawSync } from 'node:zlib'
+import { inflateEntry, traceBudget } from './traceInflate'
 import {
   cursorFromPlaywrightTrace,
   cursorFromTrace,
@@ -154,9 +154,10 @@ export async function readTraceFile(
         `${path}: no trace.trace inside; a Playwright trace.zip is what --cursor reads as a zip`,
       )
     }
+    // Inflated under a budget: the zip's declared sizes are its own word.
     const raw = zipEntryBytes(bytes, entry)
     const text = new TextDecoder().decode(
-      entry.method === 8 ? new Uint8Array(inflateRawSync(raw)) : raw,
+      inflateEntry(raw, entry, traceBudget()),
     )
     return cursorFromPlaywrightTrace(text, { offsetMs })
   }

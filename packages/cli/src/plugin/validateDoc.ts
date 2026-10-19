@@ -291,10 +291,16 @@ const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null
  * directory, like every file a program names.
  */
 export function htmlFontUrlProblem(url: string): string | null {
-  if (/^https?:\/\//.test(url)) return null
+  // A face is fetched by the page and inlined, like the images a layer
+  // names, so it is held to the same host: the hosted catalog, or a file
+  // on vos.so. Any other host is refused in words.
+  if (/^https:\/\/assets\.vos\.so\//.test(url)) return null
   if (/^\/api\/assets\/[^/]+\/file$/.test(url)) return null
+  if (/^https?:\/\//i.test(url)) {
+    return `names ${url}: a face is fetched from https://assets.vos.so (the host a layer's images are held to), a hosted file (/api/assets/<id>/file) or a .woff2 beside the document, never another host`
+  }
   if (/^(data:|blob:)/.test(url) || url.startsWith('/')) {
-    return `must be an https URL, a hosted file (/api/assets/<id>/file) or a .woff2 beside the document (got ${url})`
+    return `must be an https://assets.vos.so URL, a hosted file (/api/assets/<id>/file) or a .woff2 beside the document (got ${url})`
   }
   if (url.split(/[\\/]/).includes('..')) {
     return `names ${url}, outside the document's directory: copy the font beside doc.json`
