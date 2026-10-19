@@ -1,5 +1,11 @@
 # @vosjs/render-core
 
+## 0.5.2
+
+### Patch Changes
+
+- 1f0a00e: The audio page's core pin follows @vosjs/core 0.30.1.
+
 ## 0.5.1
 
 ### Patch Changes
