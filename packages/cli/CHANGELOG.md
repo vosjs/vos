@@ -1,5 +1,18 @@
 # @vosjs/cli
 
+## 0.76.0
+
+### Minor Changes
+
+- 74b8e8d: `vos setup` installs the skills from the copy this package ships by default (the catalog at the release this CLI was cut from, reviewed with it, no network needed). `--skills-from-catalog` asks skills.sh instead, with the catalog CLI pinned and the repository at the same tag, so what lands is what this release was tested with either way; the bundled copy remains the fallback when skills.sh cannot be reached.
+
+### Patch Changes
+
+- Updated dependencies [1f0a00e]
+- Updated dependencies [74b8e8d]
+  - @vosjs/render-core@0.5.2
+  - @vosjs/core@0.30.1
+
 ## 0.75.1
 
 ### Patch Changes
