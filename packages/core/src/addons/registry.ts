@@ -1,3 +1,5 @@
+import { SPARK_VERSION, esmShModules } from './cdn'
+import type { EngineModules } from './cdn'
 import type { VosConfig, VosConfigJson } from '../types'
 
 export interface AddonEntry {
@@ -9,12 +11,14 @@ export interface AddonEntry {
   keywords?: string[]
   /** Addon names auto-included when this one is detected */
   implicitDeps?: string[]
-  /** For external packages: the bare import specifier (e.g., '@sparkjsdev/spark') */
+  /**
+   * For external packages: the bare import specifier (e.g.
+   * '@sparkjsdev/spark'), a key of `EXTERNAL_PACKAGES` in `cdn.ts`, which
+   * pins its version and says where each module source serves it from.
+   */
   importSpecifier?: string
   /** For external packages: all named exports to destructure */
   namedExports?: string[]
-  /** CDN URL override (external packages need full URL with ?external=three) */
-  cdnUrl?: (threeVersion: string) => string
   /** Code injected after imports to initialize the package (has access to `renderer`, `scene`) */
   initCode?: string | null
   /** Code injected in dispose to clean up the package */
@@ -23,13 +27,7 @@ export interface AddonEntry {
   peerDeps?: string[]
 }
 
-/**
- * The ONE version of @sparkjsdev/spark a compiled program loads. Pinned
- * because an unversioned CDN import is whatever the package's owner
- * published last, run with the player's origin; moved on purpose, with the
- * test that holds every external URL to a version.
- */
-export const SPARK_VERSION = '2.3.1'
+export { SPARK_VERSION }
 
 export const ADDON_REGISTRY: Record<string, AddonEntry> = {
   FontLoader: {
@@ -136,8 +134,6 @@ export const ADDON_REGISTRY: Record<string, AddonEntry> = {
     keywords: ['SplatMesh', 'ctx.splat'],
     importSpecifier: '@sparkjsdev/spark',
     namedExports: ['SplatMesh', 'SparkRenderer'],
-    cdnUrl: () =>
-      `https://esm.sh/@sparkjsdev/spark@${SPARK_VERSION}?external=three&target=es2022`,
     peerDeps: ['three'],
     initCode: null,
     cleanupCode: null,
@@ -150,8 +146,6 @@ export const ADDON_REGISTRY: Record<string, AddonEntry> = {
     keywords: ['SparkRenderer'],
     importSpecifier: '@sparkjsdev/spark',
     namedExports: ['SplatMesh', 'SparkRenderer'],
-    cdnUrl: () =>
-      `https://esm.sh/@sparkjsdev/spark@${SPARK_VERSION}?external=three&target=es2022`,
     peerDeps: ['three'],
   },
 }
@@ -412,21 +406,23 @@ export function generateEffectFactoryCode(effects: { type: string }[]): string {
 
 /**
  * Get external package importmap entries from detected addons.
- * Returns a record of import specifier → CDN URL.
+ * Returns a record of import specifier → URL, from the module source the
+ * page loads from (`modules`); a bare three version means esm.sh.
  */
 export function getExternalImportmapEntries(
   detectedAddons: string[],
-  threeVersion: string,
+  modules: EngineModules | string = esmShModules(),
 ): Record<string, string> {
+  const source =
+    typeof modules === 'string'
+      ? esmShModules({ threeVersion: modules })
+      : modules
   const entries: Record<string, string> = {}
   for (const name of detectedAddons) {
     const entry = ADDON_REGISTRY[name] as AddonEntry | undefined
-    if (
-      entry?.category === 'external' &&
-      entry.importSpecifier &&
-      entry.cdnUrl
-    ) {
-      entries[entry.importSpecifier] = entry.cdnUrl(threeVersion)
+    const specifier = entry?.category === 'external' && entry.importSpecifier
+    if (specifier && source.imports[specifier]) {
+      entries[specifier] = source.imports[specifier]
     }
   }
   return entries

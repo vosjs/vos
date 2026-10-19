@@ -1239,7 +1239,9 @@ const SETUP = `async (ctx) => {
   // exactly as it was; preview/scrub never sets the flag.
   const makeWcProvider = async (src) => {
     if (!window.VideoDecoder) return null
-    const MB = await import('https://esm.sh/mediabunny@1.55.7?target=es2022')
+    // The page says where mediabunny loads from (the engine template's
+    // window.__vos__.modules, a mirror or esm.sh); esm.sh when it says nothing.
+    const MB = await import((window.__vos__ && window.__vos__.modules && window.__vos__.modules.mediabunny) || 'https://esm.sh/mediabunny@1.55.7?target=es2022')
     const wcBlob = ns.videoBlobs && ns.videoBlobs.get(src)
     const input = new MB.Input({
       formats: MB.ALL_FORMATS,

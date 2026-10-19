@@ -56,9 +56,15 @@ describe('generateRenderTemplate', () => {
       expect(html).toContain('"mediabunny"')
     })
 
-    it('does not include mediabunny in playback mode', () => {
+    it('does not map mediabunny in playback mode', () => {
+      // The runtime-modules line still names it (a studio entry imports it
+      // on its own); the importmap does not.
       const html = generateRenderTemplate(sampleCode, { mode: 'playback' })
-      expect(html).not.toContain('"mediabunny"')
+      const map = html.slice(
+        html.indexOf('<script type="importmap">'),
+        html.indexOf('</script>', html.indexOf('<script type="importmap">')),
+      )
+      expect(map).not.toContain('"mediabunny"')
     })
 
     it('includes additional importmap entries when provided', () => {

@@ -38,8 +38,20 @@
  * Pinned to the version the api installs (`coreAudioCdn.test.ts` there
  * holds it to the installed package): render-core has no engine dependency.
  */
-export const CORE_AUDIO_CDN_URL =
-  'https://esm.sh/@vosjs/core@0.30.1/audio?target=es2022'
+export const CORE_AUDIO_VERSION = '0.31.0'
+export const CORE_AUDIO_CDN_URL = `https://esm.sh/@vosjs/core@${CORE_AUDIO_VERSION}/audio?target=es2022`
+
+/**
+ * The mixer's URL on a host's module mirror, laid out as the engine's
+ * `engineMirrorLayout` says (`<base>/<name>@<version>/<file>`): the host
+ * bundles `@vosjs/core/audio` with its one dependency (`@vosjs/tween`)
+ * into one ESM file at `audio.js`, since the package's own entry imports
+ * by bare specifier. No mirror, esm.sh.
+ */
+export function coreAudioUrl(mirror?: string | null): string {
+  if (!mirror) return CORE_AUDIO_CDN_URL
+  return `${mirror.replace(/\/+$/, '')}/@vosjs/core@${CORE_AUDIO_VERSION}/audio.js`
+}
 
 /**
  * A sampled audio plan, structurally `@vosjs/core/audio`'s `AudioPlan` (and

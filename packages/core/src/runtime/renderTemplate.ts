@@ -1,12 +1,5 @@
 import { tweenRuntimeCode } from '@vosjs/tween/bundle'
-import {
-  CDN_ORIGIN,
-  dracoDecoderPath,
-  gsapUrl,
-  threeAddonsPrefix,
-  threeUrl,
-} from '../addons/cdn'
-import { ADDON_REGISTRY } from '../addons/registry'
+import { engineModules } from '../addons/cdn'
 import { VOS_BRIDGE_PROTOCOL } from './bridge'
 import { ELEMENT_PICK_JS } from './elementPick'
 import { transformModuleCode } from './transformModuleCode'
@@ -27,6 +20,16 @@ export interface RenderTemplateOptions {
   threeVersion?: string
   /** GSAP CDN version (default '3.12.5') */
   gsapVersion?: string
+  /**
+   * Where the page loads the engine's dependencies from (three, its
+   * addons, gsap, the external packages, mediabunny, mp4box). Unset, from
+   * esm.sh. Set, from a MIRROR the host publishes at this absolute base,
+   * laid out `<base>/<name>@<version>/<file>` as `engineMirrorLayout` in
+   * `@vosjs/core/addons` says, so the page names no third party. The
+   * page tells the program where it loaded from (`window.__vos__.modules`)
+   * for the modules runtime code imports on its own.
+   */
+  moduleMirror?: string | null
   /** Required for capture-* modes */
   capture?: {
     width: number
@@ -175,8 +178,9 @@ export function generateRenderTemplate(
     mode,
     editor = false,
     elementsBundleCode,
-    threeVersion = '0.183.0',
-    gsapVersion = '3.12.5',
+    threeVersion,
+    gsapVersion,
+    moduleMirror = null,
     capture,
     preloadModuleUrls = [],
     additionalImportmapEntries = {},
@@ -192,32 +196,18 @@ export function generateRenderTemplate(
 
   const isCapture = mode === 'capture-video' || mode === 'capture-thumbnail'
 
-  // Build importmap entries
-  const threeModuleUrl = threeUrl(threeVersion)
-  const gsapModuleUrl = gsapUrl(gsapVersion)
-  const importmapEntries: Record<string, string> = {
-    three: threeModuleUrl,
-    'three/addons/': threeAddonsPrefix(threeVersion),
-    gsap: gsapModuleUrl,
-  }
-
-  // Include all registered external packages in importmap.
-  // Unused entries have zero cost — no HTTP requests until actually imported.
-  for (const entry of Object.values(ADDON_REGISTRY)) {
-    if (
-      entry.category === 'external' &&
-      entry.importSpecifier &&
-      entry.cdnUrl
-    ) {
-      importmapEntries[entry.importSpecifier] = entry.cdnUrl(threeVersion)
-    }
-  }
+  // Build importmap entries: three, its addons, gsap and every registered
+  // external package (an unused entry costs nothing, no HTTP request until
+  // it is imported), from the module source the host chose.
+  const modules = engineModules(moduleMirror, { threeVersion, gsapVersion })
+  const gsapModuleUrl = modules.gsap
+  const importmapEntries: Record<string, string> = { ...modules.imports }
 
   // Merge any caller-provided entries (overrides registry defaults)
   Object.assign(importmapEntries, additionalImportmapEntries)
 
   if (mode === 'capture-video') {
-    importmapEntries['mediabunny'] = 'https://esm.sh/mediabunny@1.55.7'
+    importmapEntries['mediabunny'] = modules.mediabunny
   }
 
   const importmap = JSON.stringify({ imports: importmapEntries }, null, 6)
@@ -283,9 +273,9 @@ export function generateRenderTemplate(
   // first counts as module activity and makes Chromium <133 reject the map
   // ("Failed to resolve module specifier" on every bare import). Only the
   // preconnect may precede the map.
-  const preconnectHint = `    <link rel="preconnect" href="${CDN_ORIGIN}" crossorigin="anonymous">`
+  const preconnectHint = `    <link rel="preconnect" href="${modules.origin}" crossorigin="anonymous">`
   const preloadHints = [
-    `<link rel="modulepreload" href="${threeModuleUrl}">`,
+    ...modules.preload.map((url) => `<link rel="modulepreload" href="${url}">`),
     ...(tweenEngine === 'gsap'
       ? [`<link rel="modulepreload" href="${gsapModuleUrl}">`]
       : []),
@@ -296,7 +286,16 @@ export function generateRenderTemplate(
     .map((h) => `    ${h}`)
     .join('\n')
 
-  const dracoPath = dracoDecoderPath(threeVersion)
+  const dracoPath = modules.draco
+  // The modules runtime code imports by itself (a studio entry's
+  // mediabunny, the elements' mp4box) read their URL here, so they follow
+  // the page's source; each falls back to esm.sh when the page says nothing.
+  const runtimeModules = JSON.stringify({
+    source: modules.source,
+    mediabunny: modules.mediabunny,
+    mp4box: modules.mp4box,
+    draco: dracoPath,
+  })
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -313,6 +312,8 @@ ${preconnectHint}
 ${preloadHints}
     <script>
         window.__THREE_DRACO_PATH__ = '${dracoPath}';
+        window.__vos__ = window.__vos__ || {};
+        window.__vos__.modules = ${runtimeModules};
     </script>${globalErrorHandler}
 </head>
 <body>

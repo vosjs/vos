@@ -1,4 +1,5 @@
-import { dracoDecoderPath } from '../addons/cdn'
+import { DEFAULT_THREE_VERSION, dracoDecoderPath } from '../addons/cdn'
+import type { EngineModules } from '../addons/cdn'
 import {
   ADDON_REGISTRY,
   detectRequiredAddons,
@@ -207,7 +208,7 @@ export function compileVosConfig(
   const _dracoLoader = new DRACOLoader();
   _dracoLoader.setDecoderPath(
     (typeof window !== 'undefined' && window.__THREE_DRACO_PATH__)
-    || '${dracoDecoderPath('0.183.0')}'
+    || '${dracoDecoderPath(DEFAULT_THREE_VERSION)}'
   );`
       : ''
 
@@ -522,11 +523,13 @@ ${
 /**
  * Get external package importmap entries needed for a given config.
  * Used by callers to populate render template's additionalImportmapEntries.
+ * `modules` is the module source the page loads from (`engineModules` in
+ * `@vosjs/core/addons`); a bare three version means esm.sh.
  */
 export function getConfigImportmapEntries(
   config: VosConfigJson,
-  threeVersion = '0.183.0',
+  modules: EngineModules | string = DEFAULT_THREE_VERSION,
 ): Record<string, string> {
   const detected = detectRequiredAddons(config)
-  return getExternalImportmapEntries(detected, threeVersion)
+  return getExternalImportmapEntries(detected, modules)
 }

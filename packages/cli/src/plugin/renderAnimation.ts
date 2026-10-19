@@ -18,13 +18,17 @@ import { readFile, rm } from 'node:fs/promises'
 import { tweenRuntimeCode } from '@vosjs/tween/bundle'
 import { elementsBundleCode } from '@vosjs/elements/bundle'
 import { concatEncodedVideo, planChunks } from '@vosjs/render-core'
+import { esmShModules } from '@vosjs/core/addons'
 import { startTakeServer, waitForPageDone } from './server'
 import type { RenderChunk } from '@vosjs/render-core'
 import type { Browser } from 'playwright'
 
-const MEDIABUNNY_URL = 'https://esm.sh/mediabunny@1.55.7?target=es2022'
-const THREE_URL = 'https://esm.sh/three@0.183.0?target=es2022'
-const THREE_ADDONS = 'https://esm.sh/three@0.183.0&target=es2022/examples/jsm/'
+// The engine's pinned dependencies, from esm.sh (the engine's own default
+// source), so this page and the engine's templates can never drift apart.
+const MODULES = esmShModules()
+const MEDIABUNNY_URL = MODULES.mediabunny
+const THREE_URL = MODULES.three
+const THREE_ADDONS = MODULES.threeAddons
 
 export interface RenderAnimationOptions {
   /** Compiled vos animation code (module exporting initVos). */
