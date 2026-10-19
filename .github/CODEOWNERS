@@ -1,0 +1,6 @@
+# A change to a workflow, to the dependency pins or to what may run at
+# install time is reviewed by the maintainer, whoever opened it.
+/.github/ @hblee12294
+/package.json @hblee12294
+/pnpm-lock.yaml @hblee12294
+/.npmrc @hblee12294

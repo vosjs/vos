@@ -37,13 +37,13 @@ Until 0.9 the take pipeline and the vos.so verbs shipped separately as `@vosso/v
 Node 18 or newer and a Chromium-family browser. A system Chrome is used when present; otherwise `npx playwright install chromium` once, or set `VOS_BROWSER_PATH`. mp4 output needs Chrome (Chromium ships no AVC encoder). Render pages load `three` and mediabunny from a CDN, so rendering needs network access.
 
 ```bash
-vos setup [--agent claude,cursor,codex,copilot|all] [--global] [--no-skills] [--no-rules] [--no-browser] [--url <dev server>]
+vos setup [--agent claude,cursor,codex,copilot|all] [--global] [--no-skills] [--skills-from-catalog] [--no-rules] [--no-browser] [--url <dev server>]
 vos doctor [--url <dev server>]     # what is ready, in words; exit 3 when no browser
 vos whoami                          # the key's name and the account it belongs to, never the key
 vos logout                          # remove ~/.config/vos/credentials
 ```
 
-`vos setup` detects the agents present by their directories (`.claude/`, `.cursor/`, `.codex/` or `.agents/`, `.github/copilot`; the home forms under `--global`), installs the skills into them through skills.sh (`npx skills add vosjs/skills -y`) or, when that cannot be reached, from the copy of the catalog this package ships (`skills/`), finds a browser in the recorder's own order or installs Chromium, writes one block between `<!-- vos:begin -->` and `<!-- vos:end -->` markers into `AGENTS.md` (or `CLAUDE.md` when only that exists), so a second run replaces its own text and never yours, and ends with `doctor`. These four verbs print NDJSON whenever stdout is not a TTY, and every `done` event carries `next_step`.
+`vos setup` detects the agents present by their directories (`.claude/`, `.cursor/`, `.codex/` or `.agents/`, `.github/copilot`; the home forms under `--global`), installs the skills into them from the copy of the catalog this package ships (`skills/`, the catalog at the tag this release was cut from; `--skills-from-catalog` fetches that same tag through skills.sh instead, with the bundled copy as the fallback when it cannot be reached), finds a browser in the recorder's own order or installs Chromium, writes one block between `<!-- vos:begin -->` and `<!-- vos:end -->` markers into `AGENTS.md` (or `CLAUDE.md` when only that exists), so a second run replaces its own text and never yours, and ends with `doctor`. These four verbs print NDJSON whenever stdout is not a TTY, and every `done` event carries `next_step`.
 
 ## Engine verbs
 

@@ -189,11 +189,12 @@ Take pipeline
             the flow as numbered beats in words, for a person recording it by hand
 
 This machine (no account)
-  vos setup [--agent claude,cursor,codex,copilot|all] [--global] [--no-skills] [--no-rules] [--no-browser] [--url <dev server>] [--json]
+  vos setup [--agent claude,cursor,codex,copilot|all] [--global] [--no-skills] [--skills-from-catalog] [--no-rules] [--no-browser] [--url <dev server>] [--json]
             ready this computer for the loop: the vos skills into your
-            agent's directories (npx skills add vosjs/skills, else the copy
-            bundled in this package), a browser found or installed, one
-            idempotent block in AGENTS.md (or CLAUDE.md), then doctor.
+            agent's directories (the copy bundled in this package, or with
+            --skills-from-catalog the same tag through skills.sh), a
+            browser found or installed, one idempotent block in AGENTS.md
+            (or CLAUDE.md), then doctor.
             NDJSON whenever stdout is not a TTY; done carries next_step
   vos doctor [--url <dev server>] [--json]
             what is ready, in words: node, browser, ffmpeg, the skills per

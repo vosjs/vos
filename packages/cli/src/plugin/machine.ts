@@ -397,6 +397,19 @@ export function doctorReport(facts: DoctorFacts): DoctorReport {
  * calling module to the package root, so it resolves from `dist/` and from
  * `src/` alike. Null when the package carries none.
  */
+/**
+ * The catalog tag the bundled copy was synced from (`skills/VERSION`, written
+ * by `scripts/sync-skills.mjs`), or null when the file is absent.
+ */
+export function bundledSkillsVersion(dir: string): string | null {
+  try {
+    const v = readFileSync(join(dir, 'VERSION'), 'utf8').trim()
+    return /^\d+\.\d+\.\d+$/.test(v) ? v : null
+  } catch {
+    return null
+  }
+}
+
 export function bundledSkillsDir(from: string): string | null {
   let dir = dirname(from)
   for (let i = 0; i < 6; i++) {
