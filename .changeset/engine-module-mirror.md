@@ -1,5 +1,0 @@
----
-'@vosjs/core': minor
----
-
-A host chooses where a page loads the engine's dependencies from. `generateRenderTemplate` takes `moduleMirror`, an absolute base the host publishes the pinned packages to, laid out `<base>/<name>@<version>/<file>` with the packages' own ESM files (`engineMirrorLayout()` in `@vosjs/core/addons` lists them: three's `build/` and `examples/jsm/`, gsap's root, spark's module, mediabunny's bundle, mp4box bundled to ESM); the page's importmap, preloads and DRACO path then name the mirror and no third party. Unset, esm.sh as before. The importmap also maps `three/tsl` and `three/webgpu`, and the page tells the program where its runtime modules load from (`window.__vos__.modules`). `engineModules`, `esmShModules`, `mirroredModules`, `mirrorFileUrl` and the pinned versions (`DEFAULT_THREE_VERSION`, `DEFAULT_GSAP_VERSION`, `MEDIABUNNY_VERSION`, `MP4BOX_VERSION`, `SPARK_VERSION`, `EXTERNAL_PACKAGES`) are exported from `@vosjs/core/addons`; `getExternalImportmapEntries` and `getConfigImportmapEntries` take an `EngineModules` beside the three version. The registry's external entries no longer carry a `cdnUrl`.

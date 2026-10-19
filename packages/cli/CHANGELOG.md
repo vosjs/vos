@@ -1,5 +1,19 @@
 # @vosjs/cli
 
+## 0.77.1
+
+### Patch Changes
+
+- ed34744: The take render page reads three, its addons and mediabunny from the engine's own pins (`esmShModules`), so the CLI's page and the engine's templates cannot drift apart.
+- Updated dependencies [ed34744]
+- Updated dependencies [ed34744]
+- Updated dependencies [ed34744]
+- Updated dependencies [ed34744]
+  - @vosjs/elements@0.12.1
+  - @vosjs/render-core@0.6.0
+  - @vosjs/studio-core@0.42.3
+  - @vosjs/core@0.31.0
+
 ## 0.77.0
 
 ### Minor Changes
