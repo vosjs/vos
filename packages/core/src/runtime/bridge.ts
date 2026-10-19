@@ -19,7 +19,7 @@ import type { TextRun } from '../types/elements'
 import type { FontFaceDecl } from '../types/vosConfigJson'
 
 /** Bumped whenever the message set changes. Advertised in `BRIDGE_READY`. */
-export const VOS_BRIDGE_PROTOCOL = 10
+export const VOS_BRIDGE_PROTOCOL = 11
 
 /** One stack entry's live state, as `STACK_STATE` reports it. */
 export interface StackEntryReport {
@@ -72,12 +72,40 @@ export type VosBridgeCommand =
       /** Protocol 8: a tween-timing overlay applied after init (see SET_TWEEN_EDITS). */
       tweenEdits?: TweenEditPayload[] | null
       autoplay?: boolean
+      /**
+       * Protocol 11: the manifest (`config.assets`) as the HOST resolved it,
+       * each declared name's URL (or URLs), handed to the program as
+       * `deps.assets` and winning per name over the compiled default. A
+       * player document on another origin than the host's cannot load the
+       * app-relative file paths the compile bakes, so the host hands it
+       * absolute (or signed) ones. Kept across warm loads until replaced.
+       */
+      assets?: Record<string, string | string[]> | null
+      /**
+       * Protocol 11: Blobs the host's data names by `blob:` URL, keyed by
+       * that URL. A blob URL is bound to the origin that made it; the
+       * player creates its own object URL for each and rewrites the keys
+       * in `data` and `stack` before the program sees them.
+       */
+      blobs?: Record<string, Blob> | null
     }
   /**
    * Live ctx.data replacement (T2) — no re-init. Protocol 5: `target` names a
    * stack entry, whose own data is replaced instead (its own three rungs).
+   * Protocol 11: `blobs` as on LOAD.
    */
-  | { type: 'SET_DATA'; data: Record<string, unknown>; target?: string }
+  | {
+      type: 'SET_DATA'
+      data: Record<string, unknown>
+      target?: string
+      blobs?: Record<string, Blob> | null
+    }
+  /**
+   * Protocol 11: the frame as drawn, answered by FRAME with a Blob of the
+   * canvas (`format` as `canvas.toBlob` takes it, `image/png` by default).
+   * A host on another origin cannot read the player's canvas itself.
+   */
+  | { type: 'CAPTURE_FRAME'; requestId: number; format?: string }
   /** Protocol 5: the stack's live state (response: STACK_STATE). */
   | { type: 'GET_STACK_STATE'; requestId: number }
   /**
@@ -176,6 +204,8 @@ export type VosBridgeEvent =
   | { type: 'ERROR'; error: string }
   /** Asset preload progress (posted by the element system during LOAD). */
   | { type: 'PRELOAD_PROGRESS'; loaded: number; total: number }
+  /** Protocol 11: response to CAPTURE_FRAME; `blob` is null when nothing is drawn yet. */
+  | { type: 'FRAME'; requestId: number; blob: Blob | null }
   | { type: 'HIT_RESULT'; requestId: number; id: string | null }
   /** Response to OBJECT_HIT_TEST — nearest declarative object along the ray. */
   | { type: 'OBJECT_HIT_RESULT'; requestId: number; id: string | null }
