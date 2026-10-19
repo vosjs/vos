@@ -42,7 +42,7 @@ describe('ADDON_REGISTRY', () => {
     // version (SPARK_VERSION for Spark), never a bare specifier.
     for (const [name, entry] of Object.entries(ADDON_REGISTRY)) {
       if (entry.category !== 'external' || !entry.cdnUrl) continue
-      expect(entry.cdnUrl(), name).toMatch(
+      expect(entry.cdnUrl('0.182.0'), name).toMatch(
         /^https:\/\/esm\.sh\/(@[^/@]+\/)?[^/@]+@\d+\.\d+\.\d+(\?|$)/,
       )
     }
