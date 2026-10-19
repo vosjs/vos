@@ -1,2 +1,8 @@
 packages:
   - 'packages/*'
+
+# The only dependencies allowed to run install scripts (pnpm.io/settings):
+# every other package is files. esbuild's postinstall is the fallback that
+# fetches its binary when the platform package is missing.
+onlyBuiltDependencies:
+  - esbuild

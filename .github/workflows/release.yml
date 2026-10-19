@@ -3,9 +3,17 @@
 # Every push to main runs this workflow. With unreleased changesets on main, the
 # changesets action opens or refreshes the "Version Packages" pull request on the
 # changeset-release/main branch; merging that PR runs this workflow again, which
-# finds no changesets left, builds, and publishes every bumped package to npm
-# through OIDC trusted publishing (id-token: write; there is no NPM_TOKEN and
-# there must never be one).
+# finds no changesets left and publishes every bumped package to npm through
+# OIDC trusted publishing (id-token: write; there is no NPM_TOKEN and there must
+# never be one).
+#
+# The build and the publish are TWO JOBS, because the OIDC token is minted for
+# a job and every line of code that runs in that job can ask for it. The build
+# job holds a read-only token: it installs (with install scripts, for the few
+# packages package.json allows), builds and packs every dist into one archive.
+# The release job alone holds id-token: it installs with NO scripts at all,
+# unpacks the archive, and runs the changesets action, so nothing a dependency
+# ships ever executes beside the credential that publishes this package.
 #
 # The Version Packages PR is opened and refreshed with the workflow's own
 # GITHUB_TOKEN. GitHub does create the pull_request CI run for a PR that token
@@ -24,6 +32,9 @@
 # says so in a comment on the PR naming the one manual step: press "Approve
 # workflows to run" on the PR (an empty commit pushed to the branch by a person
 # starts the checks too).
+#
+# Every action is pinned to a commit, with its version beside it; Dependabot
+# moves the pins (.github/dependabot.yml).
 
 name: Release
 
@@ -33,22 +44,51 @@ on:
 
 concurrency: ${{ github.workflow }}-${{ github.ref }}
 
-permissions:
-  contents: write
-  pull-requests: write
-  id-token: write # required for npm provenance (OIDC)
+# Nothing by default; each job names what it holds.
+permissions: {}
 
 jobs:
-  release:
+  build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - name: Pack every dist
+        run: tar czf "$RUNNER_TEMP/dist.tgz" packages/*/dist
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dist
+          path: ${{ runner.temp }}/dist.tgz
+          retention-days: 1
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # the Version Packages branch
+      pull-requests: write # the Version Packages PR
+      id-token: write # npm provenance (OIDC)
     outputs:
       # The number of the Version Packages PR this run opened or refreshed;
       # empty when there was nothing to version or the run published instead.
       pr: ${{ steps.changesets.outputs.pullRequestNumber }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      # The checkout keeps its token: the changesets action pushes the
+      # Version Packages branch with it.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
@@ -57,14 +97,21 @@ jobs:
       # Pin to a known-good release — npm@latest currently resolves to a build whose
       # bundled sigstore module is missing, breaking provenance signing (npm/cli#9722).
       - run: npm install -g npm@11.5.1
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: dist
+          path: ${{ runner.temp }}
+      - name: Unpack every dist
+        run: tar xzf "$RUNNER_TEMP/dist.tgz"
+      # No install script runs in the job that holds the publish credential.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Create release PR or publish
         id: changesets
-        uses: changesets/action@v1
+        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
         with:
           version: pnpm version-packages
-          publish: pnpm release
+          # `changeset publish` over the dist the build job made: no rebuild here.
+          publish: pnpm release:publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # No NPM_TOKEN — auth comes from OIDC trusted publishing (id-token: write).

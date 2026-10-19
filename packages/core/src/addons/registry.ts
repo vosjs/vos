@@ -23,6 +23,14 @@ export interface AddonEntry {
   peerDeps?: string[]
 }
 
+/**
+ * The ONE version of @sparkjsdev/spark a compiled program loads. Pinned
+ * because an unversioned CDN import is whatever the package's owner
+ * published last, run with the player's origin; moved on purpose, with the
+ * test that holds every external URL to a version.
+ */
+export const SPARK_VERSION = '2.3.1'
+
 export const ADDON_REGISTRY: Record<string, AddonEntry> = {
   FontLoader: {
     path: 'three/addons/loaders/FontLoader.js',
@@ -129,7 +137,7 @@ export const ADDON_REGISTRY: Record<string, AddonEntry> = {
     importSpecifier: '@sparkjsdev/spark',
     namedExports: ['SplatMesh', 'SparkRenderer'],
     cdnUrl: () =>
-      'https://esm.sh/@sparkjsdev/spark?external=three&target=es2022',
+      `https://esm.sh/@sparkjsdev/spark@${SPARK_VERSION}?external=three&target=es2022`,
     peerDeps: ['three'],
     initCode: null,
     cleanupCode: null,
@@ -143,7 +151,7 @@ export const ADDON_REGISTRY: Record<string, AddonEntry> = {
     importSpecifier: '@sparkjsdev/spark',
     namedExports: ['SplatMesh', 'SparkRenderer'],
     cdnUrl: () =>
-      'https://esm.sh/@sparkjsdev/spark?external=three&target=es2022',
+      `https://esm.sh/@sparkjsdev/spark@${SPARK_VERSION}?external=three&target=es2022`,
     peerDeps: ['three'],
   },
 }

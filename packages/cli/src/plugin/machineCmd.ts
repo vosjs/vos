@@ -25,6 +25,7 @@ import {
   agentsFromFlag,
   applyRulesBlock,
   bundledSkillsDir,
+  bundledSkillsVersion,
   detectAgents,
   doctorReport,
   fallbackSkillsHome,
@@ -49,12 +50,23 @@ const BOOLEAN_FLAGS = new Set([
   'help',
   'global',
   'no-skills',
+  'skills-from-catalog',
   'no-rules',
   'no-browser',
 ])
 
-/** The skills catalog on skills.sh, the first rung of the install. */
+/** The skills catalog's repository, for the opt-in install through skills.sh. */
 export const SKILLS_SOURCE = 'vosjs/skills'
+/**
+ * The catalog CLI (`npx skills`) the opt-in runs, pinned: `npx skills` with
+ * no version runs whatever its owner published last, with this machine's
+ * permissions. Moved on purpose, with the bundled skills (`pnpm sync-skills`).
+ */
+export const SKILLS_CLI_VERSION = '1.7.2'
+/** The catalog at ONE tag, the one the bundled copy was synced from. */
+export function skillsCatalogAt(version: string): string {
+  return `https://github.com/${SKILLS_SOURCE}/tree/v${version}`
+}
 
 function reporterFor(flags: Record<string, string | true>): Reporter {
   return createReporter(flags.json === true || process.stdout.isTTY !== true)
@@ -159,6 +171,7 @@ export async function cmdSetup(argv: string[]): Promise<number> {
   // --no-browser consulted only when no browser exists would count as
   // ignored on the machine that has one.
   const noSkills = flags['no-skills'] === true
+  const fromCatalog = flags['skills-from-catalog'] === true
   const noRules = flags['no-rules'] === true
   const noBrowser = flags['no-browser'] === true
 
@@ -180,54 +193,74 @@ export async function cmdSetup(argv: string[]): Promise<number> {
       : 'agents: none detected here (the skills land in .agents/skills, which every agent reads)',
   )
 
-  // 2. The skills.
+  // 2. The skills. The copy this package ships is the default: it is the
+  // catalog at the tag this release was cut from (skills/VERSION), reviewed
+  // and tested with it, and it needs no network. `--skills-from-catalog`
+  // asks skills.sh for that SAME tag through a pinned catalog CLI, so what
+  // lands is what this release was tested with either way; the bundled copy
+  // stays the fallback when skills.sh cannot be reached. An unpinned
+  // `npx skills add vosjs/skills` ran whatever both repositories held that
+  // minute, with this machine's permissions.
   let skillsVia: 'skills.sh' | 'bundled' | 'skipped' = 'skipped'
   let skillNames: string[] = []
   if (!noSkills) {
-    const args = [
-      'skills',
-      'add',
-      SKILLS_SOURCE,
-      '-y',
-      ...(global ? ['-g'] : []),
-    ]
-    r.log(`installing the vos skills: npx ${args.join(' ')}`)
-    const res = spawnSync(npx(), args, {
-      cwd: root,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      shell: process.platform === 'win32',
-      timeout: 120_000,
-    })
-    if (res.status === 0) {
-      skillsVia = 'skills.sh'
-    } else {
-      // The catalog CLI did not answer (no network, no npx, an older npm):
-      // the copy this package ships is the same files at its release.
-      const bundled = bundledSkillsDir(import.meta.url.replace('file://', ''))
-      if (!bundled)
-        throw new Error(
-          `could not install the skills: npx skills add ${SKILLS_SOURCE} failed (${(res.stderr ?? '').trim().split('\n').at(-1) ?? res.error?.message ?? 'no output'}) and this build carries no bundled copy`,
-        )
-      const targets = homes.length ? homes : [fallbackSkillsHome(root)]
+    const bundled = bundledSkillsDir(import.meta.url.replace('file://', ''))
+    const version = bundled ? bundledSkillsVersion(bundled) : null
+    const targets = homes.length ? homes : [fallbackSkillsHome(root)]
+    const copyBundled = (dir: string) => {
       for (const home of targets) {
         const dest = skillsDirFor(home)
         mkdirSync(dest, { recursive: true })
-        for (const name of installedSkills(bundled)) {
-          cpSync(join(bundled, name), join(dest, name), { recursive: true })
+        for (const name of installedSkills(dir)) {
+          cpSync(join(dir, name), join(dest, name), { recursive: true })
         }
       }
+    }
+    if (fromCatalog) {
+      const source = version ? skillsCatalogAt(version) : SKILLS_SOURCE
+      const args = [
+        `skills@${SKILLS_CLI_VERSION}`,
+        'add',
+        source,
+        '-y',
+        ...(global ? ['-g'] : []),
+      ]
+      r.log(`installing the vos skills: npx ${args.join(' ')}`)
+      const res = spawnSync(npx(), args, {
+        cwd: root,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'pipe'],
+        shell: process.platform === 'win32',
+        timeout: 120_000,
+      })
+      if (res.status === 0) {
+        skillsVia = 'skills.sh'
+      } else {
+        // The catalog CLI did not answer (no network, no npx, an older npm):
+        // the copy this package ships is the same files at its tag.
+        if (!bundled)
+          throw new Error(
+            `could not install the skills: npx ${args.join(' ')} failed (${(res.stderr ?? '').trim().split('\n').at(-1) ?? res.error?.message ?? 'no output'}) and this build carries no bundled copy`,
+          )
+        copyBundled(bundled)
+        skillsVia = 'bundled'
+        r.log(
+          `skills.sh did not answer; copied the bundled skills into ${targets.map((t) => skillsDirFor(t)).join(', ')}`,
+        )
+      }
+    } else {
+      if (!bundled)
+        throw new Error(
+          'this build carries no bundled skills; run with --skills-from-catalog',
+        )
+      copyBundled(bundled)
       skillsVia = 'bundled'
       r.log(
-        `skills.sh did not answer; copied the bundled skills into ${targets.map((t) => skillsDirFor(t)).join(', ')}`,
+        `installed the bundled vos skills${version ? ` (catalog ${version})` : ''} into ${targets.map((t) => skillsDirFor(t)).join(', ')}`,
       )
     }
     skillNames = [
-      ...new Set(
-        (homes.length ? homes : [fallbackSkillsHome(root)]).flatMap((h) =>
-          installedSkills(skillsDirFor(h)),
-        ),
-      ),
+      ...new Set(targets.flatMap((h) => installedSkills(skillsDirFor(h)))),
     ].sort()
   }
   r.event({ event: 'skills', via: skillsVia, names: skillNames })

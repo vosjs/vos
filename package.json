@@ -16,8 +16,9 @@
     "format": "prettier --write .",
     "check": "prettier --check .",
     "changeset": "changeset",
-    "version-packages": "changeset version && pnpm install --no-frozen-lockfile",
-    "release": "turbo run build && changeset publish"
+    "version-packages": "changeset version && pnpm install --no-frozen-lockfile --ignore-scripts",
+    "release": "turbo run build && changeset publish",
+    "release:publish": "changeset publish"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.0",
