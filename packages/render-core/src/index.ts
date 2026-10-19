@@ -15,6 +15,8 @@ export type {
 
 export {
   CORE_AUDIO_CDN_URL,
+  CORE_AUDIO_VERSION,
+  coreAudioUrl,
   dataHasAudio,
   studioEntryData,
   audioProducerCode,

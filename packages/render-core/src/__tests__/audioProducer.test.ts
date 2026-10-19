@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   CORE_AUDIO_CDN_URL,
+  CORE_AUDIO_VERSION,
   audioProducerCode,
+  coreAudioUrl,
   dataHasAudio,
   studioEntryData,
 } from '../audioProducer'
@@ -23,6 +25,27 @@ const plan: AudioPlanJson = {
     },
   ],
 }
+
+describe('coreAudioUrl', () => {
+  it('names esm.sh at the pinned version with no mirror', () => {
+    expect(coreAudioUrl()).toBe(CORE_AUDIO_CDN_URL)
+    expect(coreAudioUrl(null)).toBe(CORE_AUDIO_CDN_URL)
+    expect(CORE_AUDIO_CDN_URL).toBe(
+      `https://esm.sh/@vosjs/core@${CORE_AUDIO_VERSION}/audio?target=es2022`,
+    )
+  })
+
+  it('names the bundled mixer on a mirror, laid out like the engine', () => {
+    expect(coreAudioUrl('https://assets.example/esm/')).toBe(
+      `https://assets.example/esm/@vosjs/core@${CORE_AUDIO_VERSION}/audio.js`,
+    )
+    const code = audioProducerCode({
+      coreAudioUrl: coreAudioUrl('https://assets.example/esm'),
+    })
+    expect(code).toContain('https://assets.example/esm/@vosjs/core@')
+    expect(code).not.toContain('esm.sh')
+  })
+})
 
 describe('studioEntryData', () => {
   it('reads the stored config stack array by entry id', () => {

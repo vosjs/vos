@@ -17,12 +17,21 @@ import {
   type SampleMeta,
 } from './sampleIndex'
 
+/**
+ * Where mp4box comes from: the page says (`window.__vos__.modules.mp4box`,
+ * set by the engine's render template from the host's module source, a
+ * mirror or esm.sh), else esm.sh at the pinned version.
+ */
 const MP4BOX_URL = 'https://esm.sh/mp4box@0.5.2'
+function mp4boxUrl(): string {
+  const modules = (globalThis as any).__vos__?.modules
+  return typeof modules?.mp4box === 'string' ? modules.mp4box : MP4BOX_URL
+}
 
 let mp4boxPromise: Promise<any> | null = null
 function loadMp4Box(): Promise<any> {
   if (!mp4boxPromise) {
-    mp4boxPromise = import(/* @vite-ignore */ MP4BOX_URL).then(
+    mp4boxPromise = import(/* @vite-ignore */ mp4boxUrl()).then(
       (m) => m.default ?? m,
     )
   }

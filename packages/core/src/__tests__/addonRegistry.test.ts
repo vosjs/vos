@@ -3,8 +3,15 @@ import {
   ADDON_REGISTRY,
   detectRequiredAddons,
   generateAddonImports,
+  getExternalImportmapEntries,
   getRequiredAddons,
 } from '../addons/registry'
+import {
+  EXTERNAL_PACKAGES,
+  SPARK_VERSION,
+  esmShModules,
+  mirroredModules,
+} from '../addons/cdn'
 import type { VosConfig, VosConfigJson } from '../types'
 
 describe('ADDON_REGISTRY', () => {
@@ -38,14 +45,40 @@ describe('ADDON_REGISTRY', () => {
 
   it('loads every external package at ONE pinned version', () => {
     // An unversioned esm.sh URL resolves to whatever was published last,
-    // and runs with the player's origin: every external entry names its
-    // version (SPARK_VERSION for Spark), never a bare specifier.
+    // and runs with the player's origin: every external entry names a
+    // package of EXTERNAL_PACKAGES, whose version reaches both sources.
+    const esm = esmShModules()
+    const mirror = mirroredModules('https://mirror.test/esm')
     for (const [name, entry] of Object.entries(ADDON_REGISTRY)) {
-      if (entry.category !== 'external' || !entry.cdnUrl) continue
-      expect(entry.cdnUrl('0.182.0'), name).toMatch(
+      if (entry.category !== 'external') continue
+      const specifier = entry.importSpecifier!
+      const pkg = EXTERNAL_PACKAGES[specifier]
+      expect(pkg, name).toBeDefined()
+      expect(pkg.version).toMatch(/^\d+\.\d+\.\d+$/)
+      expect(esm.imports[specifier], name).toMatch(
         /^https:\/\/esm\.sh\/(@[^/@]+\/)?[^/@]+@\d+\.\d+\.\d+(\?|$)/,
       )
+      expect(mirror.imports[specifier], name).toBe(
+        `https://mirror.test/esm/${specifier}@${pkg.version}/${pkg.file}`,
+      )
     }
+  })
+
+  it('answers the external importmap entries from either source', () => {
+    expect(getExternalImportmapEntries(['SplatMesh'])).toEqual({
+      '@sparkjsdev/spark': `https://esm.sh/@sparkjsdev/spark@${SPARK_VERSION}?external=three&target=es2022`,
+    })
+    expect(getExternalImportmapEntries(['SplatMesh'], '0.182.0')).toEqual({
+      '@sparkjsdev/spark': `https://esm.sh/@sparkjsdev/spark@${SPARK_VERSION}?external=three&target=es2022`,
+    })
+    expect(
+      getExternalImportmapEntries(
+        ['SplatMesh', 'GLTFLoader'],
+        mirroredModules('https://mirror.test/esm/'),
+      ),
+    ).toEqual({
+      '@sparkjsdev/spark': `https://mirror.test/esm/@sparkjsdev/spark@${SPARK_VERSION}/dist/spark.module.js`,
+    })
   })
 
   it('contains external Spark entries', () => {

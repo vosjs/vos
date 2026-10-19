@@ -21,14 +21,17 @@ export interface EncodePageOptions {
   save: { method: 'POST' | 'PUT'; url: string }
   /** Optional `?rt=`-style query the frame fetches must carry (the fleet's token). */
   frameQuery?: string
+  /** Where mediabunny loads from (a host's mirror); esm.sh by default. */
+  mediabunnyUrl?: string
 }
 
 export function buildEncodePage(o: EncodePageOptions): string {
   const q = o.frameQuery ? `?${o.frameQuery}` : ''
+  const mediabunnyUrl = o.mediabunnyUrl ?? MEDIABUNNY_URL
   return `<!doctype html><html><head><meta charset="utf-8"></head><body>
 <script type="module">
 try {
-  const MB = await import('${MEDIABUNNY_URL}')
+  const MB = await import(${JSON.stringify(mediabunnyUrl)})
   const frames = await (await fetch(${JSON.stringify(o.framesIndexUrl)})).json()
   const meta = await (await fetch(${JSON.stringify(o.metaUrl)})).json()
   const W = meta.captureWidth ?? meta.width, H = meta.captureHeight ?? meta.height
