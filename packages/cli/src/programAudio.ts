@@ -10,12 +10,11 @@
  * read from disk, a hosted asset downloaded with the caller's credential.
  * A clip that cannot be reached is left out and said, never a silent track.
  */
-import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
 import { audioProducerCode, studioEntryData } from '@vosjs/render-core'
 import { studioAudioPlan } from '@vosjs/studio-core'
 import { MEDIA_HEAD_BYTES, resolveMediaType } from './plugin/container'
+import { localFile } from './programAssets'
 import type { EnvelopePoint, LoweredAudioClip } from '@vosjs/studio-core'
 
 export interface ProgramAudioOptions {
@@ -65,14 +64,16 @@ async function reach(
     }
     return dataUri(new Uint8Array(await res.arrayBuffer()), clipKey)
   }
-  const file = join(opts.baseDir, clipKey.replace(/^\/+/, ''))
-  if (!existsSync(file)) {
+  // In the document's directory or below, never outside it: the bytes land
+  // in a page the program's own code runs in.
+  const local = localFile(clipKey.replace(/^\/+/, ''), opts.baseDir)
+  if ('refused' in local) {
     opts.log(
       `note: sound ${clipKey} is not beside the document, so the render leaves it out`,
     )
     return null
   }
-  return dataUri(new Uint8Array(await readFile(file)), file)
+  return dataUri(new Uint8Array(await readFile(local.file)), local.file)
 }
 
 /** The producer for a composed program's sound, or null when it adds none. */

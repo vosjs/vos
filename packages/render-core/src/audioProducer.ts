@@ -102,8 +102,10 @@ export function audioProducerCode(
   options: AudioProducerCodeOptions = {},
 ): string {
   const coreAudioUrl = options.coreAudioUrl ?? CORE_AUDIO_CDN_URL
+  // The plan is data inlined into a <script>: `<` leaves as its escape so a
+  // key or a name can never end the element.
   const bakedPlan = options.plan
-    ? `window.__vosAudioPlan__ = ${JSON.stringify(options.plan)};`
+    ? `window.__vosAudioPlan__ = ${JSON.stringify(options.plan).replace(/</g, '\\u003c')};`
     : ''
   return `
 ${bakedPlan}

@@ -76,10 +76,25 @@ export interface RecorderCdp {
   send(method: string, params?: Record<string, unknown>): Promise<unknown>
 }
 
+/** One intercepted request, as Playwright's `Route` answers it. */
+export interface RecorderRoute {
+  request(): { url(): string; headers(): Record<string, string> }
+  continue(opts?: { headers?: Record<string, string> }): Promise<unknown>
+}
+
 export interface RecorderContext {
   newPage(): Promise<RecorderPage>
   addInitScript(script: string): Promise<unknown>
   setExtraHTTPHeaders(headers: Record<string, string>): Promise<unknown>
+  /**
+   * Request interception, when the driver has it: how a job's headers are
+   * sent to the recorded origin alone. A driver without it gets them on
+   * every request through `setExtraHTTPHeaders`, and the recorder says so.
+   */
+  route?(
+    pattern: string,
+    handler: (route: RecorderRoute) => Promise<unknown> | unknown,
+  ): Promise<unknown>
   // The page handed back is the one `newPage()` answered; typed loosely so
   // Playwright's `Page | Frame` parameter satisfies the contract.
   newCDPSession(page: unknown): Promise<RecorderCdp>

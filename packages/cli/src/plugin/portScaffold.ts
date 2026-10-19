@@ -389,12 +389,25 @@ function programSource(p: {
   uses: string[]
 }): string {
   const j = (v: unknown) => JSON.stringify(v, null, 2).replace(/\n/g, '\n  ')
+  // A scene's name comes off the page (an element id, a label) and lands in
+  // a module the port then imports: it is written as a JSON string on one
+  // line, and its times as numbers or nothing.
+  const word = (v: unknown) =>
+    JSON.stringify(
+      Array.from(String(v), (ch) => {
+        const code = ch.charCodeAt(0)
+        return code < 0x20 || code === 0x2028 || code === 0x2029 ? ' ' : ch
+      }).join(''),
+    )
+  const secs = (v: unknown): number | null =>
+    typeof v === 'number' && Number.isFinite(v) ? v : null
   const sceneTodos = p.scenes.length
     ? p.scenes
-        .map(
-          (s) =>
-            `    // TODO scene "${s.name}" (${s.start}s${s.duration ? ` to ${s.start + s.duration}s` : ''}): translate its motion onto ctx.elements.get(id).props / .segments here`,
-        )
+        .map((s) => {
+          const start = secs(s.start) ?? 0
+          const duration = secs(s.duration)
+          return `    // TODO scene ${word(s.name)} (${start}s${duration ? ` to ${start + duration}s` : ''}): translate its motion onto ctx.elements.get(id).props / .segments here`
+        })
         .join('\n')
     : "    // TODO: translate the source's motion here, one block per scene (tl.addLabel above names them)"
   const springHint = p.uses.includes('spring')

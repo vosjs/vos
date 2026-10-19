@@ -57,6 +57,46 @@ const READ_WAIT_MS = 1500
 /** The most a step's `read` keeps: a payload, never a page. */
 const READ_MAX_CHARS = 2048
 
+/**
+ * The headers a request carries, or null to leave it alone: a job's
+ * headers (a preview's bypass token) go to the ORIGIN the take is of and
+ * nowhere else, since the recorded page embeds whatever third parties it
+ * likes and a redirect can land anywhere.
+ */
+export function headersFor(
+  requestUrl: string,
+  entryUrl: string,
+  headers: Record<string, string>,
+): Record<string, string> | null {
+  try {
+    return new URL(requestUrl).origin === new URL(entryUrl).origin
+      ? headers
+      : null
+  } catch {
+    return null
+  }
+}
+
+async function applyHeaders(
+  context: RecorderContext,
+  headers: Record<string, string>,
+  entryUrl: string,
+  log: (msg: string) => void,
+): Promise<void> {
+  if (!context.route) {
+    await context.setExtraHTTPHeaders(headers)
+    log('   (this browser scopes no headers: they ride every request)')
+    return
+  }
+  await context.route('**/*', async (route) => {
+    const req = route.request()
+    const scoped = headersFor(req.url(), entryUrl, headers)
+    await route.continue(
+      scoped ? { headers: { ...req.headers(), ...scoped } } : undefined,
+    )
+  })
+}
+
 /** A page URL as a take keeps it: origin and path, never a query or a hash. */
 export function publicUrl(u: string): string {
   try {
@@ -250,12 +290,9 @@ export async function recordTake(
       viewport: { width: vw, height: vh },
       deviceScaleFactor: 1,
       ...(opts.storageState ? { storageState: opts.storageState } : {}),
-      ...(opts.headers && Object.keys(opts.headers).length
-        ? { extraHTTPHeaders: opts.headers }
-        : {}),
     }))
-  if (opts.context && opts.headers && Object.keys(opts.headers).length)
-    await context.setExtraHTTPHeaders(opts.headers)
+  if (opts.headers && Object.keys(opts.headers).length)
+    await applyHeaders(context, opts.headers, url, log)
   // Masks go in as an init script, so they are in force at document start on
   // every navigation: the real value never reaches a painted frame.
   const masks = actions.mask ?? []
@@ -597,7 +634,7 @@ export async function recordTake(
             clock,
           )
           ping()
-          log(`type "${step.text}" into ${step.selector}`)
+          log(`type ${step.text.length} chars into ${step.selector}`)
           await gesture(() => sleep(settleMs(step)))
         } else
           skipped.push({ step: stepIdx, do: step.do, selector: step.selector })
@@ -802,7 +839,9 @@ export async function recordTake(
     captureWidth: first.dims?.w ?? vw,
     captureHeight: first.dims?.h ?? vh,
     captureSurface: 'tab',
-    pageUrl: url,
+    // The take keeps the address, never its query or hash, which is where
+    // a token or a magic link would ride.
+    pageUrl: publicUrl(url) || url,
     pageTitle,
     platform: opts.platform ?? 'linux',
     producer: 'cli',
