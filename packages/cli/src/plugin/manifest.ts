@@ -29,6 +29,11 @@ export const manifest: PluginManifest = {
       summary: 'drive actions.json into a take (screencast + cursor track)',
     },
     {
+      name: 'look',
+      summary:
+        'see a page before scripting it (signed in, like record): a screenshot + every control in view with one proposed stable selector',
+    },
+    {
       name: 'plan',
       summary:
         'plan zoom/cursor effects into doc.json (wand contract); --reuse re-times a previous cut onto a re-recording',

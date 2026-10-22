@@ -122,6 +122,7 @@ import { announceEnvNames, hostedEnv, recordHosted } from './hostedRecord'
 import { urlSchemeProblem } from '@vosjs/render-core/record'
 import { cmdActions } from './agentBrowser'
 import { cmdIngest } from './ingest'
+import { cmdLook } from './look'
 import { cmdDoctor, cmdLogout, cmdSetup, cmdWhoami } from './machineCmd'
 import type { Backdrop, ProjectDoc } from '@vosjs/studio-core'
 import type { ActionsFile } from './actions'
@@ -183,6 +184,8 @@ Take pipeline
             real functions → config.json, refusing a module-scope read, syntax the page cannot run and non-JSON data; config.sources.json maps each function to its line
   vos compare <program dir|config.json> --against <their render.mp4> [--times a,b,50%] [--every 1] [--threshold 0.95] [--out compare] [--json]
             per-frame SSIM and source | vos | difference sheets; exit 1 when ANY frame is under the threshold (needs ffmpeg)
+  vos look <url> [--session <name>|--storage-state <file>] [--viewport WxH] [--headed] [--click <selector>]... [--type <selector>=<text>]... [--wait <ms>] [--header name=value]... [--browser-arg=<switch>]... [--out look] [--json]
+            see a page before scripting it, signed in the way vos record would be: <out>/look.png and every control in view with ONE proposed selector (test id, aria-label, role + name, then words in its dialog or landmark), UNIQUE or AMBIGUOUS as the recorder's own engine counts it, plus what the frame exposes. --click/--type run first, in order; a click on a spend or delete word is refused. Exit 4 at a sign-in wall
   vos session open <url> --name <app>   a plain Chrome window on a vos-owned profile; sign in, close it
   vos session check <name> [--url <url>]   headless: does the session still open the page? exit 0/4
   vos session list | rm <name>          what exists and how old; delete one
@@ -2419,6 +2422,8 @@ export async function run(argv: string[]): Promise<number> {
         return await cmdActions(rest)
       case 'ingest':
         return await cmdIngest(rest)
+      case 'look':
+        return await cmdLook(rest)
       default:
         throw new UsageError(`unknown command "${cmd}" — run: vos help`)
     }

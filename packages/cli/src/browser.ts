@@ -20,10 +20,17 @@ export class BrowserUnavailableError extends Error {
  * `args` are extra Chromium switches (`--browser-arg` on the verbs that
  * record). Some product surfaces cannot be reached without one: a recorder
  * needs a fake capture device to get past a permission prompt, an extension
- * page needs the extension loaded. Passed through verbatim.
+ * page needs the extension loaded. Passed through verbatim. `headless:
+ * false` opens a window (`vos look --headed`).
  */
-export async function launchBrowser(args: string[] = []): Promise<Browser> {
-  const opts = args.length ? { args } : {}
+export async function launchBrowser(
+  args: string[] = [],
+  launch: { headless?: boolean } = {},
+): Promise<Browser> {
+  const opts = {
+    ...(args.length ? { args } : {}),
+    ...(launch.headless === false ? { headless: false } : {}),
+  }
   const explicit = process.env.VOS_BROWSER_PATH
   if (explicit) {
     return chromium.launch({ ...opts, executablePath: explicit }).catch((e) => {
