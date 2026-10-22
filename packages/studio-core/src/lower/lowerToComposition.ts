@@ -435,6 +435,13 @@ export interface TrackOptions {
    * entrance's last pose to the span's end in one straight line.
    */
   notBefore?: number
+  /**
+   * The transition windows, in output seconds: the camera rests through
+   * one (`restSpansThroughTransitions`), so no connected pan runs across
+   * it. A span that ends at a boundary ramps out on its own and the span
+   * after the window ramps in on its own, as two spans a wide gap apart.
+   */
+  rests?: readonly { t: number; d: number }[]
 }
 
 /**
@@ -446,8 +453,24 @@ export interface TrackOptions {
 function withEntrance(
   head: Keyframe<number[]>[],
   build: (opts: TrackOptions) => KeyframeTrack<number[]> | undefined,
+  rests?: TrackOptions['rests'],
 ): KeyframeTrack<number[]> | undefined {
-  return prependEntrance(build({ notBefore: head.at(-1)?.t }), head)
+  return prependEntrance(build({ notBefore: head.at(-1)?.t, rests }), head)
+}
+
+/**
+ * Whether a transition window lies between one span's end and the next
+ * span's start, so a connected transition would carry the camera through
+ * it. The open's record (t = 0) is the entrance's and never rests a chain.
+ */
+function restsBetween(
+  rests: TrackOptions['rests'],
+  tOut: number,
+  nextIn: number,
+): boolean {
+  return (rests ?? []).some(
+    (w) => w.t > 0 && w.d > 0 && w.t < nextIn && w.t + w.d > tOut,
+  )
 }
 
 /** How far a connected transition may spill into the next span: half of it. */
@@ -566,7 +589,9 @@ export function zoomTrackFromDoc(
     // recenters and the drift below stop where it begins.
     const next = mapped.at(i + 1)
     const pan =
-      next && next.tIn - tOut <= style.chainGap
+      next &&
+      next.tIn - tOut <= style.chainGap &&
+      !restsBetween(opts.rests, tOut, next.tIn)
         ? connectedWindow({
             arrived,
             tOut,
@@ -745,7 +770,9 @@ export function tiltTrackFromDoc(
     // so its transition speed governs.
     const next = mapped.at(i + 1)
     const swing =
-      next && next.tIn - tOut <= chainGap
+      next &&
+      next.tIn - tOut <= chainGap &&
+      !restsBetween(opts.rests, tOut, next.tIn)
         ? connectedWindow({
             arrived,
             tOut,
@@ -3279,6 +3306,7 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
   const zoomTrack = withEntrance(
     entranceZoomKeyframes(cardEnter(doc.frame)),
     (opts) => zoomTrackFromDoc(zoomSpans, rated, zoomStyle, opts),
+    transitions,
   )
   // Pinned layers: each resolved beside its referent through this camera.
   const pins = resolvePins(doc, layout, camera, zoomTrack)
@@ -3398,7 +3426,7 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
         ? (opts: TrackOptions) =>
             tiltTrackFromDoc(tilts, rated, zoomStyle.tilt, opts)
         : () => undefined
-      const track = withEntrance(head, spans)
+      const track = withEntrance(head, spans, transitions)
       return track ? { tiltTrack: track } : {}
     })(),
     // The card's pose through its enter and its exit: [scale, dy, opacity]
@@ -3539,8 +3567,10 @@ export function docZoomTrack(
     camera,
     zoomStyle,
   )
-  return withEntrance(entranceZoomKeyframes(cardEnter(doc.frame)), (opts) =>
-    zoomTrackFromDoc(spans, rated, zoomStyle, opts),
+  return withEntrance(
+    entranceZoomKeyframes(cardEnter(doc.frame)),
+    (opts) => zoomTrackFromDoc(spans, rated, zoomStyle, opts),
+    transitions,
   )
 }
 
