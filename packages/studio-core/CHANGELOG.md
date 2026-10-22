@@ -1,5 +1,15 @@
 # @vosjs/studio-core
 
+## 0.43.0
+
+### Minor Changes
+
+- 175fcd7: A text overlay can carry `anchor: { step, media?, at?, offset? }` to start where a recorder step plays in the cut, through trims, speed spans and media order, with `start` as the fallback and `{elapsed}` filled from the step's off-camera wait.
+
+### Patch Changes
+
+- 934e890: `RecordingMeta` carries `skips` and `outputs`, and a step span its `guard`, `confirmed`, `offCameraMs`, `timedOut` and `reason`.
+
 ## 0.42.5
 
 ### Patch Changes

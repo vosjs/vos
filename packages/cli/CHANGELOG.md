@@ -1,5 +1,23 @@
 # @vosjs/cli
 
+## 0.78.0
+
+### Minor Changes
+
+- 175fcd7: `vos join` cuts several takes and video files into one take, `--captions` (on `vos join` and `vos plan`) lands every step's caption anchored to its step, and `vos score` times a music track so its strongest swell lands on a step or a second of the film.
+- 23c755d: `vos look <url>` shows a page on the recorder's own browser and session, writing a screenshot and listing every control in view with one proposed selector, counted unique or ambiguous, so a flow can be scripted without recording it first.
+- 934e890: `vos record` runs `expect`, `await` (off camera, cut into its own segment by `vos plan`) and `download` steps (files kept in the take's `outputs/`), presses a `"guard": "spend"` step only with `--confirm <id>`, reports clicks on disabled controls, and `vos actions script` says all of them in words.
+- 92dba04: `vos frames --at-zooms` stills the apex of every zoom span on every media of the take and checks each against the same frame rendered with the zooms off, flagging a zoom that did not render, and the new `vos check-video <file>` checks a rendered file's facts, scene changes, loudness and first and last frames without ffmpeg.
+
+### Patch Changes
+
+- Updated dependencies [23c755d]
+- Updated dependencies [175fcd7]
+- Updated dependencies [934e890]
+- Updated dependencies [934e890]
+  - @vosjs/render-core@0.7.0
+  - @vosjs/studio-core@0.43.0
+
 ## 0.77.1
 
 ### Patch Changes
