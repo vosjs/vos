@@ -1,5 +1,18 @@
 # @vosjs/render-core
 
+## 0.7.0
+
+### Minor Changes
+
+- 934e890: The recorder takes four new kinds of step: `expect` checks the page on camera, `await` waits off camera so the footage runs straight across a slow result, `download` keeps a file the page makes, and `"guard": "spend"` holds a step that costs something real until the recording names it; a click on a disabled control is reported, and `hostedRefusals` says what a hosted recorder cannot run.
+
+### Patch Changes
+
+- 23c755d: An exposure's selector names the element by what the page wrote for it (an id, a test id, an aria-label, a field's name or placeholder) before its classes, and never by a value that holds what the scan found.
+- Updated dependencies [175fcd7]
+- Updated dependencies [934e890]
+  - @vosjs/studio-core@0.43.0
+
 ## 0.6.0
 
 ### Minor Changes
