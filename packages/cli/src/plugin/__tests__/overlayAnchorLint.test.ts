@@ -89,6 +89,34 @@ describe('validate: anchored captions', () => {
     ).toBe(true)
   })
 
+  it('notes the earlier wait an anchored {elapsed} reads, and warns only when there is none', () => {
+    const doc = takeA()
+    doc.overlays = [
+      text('landing', 3, {
+        preset: 'caption',
+        anchor: { step: 'save' },
+        text: '{elapsed} later',
+      }),
+    ]
+    const none = lintDoc(doc)
+    expect(
+      none.warnings.some((w) =>
+        /overlays\[0\]: \{elapsed\} stays as written, because neither step "save" nor any step before it/.test(
+          w,
+        ),
+      ),
+    ).toBe(true)
+    expect(none.notes).toBeUndefined()
+    ;(doc.source.meta as unknown as { skips: unknown }).skips = [
+      { step: 0, id: 'open', at: 2, ms: 12 * 60_000 },
+    ]
+    const found = lintDoc(doc)
+    expect(found.warnings.some((w) => w.includes('{elapsed}'))).toBe(false)
+    expect(found.notes).toEqual([
+      'overlays[0]: {elapsed} reads the off-camera wait of step "open" (12 minutes), the nearest one before step "save", which waited for nothing itself',
+    ])
+  })
+
   it('refuses a malformed anchor in words', () => {
     const doc = takeA()
     doc.overlays = [

@@ -2082,6 +2082,7 @@ async function cmdValidate(argv: string[]): Promise<number> {
   const take = await loadTake(target)
   const problems: string[] = []
   const warnings: string[] = []
+  const notes: string[] = []
   if (!existsSync(take.paths.recording)) {
     problems.push('missing recording (re-run record)')
   } else {
@@ -2111,6 +2112,7 @@ async function cmdValidate(argv: string[]): Promise<number> {
     const lint = lintDoc(take.doc)
     problems.push(...lint.problems.map((p) => `doc.json: ${p}`))
     warnings.push(...lint.warnings.map((w) => `doc.json: ${w}`))
+    notes.push(...(lint.notes ?? []).map((n) => `doc.json: ${n}`))
     const probe = mediaProbeLints(
       await probeMediaUrls(collectDocMediaUrls(take.doc)),
     )
@@ -2157,14 +2159,21 @@ async function cmdValidate(argv: string[]): Promise<number> {
   }
   if (problems.length) {
     r.done(
-      { valid: false, target, problems, warnings },
-      `${target}:\n  ${problems.join('\n  ')}${warnings.length ? `\n  warnings:\n  ${warnings.join('\n  ')}` : ''}`,
+      {
+        valid: false,
+        target,
+        problems,
+        warnings,
+        ...(notes.length ? { notes } : {}),
+      },
+      `${target}:\n  ${problems.join('\n  ')}${warnings.length ? `\n  warnings:\n  ${warnings.join('\n  ')}` : ''}${notes.length ? `\n  notes:\n  ${notes.join('\n  ')}` : ''}`,
     )
     return EXIT_ERROR
   }
+  const noteLines = notes.length ? `\n  notes:\n  ${notes.join('\n  ')}` : ''
   r.done(
-    { valid: true, target, warnings },
-    `${target}: take is complete and renderable${warnings.length ? `\n  warnings:\n  ${warnings.join('\n  ')}` : ''}`,
+    { valid: true, target, warnings, ...(notes.length ? { notes } : {}) },
+    `${target}: take is complete and renderable${warnings.length ? `\n  warnings:\n  ${warnings.join('\n  ')}` : ''}${noteLines}`,
   )
   return EXIT_OK
 }

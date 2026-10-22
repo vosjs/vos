@@ -228,6 +228,40 @@ describe('a caption anchored to a step', () => {
     expect((out.overlays![0] as TextOverlayClip).text).toBe('{elapsed} on')
   })
 
+  it('on the beat after an await, reads the nearest earlier wait on its media', () => {
+    const d = doc()
+    ;(d.source.meta as unknown as { skips: unknown }).skips = [
+      { step: 1, id: 'open', at: 6, ms: 10 * 60_000 },
+    ]
+    const rated = ratedSegments(d)
+    // `save` waited for nothing; the await before it, `open`, did.
+    const r = resolveAnchor(d, { step: 'save' }, rated)
+    expect(r.elapsedMs).toBe(10 * 60_000)
+    expect(r.elapsedFrom?.id).toBe('open')
+    // The step before any wait reads none, and a step's own wait is its own.
+    expect(resolveAnchor(d, { step: 0 }, rated).elapsedMs).toBeUndefined()
+    expect(
+      resolveAnchor(d, { step: 'open' }, rated).elapsedFrom,
+    ).toBeUndefined()
+    // Another media's waits are its own: `share` comes before `later`.
+    expect(
+      resolveAnchor(d, { step: 'share', media: 'm1' }, rated).elapsedMs,
+    ).toBeUndefined()
+    const lowered = entryOverlays(
+      doc({
+        overlays: [caption('landing', { step: 'save' }, '{elapsed} later')],
+      }),
+    )
+    expect(lowered[0].text).toBe('{elapsed} later')
+    const withWait = doc({
+      overlays: [caption('landing', { step: 'save' }, '{elapsed} later')],
+    })
+    ;(withWait.source.meta as unknown as { skips: unknown }).skips = [
+      { step: 1, ms: 10 * 60_000 },
+    ]
+    expect(entryOverlays(withWait)[0].text).toBe('10 minutes later')
+  })
+
   it('falls back to start when the step is cut out, or not there', () => {
     const d = doc({
       overlays: [

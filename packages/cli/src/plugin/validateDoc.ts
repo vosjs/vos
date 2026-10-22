@@ -43,6 +43,7 @@ import {
   docCardLayout,
   docZoomTrack,
   findStep,
+  formatElapsed,
   hasElapsed,
   outputEnd,
   resolveAnchor,
@@ -275,6 +276,8 @@ function lintFrom(name: string, from: unknown, problems: string[]): void {
 export interface DocLintResult {
   problems: string[]
   warnings: string[]
+  /** What the document does that a reader may not expect, said once. Absent when there is nothing to say. */
+  notes?: string[]
 }
 
 const EPS = 1e-3
@@ -406,6 +409,7 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
   const doc = docIn as unknown as Json
   const problems: string[] = []
   const warnings: string[] = []
+  const notes: string[] = []
   // The anchor: a recording document carries `source` and lints its
   // footage-anchored tracks against the footage's length; a program
   // document lints the shared layers against the program's length.
@@ -1212,6 +1216,7 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       anchorPieces,
       problems,
       warnings,
+      notes,
     )
     if (
       o.kind === 'text' &&
@@ -1995,7 +2000,7 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
 
   if (recording)
     framingWarnings(docIn as ProjectDoc, doc, zoom, overlays ?? [], warnings)
-  return { problems, warnings }
+  return { problems, warnings, ...(notes.length ? { notes } : {}) }
 }
 
 /**
@@ -2013,6 +2018,7 @@ function checkOverlayAnchor(
   pieces: ReturnType<typeof ratedSegments> | null,
   problems: string[],
   warnings: string[],
+  notes: string[],
 ): number | null {
   const fallback = isNum(o.start) ? o.start : null
   const words = o.kind === 'text' ? (o.text as RichText | undefined) : undefined
@@ -2072,6 +2078,10 @@ function checkOverlayAnchor(
       `${name}.anchor: ${why}, so it plays at its fallback start (${at}); re-anchor it, or keep the footage that step plays in`,
     )
   }
+  if (elapsed && r.elapsedFrom && r.elapsedMs !== undefined)
+    notes.push(
+      `${name}: {elapsed} reads the off-camera wait of step ${JSON.stringify(r.elapsedFrom.id ?? r.elapsedFrom.step)} (${formatElapsed(r.elapsedMs)}), the nearest one before ${step}, which waited for nothing itself`,
+    )
   if (
     elapsed &&
     r.elapsedMs === undefined &&
@@ -2079,7 +2089,7 @@ function checkOverlayAnchor(
     r.miss !== 'step'
   )
     warnings.push(
-      `${name}: {elapsed} stays as written, because ${step} recorded no off-camera wait (no meta.skips entry names it, and it has no offCameraMs)`,
+      `${name}: {elapsed} stays as written, because neither ${step} nor any step before it recorded an off-camera wait (no meta.skips entry names one, and none has an offCameraMs)`,
     )
   return r.start ?? fallback
 }

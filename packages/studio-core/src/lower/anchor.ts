@@ -14,7 +14,9 @@
  *
  * A text layer's `{elapsed}` fills with the anchored step's off-camera
  * wait, when the recorder kept one (the entry of `meta.skips` that names
- * it, or `offCameraMs` on the step), as a rounded human duration.
+ * it, or `offCameraMs` on the step), else the nearest earlier step's on the
+ * same media (the beat after an await waited for nothing itself), as a
+ * rounded human duration.
  *
  * Pure: the caller hands in the rated pieces (`ratedSegments(doc)`), so the
  * lowering, the lint and the CLI read one map.
@@ -74,8 +76,16 @@ export interface AnchorResolution {
   step?: StepSpan
   /** Why it did not resolve. */
   miss?: AnchorMiss
-  /** The step's off-camera wait in ms, when the recorder kept one. */
+  /**
+   * The off-camera wait `{elapsed}` fills with, in ms: the step's own, else
+   * the nearest earlier step's on the same media (see `elapsedFrom`).
+   */
   elapsedMs?: number
+  /**
+   * Set when the wait is an EARLIER step's: the step after an await is the
+   * natural place for "12 minutes later", and that step waited for nothing.
+   */
+  elapsedFrom?: StepSpan
 }
 
 const isNum = (v: unknown): v is number =>
@@ -106,6 +116,27 @@ export function stepElapsedMs(
   return isNum(own) && own >= 0 ? own : null
 }
 
+/**
+ * The wait `{elapsed}` speaks of for a step: its own, else the nearest
+ * earlier step's (by script order) on the same media, so a caption on the
+ * beat that lands after an await reads that await. Null with none at all.
+ */
+export function elapsedFor(
+  meta: Pick<RecordingMeta, 'steps'> & { skips?: unknown },
+  step: StepSpan,
+): { ms: number; from?: StepSpan } | null {
+  const own = stepElapsedMs(meta, step)
+  if (own !== null) return { ms: own }
+  const earlier = (meta.steps ?? [])
+    .filter((s) => s !== step && s.step < step.step)
+    .sort((a, b) => b.step - a.step)
+  for (const s of earlier) {
+    const ms = stepElapsedMs(meta, s)
+    if (ms !== null) return { ms, from: s }
+  }
+  return null
+}
+
 /** Resolve one anchor against the document and its rated pieces. */
 export function resolveAnchor(
   doc: Pick<ProjectDoc, 'source' | 'media'>,
@@ -117,8 +148,13 @@ export function resolveAnchor(
   const meta = source.meta as RecordingMeta & { skips?: unknown }
   const step = findStep(meta.steps ?? [], anchor.step)
   if (!step) return { start: null, miss: 'step' }
-  const elapsed = stepElapsedMs(meta, step)
-  const extra = elapsed !== null ? { elapsedMs: elapsed } : {}
+  const elapsed = elapsedFor(meta, step)
+  const extra = elapsed
+    ? {
+        elapsedMs: elapsed.ms,
+        ...(elapsed.from ? { elapsedFrom: elapsed.from } : {}),
+      }
+    : {}
   if (step.skipped) return { start: null, step, miss: 'skipped', ...extra }
   const moment = anchor.at === 'end' ? step.tEnd : step.tStart
   const out = sourceMomentToOutput(rated, moment, anchor.media)

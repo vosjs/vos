@@ -425,6 +425,7 @@ export type { SegmentExtent } from './lower/segmentStarts'
 export {
   ELAPSED_PLACEHOLDER,
   anchoredClip,
+  elapsedFor,
   formatElapsed,
   hasElapsed,
   resolveAnchor,
