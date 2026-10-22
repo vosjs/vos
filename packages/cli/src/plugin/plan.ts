@@ -32,6 +32,7 @@ import {
   withBackdrop,
   migrateMotion,
 } from '@vosjs/studio-core'
+import { splitSegmentsAtSkips } from '@vosjs/render-core/record'
 import { loadTake, writeJson } from './take'
 import { retimeCut, retimeOverlays } from './reuse'
 import { proposeMotion } from './motionPlan'
@@ -254,7 +255,8 @@ export async function planTake(
     doc = projectFromArtifact(artifact, take.paths.recordingName, ingest).doc
     doc = copyStyle(prev, doc)
     const rt = retimeCut(prev, meta.steps ?? [], meta.durationMs)
-    doc.segments = rt.segments
+    // Every cut an `await` made in the NEW footage is a segment boundary.
+    doc.segments = splitSegmentsAtSkips(rt.segments, meta.skips)
     // The previous cut's freezes survive the re-record, re-timed onto the
     // new footage (the trailing one is the poster's still).
     if (rt.freeze.length) doc.freeze = rt.freeze
@@ -373,6 +375,9 @@ export async function planTake(
       meta,
     }
     doc = projectFromArtifact(artifact, take.paths.recordingName, ingest).doc
+    // An `await` waited off camera: the footage runs straight across the
+    // wait, and the cut is a real segment boundary.
+    doc.segments = splitSegmentsAtSkips(doc.segments, meta.skips)
     if (opts.style) {
       const applied = applyStyle(opts.style.doc, doc, opts)
       doc = applied.doc

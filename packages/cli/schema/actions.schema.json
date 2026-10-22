@@ -202,6 +202,11 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
+              },
+              "guard": {
+                "type": "string",
+                "enum": ["spend"],
+                "description": "the step costs something real (credits, a purchase, a message sent): `vos record --dry-run` hovers it and never presses it, and `vos record` presses it only with `--confirm <id>`, refusing before any capture otherwise. Needs an id. A hosted take refuses a guarded step"
               }
             }
           },
@@ -259,6 +264,11 @@
                 "type": "string",
                 "enum": ["end", "start"],
                 "description": "where the caret goes after the focusing click, before the first character: a click lands it where the pointer hit, and a code editor line is typed at its end"
+              },
+              "guard": {
+                "type": "string",
+                "enum": ["spend"],
+                "description": "the step costs something real (credits, a purchase, a message sent): `vos record --dry-run` hovers it and never presses it, and `vos record` presses it only with `--confirm <id>`, refusing before any capture otherwise. Needs an id. A hosted take refuses a guarded step"
               }
             }
           },
@@ -313,6 +323,11 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
+              },
+              "guard": {
+                "type": "string",
+                "enum": ["spend"],
+                "description": "the step costs something real (credits, a purchase, a message sent): `vos record --dry-run` hovers it and never presses it, and `vos record` presses it only with `--confirm <id>`, refusing before any capture otherwise. Needs an id. A hosted take refuses a guarded step"
               }
             }
           },
@@ -414,6 +429,183 @@
                 "type": "number",
                 "minimum": 0,
                 "default": 700
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
+              },
+              "caption": {
+                "type": "string",
+                "maxLength": 80,
+                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
+              },
+              "read": {
+                "type": "string",
+                "minLength": 1,
+                "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["do"],
+            "additionalProperties": false,
+            "description": "Check the page is as the flow expects, on camera, with no cursor move: exactly one of selector (visible; with enabled, enabled or disabled), text (some visible text contains it) or gone (no longer visible). A condition that never holds is a skip with its reason, which --strict turns into exit 2.",
+            "oneOf": [
+              {
+                "required": ["selector"]
+              },
+              {
+                "required": ["text"]
+              },
+              {
+                "required": ["gone"]
+              }
+            ],
+            "properties": {
+              "do": {
+                "const": "expect"
+              },
+              "selector": {
+                "type": "string",
+                "minLength": 1
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "gone": {
+                "type": "string",
+                "minLength": 1
+              },
+              "enabled": {
+                "type": "boolean",
+                "description": "with selector: wait for the element to be enabled (true) or disabled (false)"
+              },
+              "timeout": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "default": 5,
+                "description": "seconds to wait for the condition"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
+              },
+              "caption": {
+                "type": "string",
+                "maxLength": 80,
+                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
+              },
+              "read": {
+                "type": "string",
+                "minLength": 1,
+                "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["do", "until"],
+            "additionalProperties": false,
+            "description": "Wait OFF CAMERA for something slow (a render, a generated result): the capture stops, the condition is polled, and the capture resumes when it holds, so the footage has no gap and no frozen stretch. The cut lands in meta.skips[] ({ step, id, at, ms }) and becomes a segment boundary in the planned doc.json. A rehearsal waits for real and prints the time.",
+            "properties": {
+              "do": {
+                "const": "await"
+              },
+              "until": {
+                "type": "object",
+                "additionalProperties": false,
+                "minProperties": 1,
+                "maxProperties": 1,
+                "properties": {
+                  "selector": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "text": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "gone": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              "timeout": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "default": 600,
+                "description": "the most seconds to wait"
+              },
+              "poll": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "default": 2,
+                "description": "seconds between looks"
+              },
+              "reload": {
+                "type": "boolean",
+                "default": false,
+                "description": "reload the page between looks"
+              },
+              "onTimeout": {
+                "type": "string",
+                "enum": ["fail", "continue"],
+                "default": "fail",
+                "description": "fail: the take stops there, exit 1; continue: the capture resumes and the skip records timedOut"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
+              },
+              "caption": {
+                "type": "string",
+                "maxLength": 80,
+                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
+              },
+              "read": {
+                "type": "string",
+                "minLength": 1,
+                "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["do"],
+            "additionalProperties": false,
+            "description": "Keep a file the page makes, in the take's outputs/: selector clicks a control and waits up to 30 s for the browser's download; src fetches the currentSrc of a video, audio or img element with the page's own cookies. Listed in meta.outputs[] ({ step, id, name, bytes, contentType }). A download that never arrives is a skip with its reason. A hosted take refuses a download.",
+            "oneOf": [
+              {
+                "required": ["selector"]
+              },
+              {
+                "required": ["src"]
+              }
+            ],
+            "properties": {
+              "do": {
+                "const": "download"
+              },
+              "selector": {
+                "type": "string",
+                "minLength": 1
+              },
+              "src": {
+                "type": "string",
+                "minLength": 1,
+                "description": "a CSS selector of a video, audio or img element"
+              },
+              "as": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "^(?!\\.)(?!.*\\.\\.)[^/\\\\]+$",
+                "description": "the file name inside outputs/ (a plain name: no path separator, no \"..\"); absent, the name the page suggested"
               },
               "id": {
                 "type": "string",

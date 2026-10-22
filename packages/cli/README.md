@@ -113,11 +113,11 @@ What a trace cannot give is named, never guessed: agent-browser's own log carrie
 vos record --hosted --actions actions.json --out take   # needs a credential (vos login, or VOS_API_KEY); a public URL, or a preview behind --header
 ```
 
-What travels: the script, the viewport, every `--header` value (a preview's bypass token), and the value of every `{ "env": "NAME" }` a `setup` step reads, from this shell. What never travels: a session (`--hosted` refuses `--session` and `--storage-state`, because none of a person's ever reaches vos.so). A page behind a sign-in fails on the fleet in words naming the local ladder, exit 4; a private-network URL is refused before a job exists. The fleet records up to ten minutes. `--dry-run` stays a local act.
+What travels: the script, the viewport, every `--header` value (a preview's bypass token), and the value of every `{ "env": "NAME" }` a `setup` step reads, from this shell. What never travels: a session (`--hosted` refuses `--session` and `--storage-state`, because none of a person's ever reaches vos.so). A page behind a sign-in fails on the fleet in words naming the local ladder, exit 4; a private-network URL is refused before a job exists. The fleet records up to ten minutes. `--dry-run` stays a local act. A script with a guarded step or a `download` is refused on `--hosted` in words: nobody can confirm a step that spends on the fleet, and a hosted take has no `outputs/` to keep a file in.
 
 | Verb     | Flags                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `record` | `--actions <file>` (or positional) `--url` `--out take` `--strict` `--dry-run` `--allow-wall` `--keep-frames` `--storage-state <file>` or `--session <name>` `--header name=value`... `--browser-arg=<switch>`... `--max-duration <s>` `--background <slug\|url\|none>` `--hosted` (record on vos.so; with `--title` `--folder <id>`)                                                                                                                                     |
+| `record` | `--actions <file>` (or positional) `--url` `--out take` `--strict` `--dry-run` `--allow-wall` `--keep-frames` `--storage-state <file>` or `--session <name>` `--header name=value`... `--confirm <id>`... `--browser-arg=<switch>`... `--max-duration <s>` `--background <slug\|url\|none>` `--hosted` (record on vos.so; with `--title` `--folder <id>`)                                                                                                                 |
 | `create` | The `record` flags plus the render flags (`--width` `--height` `--fps` `--format` `--parallel` `--draft` `--frame` `--set`), no `--range`. With `--strict` an incomplete recording exits 2 before anything is rendered                                                                                                                                                                                                                                                    |
 | `plan`   | `--fresh` (discard the current plan) `--reuse` `--from <doc.json>` (defaults to `<take>/doc.prev.json`) `--style <doc.json\|take\|vosId>` `--with <doc.json\|take\|vosId>[@end\|@start\|@step:<id>\|@<seconds>]` (a template, repeatable) `--background` `--motion` (re-propose the motion) `--headline` `--kicker` `--launch` `--brand` `--music` `--entrance` `--transitions slide\|fade\|scale\|none` `--end-card on\|none\|<ref>` `--captions` `--clicks` `--release` |
 | `digest` | `--out <take>/digest` `--full 960` `--crop 640` (image long edges, the token budget) `--no-frames` `--transcript <file>` (Whisper-shaped segments merged as `said`) `--style <ref>` (report a reference document's style fields)                                                                                                                                                                                                                                          |
@@ -215,6 +215,7 @@ take/
   actions.json     the script that produced it, with the resolved url; pushed inside the document and written back by a fetch or pull with --media
   doc.json         ProjectDoc, the editable cut
   doc.prev.json    the previous cut, kept by a re-record for `vos plan --reuse`
+  outputs/         the files `download` steps kept, listed in meta.json's outputs
   vos.json         hosted tracking (vos id + base version), written by push, fetch and pull
   stills/          `vos frames` output + stills.json
   digest/          `vos digest` output: digest.json, <id>.full.png, <id>.crop.png, sheet.png
@@ -229,7 +230,7 @@ claimed. Every verb resolves the name, and a push declares the container it
 finds in the bytes, so a file never reaches vos.so under the wrong type.
 `vos validate <take>` warns when an existing take holds one that does.
 
-A re-record replaces the footage, the cursor track, the frames and everything derived from them, moves `doc.json` to `doc.prev.json`, and keeps `actions.json` and `vos.json`.
+A re-record replaces the footage, the cursor track, the frames, `outputs/` and everything derived from them, moves `doc.json` to `doc.prev.json`, and keeps `actions.json` and `vos.json`.
 
 ## actions.json
 
@@ -254,6 +255,36 @@ A re-record replaces the footage, the cursor track, the frames and everything de
 ```
 
 Eight verbs: `wait`, `hover` (`ms` 700, the dwell), `click` (`ms` the settle after the press, 150), `type` (`delayMs` 40 per key, paced by the clock; `focus: false` skips the focusing click; `replace: true` selects the field's value first so the typing replaces it; `at: "end" | "start"` puts the caret there before the first character, for a code editor line; `ms` the settle after, 150), `press` (one named key, `Escape`, `Enter`, `Tab`, `Backspace`, `Delete`, the arrows, `Home`, `End`, `PageUp`, `PageDown`, `Space`, recorded as a typing ping where the pointer is or on `selector` with no click, so an Escape closes what a click opened and an Enter submits what was typed without a second click ringing on the field; `ms` the settle, 150), `scroll` (`ms` the settle, 200), `move`, `drag` (press, move, release: a range input, a canvas element, a timeline clip; `ms` the travel, 700). The recorder's pace is the script's: a gesture is driven by the clock, so a page that answers each pointer sample slowly costs samples, never seconds, and the only pauses are the ones the script names (`wait`, a hover's dwell, a settle). `vos record` ends with a pace line, what the script asked, what the gestures added, what the page cost, and the steps that ran slow, and the `--json` done event carries it as `pace`. Every step takes an optional unique `id`; give steps ids so a span anchored to a step survives script edits and `vos plan --reuse` can follow it, and so a layer can name the element a step touched (`overlays[].pin.step`; the recorder keeps each hover, click, type and drag step's element rect on `meta.steps[].rect`). **The take carries its payload**: every step keeps the page it left (`meta.steps[].url`, origin and path), and a step with `read: "<selector>"` keeps that element's words once the step has settled (`meta.steps[].text`, at most 2 KB; on a click, what the click opened: the URL a share button minted, the code a dialog printed), so a layer quotes the take instead of a replay of the flow. Because the CLI issues every input itself, the cursor track is synthesized with exact coordinates, exact timing and fresh element rects, which is what powers element-aware auto-zoom and click effects downstream. The schema is [`schema/actions.schema.json`](./schema/actions.schema.json); `vos validate actions.json` checks a script without running anything.
+
+Three steps that are not gestures, and a guard:
+
+```json
+{
+  "steps": [
+    { "do": "expect", "selector": "text=Generate video", "enabled": true },
+    {
+      "id": "generate",
+      "do": "click",
+      "selector": "text=Generate video",
+      "guard": "spend"
+    },
+    {
+      "id": "ready",
+      "do": "await",
+      "until": { "text": "Your video is ready" },
+      "timeout": 900
+    },
+    { "do": "download", "selector": "text=Download", "as": "demo.mp4" }
+  ]
+}
+```
+
+- **`expect`** checks the page on camera, with no cursor move: exactly one of `selector` (visible; with `enabled: true | false`, enabled or disabled), `text` (some visible text contains it) or `gone` (no longer visible), waiting up to `timeout` seconds (5). A condition that never holds is a skip with its reason (`#10 expect: 'text=Generate video' stayed disabled for 5 s`), and `--strict` turns it into exit 2. Separately, every `click` asks whether its target is disabled: the press still happens, and the done event lists it under `disabled: [{ step, id, selector }]`, the rehearsal marks it, and `--strict` fails on it.
+- **`await`** waits OFF CAMERA for something slow: a render, a generated result, a deploy. The capture stops, the cursor clock stops with it, and `until` (`{ selector }`, `{ text }` or `{ gone }`) is polled every `poll` seconds (2) for up to `timeout` (600), reloading the page between looks with `reload: true`. When it holds, the capture resumes, so the footage runs straight from the moment before the wait to the moment after: no gap, no frozen stretch. The cut is recorded in `meta.skips[]` (`{ step, id, at, ms }`: `at` the footage second of the cut, `ms` the wall time that did not reach the footage) and on the step's `meta.steps[]` entry (`offCameraMs`), and the planned `doc.json` starts a segment at every `at`. On timeout, `onTimeout: "fail"` (the default) stops the take there with exit 1 and a sentence naming the step and the time it waited, keeping the footage up to it; `"continue"` resumes and marks the skip `timedOut`. A rehearsal waits for real and prints how long it took, which is how you learn the timing.
+- **`download`** keeps a file the page makes, in the take's `outputs/`: `selector` clicks a control and waits up to 30 s for the browser's download (the name the page sends in `Content-Disposition`); `src` names a `<video>`, `<audio>` or `<img>` by CSS selector and fetches its `currentSrc` with the page's own cookies. `as` names the file (a plain file name: no path separator, no `..`); absent, the page's name is used, made plain and unique. Each file is listed in `meta.outputs[]` (`{ step, id, name, bytes, contentType }`). A download that never arrives is a skip with its reason. A rehearsal fetches the file and keeps nothing.
+- **`"guard": "spend"`** marks a `click`, `press` or `type` that costs something real: credits, a purchase, a message sent. It needs an `id`. `vos record --dry-run` moves the pointer to its target and never presses it (`#9 generate: guarded (spend), hovered, not pressed`); `vos record` presses it only when the command names it with `--confirm <id>` (repeatable), and otherwise refuses before capturing anything, naming the step and the flag. The done event's `confirmed` and the step's `meta.steps[].confirmed` say which guarded steps were pressed.
+
+`vos actions script` says these too: `Check that … is enabled`, `Wait until … (off camera: pause the recording meanwhile)`, `Download …`, and a guarded step is marked as one that spends.
 
 Verified the flow in agent-browser already? `vos actions from-agent-browser steps.jsonl [--out actions.json] [--url] [--viewport WxH]` writes the script from that walk (each command kept beside its `--json` result, the batch record shape; refs resolve through the last `snapshot -i`), and names every step the recorder cannot follow rather than dropping it.
 

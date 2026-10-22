@@ -58,6 +58,20 @@ describe('planTake', () => {
     expect(doc.zoom.every((z) => z.source === 'auto')).toBe(true)
   })
 
+  it('a fresh take starts a segment at every cut an await made', async () => {
+    const dir = await makeTake()
+    const meta = await readJson<Record<string, unknown>>(join(dir, 'meta.json'))
+    await writeJson(join(dir, 'meta.json'), {
+      ...meta,
+      skips: [{ step: 3, id: 'render', at: 4.25, ms: 38000 }],
+    })
+    const s = await planTake(dir)
+    expect(s.doc.segments).toEqual([
+      { in: 0, out: 4.25 },
+      { in: 4.25, out: 8 },
+    ])
+  })
+
   it('a fresh take opens on the backdrop handed in, bar still derived from the footage', async () => {
     const dir = await makeTake()
     const backdrop = {
