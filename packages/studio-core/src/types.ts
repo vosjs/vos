@@ -247,6 +247,10 @@ export interface RecordingMeta {
    * nothing, so whatever it was for may be showing.
    */
   masks?: { selector: string; as: 'blur' | 'text'; hits: number }[]
+  /** The cuts `await` steps made, in order (CLI takes only). */
+  skips?: RecordingSkip[]
+  /** The files `download` steps kept (CLI takes only). */
+  outputs?: RecordingOutput[]
 }
 
 /**
@@ -326,6 +330,47 @@ export interface StepSpan {
    * payload, which a layer quotes instead of replaying the flow.
    */
   text?: string
+  /**
+   * The step carries a guard (`"spend"`): `confirmed` says the recording
+   * pressed it because the command named it; a rehearsal only hovers one
+   * and leaves `confirmed` absent.
+   */
+  guard?: 'spend'
+  confirmed?: boolean
+  /**
+   * An `await` step: the wall-clock ms it waited OFF CAMERA. The footage
+   * clock stood still meanwhile, so `tStart`..`tEnd` hold only the
+   * moments around the cut, which is at `tStart` (`meta.skips[]`).
+   */
+  offCameraMs?: number
+  /** An `await` that gave up and let the take go on (`onTimeout: "continue"`). */
+  timedOut?: boolean
+  /** A failed `expect`, a download that never came: why the step was skipped. */
+  reason?: string
+}
+
+/**
+ * A cut the recorder made: an `await` step waited off camera, so the
+ * footage runs straight from the moment before the wait to the moment
+ * after. `at` is the SOURCE second of the cut, `ms` the wall time that
+ * did not reach the footage. A fresh plan starts a segment there.
+ */
+export interface RecordingSkip {
+  step: number
+  id?: string
+  at: number
+  ms: number
+  timedOut?: boolean
+}
+
+/** A file a `download` step kept, in the take's `outputs/`. */
+export interface RecordingOutput {
+  step: number
+  id?: string
+  /** the file name inside `outputs/` */
+  name: string
+  bytes: number
+  contentType?: string
 }
 
 /** Everything the capture extension hands off to the studio. */
