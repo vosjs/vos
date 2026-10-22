@@ -27,7 +27,12 @@ import {
   mediaProbeLints,
   probeMediaUrls,
 } from './mediaProbe'
-import { framesTake, parseTimes, writeIndexJson } from './framesTake'
+import {
+  framesTake,
+  parseTimes,
+  unrenderedZoomLine,
+  writeIndexJson,
+} from './framesTake'
 import {
   deliverTake,
   readLaunchBesideTake,
@@ -122,6 +127,7 @@ import { announceEnvNames, hostedEnv, recordHosted } from './hostedRecord'
 import { urlSchemeProblem } from '@vosjs/render-core/record'
 import { cmdActions } from './agentBrowser'
 import { cmdIngest } from './ingest'
+import { cmdCheckVideo } from './checkVideo'
 import { cmdDoctor, cmdLogout, cmdSetup, cmdWhoami } from './machineCmd'
 import type { Backdrop, ProjectDoc } from '@vosjs/studio-core'
 import type { ActionsFile } from './actions'
@@ -165,7 +171,10 @@ Take pipeline
             the take recorded on vos.so's fleet (no browser here): lands as a private vos with its doc and digest, then fetched into --out with its media
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
-  vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--at-still] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
+  vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--at-still] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--strict] [--json]
+            --at-zooms stills every zoom span's apex on every media of the take and renders it again with the zooms off: a zoom whose frame matches its zoom-off twin did not render, and says so (exit 2 under --strict)
+  vos check-video <file.mp4|webm> [--out dir] [--strict] [--json]
+            the rendered file itself, no ffmpeg: duration, size, codecs, resolution, frame rate; full-frame scene changes (a warning when a 5 s window holds more than one); loudness (short-term every 3 s, integrated, sample peak; a warning below -23 or above -9 LUFS); the first and last frames as PNGs (a warning when either is near-uniform). Exit 2 on any warning under --strict
   vos deliver <take> --to youtube,x,shorts,github (or all) [--look plate|gradient|dark|none] [--brand BRAND.md] [--set path=value] [--release v2.1] [--out dir] [--range a..b] [--parallel N] [--json]
   vos digest <take> [--out dir] [--full 960] [--crop 640] [--no-frames] [--transcript <file.json>] [--style <doc.json|vosId>] [--json]
   vos brand <url> [--out BRAND.md] [--json]
@@ -1502,6 +1511,7 @@ async function cmdFrames(argv: string[]): Promise<number> {
   const atZooms = flags['at-zooms'] === true
   const atMoments = flags['at-moments'] === true
   const atStill = flags['at-still'] === true
+  const strict = flags.strict === true
   let times: number[]
   try {
     times =
@@ -1539,6 +1549,14 @@ async function cmdFrames(argv: string[]): Promise<number> {
       },
     })
     const index = await writeIndexJson(result)
+    for (const z of result.skippedZooms ?? [])
+      r.warn(
+        `zoom ${z.id}${z.media ? ` (media ${z.media})` : ''} has no apex to still: ${z.reason}`,
+      )
+    const unrendered = result.frames.filter((f) => f.rendered === false)
+    for (const f of unrendered) r.warn(unrenderedZoomLine(f))
+    const zoomTag = (f: (typeof result.frames)[number]) =>
+      `${f.zoomId ? ` ${f.zoomId}` : ''}${f.media ? ` on ${f.media}` : ''}${f.rendered === false ? ', DID NOT RENDER' : ''}`
     r.done(
       {
         outDir: result.outDir,
@@ -1547,10 +1565,12 @@ async function cmdFrames(argv: string[]): Promise<number> {
         height: result.height,
         duration: result.duration,
         frames: result.frames,
+        ...(result.skippedZooms ? { skippedZooms: result.skippedZooms } : {}),
+        ...(atZooms ? { unrenderedZooms: unrendered.length } : {}),
       },
-      `Wrote ${result.frames.length} still(s) to ${result.outDir} (${result.width}x${result.height})\n  ${result.frames.map((f) => `${f.time.toFixed(2)}s${f.kind === 'zoom' ? ' [zoom apex]' : f.kind === 'moment' ? ` [${f.momentId}]` : ''} → ${f.file}`).join('\n  ')}`,
+      `Wrote ${result.frames.length} still(s) to ${result.outDir} (${result.width}x${result.height})\n  ${result.frames.map((f) => `${f.time.toFixed(2)}s${f.kind === 'zoom' ? ` [zoom apex${zoomTag(f)}]` : f.kind === 'moment' ? ` [${f.momentId}]` : ''} → ${f.file}`).join('\n  ')}`,
     )
-    return EXIT_OK
+    return unrendered.length && strict ? EXIT_USAGE : EXIT_OK
   } finally {
     await browser.close()
   }
@@ -2419,6 +2439,8 @@ export async function run(argv: string[]): Promise<number> {
         return await cmdActions(rest)
       case 'ingest':
         return await cmdIngest(rest)
+      case 'check-video':
+        return await cmdCheckVideo(rest)
       default:
         throw new UsageError(`unknown command "${cmd}" — run: vos help`)
     }

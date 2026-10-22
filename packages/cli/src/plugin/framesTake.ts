@@ -5,9 +5,11 @@
  *
  * Times are OUTPUT seconds (what the rendered video shows). `--at-zooms`
  * samples the apex (output-time midpoint) of every zoom span — where quality
- * lives.
+ * lives — on every media of the take, and renders each apex a second time
+ * with the zooms off: a zoom whose frame matches its zoom-off twin did not
+ * render, and the still alone would never say so.
  */
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { compileVosConfig } from '@vosjs/core'
@@ -25,13 +27,14 @@ import { startTakeServer, waitForPageDone } from './server'
 import { renderPageHtml } from './renderAnimation'
 import {
   applyAndValidate,
+  applyDocOverrides,
   hasOverrides,
   resolveBackdropSlug,
 } from './docOverride'
 import { DIGEST_DIR } from './digestTake'
 import type { DocOverrides } from './docOverride'
 import type { Moment, ProjectDoc } from '@vosjs/studio-core'
-import type { Browser } from 'playwright'
+import type { Browser, BrowserContext } from 'playwright'
 
 const VIDEO_TOKEN = '__VOS_CLI_VIDEO__'
 
@@ -76,6 +79,29 @@ export interface CapturedFrame {
   /** 'time' = requested instant, 'zoom' = a zoom-span apex, 'moment' = a digest moment. */
   kind: 'time' | 'zoom' | 'moment' | 'still'
   momentId?: string
+  /** A zoom apex: the span it stills. */
+  zoomId?: string
+  /** A zoom apex on another media of the take: that media's id. */
+  media?: string
+  /**
+   * A zoom apex: whether the zoom shows in the frame, judged against the
+   * same output time rendered with the zooms off.
+   */
+  rendered?: boolean
+  /** Mean absolute difference from the zoom-off twin (0..1 of full range). */
+  difference?: number
+  /** The zoom-off twin's still, written only when the zoom did not render. */
+  twin?: string
+}
+
+/** A zoom span with no apex to still, and why. */
+export interface SkippedZoom {
+  id: string
+  media?: string
+  /** The span's SOURCE extent, seconds of its media. */
+  in: number
+  out: number
+  reason: string
 }
 
 export interface FramesTakeResult {
@@ -84,6 +110,94 @@ export interface FramesTakeResult {
   height: number
   duration: number
   outDir: string
+  /** Zoom spans `atZooms` could not still (outside the cut, an unknown media). */
+  skippedZooms?: SkippedZoom[]
+}
+
+/** A zoom span's apex: the midpoint of its OUTPUT window. */
+export interface ZoomApex {
+  id: string
+  media?: string
+  time: number
+  start: number
+  end: number
+}
+
+/**
+ * Every zoom span's apex, on every media of the take: each span's source
+ * extent mapped through the rated segments onto the output, the mapping the
+ * lowering builds the camera track from. A span of another media is read
+ * in that media's seconds; a span the cut keeps nothing of is skipped and
+ * said, never stilled at a time it does not play.
+ */
+export function zoomApexes(doc: ProjectDoc): {
+  apexes: ZoomApex[]
+  skipped: SkippedZoom[]
+} {
+  const rated = ratedSegments(doc)
+  const media = new Set((doc.media ?? []).map((m) => m.id))
+  const apexes: ZoomApex[] = []
+  const skipped: SkippedZoom[] = []
+  for (const z of doc.zoom) {
+    const of = z.media ? { media: z.media } : {}
+    if (z.media && !media.has(z.media)) {
+      skipped.push({
+        id: z.id,
+        ...of,
+        in: z.in,
+        out: z.out,
+        reason: `names media "${z.media}", which the take does not carry`,
+      })
+      continue
+    }
+    const ext = spanOutputExtent(rated, z.in, z.out, z.media)
+    if (!ext) {
+      skipped.push({
+        id: z.id,
+        ...of,
+        in: z.in,
+        out: z.out,
+        reason: 'the cut keeps none of it, so it never plays',
+      })
+      continue
+    }
+    apexes.push({
+      id: z.id,
+      ...of,
+      time: (ext.start + ext.end) / 2,
+      start: ext.start,
+      end: ext.end,
+    })
+  }
+  return { apexes, skipped }
+}
+
+/**
+ * Below this mean absolute difference (0..1 of full range, over a small
+ * grayscale of the frame) a zoomed apex is the zoom-off frame: the zoom did
+ * not render. Two renders of the same frame agree to well under a level in
+ * 255; a zoom of the smallest level the planner proposes moves every edge
+ * of the picture and lands far above it.
+ */
+export const ZOOM_UNRENDERED_BELOW = 0.004
+
+/** The long side of the grayscale a frame is compared at, in pixels. */
+const SIGNATURE_LONG_SIDE = 96
+
+/** Mean absolute difference of two equal-length grayscale signatures, 0..1. */
+export function signatureDifference(
+  a: ArrayLike<number>,
+  b: ArrayLike<number>,
+): number {
+  if (a.length !== b.length || a.length === 0) return 1
+  let sum = 0
+  for (let i = 0; i < a.length; i++) sum += Math.abs(a[i] - b[i])
+  return sum / a.length / 255
+}
+
+/** The warning a zoom that did not render prints. */
+export function unrenderedZoomLine(f: CapturedFrame): string {
+  return `zoom ${f.zoomId ?? '?'} at ${f.time.toFixed(2)}s did not render (its frame matches the zoom-off frame${f.twin ? `: ${f.twin}` : ''})`
 }
 
 /** Runs inside the render page: seek each time, settle, capture PNG, POST it. */
@@ -96,6 +210,10 @@ async function stillsInPage(opts: {
   /** Render at W*ss × H*ss, downscale to W × H for the PNG. */
   ss: number
   shots: { time: number; name: string }[]
+  /** Shots whose small grayscale is handed back, for a comparison. */
+  sigNames: string[]
+  sigW: number
+  sigH: number
 }) {
   const w = window as unknown as Record<string, any>
   const RW = opts.W * opts.ss
@@ -104,10 +222,13 @@ async function stillsInPage(opts: {
     const vblob = await (await fetch(opts.videoUrl)).blob()
     const vurl = URL.createObjectURL(vblob)
     const code = opts.animationCode.split(opts.token).join(vurl)
-    const mod = await import(
-      /* @vite-ignore */ URL.createObjectURL(
-        new Blob([code], { type: 'text/javascript' }),
-      )
+    // An import spelled as text: a transform that rewrites `import()` in
+    // this function (a test runner's) would break it in the page.
+    const load = new Function('u', 'return import(u)') as (
+      u: string,
+    ) => Promise<any>
+    const mod = await load(
+      URL.createObjectURL(new Blob([code], { type: 'text/javascript' })),
     )
 
     w.__vos__ = w.__vos__ || {}
@@ -199,6 +320,27 @@ async function stillsInPage(opts: {
       }
     }
 
+    // The frame as a small grayscale, for a comparison in node.
+    const sigCanvas = document.createElement('canvas')
+    sigCanvas.width = opts.sigW
+    sigCanvas.height = opts.sigH
+    const signature = (): number[] => {
+      const g = sigCanvas.getContext('2d', { willReadFrequently: true })!
+      g.imageSmoothingEnabled = true
+      g.imageSmoothingQuality = 'high'
+      g.clearRect(0, 0, opts.sigW, opts.sigH)
+      g.drawImage(canvas, 0, 0, opts.sigW, opts.sigH)
+      const px = g.getImageData(0, 0, opts.sigW, opts.sigH).data
+      const out: number[] = new Array(opts.sigW * opts.sigH)
+      for (let p = 0, q = 0; p < px.length; p += 4, q++)
+        out[q] = Math.round(
+          0.299 * px[p] + 0.587 * px[p + 1] + 0.114 * px[p + 2],
+        )
+      return out
+    }
+    const sigWanted = new Set(opts.sigNames)
+    const sigs: Record<string, number[]> = {}
+
     for (let i = 0; i < opts.shots.length; i++) {
       const shot = opts.shots[i]
       timeline.seek(shot.time, false)
@@ -210,12 +352,69 @@ async function stillsInPage(opts: {
       }
       await waitVideosSettled(8000)
       const png = await toPng()
+      if (sigWanted.has(shot.name)) sigs[shot.name] = signature()
       await fetch('/save?name=' + shot.name, { method: 'POST', body: png })
       w.__progress = (i + 1) / opts.shots.length
     }
-    w.__done = { ok: true, count: opts.shots.length }
+    w.__done = { ok: true, count: opts.shots.length, sigs }
   } catch (e) {
     w.__error = String((e instanceof Error && e.stack) || e)
+  }
+}
+
+/** Seek and capture `shots` in one fresh page; the signatures asked for come back. */
+async function captureShots(
+  context: BrowserContext,
+  base: string,
+  opts: {
+    animationCode: string
+    videoUrl: string
+    width: number
+    height: number
+    ss: number
+    shots: { time: number; name: string }[]
+    sigNames: string[]
+  },
+): Promise<Record<string, number[]>> {
+  const long = Math.max(opts.width, opts.height)
+  const side = (n: number) =>
+    Math.max(1, Math.round((n / long) * SIGNATURE_LONG_SIDE))
+  const page = await context.newPage()
+  try {
+    page.on('console', (m) => {
+      if (m.type() === 'error')
+        process.stderr.write(`   [stills page] ${m.text()}\n`)
+    })
+    await page.addInitScript(() => {
+      ;(globalThis as unknown as Record<string, unknown>).__name = (
+        f: unknown,
+      ) => f
+    })
+    await page.goto(`${base}/render.html`)
+    await page.waitForFunction('window.__pageReady__ === true')
+    void page
+      .evaluate(stillsInPage, {
+        animationCode: opts.animationCode,
+        token: VIDEO_TOKEN,
+        videoUrl: opts.videoUrl,
+        W: opts.width,
+        H: opts.height,
+        ss: opts.ss,
+        shots: opts.shots,
+        sigNames: opts.sigNames,
+        sigW: side(opts.width),
+        sigH: side(opts.height),
+      })
+      .catch(() => {})
+    const done = await waitForPageDone(
+      page,
+      'stills',
+      () => {},
+      120_000 + opts.shots.length * 4_000,
+    )
+    return (done.sigs as Record<string, number[]> | undefined) ?? {}
+  } finally {
+    await page.close()
   }
 }
 
@@ -252,17 +451,23 @@ export async function framesTake(
     time: number
     kind: 'time' | 'zoom' | 'moment' | 'still'
     momentId?: string
+    zoomId?: string
+    media?: string
   }[] = opts.times.map((t) => ({
     time: clamp(t),
     kind: 'time',
   }))
+  let skippedZooms: SkippedZoom[] | undefined
   if (opts.atZooms) {
-    const rated = ratedSegments(doc)
-    for (const z of doc.zoom) {
-      const ext = spanOutputExtent(rated, z.in, z.out)
-      if (ext)
-        shots.push({ time: clamp((ext.start + ext.end) / 2), kind: 'zoom' })
-    }
+    const { apexes, skipped } = zoomApexes(doc)
+    for (const a of apexes)
+      shots.push({
+        time: clamp(a.time),
+        kind: 'zoom',
+        zoomId: a.id,
+        ...(a.media ? { media: a.media } : {}),
+      })
+    skippedZooms = skipped
   }
   if (opts.atMoments) {
     for (const m of await momentsFor(dir, doc)) {
@@ -273,20 +478,24 @@ export async function framesTake(
   if (opts.atStill)
     shots.push({ time: clamp(docStillTime(doc)), kind: 'still' })
   shots.sort((a, b) => a.time - b.time)
-  if (!shots.length)
+  if (!shots.length && !skippedZooms?.length)
     throw new Error(
       'no frame times — pass --times/--frame, --at-zooms, --at-moments or --at-still',
     )
 
   const outDir = resolve(opts.outDir ?? join(dir, 'stills'))
   await mkdir(outDir, { recursive: true })
+  const stamp = (i: number, t: number) =>
+    `${String(i).padStart(2, '0')}-${t.toFixed(2)}s.png`
   const named = shots.map((s, i) => ({
     ...s,
     name:
       s.kind === 'moment'
         ? `moment-${s.momentId}-${s.time.toFixed(2)}s.png`
-        : `${s.kind === 'zoom' ? 'zoom' : 'frame'}-${String(i).padStart(2, '0')}-${s.time.toFixed(2)}s.png`,
+        : `${s.kind === 'zoom' ? 'zoom' : 'frame'}-${stamp(i, s.time)}`,
+    twinName: s.kind === 'zoom' ? `zoomoff-${stamp(i, s.time)}` : undefined,
   }))
+  const zoomShots = named.filter((n) => n.kind === 'zoom')
 
   const server = await startTakeServer(dir, {
     '/render.html': renderPageHtml(),
@@ -295,36 +504,39 @@ export async function framesTake(
   const context = await browser.newContext({
     viewport: { width: width * ss, height: height * ss },
   })
+  const videoUrl = `/${take.paths.recordingName}`
   try {
-    const page = await context.newPage()
-    page.on('console', (m) => {
-      if (m.type() === 'error')
-        process.stderr.write(`   [stills page] ${m.text()}\n`)
-    })
-    await page.addInitScript(() => {
-      ;(globalThis as unknown as Record<string, unknown>).__name = (
-        f: unknown,
-      ) => f
-    })
-    await page.goto(`${server.base}/render.html`)
-    await page.waitForFunction('window.__pageReady__ === true')
-    void page
-      .evaluate(stillsInPage, {
-        animationCode,
-        token: VIDEO_TOKEN,
-        videoUrl: `/${take.paths.recordingName}`,
-        W: width,
-        H: height,
+    const sigs = named.length
+      ? await captureShots(context, server.base, {
+          animationCode,
+          videoUrl,
+          width,
+          height,
+          ss,
+          shots: named.map(({ time, name }) => ({ time, name })),
+          sigNames: zoomShots.map((n) => n.name),
+        })
+      : {}
+
+    // The zoom-off twin of every apex: the same document with no zoom
+    // spans (what `--set zoom=[]` makes), at the same times.
+    let twinSigs: Record<string, number[]> = {}
+    if (zoomShots.length) {
+      const twinDoc = structuredClone(doc)
+      applyDocOverrides(twinDoc, { set: ['zoom=[]'] })
+      const twinLowered = lowerToComposition(twinDoc)
+      twinSigs = await captureShots(context, server.base, {
+        animationCode: compileVosConfig(twinLowered.config as never, {
+          tweenEngine: 'vos',
+        }),
+        videoUrl,
+        width,
+        height,
         ss,
-        shots: named.map(({ time, name }) => ({ time, name })),
+        shots: zoomShots.map((n) => ({ time: n.time, name: n.twinName! })),
+        sigNames: zoomShots.map((n) => n.twinName!),
       })
-      .catch(() => {})
-    await waitForPageDone(
-      page,
-      'stills',
-      () => {},
-      120_000 + named.length * 4_000,
-    )
+    }
 
     // The take server saves into its root (the take dir) — move into outDir.
     const frames: CapturedFrame[] = []
@@ -332,14 +544,42 @@ export async function framesTake(
       const from = join(dir, n.name)
       const to = join(outDir, n.name)
       if (from !== to) await rename(from, to)
-      frames.push({
+      const frame: CapturedFrame = {
         file: to,
         time: n.time,
         kind: n.kind,
         ...(n.momentId ? { momentId: n.momentId } : {}),
-      })
+        ...(n.zoomId ? { zoomId: n.zoomId } : {}),
+        ...(n.media ? { media: n.media } : {}),
+      }
+      if (n.twinName) {
+        const a = sigs[n.name]
+        const b = twinSigs[n.twinName]
+        const twinFrom = join(dir, n.twinName)
+        if (a && b) {
+          const difference = signatureDifference(a, b)
+          frame.rendered = difference >= ZOOM_UNRENDERED_BELOW
+          frame.difference = Math.round(difference * 1e5) / 1e5
+          // The twin is kept only beside a zoom that did not render: it is
+          // the evidence, and every other one would only crowd the folder.
+          if (!frame.rendered) {
+            const twinTo = join(outDir, n.twinName)
+            if (twinFrom !== twinTo) await rename(twinFrom, twinTo)
+            frame.twin = twinTo
+          }
+        }
+        if (!frame.twin) await rm(twinFrom, { force: true })
+      }
+      frames.push(frame)
     }
-    return { frames, width, height, duration, outDir }
+    return {
+      frames,
+      width,
+      height,
+      duration,
+      outDir,
+      ...(skippedZooms ? { skippedZooms } : {}),
+    }
   } finally {
     await context.close()
     server.close()
@@ -396,6 +636,9 @@ export async function writeIndexJson(
         height: result.height,
         duration: result.duration,
         frames: result.frames,
+        ...(result.skippedZooms?.length
+          ? { skippedZooms: result.skippedZooms }
+          : {}),
       },
       null,
       2,
