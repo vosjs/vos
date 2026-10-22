@@ -69,10 +69,42 @@ function sayStepTarget(step: { selector: string; id?: string }): string {
   return byId ? `${byId} (${bySelector})` : bySelector
 }
 
+/** A page condition, for a person: what they should see before going on. */
+function sayCondition(c: {
+  selector?: string
+  text?: string
+  gone?: string
+  enabled?: boolean
+  id?: string
+}): string {
+  if (c.text !== undefined) return `"${c.text}" shows on the page`
+  if (c.gone !== undefined) return `${sayTarget(c.gone)} is gone`
+  const target = sayStepTarget({ selector: c.selector ?? '', id: c.id })
+  if (c.enabled === true) return `${target} is enabled`
+  if (c.enabled === false) return `${target} is disabled`
+  return `${target} is showing`
+}
+
 function beatOf(step: ActionStep): string | null {
+  const line = gestureBeat(step)
+  // A step that spends something real is marked where a person reads it.
+  return line && step.guard
+    ? `${line} (this spends something real: do it only if you mean to)`
+    : line
+}
+
+function gestureBeat(step: ActionStep): string | null {
   const cap = step.caption
   const named = cap ? `${cap}: ` : ''
   switch (step.do) {
+    case 'expect':
+      return `${named}Check that ${sayCondition(step)}`
+    case 'await':
+      return `${named}Wait until ${sayCondition({ ...step.until, id: step.id })} (off camera: pause the recording meanwhile)`
+    case 'download':
+      return step.selector !== undefined
+        ? `${named}Download the file ${sayStepTarget({ selector: step.selector, id: step.id })} gives${step.as ? `, as ${step.as}` : ''}`
+        : `${named}Download what ${sayTarget(step.src ?? '')} plays${step.as ? `, as ${step.as}` : ''}`
     case 'wait':
       return null
     case 'hover':
