@@ -15,12 +15,15 @@ import {
   planAutoSpeed,
   planAutoZoom,
   projectFromArtifact,
+  ratedSegments,
   withBackdrop,
 } from '@vosjs/studio-core'
 import type {
+  AudioClip,
   Backdrop,
   ProjectDoc,
   RecordingArtifact,
+  RecordingPageMedia,
 } from '@vosjs/studio-core'
 
 export interface FreshPlanOptions {
@@ -52,6 +55,84 @@ export function planFreshTake(
     params: doc.speedParams,
     activity: opts.activity,
   })
+  return withPageSound(doc, artifact.meta.media)
+}
+
+/**
+ * OUTPUT seconds of a moment of the PRIMARY footage through a rated piece
+ * list; a moment in cut footage snaps to the next kept piece, and a piece
+ * of another media only adds its length.
+ */
+function sourceToOutput(
+  pieces: readonly { in: number; out: number; rate?: number; media?: string }[],
+  s: number,
+): number {
+  let acc = 0
+  for (const p of pieces) {
+    const rate = p.rate && p.rate > 0 ? p.rate : 1
+    if (p.media) {
+      acc += Math.max(0, p.out - p.in) / rate
+      continue
+    }
+    if (s < p.in) return acc
+    if (s <= p.out) return acc + (s - p.in) / rate
+    acc += Math.max(0, p.out - p.in) / rate
+  }
+  return acc
+}
+
+/**
+ * The sound the page played (`meta.media`) as the document's audio: one
+ * clip per heard stretch, keyed to the fetched file, placed at the OUTPUT
+ * time of the footage moment it was heard (through the segments, the speed
+ * spans and the freezes), stamped `source: 'page'`. A re-plan replaces only
+ * those clips, so a clip someone added stays. An auto speed span over a
+ * heard stretch is dropped first, or the footage would race ahead of what
+ * the page was saying. A stretch with no fetched file (a hosted take, a
+ * fetch that failed) places nothing. In place, and returned.
+ */
+export function withPageSound(
+  doc: ProjectDoc,
+  media: readonly RecordingPageMedia[] | undefined,
+): ProjectDoc {
+  const kept = (doc.audio ?? []).filter((a) => a.source !== 'page')
+  const heard = (media ?? []).filter((m) => m.file && m.intervals.length)
+  if (!heard.length) {
+    doc.audio = kept
+    return doc
+  }
+  const spans = heard.flatMap((m) =>
+    m.intervals.map((iv) => ({ in: iv.at, out: iv.at + (iv.to - iv.from) })),
+  )
+  doc.speed = (doc.speed ?? []).filter(
+    (sp) =>
+      sp.source !== 'auto' ||
+      !!sp.media ||
+      !spans.some((h) => sp.in < h.out && h.in < sp.out),
+  )
+  const pieces = ratedSegments(doc)
+  const clips: AudioClip[] = []
+  heard.forEach((m, i) => {
+    const file = m.file as string
+    const name = file.split('/').pop() || file
+    const length = Math.max(m.duration ?? 0, ...m.intervals.map((iv) => iv.to))
+    m.intervals.forEach((iv, j) => {
+      clips.push({
+        id: `page-${i + 1}-${j + 1}`,
+        key: file,
+        name,
+        start: +sourceToOutput(pieces, iv.at).toFixed(3),
+        in: iv.from,
+        out: iv.to,
+        duration: +length.toFixed(3),
+        gain: m.volume ?? 1,
+        fadeIn: 0,
+        fadeOut: 0,
+        source: 'page',
+      })
+    })
+  })
+  doc.audio = [...kept, ...clips]
   return doc
 }
 

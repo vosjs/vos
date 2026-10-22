@@ -16,6 +16,7 @@
 import type {
   FrameSink,
   OutputSink,
+  SoundSink,
   RecorderBrowser,
   RecorderClock,
   RecorderContext,
@@ -53,6 +54,12 @@ import type {
 import { WALL_PROBE } from './wall'
 import { EXPOSURE_PROBE, ExposureLog, maskInitScript } from './exposure'
 import { SetupError, runSetup } from './setup'
+import {
+  MEDIA_DRAIN_PROBE,
+  MEDIA_WATCH_SCRIPT,
+  PageSoundLog,
+} from './pageSound'
+import type { MediaDrain } from './pageSound'
 import { TakeClock } from './takeClock'
 import { PageErrorLog } from './pageErrors'
 import type { PageError } from './pageErrors'
@@ -235,6 +242,8 @@ export interface RecordResult {
   skips: RecordingSkip[]
   /** The files `download` steps kept (also `meta.outputs`). */
   outputs: RecordingOutput[]
+  /** The sound the page played, each heard stretch in footage seconds (also `meta.media`). */
+  media: NonNullable<RecordingMeta['media']>
   /** An `await` timed out and the take stopped there; null when it ran to the end. */
   stopped: StoppedTake | null
   /** The page's own console errors, each distinct one with its full text and how often it came. */
@@ -301,6 +310,12 @@ export interface RecordOpts {
    * A rehearsal fetches the file and keeps nothing.
    */
   outputs?: OutputSink
+  /**
+   * Where the sound the page played is kept, fetched with the page's own
+   * cookies at the end of the take. A host that hands in none still
+   * records `meta.media`, with no file; a rehearsal fetches nothing.
+   */
+  sounds?: SoundSink
   /** Print every page error whole, each time it comes; by default one cut line per distinct error. */
   verbose?: boolean
   /**
@@ -408,6 +423,10 @@ export async function recordTake(
   // every navigation: the real value never reaches a painted frame.
   const masks = actions.mask ?? []
   if (masks.length) await context.addInitScript(maskInitScript(masks))
+  // Every media element the page plays is noted from document start, in
+  // every frame (pageSound.ts), so the sound it made can be placed later.
+  await context.addInitScript(MEDIA_WATCH_SCRIPT)
+  const soundLog = new PageSoundLog()
   const exposureLog = new ExposureLog(masks)
   const page = await context.newPage()
   // What the frame shows, read after each step. A few ms in the page; a scan
@@ -487,6 +506,8 @@ export async function recordTake(
   }
 
   await scanExposures(-1)
+  // What the page played while it was being prepared is not the take's.
+  await page.evaluate(MEDIA_DRAIN_PROBE).catch(() => null)
 
   const cdp = await context.newCDPSession(page)
   const frames: FrameRec[] = []
@@ -557,6 +578,13 @@ export async function recordTake(
     return { out, at, ms }
   }
   const emit = (e: Omit<CursorEvent, 't'>) => events.push({ t: now(), ...e })
+  // The page's media notes since the last look, in the recorder's clock.
+  const drainSound = async (step?: number) => {
+    const drain = (await page
+      .evaluate(MEDIA_DRAIN_PROBE)
+      .catch(() => null)) as MediaDrain | null
+    soundLog.add(drain, Date.now(), step)
+  }
 
   await page.mouse.move(cur.x, cur.y)
   emit({ x: cur.x, y: cur.y, type: 'move' })
@@ -1299,6 +1327,7 @@ export async function recordTake(
     })
     // After the pace is taken: the scan's few ms are not the step's.
     await scanExposures(stepIdx)
+    await drainSound(stepIdx)
     // An await that timed out with onTimeout "fail": the take ends here.
     if (stopped) break
   }
@@ -1308,8 +1337,18 @@ export async function recordTake(
     log(`   ${cappedLine(maxSeconds)}`)
   }
 
+  await drainSound()
+  const endWall = Date.now()
   const durationMs = capped ? Math.min(now(), maxSeconds * 1000) : now()
+  const heard = soundLog.heard(takeClock, endWall, durationMs)
   await cdp.send('Page.stopScreencast').catch(() => {})
+  // Off camera now: the fetch takes what it takes.
+  const media = await keepPageSound(
+    heard,
+    dry ? undefined : opts.sounds,
+    fetchSource,
+    log,
+  )
   await sleep(200)
   const pageTitle = await page.title().catch(() => '')
   for (const line of pageErrors.repeats()) log(line)
@@ -1345,6 +1384,7 @@ export async function recordTake(
     ...(masks.length ? { masks: exposureLog.masks(masks) } : {}),
     ...(skips.length ? { skips } : {}),
     ...(outputs.length ? { outputs } : {}),
+    ...(media.length ? { media } : {}),
   }
 
   // Smoothness telemetry: screencast emits only on visual change, so frame
@@ -1389,10 +1429,56 @@ export async function recordTake(
     confirmed,
     skips,
     outputs,
+    media,
     stopped,
     pageErrors: pageErrors.entries(),
     actions: { ...actions, url },
   }
+}
+
+/**
+ * Fetch each sound the page was heard playing, once per address, and keep
+ * it through the host's sink: the take-relative key lands on its
+ * `meta.media` entry. A source that cannot be fetched (a `blob:` of a page
+ * that has gone, an address that answers 403) is said, and the entry keeps
+ * the reason instead of a file. Nothing is fetched without a sink.
+ */
+async function keepPageSound(
+  heard: ReturnType<PageSoundLog['heard']>,
+  sink: SoundSink | undefined,
+  fetchSource: (
+    src: string,
+  ) => Promise<{ bytes: Uint8Array; suggested: string; contentType?: string }>,
+  log: (msg: string) => void,
+): Promise<NonNullable<RecordingMeta['media']>> {
+  const kept = new Map<string, { file?: string; fetchError?: string }>()
+  const used = new Set<string>()
+  for (const h of heard) {
+    if (!h.meta.intervals.length) continue
+    const stretches = h.meta.intervals.length
+    log(
+      `   page sound: ${h.meta.src || 'a media element'} heard ${stretches === 1 ? 'once' : `${stretches} times`}`,
+    )
+    if (!sink || kept.has(h.src)) continue
+    try {
+      const got = await fetchSource(h.src)
+      const name = outputName(
+        undefined,
+        got.suggested,
+        `sound-${kept.size + 1}${extForType(got.contentType)}`,
+        used,
+      )
+      used.add(name)
+      kept.set(h.src, {
+        file: await sink.save(name, got.bytes, got.contentType),
+      })
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e)
+      kept.set(h.src, { fetchError: why })
+      log(`   (page sound not kept: ${why})`)
+    }
+  }
+  return heard.map((h) => ({ ...h.meta, ...(kept.get(h.src) ?? {}) }))
 }
 
 /** A download's extension from its type, for a name the page did not give. */

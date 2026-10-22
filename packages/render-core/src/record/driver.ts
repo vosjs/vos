@@ -178,6 +178,20 @@ export interface OutputSink {
   ): Promise<void> | void
 }
 
+/**
+ * Where the sound a page played during the take is kept: the CLI writes
+ * `page-sound/<name>` in the take directory and answers that take-relative
+ * key, which the plan's audio clips name. A host that hands in none (the
+ * fleet) still records `meta.media`; the plan then places nothing.
+ */
+export interface SoundSink {
+  save(
+    name: string,
+    bytes: Uint8Array,
+    contentType?: string,
+  ): Promise<string> | string
+}
+
 /** The clock and the pauses, injectable so a rehearsal runs fast. */
 export interface RecorderClock {
   now(): number

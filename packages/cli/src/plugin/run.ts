@@ -385,7 +385,10 @@ fail|continue), so the footage has no gap and the cut lands in
 meta.skips[] and becomes a segment boundary; download keeps a file the page
 makes in the take's outputs/ (selector: the download a click starts; src:
 the currentSrc of a video, audio or img; as: the file name), listed in
-meta.outputs[]. A click, press or type with "guard": "spend" costs
+meta.outputs[]. Sound the page plays (a video or audio element heard,
+not muted) lands in meta.media[] with the footage stretches it was heard;
+its file is fetched into page-sound/ and the plan places it as audio
+clips with source "page", which a re-plan replaces. A click, press or type with "guard": "spend" costs
 something real: --dry-run hovers it and never presses, and record presses
 it only with --confirm <id> (repeatable), refusing before any capture
 otherwise. --hosted refuses guarded and download steps.
@@ -626,6 +629,15 @@ function navTimeoutNote(rec: {
   if (rec.ready?.mode === 'settle' && rec.ready.capped)
     return `\n  note: the first page was still changing after ${(rec.ready.ms / 1000).toFixed(1)} s (an animation, a ticker); the take started anyway. Give step 1 a wait if the page needs longer`
   return ''
+}
+
+/** The sound the page played, as the take-ready line says it. */
+function pageSoundNote(rec: Pick<RecordResult, 'media'>): string {
+  const heard = rec.media.filter((m) => m.intervals.length)
+  if (!heard.length) return ''
+  const kept = heard.filter((m) => m.file)
+  const lost = heard.filter((m) => !m.file)
+  return `\n  page sound: ${heard.length} source(s) heard; ${kept.length} kept in page-sound/ and placed as audio clips (source "page")${lost.length ? `; not kept: ${lost.map((m) => `${m.src || 'a media element'} (${m.fetchError ?? 'no file'})`).join(', ')}` : ''}`
 }
 
 /** A mask whose selector never reached an element hid nothing. */
@@ -1232,12 +1244,13 @@ async function cmdRecord(argv: string[]): Promise<number> {
         confirmed: rec.confirmed,
         skips: rec.skips,
         outputs: rec.outputs,
+        ...(rec.media.length ? { media: rec.media } : {}),
         pageErrors: rec.pageErrors,
         ...(strictFail ? { strictFailed: true } : {}),
       },
       strictFail
         ? `STRICT: take recorded but incomplete — ${strictReason(rec)}; fix the flow and re-record.${skippedNote}${stepNote}${navTimeoutNote(rec)}${exposureNote(rec)}`
-        : `Take ready: ${outDir}\n  ${(rec.meta.durationMs / 1000).toFixed(1)}s · ${rec.frames.length} frames · ${rec.events.length} cursor events · ${clicks} clicks · ${plan.doc.zoom.length} zoom spans planned · ${rec.freezePct}% frozen · ${rec.dead.pct}% dead${deadWarns(rec.dead) ? ' ⚠ ' + deadLine(rec.dead) : ''}${skippedNote}${stepNote}${navTimeoutNote(rec)}\n  Next: edit ${join(outDir, 'doc.json')} (optional), then: vos render ${outDir}${exposureNote(rec)}`,
+        : `Take ready: ${outDir}\n  ${(rec.meta.durationMs / 1000).toFixed(1)}s · ${rec.frames.length} frames · ${rec.events.length} cursor events · ${clicks} clicks · ${plan.doc.zoom.length} zoom spans planned · ${rec.freezePct}% frozen · ${rec.dead.pct}% dead${deadWarns(rec.dead) ? ' ⚠ ' + deadLine(rec.dead) : ''}${skippedNote}${stepNote}${navTimeoutNote(rec)}${pageSoundNote(rec)}\n  Next: edit ${join(outDir, 'doc.json')} (optional), then: vos render ${outDir}${exposureNote(rec)}`,
     )
     return strictFail ? EXIT_USAGE : EXIT_OK
   } finally {
@@ -1410,6 +1423,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
         confirmed: rec.confirmed,
         skips: rec.skips,
         outputs: rec.outputs,
+        ...(rec.media.length ? { media: rec.media } : {}),
         pageErrors: rec.pageErrors,
         ...(flags.draft === true ? { draft: true } : {}),
       },
