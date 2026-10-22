@@ -53,6 +53,7 @@ import type {
 import { WALL_PROBE } from './wall'
 import { EXPOSURE_PROBE, ExposureLog, maskInitScript } from './exposure'
 import { SetupError, runSetup } from './setup'
+import { TakeClock } from './takeClock'
 import {
   AWAIT_POLL_S,
   AWAIT_TIMEOUT_S,
@@ -462,13 +463,12 @@ export async function recordTake(
   const frames: FrameRec[] = []
   let frameIdx = 0
   let t0 = 0
-  // The take's clock runs only while the camera does. An `await` stops the
-  // capture and polls off camera; its wall time joins `offMs`, so the
-  // footage clock, the cursor clock and every frame stamp after it read as
-  // if the wait never happened, and the cut sits at `cutAt`. A frame stamp
-  // never lands before the latest cut.
-  let offMs = 0
-  let cutAt = 0
+  // The take's clock runs only while the camera does: an `await` stops the
+  // capture and polls off camera, and its wall time is taken out of the
+  // footage clock, the cursor clock and every frame stamp alike, through
+  // ONE mapping (takeClock.ts), which also keeps frame times strictly
+  // increasing. Made for real once t0 is stamped below.
+  let takeClock = new TakeClock(0)
   // Written from the screencast callback, so the read below does not
   // narrow: a box, not a plain local.
   const first: { dims: { w: number; h: number } | null } = { dims: null }
@@ -477,20 +477,22 @@ export async function recordTake(
   let sinkChain: Promise<void> = Promise.resolve()
   if (!dry)
     cdp.on('Page.screencastFrame', (ev) => {
-      const tsMs = ev.metadata.timestamp
-        ? ev.metadata.timestamp * 1000
-        : Date.now()
-      const file = `frame-${String(frameIdx++).padStart(5, '0')}.jpg`
-      const bytes = base64Bytes(ev.data)
-      if (!first.dims) first.dims = jpegDims(bytes)
-      frames.push({
-        file,
-        tMs: Math.max(cutAt, Math.round(tsMs - t0 - offMs)),
-      })
-      sinkChain = sinkChain.then(() => sink.frame(file, bytes)).catch(() => {})
+      // Every frame is acked, kept or not, or the screencast stalls.
       cdp
         .send('Page.screencastFrameAck', { sessionId: ev.sessionId })
         .catch(() => {})
+      const tsMs = ev.metadata.timestamp
+        ? ev.metadata.timestamp * 1000
+        : Date.now()
+      // Placed by when it was captured; null = not later than the last
+      // frame kept, so older pixels than the footage already shows.
+      const tMs = takeClock.placeFrame(tsMs)
+      if (tMs === null) return
+      const file = `frame-${String(frameIdx++).padStart(5, '0')}.jpg`
+      const bytes = base64Bytes(ev.data)
+      if (!first.dims) first.dims = jpegDims(bytes)
+      frames.push({ file, tMs })
+      sinkChain = sinkChain.then(() => sink.frame(file, bytes)).catch(() => {})
     })
 
   const screencast = {
@@ -501,11 +503,12 @@ export async function recordTake(
     everyNthFrame: 1,
   }
   t0 = Date.now()
+  takeClock = new TakeClock(t0)
   if (!dry) await cdp.send('Page.startScreencast', screencast)
 
   const events: CursorEvent[] = []
   const cur = { x: 48, y: 48 }
-  const now = () => Date.now() - t0 - offMs
+  const now = () => takeClock.footageMs(Date.now())
 
   /**
    * Run `fn` OFF CAMERA: the screencast stops, nothing is emitted, and on
@@ -516,16 +519,12 @@ export async function recordTake(
   const offCamera = async <T>(
     fn: () => Promise<T>,
   ): Promise<{ out: T; at: number; ms: number }> => {
-    const at = now()
-    const from = Date.now()
+    // In a rehearsal the clock pauses too, so `at` and `ms` read the same.
+    const at = takeClock.pause(Date.now())
     if (!dry) await cdp.send('Page.stopScreencast').catch(() => {})
     const out = await fn()
-    const ms = Date.now() - from
-    if (!dry) {
-      offMs += ms
-      cutAt = at
-      await cdp.send('Page.startScreencast', screencast).catch(() => {})
-    }
+    const ms = takeClock.resume(Date.now())
+    if (!dry) await cdp.send('Page.startScreencast', screencast).catch(() => {})
     return { out, at, ms }
   }
   const emit = (e: Omit<CursorEvent, 't'>) => events.push({ t: now(), ...e })
