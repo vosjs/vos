@@ -68,6 +68,7 @@ import {
 import { TYPEFACE_CATALOG, findFontFamily, findTypeface } from '@vosjs/shared'
 import type { RichText, TextOverlayClip } from '@vosjs/studio-core'
 import type {
+  CardLayout,
   ExportResolution,
   ProjectDoc,
   StudioDoc,
@@ -2257,16 +2258,41 @@ function framingWarnings(
   warnings: string[],
 ): void {
   try {
-    const source = isObj(doc.source) ? doc.source : {}
-    const meta = isObj(source.meta) ? source.meta : {}
-    const w = isNum(meta.width) ? meta.width : 0
-    const h = isNum(meta.height) ? meta.height : 0
-    if (!(w > 0) || !(h > 0)) return
-    const clicks = clicksWithRects(source)
-    if (!clicks.length) return
+    // Every media's own evidence: a span's seconds are its media's, and so
+    // are the clicks and the capture space they are measured in. A span on
+    // a second media judged against the primary's clicks points "beside"
+    // something that media never showed.
+    const evidence = new Map<
+      string,
+      { w: number; h: number; clicks: DownEvent[]; layout: CardLayout }
+    >()
+    const others = Array.isArray(doc.media) ? doc.media : []
+    for (const [key, src] of [
+      ['', doc.source],
+      ...others.map((m) => [isObj(m) ? m.id : undefined, m] as const),
+    ] as const) {
+      if (typeof key !== 'string' || !isObj(src)) continue
+      const meta = isObj(src.meta) ? src.meta : {}
+      const w = isNum(meta.width) ? meta.width : 0
+      const h = isNum(meta.height) ? meta.height : 0
+      if (!(w > 0) || !(h > 0)) continue
+      const clicks = clicksWithRects(src)
+      if (!clicks.length) continue
+      let layout: CardLayout
+      try {
+        layout = docCardLayout(docIn, key || null)
+      } catch {
+        continue
+      }
+      evidence.set(key, { w, h, clicks, layout })
+    }
+    if (!evidence.size) return
     const layout = docCardLayout(docIn)
 
     for (const z of zoom) {
+      const ev = evidence.get(typeof z.media === 'string' ? z.media : '')
+      if (!ev) continue
+      const { w, h, clicks } = ev
       if (
         !isNum(z.in) ||
         !isNum(z.out) ||
@@ -2301,7 +2327,7 @@ function framingWarnings(
             focusMode: z.focusMode as string | undefined,
           },
           rect,
-          layout,
+          ev.layout,
           0.02,
           cameraModel(docIn.frame),
         )
@@ -2434,19 +2460,22 @@ function framingWarnings(
       } catch {
         return
       }
-      for (const c of clicks) {
-        const out = spanOutputExtent(rated, c.t, c.t + 0.001)
+      const presses = [...evidence.entries()].flatMap(([key, ev]) =>
+        ev.clicks.map((c) => ({ c, key, ev })),
+      )
+      for (const { c, key, ev } of presses) {
+        const out = spanOutputExtent(rated, c.t, c.t + 0.001, key || undefined)
         if (!out || out.start < o.start || out.start > o.start + o.duration)
           continue
         const target = pinRectOnScreen(
           {
-            x: c.rect.x / w,
-            y: c.rect.y / h,
-            w: c.rect.w / w,
-            h: c.rect.h / h,
+            x: c.rect.x / ev.w,
+            y: c.rect.y / ev.h,
+            w: c.rect.w / ev.w,
+            h: c.rect.h / ev.h,
           },
           out.start,
-          layout,
+          ev.layout,
           camera,
           zoomTrack,
         )
