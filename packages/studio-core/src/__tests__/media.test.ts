@@ -7,9 +7,12 @@ import {
   totalDuration,
 } from '@vosjs/timeline'
 import {
+  camTrackFromDoc,
   lowerToComposition,
   ratedSegments,
   spanOutputExtent,
+  tiltTrackFromDoc,
+  zoomTrackFromDoc,
 } from '../lower/lowerToComposition'
 import { mediaAtOutput, mediaFrame, mediaSource, nextMediaId } from '../media'
 import { computeCardLayout } from '../layout'
@@ -447,5 +450,74 @@ describe('a media wears its own card', () => {
     expect(media[0].frame.browserBar).toMatchObject({ kind: 'none' })
     expect('padding' in media[0].frame).toBe(false)
     expect('background' in media[0].frame).toBe(false)
+  })
+})
+
+describe('the span tracks play in output order', () => {
+  // Eight seconds of A, then four of B (source 1..5, output 8..12). B's
+  // span starts at source 1.5, EARLIER than two of A's, and plays LAST.
+  const cut = () =>
+    doc({
+      media: [other],
+      segments: [
+        { in: 0, out: 4 },
+        { in: 4, out: 8 },
+        { in: 1, out: 5, media: 'b' },
+      ],
+    })
+  const at = (track: { keyframes: unknown[] }, t: number): number[] =>
+    sample(track as never, t, lerpArray) as number[]
+
+  it('a zoom on a later media never clamps away the earlier zooms of the primary', () => {
+    const rated = ratedSegments(cut())
+    const track = zoomTrackFromDoc(
+      [
+        { id: 'a1', in: 0.5, out: 1.5, level: 1.6, cx: 0.3, cy: 0.3 },
+        {
+          id: 'b',
+          in: 1.5,
+          out: 2.5,
+          level: 2.0,
+          cx: 0.6,
+          cy: 0.6,
+          media: 'b',
+        },
+        { id: 'a2', in: 2.5, out: 3.5, level: 2.4, cx: 0.4, cy: 0.4 },
+        { id: 'a3', in: 6, out: 7, level: 1.8, cx: 0.7, cy: 0.7 },
+      ],
+      rated,
+    )
+    // Each span holds its level at its own output midpoint: A's at 1, 3 and
+    // 6.5, B's at 9 (source 2 on B is output 9).
+    expect(at(track, 1)[0]).toBeCloseTo(1.6, 1)
+    expect(at(track, 3)[0]).toBeCloseTo(2.4, 1)
+    expect(at(track, 6.5)[0]).toBeCloseTo(1.8, 1)
+    expect(at(track, 9)[0]).toBeCloseTo(2.0, 1)
+    const ts = track.keyframes.map((k) => k.t)
+    expect(ts).toEqual([...ts].sort((x, y) => x - y))
+  })
+
+  it('tilt and cam spans are ordered the same way', () => {
+    const rated = ratedSegments(cut())
+    const tilt = tiltTrackFromDoc(
+      [
+        { id: 'b', in: 1.5, out: 2.5, rx: 6, ry: 6, media: 'b' },
+        { id: 'a2', in: 5, out: 6, rx: -8, ry: 4 },
+      ],
+      rated,
+    )
+    expect(at(tilt, 5.5)).toEqual([-8, 4])
+    expect(at(tilt, 9)).toEqual([6, 6])
+    const cam = camTrackFromDoc(
+      DEFAULT_CAM_STYLE,
+      [
+        { id: 'b', in: 1.5, out: 2.5, x: 0.2, y: 0.2, media: 'b' },
+        { id: 'a2', in: 5, out: 6, x: 0.8, y: 0.8 },
+      ],
+      rated,
+      1920,
+    )
+    expect(at(cam, 5.5).slice(0, 2)).toEqual([0.8, 0.8])
+    expect(at(cam, 9).slice(0, 2)).toEqual([0.2, 0.2])
   })
 })

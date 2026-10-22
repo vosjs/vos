@@ -454,6 +454,32 @@ function withEntrance(
 const spillLimit = (tIn: number, tOut: number) => tIn + (tOut - tIn) / 2
 
 /**
+ * Map source-anchored spans onto the output timeline and order them by where
+ * they PLAY there. A span's seconds are its own media's, and the cut places
+ * the media in any order, so a span early in a second media may play late
+ * in the output. Ordered by source time, that span reached the monotonic
+ * emitter ahead of the spans that play before it, and every one of those
+ * was clamped away: in a take of several media, every primary zoom after
+ * the first vanished. A fully-cut span is dropped; two spans starting at
+ * the same output time keep the one that ends first ahead. With one media
+ * and the footage in order, output order IS source order, so a single-media
+ * document lowers as it always did.
+ */
+function spansInOutputOrder<
+  S extends { in: number; out: number; media?: string },
+>(
+  spans: readonly S[],
+  segments: Segment[],
+): { z: S; tIn: number; tOut: number }[] {
+  return spans
+    .flatMap((z) => {
+      const ext = spanOutputExtent(segments, z.in, z.out, z.media)
+      return ext ? [{ z, tIn: ext.start, tOut: ext.end }] : []
+    })
+    .sort((a, b) => a.tIn - b.tIn || a.tOut - b.tOut)
+}
+
+/**
  * Expand the doc's source-anchored zoom spans into a standard @vosjs/timeline
  * keyframe track in OUTPUT time (values are [level, cx, cy] vectors):
  *
@@ -479,12 +505,7 @@ export function zoomTrackFromDoc(
 ): KeyframeTrack<number[]> {
   const notBefore = opts.notBefore ?? -Infinity
   const panEase = style.panEase as NonNullable<Keyframe['ease']>
-  const mapped = [...zoom]
-    .sort((a, b) => a.in - b.in)
-    .flatMap((z) => {
-      const ext = spanOutputExtent(segments, z.in, z.out, z.media)
-      return ext ? [{ z, tIn: ext.start, tOut: ext.end }] : []
-    })
+  const mapped = spansInOutputOrder(zoom, segments)
 
   // Monotonic emit: clamp into strictly-increasing time (skip exact no-ops).
   const { keyframes, push } = trackEmitter()
@@ -693,12 +714,7 @@ export function tiltTrackFromDoc(
   const panDur = motion.pan ?? TILT_PAN
   const panEase = TILT_PAN_EASE as NonNullable<Keyframe['ease']>
   const rest = [0, 0]
-  const mapped = [...tilt]
-    .sort((a, b) => a.in - b.in)
-    .flatMap((z) => {
-      const ext = spanOutputExtent(segments, z.in, z.out, z.media)
-      return ext ? [{ z, tIn: ext.start, tOut: ext.end }] : []
-    })
+  const mapped = spansInOutputOrder(tilt, segments)
 
   const { keyframes, push } = trackEmitter()
 
@@ -798,12 +814,7 @@ export function camTrackFromDoc(
     z.size != null ? clampCamSize(z.size) : rest[2],
   ]
   const panEase = CAM_PAN_EASE as NonNullable<Keyframe['ease']>
-  const mapped = [...spans]
-    .sort((a, b) => a.in - b.in)
-    .flatMap((z) => {
-      const ext = spanOutputExtent(segments, z.in, z.out, z.media)
-      return ext ? [{ z, tIn: ext.start, tOut: ext.end }] : []
-    })
+  const mapped = spansInOutputOrder(spans, segments)
 
   const { keyframes, push } = trackEmitter()
 
