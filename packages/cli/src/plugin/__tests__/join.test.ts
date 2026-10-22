@@ -324,7 +324,8 @@ describe('vos join: a file’s own sound, captions per clip', () => {
     } finally {
       stdout.mockImplementation(() => true)
     }
-  })
+    // Node reads no AAC, so the join measures the sound in the browser.
+  }, 60_000)
 
   // A real AAC track, which Node cannot decode, needs a real encoder to
   // make; where ffmpeg is installed, the join says one line about it.
@@ -381,6 +382,7 @@ describe('vos join: a file’s own sound, captions per clip', () => {
         stdout.mockImplementation(() => true)
       }
     },
+    60_000,
   )
 
   it('ends a caption with its clip, and names an input with no caption', async () => {
