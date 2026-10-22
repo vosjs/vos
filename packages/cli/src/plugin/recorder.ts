@@ -4,27 +4,54 @@
  * sink, no filesystem); this wraps it with a take DIRECTORY, the shell's
  * env for a setup's `{ env }` texts, and this machine's platform, and
  * writes the same four files it always wrote (cursor.json, meta.json,
- * frames.json, actions.json), byte for byte.
+ * frames.json, actions.json), byte for byte, plus `outputs/<name>` for every
+ * file a `download` step kept.
  */
 import { writeFileSync } from 'node:fs'
+import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import { recordTake as recordTakeCore } from '@vosjs/render-core/record'
-import type { RecordOpts as CoreRecordOpts } from '@vosjs/render-core/record'
+import {
+  fileNameProblem,
+  recordTake as recordTakeCore,
+} from '@vosjs/render-core/record'
+import type {
+  OutputSink,
+  RecordOpts as CoreRecordOpts,
+} from '@vosjs/render-core/record'
 import type { Browser, BrowserContext } from 'playwright'
 import { writeJson } from './take'
+import { refuseSymlink, writeFileSafe } from './safeWrite'
 import type { ActionsFile } from './actions'
 import type { TakePaths } from './take'
 
 export type {
+  DisabledClick,
   FrameRec,
   FreezeSpan,
   RecordResult,
   SkippedStep,
+  StoppedTake,
 } from '@vosjs/render-core/record'
+
+/** The take's `outputs/`: where a `download` step's file lands, and nowhere else. */
+export function outputsSink(dir: string): OutputSink {
+  const outDir = join(dir, 'outputs')
+  return {
+    save: async (name, bytes) => {
+      // The recorder names the file; a name that is not plain never
+      // reaches the disk, whoever chose it.
+      const problem = fileNameProblem(name)
+      if (problem) throw new Error(`outputs/${name}: ${problem}`)
+      await refuseSymlink(outDir)
+      await mkdir(outDir, { recursive: true })
+      await writeFileSafe(join(outDir, name), bytes)
+    },
+  }
+}
 
 export type RecordOpts = Omit<
   CoreRecordOpts,
-  'context' | 'env' | 'platform'
+  'context' | 'env' | 'platform' | 'outputs'
 > & {
   /**
    * A ready-made context to record IN, instead of one made from `browser`:
@@ -54,6 +81,7 @@ export async function recordTake(
     log,
     {
       ...opts,
+      outputs: outputsSink(paths.dir),
       env: process.env,
       platform:
         process.platform === 'darwin'

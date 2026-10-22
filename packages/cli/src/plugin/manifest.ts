@@ -45,7 +45,12 @@ export const manifest: PluginManifest = {
     {
       name: 'frames',
       summary:
-        'PNG stills at output times / zoom apexes / moments / exact sizes',
+        'PNG stills at output times / zoom apexes (each checked against its zoom-off twin) / moments / exact sizes',
+    },
+    {
+      name: 'check-video',
+      summary:
+        'check a rendered file: facts, scene changes, loudness, first and last frames',
     },
     {
       name: 'deliver',
@@ -72,6 +77,16 @@ export const manifest: PluginManifest = {
       name: 'ingest',
       summary:
         'a take from a recording someone else made, with its cursor track from a trace beside it (Playwright trace.zip, stamped records, CSV); without one nothing is planned',
+    },
+    {
+      name: 'join',
+      summary:
+        'several takes and video files as one take: each next input a media, its spans tagged, its layers moved to where it starts; --captions anchors every step caption',
+    },
+    {
+      name: 'score',
+      summary:
+        "a music track as the film's score, its strongest swell landed on a step or a second (--dry-run prints the loudness envelope and the plan)",
     },
     {
       name: 'port',

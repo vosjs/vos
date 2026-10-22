@@ -247,6 +247,10 @@ export interface RecordingMeta {
    * nothing, so whatever it was for may be showing.
    */
   masks?: { selector: string; as: 'blur' | 'text'; hits: number }[]
+  /** The cuts `await` steps made, in order (CLI takes only). */
+  skips?: RecordingSkip[]
+  /** The files `download` steps kept (CLI takes only). */
+  outputs?: RecordingOutput[]
 }
 
 /**
@@ -326,6 +330,53 @@ export interface StepSpan {
    * payload, which a layer quotes instead of replaying the flow.
    */
   text?: string
+  /**
+   * The step carries a guard (`"spend"`): `confirmed` says the recording
+   * pressed it because the command named it; a rehearsal only hovers one
+   * and leaves `confirmed` absent.
+   */
+  guard?: 'spend'
+  confirmed?: boolean
+  /**
+   * An `await` step: the wall-clock ms it waited OFF CAMERA. The footage
+   * clock stood still meanwhile, so `tStart`..`tEnd` hold only the
+   * moments around the cut, which is at `tStart` (`meta.skips[]`).
+   */
+  offCameraMs?: number
+  /** An `await` that gave up and let the take go on (`onTimeout: "continue"`). */
+  timedOut?: boolean
+  /** A failed `expect`, a download that never came: why the step was skipped. */
+  reason?: string
+  /**
+   * A rehearsal did not wait on this `expect` or `await`: it follows the
+   * guarded step at this index, which a rehearsal never presses, so what it
+   * waits for cannot come.
+   */
+  followsGuard?: number
+}
+
+/**
+ * A cut the recorder made: an `await` step waited off camera, so the
+ * footage runs straight from the moment before the wait to the moment
+ * after. `at` is the SOURCE second of the cut, `ms` the wall time that
+ * did not reach the footage. A fresh plan starts a segment there.
+ */
+export interface RecordingSkip {
+  step: number
+  id?: string
+  at: number
+  ms: number
+  timedOut?: boolean
+}
+
+/** A file a `download` step kept, in the take's `outputs/`. */
+export interface RecordingOutput {
+  step: number
+  id?: string
+  /** the file name inside `outputs/` */
+  name: string
+  bytes: number
+  contentType?: string
 }
 
 /** Everything the capture extension hands off to the studio. */
@@ -1220,8 +1271,8 @@ export type PinMark = 'none' | 'ring' | 'underline'
  * a hairline between them (a connector) and a standing mark on the subject.
  * One of `step`, `press` or `rect` names it. Resolved at lowering into the
  * clip's motion track through the frame's camera; `transform.x/y` stay the
- * author's fallback for a pin that cannot resolve. Not the re-record
- * `anchor` (a time tie the lowering never reads).
+ * author's fallback for a pin that cannot resolve. A pin is PLACE; a
+ * layer's `anchor` (OverlayAnchor) is its TIME.
  */
 export interface OverlayPin {
   /** A recorder step (`meta.steps[].id`, else its index) whose element
@@ -1247,6 +1298,29 @@ export interface OverlayPin {
   color?: string
 }
 
+/**
+ * A layer's TIME tie to a recorder step: the layer starts where that step
+ * plays in the cut. Unlike a span's `StepAnchor` (re-record metadata the
+ * lowering never reads), this one IS read at lowering: the step's moment
+ * on its media (`meta.steps`, SOURCE seconds) is mapped through the
+ * segments, speed spans and freezes exactly as a source-anchored span is,
+ * and `offset` OUTPUT seconds are added. So a trim, a speed change or a
+ * re-record moves the caption with its step, and nobody recomputes a
+ * `start`. `start` stays the clip's fallback when the step cannot be
+ * found or the cut leaves it out (validate says which); `duration` is the
+ * clip's own either way.
+ */
+export interface OverlayAnchor {
+  /** The step: its `id` (`meta.steps[].id`) when it has one, else its index. */
+  step: string | number
+  /** Whose steps: a `media[].id`; absent = the primary's. */
+  media?: string
+  /** Which edge of the step is its moment. Default 'start'. */
+  at?: 'start' | 'end'
+  /** OUTPUT seconds after the step's moment (negative = before). Default 0. */
+  offset?: number
+}
+
 interface OverlayClipBase {
   /** Stable identity for selection/editing in the timeline UI. */
   id: string
@@ -1260,6 +1334,12 @@ interface OverlayClipBase {
    * opacity, and their x/y are ignored.
    */
   pin?: OverlayPin
+  /**
+   * When the layer starts, as a recorder step (see OverlayAnchor): read at
+   * lowering, `start` the fallback. A text layer's `{elapsed}` fills with
+   * the anchored step's off-camera wait, when the recorder kept one.
+   */
+  anchor?: OverlayAnchor
   /**
    * How the clip enters and leaves (see Anim). Absent = the house motion:
    * a rise in, a fade out.

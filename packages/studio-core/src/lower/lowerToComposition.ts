@@ -114,6 +114,7 @@ import { isRecordingDoc, programDuration } from '../doc/studioDoc'
 import { clipEnvelope } from './audioEnvelope'
 import { followFocusEvents } from './cursorFollow'
 import { pinPlacement, pinReferent } from './pin'
+import { resolveOverlayAnchors } from './anchor'
 import { cursorIdleFade } from './cursorIdle'
 import { STUDIO_ENTRY_ID, studioEntry } from './studioEntry'
 import {
@@ -1229,9 +1230,24 @@ const SETUP = `async (ctx) => {
     ;(ns.videoBlobs || (ns.videoBlobs = new Map())).set(src, fetched)
     return URL.createObjectURL(fetched)
   }
+  // Every element handed out by this SETUP, so two players never share one.
+  // A take may name one file as two media (the same shot as a teaser and in
+  // full), or as a media and the footage; the by-src cache would hand both
+  // ONE element, and ON_FRAME's concat rule, which pauses every media that
+  // is not under the playhead, then paused the playing clip every frame under
+  // the other name: play/pause churn, the element falling behind the clock,
+  // and a drift-guard seek every ~0.3 s that read as a stuck picture jumping
+  // forward. A second claim on the same bytes gets its OWN element, kept in
+  // the cache under a slot of its own so a warm LOAD reuses it like the first.
+  const claimed = new Set()
   const load = async (src, muted) => {
-    let v = cache.get(src)
-    if (v) return v
+    let key = src
+    let v = cache.get(key)
+    for (let n = 2; v && claimed.has(v); n++) {
+      key = src + '#' + n
+      v = cache.get(key)
+    }
+    if (v) { claimed.add(v); return v }
     let url = src
     if (ctx.data.videoFetchMode === 'blob') {
       try { url = await toBlobUrl(src) }
@@ -1251,7 +1267,8 @@ const SETUP = `async (ctx) => {
       v.onerror = () => rej(new Error('[studio] video failed to load' + (v.error ? ' (' + v.error.code + (v.error.message ? ': ' + v.error.message : '') + ')' : '')))
       v.load()
     })
-    cache.set(src, v)
+    cache.set(key, v)
+    claimed.add(v)
     return v
   }
   // Shots: the "video" is a still image — drawImage accepts it directly and the
@@ -1718,7 +1735,7 @@ const ON_FRAME = `(ctx, content, dt) => {
   // The card under the playhead: another media's own card fields over the
   // take's frame (resolved at lowering), the take's frame for the primary.
   var cfr = amId && actM && actM.frame ? actM.frame : frame
-  if (r.media) for (var amK in r.media) { var amE = r.media[amK]; if (amK !== amId && amE && amE.pause && amE.paused === false) amE.pause() }
+  if (r.media) for (var amK in r.media) { var amE = r.media[amK]; if (amK !== amId && amE && amE !== video && amE.pause && amE.paused === false) amE.pause() }
   if (amId) {
     if (r.video && r.video.pause && r.video.paused === false) r.video.pause()
     if (r.cam && r.cam.pause && r.cam.paused === false) r.cam.pause()
@@ -3258,8 +3275,11 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
   // One vocabulary first: a legacy entrance, end card or clip spelling is
   // read into `anim` (the end card into clips after the footage plus a
   // card exit), so every track below is laid out against one shape.
-  const doc = migrateText(migrateMotion(input))
-  const rated = ratedSegments(doc)
+  // A layer anchored to a step starts where that step plays in this cut
+  // (the rated pieces carry no layer, so they are read before it).
+  const read = migrateText(migrateMotion(input))
+  const rated = ratedSegments(read)
+  const doc = resolveOverlayAnchors(read, rated)
   // The boundaries that move (a clip's enter or exit, the card's slide at
   // the open), in output seconds; the camera rests through each window.
   const transitions = docTransitions(doc)
@@ -3553,8 +3573,11 @@ function loweredZoomSpans(
 export function docZoomTrack(
   input: ProjectDoc,
 ): KeyframeTrack<number[]> | undefined {
-  const doc = migrateText(migrateMotion(input))
-  const rated = ratedSegments(doc)
+  // A layer anchored to a step starts where that step plays in this cut
+  // (the rated pieces carry no layer, so they are read before it).
+  const read = migrateText(migrateMotion(input))
+  const rated = ratedSegments(read)
+  const doc = resolveOverlayAnchors(read, rated)
   const transitions = docTransitions(doc)
   const layout = docCardLayout(doc)
   const camera = cameraModel(doc.frame)
