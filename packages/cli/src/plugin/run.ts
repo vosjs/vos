@@ -2684,15 +2684,10 @@ export async function run(argv: string[]): Promise<number> {
       case 'push': {
         // Polymorphic by the deterministic sniff: a take DIRECTORY (doc.json)
         // pushes recording + doc; anything else is a program config push.
+        // A claimable take push is cmdPush's to judge (a remix of a fetched
+        // public take, which uploads nothing), never refused here.
         const target = rest.find((a) => !a.startsWith('-'))
-        if (target && isTakeDir(target)) {
-          if (rest.includes('--claimable')) {
-            throw new UsageError(
-              '--claimable pushes are PROGRAMS only (a config.json) — takes carry recordings, which need an account: vos login, then vos push',
-            )
-          }
-          return await cmdPush(rest)
-        }
+        if (target && isTakeDir(target)) return await cmdPush(rest)
         return await cmdPushProgram(rest)
       }
       case 'pull': {

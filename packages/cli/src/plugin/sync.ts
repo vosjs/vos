@@ -709,6 +709,13 @@ export async function pushTakeClaimable(
   }
   const state = readSyncState(dir)
   const hosted = state?.hostedMedia ?? {}
+  // A claimable take is a remix of a public take brought home with its
+  // media, which is the only footage a claim can name: a take recorded
+  // here (or fetched without --media) has nothing it may carry.
+  if (!Object.keys(hosted).length)
+    throw new Error(
+      `${dir} was not fetched from a public take with its media (its vos.json records no hosted files), and a claimable push never uploads footage. Push it with an account (vos login, then vos push ${dir}), or remix a public take: vos fetch <url> --media, edit, then vos push <dir> --claimable`,
+    )
   const docForPush: ProjectDoc = structuredClone(take.doc)
   embedScript(docForPush, dir)
   const refs = [
