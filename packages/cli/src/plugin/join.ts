@@ -10,7 +10,10 @@
  * the inputs one after the other), every source-anchored span it carries
  * is tagged with its media and renamed `<id>-…`, and its layers move to
  * where its footage now starts (a layer about one of its steps is anchored
- * to that step instead, so it keeps its moment whatever the cut does). A
+ * to that step instead, so it keeps its moment whatever the cut does).
+ * Only the last input keeps its ENDING (the layers that start after its
+ * footage); anyone else's would land over the next clip, so it is dropped
+ * and named. A
  * plain video file becomes a media with no cursor, a probed meta, a
  * full-bleed card of its own and one segment over its whole length.
  *
@@ -30,6 +33,7 @@ import {
   resolveAnchor,
   segmentOutputExtents,
 } from '@vosjs/studio-core'
+import { totalDuration } from '@vosjs/timeline'
 import { localFile } from '../programAssets'
 import { UsageError, parseArgs, strFlag } from './args'
 import { copyRecording, probeVideoFile } from './ingest'
@@ -46,6 +50,7 @@ import { landStepCaptions } from './stepCaptions'
 import { loadTake, writeJson } from './take'
 import { lintDoc } from './validateDoc'
 import type {
+  OverlayClip,
   Media,
   MediaFrame,
   ProjectDoc,
@@ -137,6 +142,43 @@ export function fileDoc(
 }
 
 /**
+ * The layers of one input that START after its footage ends: an ending
+ * (an end card's words, a closing title) that plays over the held frame or
+ * the ground once the footage is over. In a join only the last input's
+ * ending is still an ending; anyone else's would land over the next clip.
+ * An anchored layer is judged where its anchor places it.
+ */
+export function endingLayers(doc: ProjectDoc): OverlayClip[] {
+  const pieces = ratedSegments(doc)
+  const end = totalDuration(pieces)
+  if (!(end > 0)) return []
+  return (doc.overlays ?? []).filter((o) => {
+    const start = o.anchor
+      ? (resolveAnchor(doc, o.anchor, pieces).start ?? o.start)
+      : o.start
+    return start >= end - 1e-3
+  })
+}
+
+/** Drop an input's ending, saying what went. In place. */
+function dropEnding(d: ProjectDoc, label: string, notes: string[]): void {
+  const ending = endingLayers(d)
+  const legacy = d.endCard !== undefined
+  if (!ending.length && !legacy) return
+  const gone = new Set(ending)
+  d.overlays = (d.overlays ?? []).filter((o) => !gone.has(o))
+  if (!d.overlays.length) delete d.overlays
+  if (legacy) delete d.endCard
+  const named = [
+    ...ending.map((o) => o.id),
+    ...(legacy ? ['its endCard'] : []),
+  ].join(', ')
+  notes.push(
+    `${label}: dropped ${named}, which played after its footage and would land over the next input (only the last input's ending stays, at the end of the film)`,
+  )
+}
+
+/**
  * Assemble the joined document. Pure: no file is read or written; the
  * plan names every file to copy.
  */
@@ -146,6 +188,8 @@ export function joinDocs(parts: readonly JoinPart[]): JoinPlan {
   const [first, ...rest] = parts
   const doc = structuredClone(first.doc)
   const notes: string[] = []
+  // Every input but the last loses its ending before anything is copied.
+  dropEnding(doc, first.label, notes)
   const copies = new Map<string, JoinCopy>()
   const copy = (c: JoinCopy) => {
     if (!copies.has(c.to)) copies.set(c.to, c)
@@ -200,6 +244,7 @@ export function joinDocs(parts: readonly JoinPart[]): JoinPlan {
   for (const part of rest) {
     // One vocabulary first: a legacy end card is clips, a hold a freeze.
     const d = structuredClone(migrateMotion(part.doc))
+    if (part !== rest[rest.length - 1]) dropEnding(d, part.label, notes)
     const pid = allocate()
     const idMap = new Map<string, string>([['', pid]])
     for (const m of d.media ?? []) idMap.set(m.id, allocate())

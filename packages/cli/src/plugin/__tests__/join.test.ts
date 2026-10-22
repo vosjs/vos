@@ -8,7 +8,7 @@ import {
   DEFAULT_CURSOR_STYLE,
   DEFAULT_FRAME_STYLE,
 } from '@vosjs/studio-core'
-import { FULL_BLEED_FRAME, cmdJoin } from '../join'
+import { FULL_BLEED_FRAME, cmdJoin, joinDocs } from '../join'
 import {
   STEP_CAPTIONS_FROM,
   bareCaptionsFlag,
@@ -238,6 +238,45 @@ describe('vos join', () => {
     await expect(cmdJoin([a, b, '--out', join(a, 'inner')])).rejects.toThrow(
       /overlaps/,
     )
+  })
+})
+
+describe('vos join: endings', () => {
+  it('drops every input’s ending but the last’s, and says so', () => {
+    const part = (label: string, doc: ProjectDoc) => ({
+      label,
+      kind: 'take' as const,
+      doc,
+      dir: join(root, label),
+      actions: null,
+    })
+    // A plays 10 s; its outro starts after that. B plays 6 s (1..8 with
+    // 5..7 at 2×); its outro starts at 6.5 s of its own cut.
+    const a = takeA()
+    a.overlays!.push(text('outro', 10.2))
+    const b = takeB()
+    b.overlays!.push(text('outro', 6.5))
+    const mid = takeB()
+    mid.overlays!.push(text('outro', 6.5))
+    const plan = joinDocs([part('a', a), part('mid', mid), part('b', b)])
+    const ids = plan.doc.overlays!.map((o) => [o.id, o.start])
+    // A's and the middle input's endings are gone; B's plays at the end:
+    // 10 + 6 + 6.5.
+    expect(ids.find(([id]) => id === 'outro')).toBeUndefined()
+    expect(ids.find(([id]) => id === 'm1-outro')).toBeUndefined()
+    expect(ids).toContainEqual(['m2-outro', 22.5])
+    expect(plan.notes).toContainEqual(
+      expect.stringMatching(
+        /^a: dropped outro, which played after its footage/,
+      ),
+    )
+    expect(plan.notes).toContainEqual(
+      expect.stringMatching(/^mid: dropped outro, which played/),
+    )
+    // Layers inside the footage are kept everywhere.
+    expect(ids).toContainEqual(['title', 0.5])
+    expect(ids).toContainEqual(['m1-note', 11])
+    expect(lintDoc(plan.doc).problems).toEqual([])
   })
 })
 
