@@ -423,6 +423,17 @@ export {
 } from './lower/segmentStarts'
 export type { SegmentExtent } from './lower/segmentStarts'
 export {
+  ELAPSED_PLACEHOLDER,
+  anchoredClip,
+  formatElapsed,
+  hasElapsed,
+  resolveAnchor,
+  resolveOverlayAnchors,
+  sourceMomentToOutput,
+  stepElapsedMs,
+} from './lower/anchor'
+export type { AnchorMiss, AnchorResolution } from './lower/anchor'
+export {
   PRIMARY_MEDIA,
   cardFields,
   docMediaList,

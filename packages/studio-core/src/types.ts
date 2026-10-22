@@ -1220,8 +1220,8 @@ export type PinMark = 'none' | 'ring' | 'underline'
  * a hairline between them (a connector) and a standing mark on the subject.
  * One of `step`, `press` or `rect` names it. Resolved at lowering into the
  * clip's motion track through the frame's camera; `transform.x/y` stay the
- * author's fallback for a pin that cannot resolve. Not the re-record
- * `anchor` (a time tie the lowering never reads).
+ * author's fallback for a pin that cannot resolve. A pin is PLACE; a
+ * layer's `anchor` (OverlayAnchor) is its TIME.
  */
 export interface OverlayPin {
   /** A recorder step (`meta.steps[].id`, else its index) whose element
@@ -1247,6 +1247,29 @@ export interface OverlayPin {
   color?: string
 }
 
+/**
+ * A layer's TIME tie to a recorder step: the layer starts where that step
+ * plays in the cut. Unlike a span's `StepAnchor` (re-record metadata the
+ * lowering never reads), this one IS read at lowering: the step's moment
+ * on its media (`meta.steps`, SOURCE seconds) is mapped through the
+ * segments, speed spans and freezes exactly as a source-anchored span is,
+ * and `offset` OUTPUT seconds are added. So a trim, a speed change or a
+ * re-record moves the caption with its step, and nobody recomputes a
+ * `start`. `start` stays the clip's fallback when the step cannot be
+ * found or the cut leaves it out (validate says which); `duration` is the
+ * clip's own either way.
+ */
+export interface OverlayAnchor {
+  /** The step: its `id` (`meta.steps[].id`) when it has one, else its index. */
+  step: string | number
+  /** Whose steps: a `media[].id`; absent = the primary's. */
+  media?: string
+  /** Which edge of the step is its moment. Default 'start'. */
+  at?: 'start' | 'end'
+  /** OUTPUT seconds after the step's moment (negative = before). Default 0. */
+  offset?: number
+}
+
 interface OverlayClipBase {
   /** Stable identity for selection/editing in the timeline UI. */
   id: string
@@ -1260,6 +1283,12 @@ interface OverlayClipBase {
    * opacity, and their x/y are ignored.
    */
   pin?: OverlayPin
+  /**
+   * When the layer starts, as a recorder step (see OverlayAnchor): read at
+   * lowering, `start` the fallback. A text layer's `{elapsed}` fills with
+   * the anchored step's off-camera wait, when the recorder kept one.
+   */
+  anchor?: OverlayAnchor
   /**
    * How the clip enters and leaves (see Anim). Absent = the house motion:
    * a rise in, a fade out.

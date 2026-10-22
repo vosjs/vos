@@ -43,7 +43,9 @@ import {
   docCardLayout,
   docZoomTrack,
   findStep,
+  hasElapsed,
   outputEnd,
+  resolveAnchor,
   pinBox,
   pinCandidates,
   pinRectOnScreen,
@@ -68,6 +70,7 @@ import type {
   ExportResolution,
   ProjectDoc,
   StudioDoc,
+  OverlayAnchor,
   OverlayClip,
   OverlayPin,
 } from '@vosjs/studio-core'
@@ -1183,12 +1186,47 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       footageEnd = null
     }
   }
+  // The rated pieces an anchored layer's step is mapped through, once.
+  let anchorPieces: ReturnType<typeof ratedSegments> | null = null
+  if (recording) {
+    try {
+      anchorPieces = ratedSegments(doc as unknown as ProjectDoc)
+    } catch {
+      anchorPieces = null
+    }
+  }
+  // Captions as they play (an anchor resolved), for the overlap check.
+  const captionTimes: { name: string; start: number; end: number }[] = []
   for (let i = 0; i < (overlays?.length ?? 0); i++) {
     const o = overlays![i]
     const name = `overlays[${i}]`
     if (!isObj(o)) {
       problems.push(`${name} must be an object`)
       continue
+    }
+    const playsAt = checkOverlayAnchor(
+      o,
+      name,
+      docIn,
+      recording,
+      anchorPieces,
+      problems,
+      warnings,
+    )
+    if (
+      o.kind === 'text' &&
+      o.preset === 'caption' &&
+      o.pin === undefined &&
+      isNum(playsAt) &&
+      isNum(o.duration) &&
+      o.duration > 0
+    ) {
+      const label = typeof o.id === 'string' ? `${name} (${o.id})` : name
+      captionTimes.push({
+        name: label,
+        start: playsAt,
+        end: playsAt + o.duration,
+      })
     }
     if (
       o.kind !== 'text' &&
@@ -1208,10 +1246,10 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
     if (
       footageEnd !== null &&
       footageEnd > 0 &&
-      isNum(o.start) &&
+      isNum(playsAt) &&
       isNum(o.duration)
     ) {
-      const over = o.start + o.duration - footageEnd
+      const over = playsAt + o.duration - footageEnd
       // A card that LEAVES when its footage ends is an ending on the ground,
       // made on purpose: a layer past the footage is that ending's words.
       const frameAnim =
@@ -1226,8 +1264,8 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       const cardLeaves = exit !== undefined && exit !== 'none'
       if (over > 0.05 && !cardLeaves) {
         warnings.push(
-          o.start >= footageEnd
-            ? `${name} starts at ${o.start.toFixed(2)}s, after the footage ends (${footageEnd.toFixed(2)}s): it plays over the card's held last frame and lengthens the output by ${over.toFixed(2)}s. A trim moves the footage, never an OUTPUT-anchored layer: re-place it (vos callout with the same --id), put a freeze under it, or, for a closing card on the ground, let the card leave (frame.anim.exit: 'fade')`
+          playsAt >= footageEnd
+            ? `${name} starts at ${playsAt.toFixed(2)}s, after the footage ends (${footageEnd.toFixed(2)}s): it plays over the card's held last frame and lengthens the output by ${over.toFixed(2)}s. A trim moves the footage, never an OUTPUT-anchored layer: re-place it (vos callout with the same --id), put a freeze under it, or, for a closing card on the ground, let the card leave (frame.anim.exit: 'fade')`
             : `${name} ends ${over.toFixed(2)}s after the footage (${footageEnd.toFixed(2)}s): the card holds its last frame under it. Shorten it, put a freeze under it, or, for a closing card on the ground, let the card leave (frame.anim.exit: 'fade')`,
         )
       }
@@ -1914,6 +1952,20 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
     }
   }
 
+  // Two captions on screen at once read as one jumble in the margin they
+  // share: said by name, once the anchors have placed them.
+  captionTimes.sort((a, b) => a.start - b.start || a.end - b.end)
+  for (let i = 0; i < captionTimes.length; i++) {
+    for (let j = i + 1; j < captionTimes.length; j++) {
+      const a = captionTimes[i]
+      const b = captionTimes[j]
+      if (b.start >= a.end - EPS) break
+      warnings.push(
+        `${a.name} (${a.start.toFixed(2)}–${a.end.toFixed(2)}s) and ${b.name} (${b.start.toFixed(2)}–${b.end.toFixed(2)}s) are captions on screen at the same time; shorten the first, move one (an anchor's offset), or drop one`,
+      )
+    }
+  }
+
   // --- export block ---
   if (isObj(doc.export)) {
     const resolution = doc.export.resolution as ExportResolution
@@ -1944,6 +1996,92 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
   if (recording)
     framingWarnings(docIn as ProjectDoc, doc, zoom, overlays ?? [], warnings)
   return { problems, warnings }
+}
+
+/**
+ * A layer's `anchor`: when it starts, as a recorder step. Checked for its
+ * shape, then resolved against the steps and the cut the way the lowering
+ * resolves it; one that cannot resolve plays at its `start`, which is said.
+ * Answers the OUTPUT second the layer plays at (its `start` when it has no
+ * anchor or the anchor cannot resolve), null when neither is a number.
+ */
+function checkOverlayAnchor(
+  o: Json,
+  name: string,
+  docIn: StudioDoc,
+  recording: boolean,
+  pieces: ReturnType<typeof ratedSegments> | null,
+  problems: string[],
+  warnings: string[],
+): number | null {
+  const fallback = isNum(o.start) ? o.start : null
+  const words = o.kind === 'text' ? (o.text as RichText | undefined) : undefined
+  const elapsed = o.kind === 'text' && hasElapsed(words)
+  if (o.anchor === undefined) {
+    if (elapsed)
+      warnings.push(
+        `${name}: its words carry {elapsed}, which fills only from an anchored step's off-camera wait; anchor it (anchor: { step }) or write the duration`,
+      )
+    return fallback
+  }
+  const a = o.anchor
+  if (!isObj(a)) {
+    problems.push(`${name}.anchor must be { step, media?, at?, offset? }`)
+    return fallback
+  }
+  let shaped = true
+  if (
+    typeof a.step !== 'string' &&
+    !(isNum(a.step) && Number.isInteger(a.step) && a.step >= 0)
+  ) {
+    problems.push(
+      `${name}.anchor.step must be a step id (string) or its index (integer ≥ 0)`,
+    )
+    shaped = false
+  }
+  if (a.media !== undefined && typeof a.media !== 'string') {
+    problems.push(`${name}.anchor.media must be a media[].id (string)`)
+    shaped = false
+  }
+  if (a.at !== undefined && a.at !== 'start' && a.at !== 'end') {
+    problems.push(`${name}.anchor.at must be "start" or "end"`)
+    shaped = false
+  }
+  if (a.offset !== undefined && !isNum(a.offset)) {
+    problems.push(`${name}.anchor.offset must be a number (OUTPUT seconds)`)
+    shaped = false
+  }
+  if (!shaped || !recording || !pieces) return fallback
+  const r = resolveAnchor(
+    docIn as ProjectDoc,
+    a as unknown as OverlayAnchor,
+    pieces,
+  )
+  const step = `step ${JSON.stringify(a.step)}${typeof a.media === 'string' ? ` of media ${a.media}` : ''}`
+  const at = fallback === null ? 'nowhere' : `${fallback.toFixed(2)}s`
+  if (r.start === null) {
+    const why =
+      r.miss === 'media'
+        ? `media "${String(a.media)}" is not one of media[].id`
+        : r.miss === 'step'
+          ? `${step} is not in its meta.steps`
+          : r.miss === 'skipped'
+            ? `${step} was skipped by the recorder`
+            : `the cut leaves ${step} out`
+    warnings.push(
+      `${name}.anchor: ${why}, so it plays at its fallback start (${at}); re-anchor it, or keep the footage that step plays in`,
+    )
+  }
+  if (
+    elapsed &&
+    r.elapsedMs === undefined &&
+    r.miss !== 'media' &&
+    r.miss !== 'step'
+  )
+    warnings.push(
+      `${name}: {elapsed} stays as written, because ${step} recorded no off-camera wait (an await step's ms)`,
+    )
+  return r.start ?? fallback
 }
 
 interface DownEvent {
