@@ -8,8 +8,11 @@
  * while the surface under it is 1280x633, and every frame of the take loses
  * the bottom 87 px (measured, Chrome 155 on macOS; a viewport of any size
  * loses the same strip, and a window made LARGER than the viewport hands
- * back more than the page). Playwright's bundled headless shell has no
- * frame and is exact already, so a fit there measures and does nothing.
+ * back more than the page). Two cases are exact already, and a fit there
+ * measures and does nothing: Playwright's bundled headless shell, and a
+ * page a persistent context opens with `newPage()` (a `--session` take),
+ * while the first page of that same context and every page of a
+ * `newContext()` (the default take, `--storage-state`) are short.
  *
  * So before the camera rolls: one screenshot says what the surface really
  * is, the window's bounds take the difference, and a second screenshot
