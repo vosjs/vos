@@ -8,7 +8,11 @@
  * media element's source. Skipped, and said, where no browser launches.
  */
 import { createServer } from 'node:http'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { run } from '../run'
 import {
   RecordRefusedError,
   planFreshTake,
@@ -363,7 +367,14 @@ describe('download keeps what the page makes', () => {
     expect([...saved[1].bytes]).toEqual([...CLIP])
     expect(saved[1].type).toBe('video/webm')
     expect(result.meta.outputs).toEqual([
-      { step: 0, id: 'export', name: 'report.csv', bytes: CSV.length },
+      {
+        step: 0,
+        id: 'export',
+        name: 'report.csv',
+        bytes: CSV.length,
+        // A browser download carries no headers: the type is the name's.
+        contentType: 'text/csv',
+      },
       {
         step: 1,
         name: 'clip.webm',
@@ -498,4 +509,162 @@ describe("the page's own errors", () => {
       { text: 'second, short error', count: 1 },
     ])
   }, 60_000)
+})
+
+describe('a rehearsal of a step that spends', () => {
+  it('does not wait on an expect or an await that follows it', async () => {
+    if (!browser) return
+    const started = Date.now()
+    const logs: string[] = []
+    const result = await recordTake(
+      browser,
+      `${base}/`,
+      {
+        viewport: VIEWPORT,
+        steps: [
+          { id: 'buy', do: 'click', selector: '#buy', guard: 'spend' },
+          {
+            id: 'bought',
+            do: 'await',
+            until: { text: 'Thanks for your order' },
+            timeout: 120,
+          },
+          { do: 'expect', selector: '#receipt', timeout: 60 },
+          { do: 'click', selector: '#start', ms: 50 },
+        ],
+      },
+      frameSink(),
+      (m) => logs.push(m),
+      { dryRun: true, env: {} },
+    )
+    expect(Date.now() - started).toBeLessThan(20_000)
+    expect(result.skipped).toEqual([])
+    expect(result.stopped).toBeNull()
+    expect(result.meta.steps?.map((s) => s.followsGuard)).toEqual([
+      undefined,
+      0,
+      0,
+      undefined,
+    ])
+    expect(logs).toContain(
+      '#1 bought await: not waited: it follows #0 (guarded, not pressed)',
+    )
+  }, 60_000)
+})
+
+describe('a long await reports progress', () => {
+  it('says start, a heartbeat while it waits, and end', async () => {
+    if (!browser) return
+    const events: Record<string, unknown>[] = []
+    await recordTake(
+      browser,
+      `${base}/`,
+      {
+        viewport: VIEWPORT,
+        steps: [
+          { do: 'click', selector: '#start', ms: 50 },
+          {
+            id: 'ready',
+            do: 'await',
+            until: { selector: '#result' },
+            poll: 0.2,
+          },
+        ],
+      },
+      frameSink(),
+      () => {},
+      {
+        dryRun: true,
+        env: {},
+        onEvent: (e) => void events.push(e),
+        awaitHeartbeatMs: 500,
+      },
+    )
+    const phases = events.map((e) => e.phase)
+    expect(phases[0]).toBe('start')
+    expect(phases.at(-1)).toBe('end')
+    expect(phases.filter((p) => p === 'wait').length).toBeGreaterThanOrEqual(3)
+    expect(events.every((e) => e.event === 'await' && e.id === 'ready')).toBe(
+      true,
+    )
+    const end = events.at(-1)!
+    expect(end.held).toBe(true)
+    expect(end.ms).toBeGreaterThan(2000)
+  }, 60_000)
+
+  it('records no skip and splits nothing when it held at once', async () => {
+    if (!browser) return
+    const result = await recordTake(
+      browser,
+      `${base}/`,
+      {
+        viewport: VIEWPORT,
+        steps: [
+          { do: 'await', until: { selector: '#buy' } },
+          { do: 'wait', ms: 200 },
+        ],
+      },
+      frameSink(),
+      () => {},
+      { env: {} },
+    )
+    expect(result.meta.skips).toBeUndefined()
+    expect(result.meta.steps?.[0].offCameraMs).toBeLessThan(250)
+    const doc = planFreshTake(
+      { videoKey: 'recording.webm', cursor: result.events, meta: result.meta },
+      'recording.webm',
+    )
+    expect(doc.segments).toHaveLength(1)
+  }, 60_000)
+})
+
+describe('vos record --dry-run', () => {
+  it('counts resolved steps out of the whole script', async () => {
+    if (!browser) return
+    const dir = await mkdtemp(join(tmpdir(), 'vos-rehearse-'))
+    const file = join(dir, 'actions.json')
+    await writeFile(
+      file,
+      JSON.stringify({
+        url: `${base}/`,
+        viewport: VIEWPORT,
+        steps: [
+          { do: 'wait', ms: 50 },
+          { do: 'wait', ms: 50 },
+          { do: 'await', until: { text: 'never' }, timeout: 0.3, poll: 0.1 },
+          { do: 'wait', ms: 50 },
+          { do: 'wait', ms: 50 },
+          { do: 'wait', ms: 50 },
+        ],
+      }),
+    )
+    const out: string[] = []
+    const spy = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation((s) => out.push(String(s)) > 0)
+    const errSpy = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation(() => true)
+    let code: number
+    try {
+      code = await run([
+        'record',
+        '--actions',
+        file,
+        '--dry-run',
+        '--background',
+        'none',
+        '--max-duration',
+        '60',
+      ])
+    } finally {
+      spy.mockRestore()
+      errSpy.mockRestore()
+    }
+    const text = out.join('')
+    // The await stopped the rehearsal: three of six ran and resolved.
+    expect(code).toBe(1)
+    expect(text).toContain('3/6 steps resolved')
+    expect(text).toContain('#3 wait  not run')
+  }, 90_000)
 })

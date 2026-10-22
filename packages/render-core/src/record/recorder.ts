@@ -71,7 +71,7 @@ import {
   sayCondition,
   sayDuration,
 } from './waits'
-import type { WaitCondition } from './waits'
+import type { PollResult, WaitCondition } from './waits'
 import {
   OUTPUT_MAX_BYTES,
   readMediaSource,
@@ -85,6 +85,10 @@ import {
 const EXPECT_EVERY_MS = 100
 /** How long a `download` src waits for its element to have a source. */
 const SRC_WAIT_MS = 8000
+/** How often a long `await` says it is still waiting, in ms. */
+export const AWAIT_HEARTBEAT_MS = 30_000
+/** An `await` that held sooner than this cut nothing: no skip, no segment split. */
+export const MIN_SKIP_MS = 250
 
 /** How long a `read` waits for its element after the step settled. */
 const READ_WAIT_MS = 1500
@@ -296,6 +300,13 @@ export interface RecordOpts {
   outputs?: OutputSink
   /** Print every page error whole, each time it comes; by default one cut line per distinct error. */
   verbose?: boolean
+  /**
+   * Structured progress for a host that reports it (the CLI's `--json`):
+   * an `await`'s start, a heartbeat while it waits, and its end.
+   */
+  onEvent?: (event: Record<string, unknown>) => void
+  /** How often a long `await` reports it is still waiting (default 30 s). */
+  awaitHeartbeatMs?: number
 }
 
 /** The longest any pause lasts in a rehearsal. */
@@ -738,6 +749,9 @@ export async function recordTake(
   const outputs: RecordingOutput[] = []
   const outputNames = new Set<string>()
   let stopped: StoppedTake | null = null
+  // The last guarded step a rehearsal left unpressed: what follows it and
+  // waits for its result (an expect, an await) cannot see that result.
+  let unpressedGuard: number | null = null
   let capped = false
   for (const [stepIdx, step] of actions.steps.entries()) {
     // The cap is checked between steps (a step is one gesture and runs
@@ -797,6 +811,20 @@ export async function recordTake(
           `${tag}: guarded (${step.guard}), ${rect ? 'hovered' : 'left alone'}, not pressed`,
         )
       }
+      unpressedGuard = stepIdx
+      return true
+    }
+    /**
+     * In a rehearsal, an expect or an await after an unpressed guarded step
+     * waits for a result that cannot come: it is said and counted as
+     * resolved, never waited out. True when the case must stop there.
+     */
+    const notWaited = (): boolean => {
+      if (!dry || unpressedGuard === null) return false
+      extra.followsGuard = unpressedGuard
+      log(
+        `${tag} ${step.do}: not waited: it follows #${unpressedGuard} (guarded, not pressed)`,
+      )
       return true
     }
     switch (step.do) {
@@ -1033,6 +1061,7 @@ export async function recordTake(
         break
       }
       case 'expect': {
+        if (notWaited()) break
         // A check, on camera, with no cursor move and no input: the page is
         // read until the condition holds or the step's time runs out.
         const cond: WaitCondition = step
@@ -1051,6 +1080,7 @@ export async function recordTake(
         break
       }
       case 'await': {
+        if (notWaited()) break
         // OFF CAMERA: the capture stops, the page is polled, and the take
         // resumes the moment the condition holds, so a 40-second render is
         // a cut in the footage, never 40 seconds of a spinner.
@@ -1071,20 +1101,45 @@ export async function recordTake(
             }
           : undefined
         log(`await ${sayCondition(cond)} (off camera)…`)
-        const { out, at, ms } = await offCamera(() =>
-          pollCondition(page, cond, {
-            timeoutMs,
-            everyMs: (step.poll ?? AWAIT_POLL_S) * 1000,
-            sleep: realSleep,
-            between: reload,
-            // After a reload the condition must hold on two reads in a row,
-            // or a half-built page ends the wait early.
-            ...(reload ? { confirm: { reads: 2, gapMs: 500 } } : {}),
-          }),
-        )
+        const awaitEvent = {
+          event: 'await',
+          step: stepIdx,
+          ...(step.id ? { id: step.id } : {}),
+        }
+        opts.onEvent?.({ ...awaitEvent, phase: 'start' })
+        // A long wait says it is still waiting, so a host reading the
+        // events is never left with minutes of silence.
+        const beatMs = opts.awaitHeartbeatMs ?? AWAIT_HEARTBEAT_MS
+        const waitFrom = Date.now()
+        const beat = setInterval(() => {
+          const elapsedMs = Date.now() - waitFrom
+          opts.onEvent?.({ ...awaitEvent, phase: 'wait', elapsedMs })
+          log(`   still waiting, ${sayDuration(elapsedMs)} so far`)
+        }, beatMs)
+        let waited: { out: PollResult; at: number; ms: number }
+        try {
+          waited = await offCamera(() =>
+            pollCondition(page, cond, {
+              timeoutMs,
+              everyMs: (step.poll ?? AWAIT_POLL_S) * 1000,
+              sleep: realSleep,
+              between: reload,
+              // After a reload the condition must hold on two reads in a
+              // row, or a half-built page ends the wait early.
+              ...(reload ? { confirm: { reads: 2, gapMs: 500 } } : {}),
+            }),
+          )
+        } finally {
+          clearInterval(beat)
+        }
+        const { out, at, ms } = waited
+        opts.onEvent?.({ ...awaitEvent, phase: 'end', ms, held: out.ok })
         extra.offCameraMs = ms
         if (!out.ok) extra.timedOut = true
-        if (!dry)
+        // A wait that held at once (the page already showed it) cut
+        // nothing worth a segment: the step reports it, the footage does
+        // not split on it.
+        if (!dry && (ms >= MIN_SKIP_MS || !out.ok))
           skips.push({
             step: stepIdx,
             ...(step.id ? { id: step.id } : {}),
@@ -1146,6 +1201,9 @@ export async function recordTake(
                   got = {
                     bytes: await readAllBytes(stream),
                     suggested: dl.suggestedFilename(),
+                    // A browser download carries no headers here: the type is
+                    // read from the name the page gave it.
+                    ...typeOfName(dl.suggestedFilename()),
                   }
               }
             }
@@ -1363,4 +1421,13 @@ const EXT_FOR_TYPE: Record<string, string> = {
 
 export function extForType(type: string | undefined): string {
   return (type && EXT_FOR_TYPE[type.split(';')[0].trim().toLowerCase()]) ?? ''
+}
+
+/** A download's type from its name's extension, as `{ contentType }`, or `{}` when the extension says nothing. */
+export function typeOfName(name: string): { contentType?: string } {
+  const ext = name.slice(name.lastIndexOf('.')).toLowerCase()
+  if (!name.includes('.')) return {}
+  for (const [type, e] of Object.entries(EXT_FOR_TYPE))
+    if (e === ext) return { contentType: type }
+  return ext === '.jpeg' ? { contentType: 'image/jpeg' } : {}
 }

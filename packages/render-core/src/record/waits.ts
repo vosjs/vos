@@ -57,6 +57,13 @@ export async function readCondition(
   return { holds: false }
 }
 
+/** What a poll found: whether the condition held, after how long, and the last read. */
+export interface PollResult {
+  ok: boolean
+  ms: number
+  last: ConditionState
+}
+
 /**
  * Poll the condition every `everyMs` until it holds or `timeoutMs` pass.
  * `between` runs before each look but the first (an `await`'s reload).
@@ -78,7 +85,7 @@ export async function pollCondition(
     between?: () => Promise<void>
     confirm?: { reads: number; gapMs: number }
   },
-): Promise<{ ok: boolean; ms: number; last: ConditionState }> {
+): Promise<PollResult> {
   const now = opts.now ?? Date.now
   const start = now()
   const reads = Math.max(1, opts.confirm?.reads ?? 1)

@@ -138,13 +138,14 @@ describe('a media element’s source', () => {
 })
 
 describe('dead time', () => {
-  it('leaves an expect and an await out: their wait is the page’s', () => {
+  it('leaves an expect, an await and a download out: their wait is the page’s', () => {
     const steps = [
       { step: 0, do: 'expect', tStart: 0, tEnd: 5 },
       { step: 1, do: 'await', tStart: 5, tEnd: 9 },
-      { step: 2, do: 'wait', tStart: 9, tEnd: 14 },
+      { step: 2, do: 'download', tStart: 9, tEnd: 12 },
+      { step: 3, do: 'wait', tStart: 12, tEnd: 17 },
     ]
-    const dead = deadTime(steps, [{ tMs: 0 }], [], 14000)
+    const dead = deadTime(steps, [{ tMs: 0 }], [], 17000)
     expect(dead.steps.map((s) => s.do)).toEqual(['wait'])
   })
 })

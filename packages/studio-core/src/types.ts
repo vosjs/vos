@@ -347,6 +347,12 @@ export interface StepSpan {
   timedOut?: boolean
   /** A failed `expect`, a download that never came: why the step was skipped. */
   reason?: string
+  /**
+   * A rehearsal did not wait on this `expect` or `await`: it follows the
+   * guarded step at this index, which a rehearsal never presses, so what it
+   * waits for cannot come.
+   */
+  followsGuard?: number
 }
 
 /**
