@@ -40,7 +40,12 @@ export const manifest: PluginManifest = {
     {
       name: 'frames',
       summary:
-        'PNG stills at output times / zoom apexes / moments / exact sizes',
+        'PNG stills at output times / zoom apexes (each checked against its zoom-off twin) / moments / exact sizes',
+    },
+    {
+      name: 'check-video',
+      summary:
+        'check a rendered file: facts, scene changes, loudness, first and last frames',
     },
     {
       name: 'deliver',
