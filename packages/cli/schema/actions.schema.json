@@ -80,6 +80,12 @@
         }
       }
     },
+    "ready": {
+      "type": "string",
+      "enum": ["settle", "networkidle"],
+      "default": "settle",
+      "description": "When the first page counts as ready for step 1. settle: after load, once the page has made no DOM change for 800 ms, at most 8 s. networkidle: once the network has gone quiet, at most 45 s, which a page holding a socket open or an analytics beacon never does. The same mode opens a setup goto, the page after a setup, and an await's reload. `--ready` overrides. The done event's `ready` says how the first load settled ({ mode, ms, capped }); `navTimeout` is true only when networkidle was asked for and never came."
+    },
     "mask": {
       "type": "array",
       "description": "Hidden BEFORE the first frame is captured and kept hidden across navigations and re-renders: what a signed-in account shows that must not ship. The real value is never in a frame, never in the recording, never pushed. `vos record` reports what it still sees afterwards (meta.exposures), and a mask whose selector reached nothing fails --strict.",

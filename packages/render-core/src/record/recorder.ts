@@ -64,9 +64,10 @@ import {
   guardVerdict,
 } from './actions'
 import type { ActionsFile } from './actions'
+import { DEFAULT_READY, readyLine, reloadUntilReady, untilReady } from './ready'
+import type { ReadyReport } from './ready'
 import {
   conditionMiss,
-  domSettled,
   pollCondition,
   sayCondition,
   sayDuration,
@@ -200,8 +201,10 @@ export interface RecordResult {
   pace: PaceReport
   /** steps whose selector never became visible — the take continued without them. */
   skipped: SkippedStep[]
-  /** the initial goto never reached networkidle (recording proceeded anyway). */
+  /** `ready: "networkidle"` was asked for and the first load never reached it (recording proceeded anyway). */
   navTimeout: boolean
+  /** How the first load settled before step 1. */
+  ready: ReadyReport
   /** A wall the caller let through; null when the recorder landed where it was asked. */
   wall: WallVerdict | null
   /** Sensitive-looking text seen in the frame (kind + place, never the string). */
@@ -422,16 +425,21 @@ export async function recordTake(
     if (line) log(line)
   })
 
-  log(`goto ${url}`)
-  let navTimeout = false
-  let response = await page
-    .goto(url, { waitUntil: 'networkidle', timeout: 45000 })
-    .catch(() => {
-      navTimeout = true
-      log('   (networkidle timeout — continuing)')
-      return null
+  // When the first page counts as ready: its DOM settled (default), or
+  // its network went idle (`ready: "networkidle"`). Polled on the wall's
+  // clock in a rehearsal too: how long a page takes is what it is for.
+  const readyMode = actions.ready ?? DEFAULT_READY
+  const open = (target: string) =>
+    untilReady(page, readyMode, (o) => page.goto(target, o), {
+      sleep: realSleep,
     })
-  await sleep(800) // hydration settle
+  log(`goto ${url}`)
+  const opened = await open(url)
+  let response = opened.response
+  const ready: ReadyReport = opened.ready
+  log(`   ${readyLine(ready)}`)
+  // A warning only when network idle was asked for and never came.
+  const navTimeout = ready.mode === 'networkidle' && ready.capped
 
   // The setup: off camera, before the wall is judged, because a setup that
   // signs in is exactly what makes the wall not there. A selector that never
@@ -442,6 +450,7 @@ export async function recordTake(
     const result = await runSetup(page, setup, {
       sleep: realSleep,
       env: opts.env ?? {},
+      goto: (target) => open(target),
     })
     for (const line of result.lines) log(`   ${line}`)
     if (result.failed) {
@@ -450,10 +459,7 @@ export async function recordTake(
     }
     // Back to the page the take is OF, signed in and past the banners.
     log(`goto ${url} (after setup)`)
-    response = await page
-      .goto(url, { waitUntil: 'networkidle', timeout: 45000 })
-      .catch(() => null)
-    await sleep(800)
+    response = (await open(url)).response
   }
 
   // A wall the caller let through (--allow-wall, or a soft one without
@@ -1087,18 +1093,7 @@ export async function recordTake(
         const cond: WaitCondition = step.until
         const timeoutMs = (step.timeout ?? AWAIT_TIMEOUT_S) * 1000
         const reload = step.reload
-          ? async () => {
-              const opts = {
-                waitUntil: 'networkidle' as const,
-                timeout: Math.min(45000, timeoutMs),
-              }
-              await (
-                page.reload ? page.reload(opts) : page.goto(page.url(), opts)
-              ).catch(() => null)
-              // Network quiet is not a drawn page: a list rendered from its
-              // data lands after it. Let the DOM settle before the look.
-              await domSettled(page, { sleep: realSleep })
-            }
+          ? () => reloadUntilReady(page, readyMode, timeoutMs)
           : undefined
         log(`await ${sayCondition(cond)} (off camera)…`)
         const awaitEvent = {
@@ -1382,6 +1377,7 @@ export async function recordTake(
     pace,
     skipped,
     navTimeout,
+    ready,
     wall,
     exposures: exposureLog.exposures(),
     masks: exposureLog.masks(masks),

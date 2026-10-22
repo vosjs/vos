@@ -85,7 +85,9 @@ import {
   guardVerdict,
   guardedSteps,
   hostedRefusals,
+  readyProblem,
 } from '@vosjs/render-core/record'
+import type { ReadyMode, ReadyReport } from '@vosjs/render-core/record'
 import { WALL_PROBE, WallError, wallVerdict } from './wall'
 import { EXPOSURE_ADVICE, exposureLine } from './exposure'
 import { SetupEnvError, SetupError, parseHeaders } from './setup'
@@ -184,8 +186,8 @@ export const MULTI_FLAGS = new Set([
 export const HELP = `vos — record a browser flow, plan effects, render a product video; sync with vos.so
 
 Take pipeline
-  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
-  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [--verbose] [--json]
+  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--allow-wall] [--keep-frames] [--max-duration <s>] [--ready settle|networkidle] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
+  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--allow-wall] [--keep-frames] [--max-duration <s>] [--ready settle|networkidle] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [--verbose] [--json]
   vos record --hosted --actions actions.json [--url <url>] [--out take] [--title "…"] [--folder <id>] [--header name=value]... [--json]
             the take recorded on vos.so's fleet (no browser here): lands as a private vos with its doc and digest, then fetched into --out with its media
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions|--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
@@ -368,9 +370,12 @@ script edits.
 record --strict exits 2 when any selector was skipped, an expect never
 held, a click landed on a disabled control, an await timed out, or the
 take hit --max-duration (the done event lists skipped[], disabled[] and
-capped either way). A first load that never reaches networkidle (a page
-holding a socket open) is a warning, navTimeout in the done event, never
-a strict failure. --max-duration defaults to
+capped either way). Step 1 runs once the first page has stopped changing
+(after load, 800 ms with no DOM change, at most 8 s); --ready networkidle
+(or "ready" in actions.json) waits for network idle instead, at most 45 s,
+which a page holding a socket open never reaches. The done event's ready
+{ mode, ms, capped } says how it settled; navTimeout is true only when
+networkidle was asked for and never came; neither is a strict failure. --max-duration defaults to
 the hosted recording cap, read live from GET /api/limits (30 min when the
 origin is unreachable): the capture stops there and says so in one line.
 Three steps beyond the gestures: expect checks the page on camera
@@ -591,11 +596,36 @@ export function strictFails(rec: RecordResult): boolean {
   )
 }
 
-/** The warning a take or rehearsal prints when the first load never went network-idle. */
-function navTimeoutNote(rec: { navTimeout: boolean }): string {
-  return rec.navTimeout
-    ? '\n  note: the first load never reached networkidle (a page holding a socket open never does); recorded anyway'
-    : ''
+/**
+ * `--ready settle|networkidle`: when the first page counts as ready, over
+ * the script's own `ready`. Folded into the actions, so the take's
+ * actions.json says how it was recorded and a hosted take carries it.
+ */
+function withReady(
+  actions: ActionsFile,
+  flags: ParsedArgs['flags'],
+): ActionsFile {
+  const asked = strFlag(flags, 'ready')
+  if (asked === undefined) return actions
+  const problem = readyProblem(asked)
+  if (problem) throw new UsageError(`--${problem}`)
+  return { ...actions, ready: asked as ReadyMode }
+}
+
+/**
+ * The note a take or rehearsal prints when the first load gave up waiting:
+ * network idle never came (asked for with `ready: "networkidle"`), or the
+ * page never stopped changing within the settle's cap.
+ */
+function navTimeoutNote(rec: {
+  navTimeout: boolean
+  ready?: ReadyReport
+}): string {
+  if (rec.navTimeout)
+    return '\n  note: the first load never reached networkidle (a page holding a socket open never does); recorded anyway. The default, ready "settle", waits for the page to stop changing instead'
+  if (rec.ready?.mode === 'settle' && rec.ready.capped)
+    return `\n  note: the first page was still changing after ${(rec.ready.ms / 1000).toFixed(1)} s (an animation, a ticker); the take started anyway. Give step 1 a wait if the page needs longer`
+  return ''
 }
 
 /** A mask whose selector never reached an element hid nothing. */
@@ -853,7 +883,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
       'vos record --actions actions.json [--url <url>] [--out take]',
     )
   const r = createReporter(flags.json === true)
-  const actions = await loadActions(actionsPath)
+  const actions = withReady(await loadActions(actionsPath), flags)
   const url = strFlag(flags, 'url') ?? actions.url
   if (!url)
     throw new UsageError('no URL — set "url" in the actions file or pass --url')
@@ -1090,10 +1120,11 @@ async function cmdRecord(argv: string[]): Promise<number> {
           pageErrors: rec.pageErrors,
           ...(rec.stopped ? { stopped: rec.stopped } : {}),
           navTimeout: rec.navTimeout,
+          ready: rec.ready,
           exposures: rec.exposures,
           masks: rec.masks,
         },
-        `${failed ? 'REHEARSAL FAILED' : 'Rehearsal passed'}: ${resolved}/${actions.steps.length} steps resolved in ${((Date.now() - started) / 1000).toFixed(1)}s${rec.navTimeout ? ' (the first load never reached networkidle)' : ''}\n${lines.join('\n')}\n  ${maskMisses(rec).length ? `MASK hid nothing: ${maskMisses(rec).join(', ')} (the selector reached no element). ` : ''}${rec.stopped ? `STOPPED: ${rec.stopped.reason}. ` : ''}${failed ? 'Fix the script, rehearse again, then record.' : `Rects are capture px (the step rects a pin or a callout reads). Next: vos record --actions ${actionsPath} --out ${nextOut}${carried ? ` ${carried}` : ''} --strict${guardNote}`}${exposureNote(rec)}`,
+        `${failed ? 'REHEARSAL FAILED' : 'Rehearsal passed'}: ${resolved}/${actions.steps.length} steps resolved in ${((Date.now() - started) / 1000).toFixed(1)}s${rec.navTimeout ? ' (the first load never reached networkidle)' : rec.ready.capped ? ' (the first page never stopped changing)' : ''}\n${lines.join('\n')}\n  ${maskMisses(rec).length ? `MASK hid nothing: ${maskMisses(rec).join(', ')} (the selector reached no element). ` : ''}${rec.stopped ? `STOPPED: ${rec.stopped.reason}. ` : ''}${failed ? 'Fix the script, rehearse again, then record.' : `Rects are capture px (the step rects a pin or a callout reads). Next: vos record --actions ${actionsPath} --out ${nextOut}${carried ? ` ${carried}` : ''} --strict${guardNote}`}${exposureNote(rec)}`,
       )
       // An await that gave up stops the take, in a rehearsal as in a record.
       return rec.stopped ? EXIT_ERROR : failed ? EXIT_USAGE : EXIT_OK
@@ -1188,6 +1219,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
         zoomSpans: plan.doc.zoom.length,
         skipped: rec.skipped,
         navTimeout: rec.navTimeout,
+        ready: rec.ready,
         freezes: rec.freezes,
         freezePct: rec.freezePct,
         dead: rec.dead,
@@ -1234,7 +1266,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
     )
   }
   const r = createReporter(flags.json === true)
-  const actions = await loadActions(actionsPath)
+  const actions = withReady(await loadActions(actionsPath), flags)
   const url = strFlag(flags, 'url') ?? actions.url
   if (!url)
     throw new UsageError('no URL — set "url" in the actions file or pass --url')
@@ -1327,6 +1359,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
           skipped: rec.skipped,
           disabled: rec.disabled,
           navTimeout: rec.navTimeout,
+          ready: rec.ready,
           capped: rec.capped,
           strictFailed: true,
           rendered: false,
@@ -1367,6 +1400,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
         ...result,
         skipped: rec.skipped,
         navTimeout: rec.navTimeout,
+        ready: rec.ready,
         freezes: rec.freezes,
         freezePct: rec.freezePct,
         dead: rec.dead,

@@ -73,13 +73,13 @@ export interface RecorderConsoleMessage {
 export interface RecorderPage {
   goto(
     url: string,
-    opts: { waitUntil: 'networkidle'; timeout: number },
+    opts: { waitUntil: 'networkidle' | 'load'; timeout: number },
   ): Promise<RecorderResponse | null>
   url(): string
   title(): Promise<string>
   /** An `await` with `reload: true`; absent, the recorder opens the page's URL again. */
   reload?(opts: {
-    waitUntil: 'networkidle'
+    waitUntil: 'networkidle' | 'load'
     timeout: number
   }): Promise<RecorderResponse | null>
   /** A `download` step's click; absent, the recorder says the browser reports none. */
