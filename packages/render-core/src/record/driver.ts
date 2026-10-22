@@ -25,6 +25,24 @@ export interface RecorderLocator {
   boundingBox(): Promise<RecorderRect | null>
   click(): Promise<unknown>
   fill(value: string): Promise<unknown>
+  /** what an `expect` and an `await` read, and the disabled-click report */
+  isVisible(): Promise<boolean>
+  isEnabled(opts?: { timeout?: number }): Promise<boolean>
+}
+
+/** A browser download, as Playwright's `Download` answers it. */
+export interface RecorderDownload {
+  suggestedFilename(): string
+  // A Node Readable on Playwright; any async stream of byte chunks will do.
+  createReadStream(): Promise<AsyncIterable<unknown> | null>
+}
+
+/** The page's own request context (its cookies), as Playwright's `APIResponse` answers. */
+export interface RecorderApiResponse {
+  ok(): boolean
+  status(): number
+  headers(): Record<string, string>
+  body(): Promise<Uint8Array>
 }
 
 export interface RecorderLocatorRoot {
@@ -47,6 +65,20 @@ export interface RecorderPage {
   ): Promise<RecorderResponse | null>
   url(): string
   title(): Promise<string>
+  /** An `await` with `reload: true`; absent, the recorder opens the page's URL again. */
+  reload?(opts: {
+    waitUntil: 'networkidle'
+    timeout: number
+  }): Promise<RecorderResponse | null>
+  /** A `download` step's click; absent, the recorder says the browser reports none. */
+  waitForEvent?(
+    event: 'download',
+    opts: { timeout: number },
+  ): Promise<RecorderDownload>
+  /** A `download` step's `src` fetch, with the page's cookies; absent, it fetches in the page. */
+  request?: {
+    get(url: string, opts?: { timeout?: number }): Promise<RecorderApiResponse>
+  }
   // Playwright's evaluate takes a function or an expression string; the
   // recorder hands it strings (the probes) and small functions.
   evaluate<T>(pageFunction: string | (() => T)): Promise<T>
@@ -119,6 +151,19 @@ export interface RecorderBrowser {
  */
 export interface FrameSink {
   frame(file: string, bytes: Uint8Array): Promise<void> | void
+}
+
+/**
+ * Where a `download` step's file goes: the CLI writes `outputs/<name>` in
+ * the take directory. A host that hands in none cannot keep a download,
+ * and the recorder refuses such a script before capturing anything.
+ */
+export interface OutputSink {
+  save(
+    name: string,
+    bytes: Uint8Array,
+    contentType?: string,
+  ): Promise<void> | void
 }
 
 /** The clock and the pauses, injectable so a rehearsal runs fast. */

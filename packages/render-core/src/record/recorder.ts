@@ -15,6 +15,7 @@
  */
 import type {
   FrameSink,
+  OutputSink,
   RecorderBrowser,
   RecorderClock,
   RecorderContext,
@@ -44,13 +45,42 @@ import type { DeadReport, PaceReport, StepPace } from './pace'
 import type {
   CursorEvent,
   RecordingMeta,
+  RecordingOutput,
+  RecordingSkip,
   Rect,
   StepSpan,
 } from '@vosjs/studio-core'
 import { WALL_PROBE } from './wall'
 import { EXPOSURE_PROBE, ExposureLog, maskInitScript } from './exposure'
 import { SetupError, runSetup } from './setup'
+import {
+  AWAIT_POLL_S,
+  AWAIT_TIMEOUT_S,
+  DOWNLOAD_TIMEOUT_S,
+  EXPECT_TIMEOUT_S,
+  guardVerdict,
+} from './actions'
 import type { ActionsFile } from './actions'
+import {
+  conditionMiss,
+  pollCondition,
+  sayCondition,
+  sayDuration,
+} from './waits'
+import type { WaitCondition } from './waits'
+import {
+  OUTPUT_MAX_BYTES,
+  currentSrcScript,
+  fetchInPageScript,
+  nameFromUrl,
+  outputName,
+  readAllBytes,
+} from './outputs'
+
+/** How often an `expect` looks, in ms: on camera, so a beat, not a poll. */
+const EXPECT_EVERY_MS = 100
+/** How long a `download` src waits for its element to have a source. */
+const SRC_WAIT_MS = 8000
 
 /** How long a `read` waits for its element after the step settled. */
 const READ_WAIT_MS = 1500
@@ -117,8 +147,33 @@ export interface FrameRec {
 export interface SkippedStep {
   /** index into actions.steps */
   step: number
+  id?: string
   do: string
   selector: string
+  /** why, when it is not a selector that never appeared: an expect that never held, a download that never came */
+  reason?: string
+}
+
+/** A click whose target was disabled when it was pressed: the press happened, and likely did nothing. */
+export interface DisabledClick {
+  step: number
+  id?: string
+  selector: string
+}
+
+/** An `await` that timed out with `onTimeout: "fail"`: the take stopped there. */
+export interface StoppedTake {
+  step: number
+  id?: string
+  reason: string
+}
+
+/** Thrown before anything is captured: a guarded step the command did not confirm, a download with nowhere to land. */
+export class RecordRefusedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'RecordRefusedError'
+  }
 }
 
 /** A stretch with no screencast frames — the page pixels did not change. */
@@ -161,6 +216,16 @@ export interface RecordResult {
   dead: DeadReport
   /** The take reached --max-duration and stopped there; later steps did not run. */
   capped: boolean
+  /** Clicks pressed on a disabled target (reported; `--strict` fails on them). */
+  disabled: DisabledClick[]
+  /** The ids of the guarded steps this take pressed, because the command named them. */
+  confirmed: string[]
+  /** The cuts `await` steps made (also `meta.skips`). */
+  skips: RecordingSkip[]
+  /** The files `download` steps kept (also `meta.outputs`). */
+  outputs: RecordingOutput[]
+  /** An `await` timed out and the take stopped there; null when it ran to the end. */
+  stopped: StoppedTake | null
   /** The actions as recorded, `url` resolved: what a take directory writes back. */
   actions: ActionsFile
 }
@@ -211,6 +276,18 @@ export interface RecordOpts {
   env?: Record<string, string | undefined>
   /** The platform the take is recorded on, for `meta.platform`. */
   platform?: RecordingMeta['platform']
+  /**
+   * The ids of the guarded steps this recording may press (`--confirm`).
+   * A guarded step not named here refuses the take before anything is
+   * captured; a rehearsal hovers every guarded step and presses none.
+   */
+  confirm?: readonly string[]
+  /**
+   * Where a `download` step's file goes. A host that hands in none cannot
+   * keep a download: such a script is refused before anything is captured.
+   * A rehearsal fetches the file and keeps nothing.
+   */
+  outputs?: OutputSink
 }
 
 /** The longest any pause lasts in a rehearsal. */
@@ -282,6 +359,18 @@ export async function recordTake(
     : realSleep
   // A rehearsal is not held to the recording cap: its clock is not the take's.
   const maxSeconds = dry ? Infinity : (opts.maxDurationSeconds ?? Infinity)
+  // Refused BEFORE a browser context exists: a step that spends something
+  // real runs only when the command names it, and a download needs a place
+  // to land. A rehearsal presses no guarded step and keeps no file.
+  if (!dry) {
+    const guard = guardVerdict(actions, opts.confirm ?? [])
+    if (!guard.ok) throw new RecordRefusedError(guard.message)
+    const download = actions.steps.findIndex((s) => s.do === 'download')
+    if (download >= 0 && !opts.outputs)
+      throw new RecordRefusedError(
+        `steps[${download}] is a download, and this recorder has nowhere to keep a file. Nothing was recorded.`,
+      )
+  }
   const vw = actions.viewport?.width ?? 1280
   const vh = actions.viewport?.height ?? 720
   const context =
@@ -373,6 +462,13 @@ export async function recordTake(
   const frames: FrameRec[] = []
   let frameIdx = 0
   let t0 = 0
+  // The take's clock runs only while the camera does. An `await` stops the
+  // capture and polls off camera; its wall time joins `offMs`, so the
+  // footage clock, the cursor clock and every frame stamp after it read as
+  // if the wait never happened, and the cut sits at `cutAt`. A frame stamp
+  // never lands before the latest cut.
+  let offMs = 0
+  let cutAt = 0
   // Written from the screencast callback, so the read below does not
   // narrow: a box, not a plain local.
   const first: { dims: { w: number; h: number } | null } = { dims: null }
@@ -387,26 +483,51 @@ export async function recordTake(
       const file = `frame-${String(frameIdx++).padStart(5, '0')}.jpg`
       const bytes = base64Bytes(ev.data)
       if (!first.dims) first.dims = jpegDims(bytes)
-      frames.push({ file, tMs: Math.max(0, Math.round(tsMs - t0)) })
+      frames.push({
+        file,
+        tMs: Math.max(cutAt, Math.round(tsMs - t0 - offMs)),
+      })
       sinkChain = sinkChain.then(() => sink.frame(file, bytes)).catch(() => {})
       cdp
         .send('Page.screencastFrameAck', { sessionId: ev.sessionId })
         .catch(() => {})
     })
 
+  const screencast = {
+    format: 'jpeg',
+    quality: 90,
+    maxWidth: vw,
+    maxHeight: vh,
+    everyNthFrame: 1,
+  }
   t0 = Date.now()
-  if (!dry)
-    await cdp.send('Page.startScreencast', {
-      format: 'jpeg',
-      quality: 90,
-      maxWidth: vw,
-      maxHeight: vh,
-      everyNthFrame: 1,
-    })
+  if (!dry) await cdp.send('Page.startScreencast', screencast)
 
   const events: CursorEvent[] = []
   const cur = { x: 48, y: 48 }
-  const now = () => Date.now() - t0
+  const now = () => Date.now() - t0 - offMs
+
+  /**
+   * Run `fn` OFF CAMERA: the screencast stops, nothing is emitted, and on
+   * the way back the wall time it took is taken out of the take's clock,
+   * so the footage runs straight from the moment before to the moment
+   * after. Returns the cut's footage time and the wall time spent.
+   */
+  const offCamera = async <T>(
+    fn: () => Promise<T>,
+  ): Promise<{ out: T; at: number; ms: number }> => {
+    const at = now()
+    const from = Date.now()
+    if (!dry) await cdp.send('Page.stopScreencast').catch(() => {})
+    const out = await fn()
+    const ms = Date.now() - from
+    if (!dry) {
+      offMs += ms
+      cutAt = at
+      await cdp.send('Page.startScreencast', screencast).catch(() => {})
+    }
+    return { out, at, ms }
+  }
   const emit = (e: Omit<CursorEvent, 't'>) => events.push({ t: now(), ...e })
 
   await page.mouse.move(cur.x, cur.y)
@@ -483,6 +604,68 @@ export async function recordTake(
     }
   }
 
+  /**
+   * A media element's source, waited for like a selector: null when no
+   * element matches in time, '' when one does and has no source yet.
+   */
+  const srcOf = async (selector: string): Promise<string | null> => {
+    const deadline = Date.now() + SRC_WAIT_MS
+    for (;;) {
+      const v = await page
+        .evaluate<string | null>(currentSrcScript(selector))
+        .catch(() => null)
+      if (v || Date.now() >= deadline) return v
+      await realSleep(200)
+    }
+  }
+
+  /**
+   * Fetch a source with the page's own request context (its cookies), or
+   * inside the page for what only the page can read (a `blob:`, a
+   * `data:`). An address that fails is said without its query.
+   */
+  const fetchSource = async (
+    src: string,
+  ): Promise<{
+    bytes: Uint8Array
+    suggested: string
+    contentType?: string
+  }> => {
+    const abs = new URL(src, page.url()).href
+    const suggested = nameFromUrl(abs)
+    if (page.request && /^https?:/i.test(abs)) {
+      const res = await page.request.get(abs, {
+        timeout: DOWNLOAD_TIMEOUT_S * 1000,
+      })
+      if (!res.ok())
+        throw new Error(
+          `fetching ${publicUrl(abs) || 'the source'} answered ${res.status()}`,
+        )
+      const bytes = await res.body()
+      if (bytes.length > OUTPUT_MAX_BYTES)
+        throw new Error(
+          `the file is larger than ${OUTPUT_MAX_BYTES / 1024 / 1024} MB`,
+        )
+      const type = res.headers()['content-type']?.split(';')[0].trim()
+      return { bytes, suggested, ...(type ? { contentType: type } : {}) }
+    }
+    const r = await page.evaluate<{
+      b64?: string
+      type?: string
+      error?: string
+    } | null>(fetchInPageScript(abs))
+    if (!r || r.error || r.b64 === undefined)
+      throw new Error(
+        `fetching the source in the page failed: ${r?.error ?? 'no answer'}`,
+      )
+    const type = r.type?.split(';')[0].trim()
+    return {
+      bytes: base64Bytes(r.b64),
+      suggested,
+      ...(type ? { contentType: type } : {}),
+    }
+  }
+
   const clickAt = async (rect: Rect) => {
     await moveTo(rect.x + rect.w / 2, rect.y + rect.h / 2)
     await sleep(PRESS_LEAD_MS)
@@ -531,6 +714,12 @@ export async function recordTake(
   // skipped selector is marked, never silently absent.
   const stepSpans: StepSpan[] = []
   const paces: StepPace[] = []
+  const disabled: DisabledClick[] = []
+  const confirmed: string[] = []
+  const skips: RecordingSkip[] = []
+  const outputs: RecordingOutput[] = []
+  const outputNames = new Set<string>()
+  let stopped: StoppedTake | null = null
   let capped = false
   for (const [stepIdx, step] of actions.steps.entries()) {
     // The cap is checked between steps (a step is one gesture and runs
@@ -559,6 +748,39 @@ export async function recordTake(
     // The selector's box at the gesture: kept on the step so a layer can
     // name what the step touched (`overlays[].pin.step`).
     let stepRect: Rect | null = null
+    // What this step adds to its `meta.steps` entry beyond the common fields.
+    const extra: Partial<StepSpan> = {}
+    const tag = `#${stepIdx}${step.id ? ` ${step.id}` : ''}`
+    const skip = (selector: string, reason?: string) => {
+      skipped.push({
+        step: stepIdx,
+        ...(step.id ? { id: step.id } : {}),
+        do: step.do,
+        selector,
+        ...(reason ? { reason } : {}),
+      })
+      if (reason) extra.reason = reason
+    }
+    if (step.guard) extra.guard = step.guard
+    /**
+     * A rehearsal never presses a step that spends: the pointer goes to its
+     * target, so the selector is proven, and the press is left out. True
+     * when the step was rehearsed that way and its case must stop there.
+     */
+    const rehearseGuard = async (sel: string | undefined): Promise<boolean> => {
+      if (!step.guard || !dry) return false
+      const rect = sel ? await boxOf(sel) : null
+      stepRect = rect
+      if (sel && !rect) skip(sel)
+      else {
+        if (rect)
+          await gesture(() => moveTo(rect.x + rect.w / 2, rect.y + rect.h / 2))
+        log(
+          `${tag}: guarded (${step.guard}), ${rect ? 'hovered' : 'left alone'}, not pressed`,
+        )
+      }
+      return true
+    }
     switch (step.do) {
       case 'wait':
         await sleep(clampWait(step.ms, now(), maxSeconds))
@@ -578,9 +800,28 @@ export async function recordTake(
         break
       }
       case 'click': {
+        if (await rehearseGuard(step.selector)) break
         const rect = await boxOf(step.selector)
         stepRect = rect
         if (rect) {
+          // A press on a disabled control still happens (the flow is the
+          // flow), and is reported: it most likely did nothing, and a take
+          // built on it shows a button that never answered.
+          const enabled = await page
+            .locator(step.selector)
+            .first()
+            .isEnabled({ timeout: 1000 })
+            .catch(() => true)
+          if (!enabled) {
+            disabled.push({
+              step: stepIdx,
+              ...(step.id ? { id: step.id } : {}),
+              selector: step.selector,
+            })
+            log(
+              `   (${tag} click: ${step.selector} is disabled; pressed anyway)`,
+            )
+          }
           await gesture(() => clickAt(rect))
           log(`click ${step.selector}`)
           // The settle is the recorder's (watched on the screencast); the
@@ -592,6 +833,7 @@ export async function recordTake(
         break
       }
       case 'type': {
+        if (await rehearseGuard(step.selector)) break
         const rect = await boxOf(step.selector)
         stepRect = rect
         if (rect) {
@@ -641,6 +883,7 @@ export async function recordTake(
         break
       }
       case 'press': {
+        if (await rehearseGuard(step.selector)) break
         // One named key, recorded as a typing ping (when-and-where only,
         // never the key) so the planner's typing session holds through a
         // submitting Enter or an Escape that closes what a click opened.
@@ -771,8 +1014,174 @@ export async function recordTake(
         await sleep(400)
         break
       }
+      case 'expect': {
+        // A check, on camera, with no cursor move and no input: the page is
+        // read until the condition holds or the step's time runs out.
+        const cond: WaitCondition = step
+        const timeoutMs = (step.timeout ?? EXPECT_TIMEOUT_S) * 1000
+        const res = await pollCondition(page, cond, {
+          timeoutMs,
+          everyMs: EXPECT_EVERY_MS,
+          sleep: realSleep,
+        })
+        if (res.ok) log(`expect ${sayCondition(cond)}: holds`)
+        else {
+          const reason = conditionMiss(cond, res.last, timeoutMs)
+          skip(step.selector ?? step.gone ?? step.text ?? '', reason)
+          log(`   (${tag} expect: ${reason})`)
+        }
+        break
+      }
+      case 'await': {
+        // OFF CAMERA: the capture stops, the page is polled, and the take
+        // resumes the moment the condition holds, so a 40-second render is
+        // a cut in the footage, never 40 seconds of a spinner.
+        const cond: WaitCondition = step.until
+        const timeoutMs = (step.timeout ?? AWAIT_TIMEOUT_S) * 1000
+        const reload = step.reload
+          ? async () => {
+              const opts = {
+                waitUntil: 'networkidle' as const,
+                timeout: Math.min(45000, timeoutMs),
+              }
+              await (
+                page.reload ? page.reload(opts) : page.goto(page.url(), opts)
+              ).catch(() => null)
+            }
+          : undefined
+        log(`await ${sayCondition(cond)} (off camera)…`)
+        const { out, at, ms } = await offCamera(() =>
+          pollCondition(page, cond, {
+            timeoutMs,
+            everyMs: (step.poll ?? AWAIT_POLL_S) * 1000,
+            sleep: realSleep,
+            between: reload,
+          }),
+        )
+        extra.offCameraMs = ms
+        if (!out.ok) extra.timedOut = true
+        if (!dry)
+          skips.push({
+            step: stepIdx,
+            ...(step.id ? { id: step.id } : {}),
+            at: +(at / 1000).toFixed(3),
+            ms,
+            ...(out.ok ? {} : { timedOut: true }),
+          })
+        if (out.ok) log(`   held after ${sayDuration(ms)} off camera`)
+        else if ((step.onTimeout ?? 'fail') === 'continue')
+          log(
+            `   (${tag} await: ${conditionMiss(cond, out.last, ms)}; going on, as onTimeout says)`,
+          )
+        else {
+          stopped = {
+            step: stepIdx,
+            ...(step.id ? { id: step.id } : {}),
+            reason: `${tag} await: ${conditionMiss(cond, out.last, ms)}, so the take stopped there. Raise its timeout, or set onTimeout: "continue" to go on without it`,
+          }
+          extra.reason = stopped.reason
+          log(`   ${stopped.reason}`)
+        }
+        break
+      }
+      case 'download': {
+        // A file the page makes, kept in the take's outputs/: by the click
+        // that downloads it (the press is on camera, like any click), or by
+        // fetching what a media element plays with the page's own cookies.
+        let got: {
+          bytes: Uint8Array
+          suggested: string
+          contentType?: string
+        } | null = null
+        let reason: string | null = null
+        const target = step.selector ?? step.src ?? ''
+        try {
+          if (step.selector !== undefined) {
+            const rect = await boxOf(step.selector)
+            stepRect = rect
+            if (!rect) {
+              skip(step.selector)
+              break
+            }
+            if (!page.waitForEvent) {
+              reason = 'this browser reports no downloads'
+            } else {
+              const waitMs = DOWNLOAD_TIMEOUT_S * 1000
+              const arriving = page
+                .waitForEvent('download', { timeout: waitMs })
+                .catch(() => null)
+              await gesture(() => clickAt(rect))
+              log(`click ${step.selector} (download)`)
+              const dl = await arriving
+              if (!dl)
+                reason = `no download arrived within ${sayDuration(waitMs)} of the click on '${step.selector}'`
+              else {
+                const stream = await dl.createReadStream()
+                if (!stream) reason = 'the download failed in the browser'
+                else
+                  got = {
+                    bytes: await readAllBytes(stream),
+                    suggested: dl.suggestedFilename(),
+                  }
+              }
+            }
+          } else if (step.src !== undefined) {
+            const src = await srcOf(step.src)
+            if (src === null) reason = `no element matches '${step.src}'`
+            else if (!src) reason = `'${step.src}' has no source to fetch`
+            else got = await fetchSource(src)
+          }
+        } catch (e) {
+          reason = e instanceof Error ? e.message : String(e)
+        }
+        if (got) {
+          const name = outputName(
+            step.as,
+            got.suggested,
+            `download-${stepIdx}${extForType(got.contentType)}`,
+            outputNames,
+          )
+          outputNames.add(name)
+          if (!dry) await opts.outputs?.save(name, got.bytes, got.contentType)
+          outputs.push({
+            step: stepIdx,
+            ...(step.id ? { id: step.id } : {}),
+            name,
+            bytes: got.bytes.length,
+            ...(got.contentType ? { contentType: got.contentType } : {}),
+          })
+          log(
+            `download → outputs/${name} (${got.bytes.length} bytes)${dry ? ', not kept in a rehearsal' : ''}`,
+          )
+        } else {
+          const why = reason ?? 'nothing came'
+          skip(target, why)
+          log(`   (${tag} download: ${why})`)
+        }
+        break
+      }
     }
-    const stepInfo = step as { id?: string; selector?: string; read?: string }
+    // A guarded step that ran in a recording ran because the command named it.
+    if (step.guard && !dry && skipped.length === skippedBefore) {
+      confirmed.push(step.id ?? String(stepIdx))
+      extra.confirmed = true
+    }
+    const stepInfo = step as {
+      id?: string
+      selector?: string
+      read?: string
+      src?: string
+      gone?: string
+      until?: { selector?: string; gone?: string }
+    }
+    // The element the step is about: an await names what it waited on, a
+    // download by src the element it fetched.
+    const about =
+      stepInfo.selector ??
+      stepInfo.until?.selector ??
+      stepInfo.until?.gone ??
+      stepInfo.gone ??
+      stepInfo.src
     // The take carries its payload: the page the step left (origin and
     // path, never a query or a hash) and, when the step named a `read`,
     // that element's words once the step has settled, so a layer quotes
@@ -785,7 +1194,7 @@ export async function recordTake(
       step: stepIdx,
       ...(stepInfo.id ? { id: stepInfo.id } : {}),
       do: step.do,
-      ...(stepInfo.selector ? { selector: stepInfo.selector } : {}),
+      ...(about ? { selector: about } : {}),
       tStart: +(stepStart / 1000).toFixed(3),
       tEnd: +(now() / 1000).toFixed(3),
       ...(skipped.length > skippedBefore ? { skipped: true } : {}),
@@ -802,6 +1211,7 @@ export async function recordTake(
             },
           }
         : {}),
+      ...extra,
     })
     paces.push({
       step: stepIdx,
@@ -812,8 +1222,10 @@ export async function recordTake(
     })
     // After the pace is taken: the scan's few ms are not the step's.
     await scanExposures(stepIdx)
+    // An await that timed out with onTimeout "fail": the take ends here.
+    if (stopped) break
   }
-  if (!capped) await sleep(TRAILING_HOLD_MS) // trailing hold
+  if (!capped && !stopped) await sleep(TRAILING_HOLD_MS) // trailing hold
   if (capped || capReached(now(), maxSeconds)) {
     capped = true
     log(`   ${cappedLine(maxSeconds)}`)
@@ -853,6 +1265,8 @@ export async function recordTake(
       ? { exposures: exposureLog.exposures() }
       : {}),
     ...(masks.length ? { masks: exposureLog.masks(masks) } : {}),
+    ...(skips.length ? { skips } : {}),
+    ...(outputs.length ? { outputs } : {}),
   }
 
   // Smoothness telemetry: screencast emits only on visual change, so frame
@@ -892,6 +1306,35 @@ export async function recordTake(
     freezePct,
     dead,
     capped,
+    disabled,
+    confirmed,
+    skips,
+    outputs,
+    stopped,
     actions: { ...actions, url },
   }
+}
+
+/** A download's extension from its type, for a name the page did not give. */
+const EXT_FOR_TYPE: Record<string, string> = {
+  'video/mp4': '.mp4',
+  'video/webm': '.webm',
+  'video/quicktime': '.mov',
+  'audio/mpeg': '.mp3',
+  'audio/mp4': '.m4a',
+  'audio/wav': '.wav',
+  'audio/ogg': '.ogg',
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+  'image/svg+xml': '.svg',
+  'application/pdf': '.pdf',
+  'application/json': '.json',
+  'text/csv': '.csv',
+  'application/zip': '.zip',
+}
+
+export function extForType(type: string | undefined): string {
+  return (type && EXT_FOR_TYPE[type.split(';')[0].trim().toLowerCase()]) ?? ''
 }
