@@ -369,6 +369,13 @@ describe('vos join: a file’s own sound, captions per clip', () => {
         expect(doneOf(writes).notes).toContainEqual(
           "could not read aac.mp4's audio in Node, so it was copied as it is; its length comes from the container",
         )
+        // The browser reads what Node cannot, and the clip carries it.
+        const film = JSON.parse(
+          await readFile(join(root, 'aac-film', 'doc.json'), 'utf8'),
+        ) as ProjectDoc
+        const sound = film.audio.find((a) => a.id === 'm1-sound')!
+        expect(sound.loudness?.src).toBe(sound.key)
+        expect(sound).not.toHaveProperty('normalize')
       } finally {
         warn.mockRestore()
         stdout.mockImplementation(() => true)

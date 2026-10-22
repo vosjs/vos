@@ -908,8 +908,21 @@ export interface AudioClip {
   out: number
   /** full source-file length, seconds — the trim ceiling (set on add). */
   duration: number
-  /** linear gain 0..1. */
+  /** linear gain 0..1 (a trim on top of `normalize`, when that applies). */
   gain: number
+  /**
+   * The clip's loudness as a TARGET: integrated loudness in LUFS (-30..-6,
+   * e.g. -16). Applies only while `loudness` was measured for this `key`:
+   * the lowering plays the clip at 10^((normalize - lufs) / 20) × gain,
+   * which may exceed 1, capped so the sample peak stays under -1 dBFS.
+   * Absent = `gain` alone, as always.
+   */
+  normalize?: number
+  /**
+   * What the file measures, written by tooling (`vos audio measure`), never
+   * by hand: the fact `normalize` is computed from.
+   */
+  loudness?: AudioLoudness
   /** fade durations, seconds. */
   fadeIn: number
   fadeOut: number
@@ -921,6 +934,23 @@ export interface AudioClip {
   duck?: boolean
   /** The template that placed this clip (see the overlay clip's `from`). */
   from?: string
+}
+
+/**
+ * A file's measured loudness (BS.1770, K-weighted, gated), stored next to
+ * the clip that plays it. `src` is the key it was measured for: a clip whose
+ * key moved to another file no longer matches, and its `normalize` is
+ * ignored until it is measured again.
+ */
+export interface AudioLoudness {
+  /** Integrated loudness, LUFS. */
+  lufs: number
+  /** Sample peak, dBFS (not oversampled); null for digital silence. */
+  peakDb: number | null
+  /** When it was measured (ISO date). */
+  at: string
+  /** The key it was measured for. */
+  src: string
 }
 
 /** Effective placed length of a clip on the output timeline, seconds. */

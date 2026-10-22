@@ -28,6 +28,7 @@ import {
 } from '@vosjs/studio-core'
 import {
   ALL_FORMATS,
+  BufferTarget,
   Conversion,
   FilePathSource,
   FilePathTarget,
@@ -110,26 +111,35 @@ export async function copyRecording(
     source: new FilePathSource(src),
     formats: ALL_FORMATS,
   })
-  const target = new FilePathTarget(dest)
-  const output = new Output({
-    format:
-      ext === 'mp4'
-        ? new Mp4OutputFormat({ fastStart: 'in-memory' })
-        : new WebMOutputFormat(),
-    target,
-  })
+  const format = () =>
+    ext === 'mp4'
+      ? new Mp4OutputFormat({ fastStart: 'in-memory' })
+      : new WebMOutputFormat()
   try {
     // A track it cannot keep is said by the caller, never as a raw dump.
-    const conversion = await Conversion.init({
+    // Asked against a buffer first: a file target opens the destination
+    // when it is made and closes it only once its output has started, so
+    // one made for a conversion that is then abandoned leaves the handle
+    // to the garbage collector.
+    const probe = await Conversion.init({
       input,
-      output,
+      output: new Output({ format: format(), target: new BufferTarget() }),
       showWarnings: false,
     })
-    if (!conversion.isValid || conversion.discardedTracks.length > 0) {
-      await conversion.cancel?.()
+    const keepsAll = probe.isValid && probe.discardedTracks.length === 0
+    await probe.cancel?.()
+    if (!keepsAll) {
       await copyFile(src, dest)
       return false
     }
+    const conversion = await Conversion.init({
+      input,
+      output: new Output({
+        format: format(),
+        target: new FilePathTarget(dest),
+      }),
+      showWarnings: false,
+    })
     await conversion.execute()
     return true
   } catch {

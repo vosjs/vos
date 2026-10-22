@@ -137,6 +137,8 @@ import { cmdIngest } from './ingest'
 import { cmdCheckVideo } from './checkVideo'
 import { cmdJoin } from './join'
 import { cmdScore } from './score'
+import { cmdAudio } from './audio'
+import { PlatformBehindError } from './platformEngine'
 import { bareCaptionsFlag, landStepCaptions } from './stepCaptions'
 import type { StepCaptionReport } from './stepCaptions'
 import { cmdLook } from './look'
@@ -171,6 +173,7 @@ const BOOLEAN_FLAGS = new Set([
   'claimable',
   'share',
   'verbose',
+  'bake',
 ])
 /** Repeatable value flags (accumulate): --set path=value on render/frames, --override id on push, --browser-arg=<switch> and --confirm <id> on record/create. */
 export const MULTI_FLAGS = new Set([
@@ -205,8 +208,10 @@ Take pipeline
             a take from a recording someone else made (a cloud agent's PR video, a Playwright run's video, a Loom export): the file becomes recording.<container>, meta.json from its own dimensions and duration, and a trace beside it becomes cursor.json so the planner has clicks to zoom on; without one, nothing is planned and the done event says so. Without a trace the file opens as FINISHED footage (a render from HyperFrames or Remotion, a film): no card, no browser bar, no drawn cursor, its own frame rate; --as take gives a screen demo the card
   vos join <take> <take|file.mp4>... --out <dir> [--force] [--captions] [--mute <file>]... [--json]
             several takes (and plain video files) as ONE take, cut in argument order: the first is the primary (its frame, cursor, export and sound), each next one a media m1, m2, … with its footage copied, its spans tagged and renamed, its layers moved to where it now starts; a file opens full-bleed and its own sound plays as an audio clip (--mute <file> leaves it out). --captions lands every step's caption anchored to its step, each ending with its clip. The result must pass vos validate before anything is written
-  vos score <take> --track <slug|file> [--at <step id|output seconds>] [--gain 0..1] [--fade-in <s>] [--fade-out <s>] [--dry-run] [--json]
-            the film's music as one audio clip (id score): reads the track's loudness, finds its strongest swell and offsets the track so the swell lands at --at (a step, resolved through the cut, or output seconds); without --at it starts where the track first rises above its median level
+  vos score <take> --track <slug|file> [--at <step id|output seconds>] [--gain 0..1] [--normalize <lufs|off>] [--fade-in <s>] [--fade-out <s>] [--dry-run] [--json]
+            the film's music as one audio clip (id score): reads the track's loudness, finds its strongest swell and offsets the track so the swell lands at --at (a step, resolved through the cut, or output seconds); without --at it starts where the track first rises above its median level. The clip carries its measured loudness and a target, --normalize (default -16 LUFS), with --gain (default 0.5) a trim on it; --normalize off plays it at --gain alone
+  vos audio measure <take> [--json]
+            every audio clip's loudness (BS.1770 integrated LUFS and sample peak, the meter check-video reads a render with), written beside it in doc.json as loudness { lufs, peakDb, at, src }; a clip's normalize (a target in LUFS, -30..-6) plays it at the gain that reaches it, past 1 if need be, capped so its peak stays under -1 dBFS, and only once it is measured for its own key
   vos port inventory <page.html|project dir> [--render <their render.mp4>] [--out port] [--json]
             a finished piece (a HyperFrames composition, a Remotion project bundled with its own bundler, a hand-rolled page) read as a browser renders it: words, palette, faces (catalog or missing), media, scenes, gaps → port/inventory.json, with stills from its render
   vos port scaffold [--from port/inventory.json] [--out port/program] [--json]
@@ -253,7 +258,7 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
   vos push  <config.json|take> [--vos id] [--title t] [--slug s] [--remix-of id]
             [--desc d] [--tags a,b] [--folder <folderId|slug>]
             [--note n] [--label l] [--base versionId] [--override <id>]... [--yes] [--json]
-            [--claimable] [--wait] [--still <seconds>]
+            [--claimable] [--wait] [--still <seconds>] [--bake]
             a take DIRECTORY (doc.json) pushes recording + doc; a config.json
             pushes the program. No --vos: create a PRIVATE vos; with --vos:
             add a version against the tracked base — a stale push 409s WITH
@@ -276,6 +281,12 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
             --still <seconds> sets a PROGRAM's cover (doc.json "still", kept
             by every later push); without it the platform picks an early
             frame. A take's cover is its doc.json "still".
+            A take push first reads which studio-core the platform renders
+            with (GET /api/engine) and refuses (exit 2) a take using a field
+            newer than it, which its studio would draw wrong and save that
+            way; --bake sends a copy with those fields resolved (an anchored
+            caption at the start it plays at, a loudness target as its gain),
+            doc.json untouched. An unreadable answer warns and pushes.
   vos delete <vosId|watch-url|dir> [--yes] [--dry-run] [--json]
             move a vos to Trash on vos.so. Nothing is erased: it stays
             restorable until the date the delete prints (vos restore <id>).
@@ -2460,7 +2471,7 @@ async function cmdPush(argv: string[]): Promise<number> {
   const dir = positionals[0]
   if (!dir)
     throw new UsageError(
-      'vos push <take> [--vos|--title|--label|--note|--prompt|--folder|--override|--yes|--key|--api|--claimable [--share]]',
+      'vos push <take> [--vos|--title|--label|--note|--prompt|--folder|--override|--yes|--key|--api|--bake|--claimable [--share]]',
     )
   const refusal = takePushRefusal({
     vos: strFlag(flags, 'vos'),
@@ -2489,6 +2500,7 @@ async function cmdPush(argv: string[]): Promise<number> {
         title: strFlag(flags, 'title'),
         prompt: strFlag(flags, 'prompt'),
         share: flags.share === true,
+        bake: flags.bake === true,
       },
       r,
     )
@@ -2518,6 +2530,7 @@ async function cmdPush(argv: string[]): Promise<number> {
       folder: strFlag(flags, 'folder'),
       overrides,
       prompt: strFlag(flags, 'prompt'),
+      bake: flags.bake === true,
     },
     r,
   )
@@ -2734,6 +2747,8 @@ export async function run(argv: string[]): Promise<number> {
         return await cmdJoin(rest)
       case 'score':
         return await cmdScore(rest)
+      case 'audio':
+        return await cmdAudio(rest)
       case 'look':
         return await cmdLook(rest)
       default:
@@ -2747,7 +2762,8 @@ export async function run(argv: string[]): Promise<number> {
     if (
       e instanceof SetupError ||
       e instanceof SetupEnvError ||
-      e instanceof RecordRefusedError
+      e instanceof RecordRefusedError ||
+      e instanceof PlatformBehindError
     ) {
       process.stderr.write(`${e.message}\n`)
       return EXIT_USAGE

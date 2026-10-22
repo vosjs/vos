@@ -32,6 +32,9 @@ import {
 import { tmpdir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import {
+  NORMALIZE_MAX_LUFS,
+  NORMALIZE_MIN_LUFS,
+  clipGain,
   docMediaList,
   docOutputDuration,
   findStep,
@@ -43,11 +46,24 @@ import { UsageError, numFlag, parseArgs, strFlag } from './args'
 import { fetchMusicCatalog } from './music'
 import { EXIT_OK, createReporter } from './output'
 import { platformOrigin } from './platform'
+import {
+  SUB_BLOCK_SECONDS,
+  createLoudnessMeter,
+  loudnessFromEnergies,
+} from './videoChecks'
 import { loadTake, writeJson } from './take'
-import type { AudioClip, ProjectDoc } from '@vosjs/studio-core'
+import type { AudioClip, AudioLoudness, ProjectDoc } from '@vosjs/studio-core'
 
 /** The clip a score writes, and replaces on the next run. */
 export const SCORE_ID = 'score'
+
+/**
+ * The loudness a score plays at, LUFS, unless `--normalize` says: the level
+ * the hosted catalog masters its tracks to, so a catalog score at the
+ * default `--gain 0.5` plays as it did before it had a target, and a file
+ * of your own lands at the same level.
+ */
+export const SCORE_NORMALIZE_LUFS = -16
 
 /** The fade a track entered mid-song opens on (seconds), unless `--fade-in` says. */
 export const MID_SONG_FADE_IN = 0.8
@@ -411,8 +427,37 @@ export interface Measured {
   duration: number
   unit: LoudnessUnit
   blocks: number[]
+  /**
+   * BS.1770 integrated loudness of the whole file (K-weighted, gated), by
+   * the meter `vos check-video` reads a render with; null for silence.
+   */
+  lufs: number | null
+  /** Sample peak, dBFS; null for digital silence. */
+  peakDb: number | null
   /** Which decoder read it. */
   via: 'node' | 'browser'
+}
+
+/** Both meters over one decode: the level curve's and the integrated one. */
+function meters(sampleRate: number, channels: number) {
+  const curve = new LoudnessMeter(sampleRate, channels)
+  const gated = createLoudnessMeter(sampleRate, channels, SUB_BLOCK_SECONDS)
+  return {
+    push(planes: Float32Array[]) {
+      curve.push(planes)
+      gated.push(planes)
+    },
+    finish() {
+      const g = gated.finish()
+      const l = loudnessFromEnergies(g.energies, g.peak)
+      return {
+        unit: curve.unit,
+        blocks: curve.finish(),
+        lufs: l.integrated,
+        peakDb: l.samplePeakDb,
+      }
+    },
+  }
 }
 
 /** Decode in Node with mediabunny (PCM needs no codec); null when it cannot. */
@@ -426,7 +471,7 @@ async function measureInNode(path: string): Promise<Measured | null> {
     const track = await input.getPrimaryAudioTrack()
     if (!track) throw new UsageError(`${path} has no audio track`)
     if (!(await track.canDecode())) return null
-    const meter = new LoudnessMeter(track.sampleRate, track.numberOfChannels)
+    const meter = meters(track.sampleRate, track.numberOfChannels)
     const sink = new MB.AudioSampleSink(track)
     let frames = 0
     for await (const sample of sink.samples()) {
@@ -444,21 +489,27 @@ async function measureInNode(path: string): Promise<Measured | null> {
       sampleRate: track.sampleRate,
       channels: track.numberOfChannels,
       duration: frames / track.sampleRate,
-      unit: meter.unit,
-      blocks: meter.finish(),
+      ...meter.finish(),
       via: 'node',
     }
   } finally {
-    input.dispose()
+    await input.dispose?.()
   }
 }
 
 /** Seconds of samples per round trip out of the page. */
 const PAGE_CHUNK_SECONDS = 10
 
+/** The largest file handed to the page whole, bytes. */
+export const BROWSER_DECODE_MAX_BYTES = 200 * 1024 * 1024
+
 /** Decode in the headless browser (its codecs), measure here. */
 async function measureInBrowser(path: string): Promise<Measured> {
   const bytes = await readFile(path)
+  if (bytes.length > BROWSER_DECODE_MAX_BYTES)
+    throw new Error(
+      `${basename(path)} is ${Math.round(bytes.length / 1048576)} MB, past the ${BROWSER_DECODE_MAX_BYTES / 1048576} MB the browser decode takes whole`,
+    )
   const browser = await launchBrowser()
   try {
     const page = await browser.newPage()
@@ -474,7 +525,7 @@ async function measureInBrowser(path: string): Promise<Measured> {
       window.__vosScore = buf
       return { sampleRate: buf.sampleRate, channels: buf.numberOfChannels, length: buf.length }
     })()`)) as { sampleRate: number; channels: number; length: number }
-    const meter = new LoudnessMeter(info.sampleRate, info.channels)
+    const meter = meters(info.sampleRate, info.channels)
     const chunk = Math.round(info.sampleRate * PAGE_CHUNK_SECONDS)
     for (let from = 0; from < info.length; from += chunk) {
       const parts = (await page.evaluate(`(() => {
@@ -501,8 +552,7 @@ async function measureInBrowser(path: string): Promise<Measured> {
       sampleRate: info.sampleRate,
       channels: info.channels,
       duration: info.length / info.sampleRate,
-      unit: meter.unit,
-      blocks: meter.finish(),
+      ...meter.finish(),
       via: 'browser',
     }
   } finally {
@@ -513,6 +563,19 @@ async function measureInBrowser(path: string): Promise<Measured> {
 /** Decode and measure a track file. */
 export async function measureTrack(path: string): Promise<Measured> {
   return (await measureInNode(path)) ?? (await measureInBrowser(path))
+}
+
+/** What a measurement stores beside the clip it was taken for. */
+export function loudnessFact(
+  m: { lufs: number; peakDb: number | null },
+  key: string,
+): AudioLoudness {
+  return {
+    lufs: m.lufs,
+    peakDb: m.peakDb,
+    at: new Date().toISOString(),
+    src: key,
+  }
 }
 
 // --- the verb ---
@@ -618,7 +681,7 @@ async function resolveTrack(
 const BOOLEAN_FLAGS = new Set(['json', 'help', 'dry-run'])
 
 const USAGE =
-  'vos score <take> --track <slug|file> [--at <step id|output seconds>] [--gain 0..1] [--fade-in <s>] [--fade-out <s>] [--dry-run] [--json]'
+  'vos score <take> --track <slug|file> [--at <step id|output seconds>] [--gain 0..1] [--normalize <lufs|off>] [--fade-in <s>] [--fade-out <s>] [--dry-run] [--json]'
 
 export async function cmdScore(argv: string[]): Promise<number> {
   const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
@@ -632,6 +695,18 @@ export async function cmdScore(argv: string[]): Promise<number> {
     throw new UsageError('--gain expects a number from 0 to 1')
   const fadeOut = numFlag(flags, 'fade-out', 1.5)
   if (!(fadeOut >= 0)) throw new UsageError('--fade-out expects seconds ≥ 0')
+  const normalizeFlag = strFlag(flags, 'normalize')
+  const normalize =
+    normalizeFlag === 'off'
+      ? null
+      : numFlag(flags, 'normalize', SCORE_NORMALIZE_LUFS)
+  if (
+    normalize !== null &&
+    !(normalize >= NORMALIZE_MIN_LUFS && normalize <= NORMALIZE_MAX_LUFS)
+  )
+    throw new UsageError(
+      `--normalize expects LUFS from ${NORMALIZE_MIN_LUFS} to ${NORMALIZE_MAX_LUFS}, or off`,
+    )
   const fadeInFlag = strFlag(flags, 'fade-in')
   const fadeInAsked = numFlag(flags, 'fade-in', MID_SONG_FADE_IN)
   if (!(fadeInAsked >= 0)) throw new UsageError('--fade-in expects seconds ≥ 0')
@@ -677,7 +752,22 @@ export async function cmdScore(argv: string[]): Promise<number> {
     ),
     fadeOut: Math.min(fadeOut, Math.max(0, plan.out - plan.in)),
     ...(doc.source.micKey ? { duck: true } : {}),
+    // The level is a target over what the file measures: the gain above
+    // is a trim on top of it.
+    ...(measured.lufs !== null
+      ? {
+          ...(normalize !== null ? { normalize } : {}),
+          loudness: loudnessFact(
+            { lufs: measured.lufs, peakDb: measured.peakDb },
+            track.key,
+          ),
+        }
+      : {}),
   }
+  if (normalize !== null && measured.lufs === null)
+    plan.notes.push(
+      'the track measured as silence, so it carries no loudness target',
+    )
   const levels = curve.map((p) => p.level)
   const envelope = {
     unit: measured.unit,
@@ -700,6 +790,11 @@ export async function cmdScore(argv: string[]): Promise<number> {
     await writeJson(take.paths.doc, doc, true)
   }
   const label = measured.unit === 'LUFS' ? 'LUFS, K-weighted' : 'dBFS RMS'
+  const played = clipGain(clip)
+  const levelWords =
+    played.basis === 'normalize' && measured.lufs !== null
+      ? `at about ${(measured.lufs + 20 * Math.log10(played.gain)).toFixed(1)} LUFS (target ${normalize}, --gain ${gain} as a trim on it; the track measures ${measured.lufs.toFixed(1)} LUFS, so gain ${played.gain.toFixed(2)}${played.capped === 'peak' ? ', held there so its peak stays under -1 dBFS' : played.capped ? ', the most a target lifts' : ''})`
+      : `at gain ${gain}`
   const swellLine = swell
     ? `swell: +${swell.rise.toFixed(1)} dB from ${swell.from.toFixed(1)}s, arriving ${swell.at.toFixed(1)}s into the track (peak ${swell.peakLevel.toFixed(1)} ${measured.unit} at ${swell.peak.toFixed(1)}s)`
     : 'swell: none (no sustained rise of 3 dB or more)'
@@ -719,7 +814,7 @@ export async function cmdScore(argv: string[]): Promise<number> {
       notes: plan.notes,
       envelope,
     },
-    `${dryRun ? 'Would score' : 'Scored'} ${dir} with ${track.name} (${measured.duration.toFixed(1)}s, ${label})\n  ${sparkline(curve)}\n  ${swellLine}\n  ${placeLine}; it plays ${plan.in.toFixed(2)}..${plan.out.toFixed(2)} under the ${film.toFixed(1)}s film at gain ${gain}${plan.notes.length ? `\n  note: ${plan.notes.join('\n  note: ')}` : ''}${dryRun ? '\n  (dry run: doc.json untouched)' : `\n  audio clip "${SCORE_ID}" ${doc.audio.length > 1 ? 'written beside the others' : 'written'} in doc.json`}`,
+    `${dryRun ? 'Would score' : 'Scored'} ${dir} with ${track.name} (${measured.duration.toFixed(1)}s, ${label})\n  ${sparkline(curve)}\n  ${swellLine}\n  ${placeLine}; it plays ${plan.in.toFixed(2)}..${plan.out.toFixed(2)} under the ${film.toFixed(1)}s film ${levelWords}${plan.notes.length ? `\n  note: ${plan.notes.join('\n  note: ')}` : ''}${dryRun ? '\n  (dry run: doc.json untouched)' : `\n  audio clip "${SCORE_ID}" ${doc.audio.length > 1 ? 'written beside the others' : 'written'} in doc.json`}`,
   )
   return EXIT_OK
 }

@@ -89,6 +89,11 @@ export const manifest: PluginManifest = {
         "a music track as the film's score, its strongest swell landed on a step or a second (--dry-run prints the loudness envelope and the plan)",
     },
     {
+      name: 'audio',
+      summary:
+        'measure: every audio clip’s loudness (integrated LUFS, sample peak) written beside it, which a clip’s normalize target plays it to',
+    },
+    {
       name: 'port',
       summary:
         'bring a page, a HyperFrames or a Remotion piece: inventory (its words, colours, faces, media, scenes) then scaffold (a data-first program.mjs to translate the motion into)',

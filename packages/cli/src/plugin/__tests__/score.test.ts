@@ -251,4 +251,30 @@ describe('vos score', () => {
     expect(again[0].in).toBeGreaterThan(5)
     expect(again[0].in).toBeLessThan(8)
   })
+
+  it('carries the track’s loudness and a -16 LUFS target, unless --normalize says', async () => {
+    const dir = await writeTake('level')
+    expect(await cmdScore([dir, '--track', track])).toBe(0)
+    const [c] = (await readDoc(dir)).audio
+    expect(c.normalize).toBe(-16)
+    expect(c.gain).toBe(0.5)
+    expect(c.loudness?.src).toBe(c.key)
+    expect(c.loudness!.lufs).toBeLessThan(-6)
+    expect(c.loudness!.lufs).toBeGreaterThan(-30)
+    // The swell peaks at 0.6 of full scale.
+    expect(c.loudness!.peakDb).toBeCloseTo(20 * Math.log10(0.6), 0)
+    expect(await cmdScore([dir, '--track', track, '--normalize', '-20'])).toBe(
+      0,
+    )
+    expect((await readDoc(dir)).audio[0].normalize).toBe(-20)
+    expect(await cmdScore([dir, '--track', track, '--normalize', 'off'])).toBe(
+      0,
+    )
+    const off = (await readDoc(dir)).audio[0]
+    expect(off).not.toHaveProperty('normalize')
+    expect(off.loudness?.src).toBe(off.key)
+    await expect(
+      cmdScore([dir, '--track', track, '--normalize', '-3']),
+    ).rejects.toThrow(/--normalize expects LUFS from -30 to -6/)
+  })
 })

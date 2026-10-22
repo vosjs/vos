@@ -39,6 +39,7 @@ import { MEDIA_HEAD_BYTES, nameForType, resolveMediaType } from './container'
 import { resolvePushFolder } from './folder'
 import { uploadAsset } from './uploadAsset'
 import { looksLikeStorageState } from './session'
+import { checkPlatformPlays } from './platformEngine'
 import {
   apiJson,
   clientId,
@@ -230,6 +231,8 @@ export async function pushTake(
     overrides?: string[]
     /** The prompt that made it, shown on its watch page (the person's words). */
     prompt?: string
+    /** Send fields the platform cannot play yet as what it reads (a copy). */
+    bake?: boolean
   },
   r: Reporter,
 ): Promise<{ vosId: string; versionId: string; versionNumber: number }> {
@@ -255,6 +258,14 @@ export async function pushTake(
   }
 
   const ctx = apiContext(flags)
+  // Before anything uploads: can the platform play every field this take
+  // uses? A refusal costs nothing; a platform that cannot say is warned of.
+  const plays = await checkPlatformPlays(take.doc, {
+    origin: ctx.origin,
+    bake: flags.bake,
+  })
+  for (const line of plays.lines) r.log(line)
+  const sendDoc = plays.doc as ProjectDoc
   const tracked = readSyncState(dir)
   // The first push of this DIRECTORY uploads its recording either way, so
   // consent is asked of the directory, not of the vos it lands on.
@@ -362,7 +373,7 @@ export async function pushTake(
 
   // 2. The doc, keys rewritten to hosted URLs; lower through the real
   //    pipeline so the hosted program is exactly what renders locally.
-  const docForPush: ProjectDoc = structuredClone(take.doc)
+  const docForPush: ProjectDoc = structuredClone(sendDoc)
   docForPush.source.videoKey = assetUrl
   embedScript(docForPush, dir)
   // The voice and the webcam ride the same content-addressed door as the
@@ -686,6 +697,7 @@ export async function pushTakeClaimable(
     title?: string
     prompt?: string
     share?: boolean
+    bake?: boolean
   },
   r: Reporter,
 ): Promise<{
@@ -707,9 +719,14 @@ export async function pushTakeClaimable(
   if (lint.problems.length) {
     throw new Error(`doc.json fails lint:\n  ${lint.problems.join('\n  ')}`)
   }
+  const plays = await checkPlatformPlays(take.doc, {
+    origin: platformOrigin(flags),
+    bake: flags.bake,
+  })
+  for (const line of plays.lines) r.log(line)
   const state = readSyncState(dir)
   const hosted = state?.hostedMedia ?? {}
-  const docForPush: ProjectDoc = structuredClone(take.doc)
+  const docForPush: ProjectDoc = structuredClone(plays.doc as ProjectDoc)
   embedScript(docForPush, dir)
   const refs = [
     ...(isTakeRelativeKey(docForPush.source.videoKey)
