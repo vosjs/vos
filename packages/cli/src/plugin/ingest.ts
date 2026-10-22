@@ -119,7 +119,12 @@ export async function copyRecording(
     target,
   })
   try {
-    const conversion = await Conversion.init({ input, output })
+    // A track it cannot keep is said by the caller, never as a raw dump.
+    const conversion = await Conversion.init({
+      input,
+      output,
+      showWarnings: false,
+    })
     if (!conversion.isValid || conversion.discardedTracks.length > 0) {
       await conversion.cancel?.()
       await copyFile(src, dest)

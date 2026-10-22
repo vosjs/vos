@@ -25,7 +25,11 @@
  * Pure functions, no I/O — reuse.test.ts drives them with synthetic
  * step timelines; the browser gate is smoke-recut.ts.
  */
-import { docFreezes, ratedSegments } from '@vosjs/studio-core'
+import {
+  docFreezes,
+  ratedSegments,
+  resolveAnchor as resolveLayerAnchor,
+} from '@vosjs/studio-core'
 import type {
   FreezeSpan,
   OverlayClip,
@@ -494,6 +498,19 @@ export function retimeOverlays(
     return { ...o, start: +start.toFixed(3) }
   }
   return overlays.map((o) => {
+    // Anchored to a step: the lowering re-reads it against the new steps;
+    // its fallback `start` follows too, so the document says where it plays.
+    if (o.anchor && typeof o.anchor === 'object') {
+      const r = resolveLayerAnchor(next, o.anchor, newPieces)
+      if (r.start === null) {
+        report.flagged.push(
+          `overlay ${o.id}: anchored to step ${String(o.anchor.step)}, which is missing, skipped or cut in the new recording — it plays at its fallback ${o.start.toFixed(2)}s; re-anchor or re-place it`,
+        )
+        return o
+      }
+      report.anchored++
+      return { ...o, start: r.start }
+    }
     const pin = o.pin
     if (pin?.step !== undefined) {
       const was = stepByRef(oldSteps, pin.step)

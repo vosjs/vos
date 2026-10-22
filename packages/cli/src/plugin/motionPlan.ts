@@ -41,6 +41,7 @@ import type {
   Look,
   ProjectDoc,
   TemplateAnchor,
+  TextOverlayClip,
 } from '@vosjs/studio-core'
 
 /** The release's words a plan writes into the cut's titles and end card. */
@@ -76,6 +77,27 @@ export interface MusicCatalog {
 export const BED_ID = 'bed'
 export const CLICK_ID_PREFIX = 'click-'
 export const CAPTION_ID_PREFIX = 'caption-'
+
+/** The house caption: a lower-third in a dark box, rising in and fading out. */
+export function houseCaption(
+  id: string,
+  text: string,
+  start: number,
+  duration: number,
+): TextOverlayClip {
+  return {
+    id,
+    kind: 'text',
+    text,
+    preset: 'caption',
+    start,
+    duration,
+    transform: { x: 0.5, y: 0.86, scale: 1, rotation: 0 },
+    anim: { enter: 'rise', exit: 'fade' },
+    align: 'center',
+    box: { color: 'rgba(17,17,17,0.72)' },
+  }
+}
 
 export interface MotionProposalInput {
   words: ReleaseWords
@@ -432,18 +454,14 @@ export function proposeMotion(
       if (!step || step.skipped) continue
       const t = stepOutputTime(rated, step, 0.2)
       if (t === null || t < 0 || t > footage - 1) continue
-      captionClips.push({
-        id: `${CAPTION_ID_PREFIX}${c.step}`,
-        kind: 'text',
-        text: c.caption,
-        preset: 'caption',
-        start: +t.toFixed(3),
-        duration: Math.min(3.5, Math.max(2.5, footage - t - 0.2)),
-        transform: { x: 0.5, y: 0.86, scale: 1, rotation: 0 },
-        anim: { enter: 'rise', exit: 'fade' },
-        align: 'center',
-        box: { color: 'rgba(17,17,17,0.72)' },
-      })
+      captionClips.push(
+        houseCaption(
+          `${CAPTION_ID_PREFIX}${c.step}`,
+          c.caption,
+          +t.toFixed(3),
+          Math.min(3.5, Math.max(2.5, footage - t - 0.2)),
+        ),
+      )
     }
     if (captionClips.length) notes.push(`${captionClips.length} caption(s)`)
   }

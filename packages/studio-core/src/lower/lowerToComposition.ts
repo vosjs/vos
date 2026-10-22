@@ -114,6 +114,7 @@ import { isRecordingDoc, programDuration } from '../doc/studioDoc'
 import { clipEnvelope } from './audioEnvelope'
 import { followFocusEvents } from './cursorFollow'
 import { pinPlacement, pinReferent } from './pin'
+import { resolveOverlayAnchors } from './anchor'
 import { cursorIdleFade } from './cursorIdle'
 import { STUDIO_ENTRY_ID, studioEntry } from './studioEntry'
 import {
@@ -3274,8 +3275,11 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
   // One vocabulary first: a legacy entrance, end card or clip spelling is
   // read into `anim` (the end card into clips after the footage plus a
   // card exit), so every track below is laid out against one shape.
-  const doc = migrateText(migrateMotion(input))
-  const rated = ratedSegments(doc)
+  // A layer anchored to a step starts where that step plays in this cut
+  // (the rated pieces carry no layer, so they are read before it).
+  const read = migrateText(migrateMotion(input))
+  const rated = ratedSegments(read)
+  const doc = resolveOverlayAnchors(read, rated)
   // The boundaries that move (a clip's enter or exit, the card's slide at
   // the open), in output seconds; the camera rests through each window.
   const transitions = docTransitions(doc)
@@ -3569,8 +3573,11 @@ function loweredZoomSpans(
 export function docZoomTrack(
   input: ProjectDoc,
 ): KeyframeTrack<number[]> | undefined {
-  const doc = migrateText(migrateMotion(input))
-  const rated = ratedSegments(doc)
+  // A layer anchored to a step starts where that step plays in this cut
+  // (the rated pieces carry no layer, so they are read before it).
+  const read = migrateText(migrateMotion(input))
+  const rated = ratedSegments(read)
+  const doc = resolveOverlayAnchors(read, rated)
   const transitions = docTransitions(doc)
   const layout = docCardLayout(doc)
   const camera = cameraModel(doc.frame)
