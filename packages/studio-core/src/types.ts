@@ -242,6 +242,13 @@ export interface RecordingMeta {
     seen: number
   }[]
   /**
+   * INFORMATION the recorder noticed in the frame, never a failure: the
+   * signed-in account's own name (every place it showed, never the name
+   * itself) and a list of the account's recent items. Listed once, at the
+   * first step it was seen; `seen` counts the scans that saw it.
+   */
+  notices?: RecordingNotice[]
+  /**
    * What the script asked the recorder to hide before the camera rolled, and
    * how many elements each selector reached. `hits: 0` is a mask that hid
    * nothing, so whatever it was for may be showing.
@@ -257,6 +264,25 @@ export interface RecordingMeta {
    * with the footage stretches it was heard (CLI takes only).
    */
   media?: RecordingPageMedia[]
+}
+
+/** Something the recorder noticed in the frame (`meta.notices`): information, never a failure. */
+export interface RecordingNotice {
+  /** the first step it was seen at; -1 = as the page opened */
+  step: number
+  kind: 'account-name' | 'personal-list'
+  /** account-name: every place in the frame the name was seen (viewport CSS px); never the name */
+  places?: { selector: string; rect: Rect }[]
+  /** account-name: read from a line that says whose account it is; false = it may be the name */
+  sure?: boolean
+  /** personal-list: the page's own heading over it (`Recents`, `History`) */
+  heading?: string
+  /** personal-list: the list, as a selector a mask can take */
+  selector?: string
+  rect?: Rect
+  /** personal-list: how many items it showed */
+  items?: number
+  seen: number
 }
 
 /** A media element the page played during the take (`meta.media`). */

@@ -26,6 +26,9 @@ import type { RecordingMeta } from '@vosjs/studio-core'
 export type ExposureKind = 'email' | 'key' | 'card' | 'card-tail'
 export type Exposure = NonNullable<RecordingMeta['exposures']>[number]
 export type MaskReport = NonNullable<RecordingMeta['masks']>[number]
+export type Notice = NonNullable<RecordingMeta['notices']>[number]
+/** A notice as one scan reports it. */
+export type ScannedNotice = Omit<Notice, 'step' | 'seen'>
 
 export interface MaskRule {
   selector: string
@@ -90,6 +93,108 @@ export const EXPOSURE_MATCHERS_SRC = `(() => {
 })()`
 
 /**
+ * The INFORMATION the scan reports beside the exposures (never a failure):
+ * the signed-in account's own display name, wherever the frame shows it,
+ * and a list of the account's recent items. Runs inside EXPOSURE_PROBE,
+ * after `seen` and before any selector is made: it sets `acct`, which
+ * `quiet` then keeps out of every selector. Never `$` + `{` in here: it is
+ * spliced into a template.
+ *
+ * The name is read conservatively, from where apps say whose account it
+ * is: a line that greets or names the account ("Signed in as …",
+ * "Welcome back, …"), the label of an account menu ("Account menu for …"),
+ * which are SURE; or a name-like label on an avatar (an image's alt, a
+ * button holding the picture), which MAY be the name.
+ */
+export const NOTICE_SRC = String.raw`const notices = () => {
+    const NOT_NAME = /^(account|accounts|profile|menu|user|users|settings|avatar|open|me|you|home|guest|admin|team|workspace|dashboard|sign in|log in|logout|log out|help|search|notifications?|more|options)$/i
+    const nameLike = (v) => {
+      if (!v) return null
+      const t = v.replace(/\s+/g, ' ').trim().replace(/[!.,:]+$/, '')
+      if (t.length < 2 || t.length > 40 || /[@\d<>/|]/.test(t)) return null
+      if (!/^\p{Lu}[\p{L}'’.-]*(?: \p{L}[\p{L}'’.-]*){0,3}$/u.test(t)) return null
+      if (NOT_NAME.test(t)) return null
+      return t
+    }
+    const GREETING = /^(?:signed in as|logged in as|welcome back,?|welcome,|hi,|hello,|hey,)\s+(.+)$/i
+    const LABELS = [
+      /^(?:account|user|profile)(?: menu)?(?: for|:|,| -)\s*(.+)$/i,
+      /^open (?:the )?(?:user|account|profile) menu(?: for|,|:)?\s*(.+)$/i,
+      /^(.+?)[’']s? (?:account|profile|avatar)$/i,
+    ]
+    const avatarish = (el) => el.tagName === 'IMG' || !!el.querySelector('img, svg') || /avatar/i.test(String(el.className || '') + ' ' + (el.getAttribute('data-testid') || ''))
+    let sure = false
+    const texts = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT)
+    for (let n; !acct && (n = texts.nextNode()); ) {
+      const el = n.parentElement
+      if (!el || /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/.test(el.tagName)) continue
+      const line = (el.textContent || '').replace(/\s+/g, ' ').trim()
+      if (line.length > 80) continue
+      const m = GREETING.exec(line)
+      const who = m && nameLike(m[1])
+      if (who && seen(el)) { acct = who; sure = true }
+    }
+    if (!acct) {
+      let maybe = null
+      for (const el of document.querySelectorAll('[aria-label], img[alt], [title]')) {
+        const label = el.getAttribute('aria-label') || el.getAttribute('alt') || el.getAttribute('title') || ''
+        const box = el.closest('button, a, [role="button"], [aria-haspopup]') || el
+        if (!seen(el) && !seen(box)) continue
+        let hit = null
+        for (const rx of LABELS) { const m = rx.exec(label.trim()); if (m && (hit = nameLike(m[1]))) break }
+        if (hit) { acct = hit; sure = true; break }
+        if (!maybe && (avatarish(el) || avatarish(box)) && box !== el.ownerDocument.body) maybe = nameLike(label)
+      }
+      if (!acct && maybe) acct = maybe
+    }
+    const found = []
+    if (acct) {
+      const places = [], at = new Set()
+      const walk = document.createTreeWalker(document.body || document.documentElement, NodeFilter.SHOW_TEXT)
+      for (let n; (n = walk.nextNode()) && places.length < 20; ) {
+        const el = n.parentElement
+        if (!el || /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/.test(el.tagName)) continue
+        if (!(n.nodeValue || '').includes(acct)) continue
+        const r = seen(el)
+        if (!r) continue
+        const selector = name(el)
+        if (at.has(selector)) continue
+        at.add(selector)
+        places.push({ selector, rect: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) } })
+      }
+      if (places.length) found.push({ kind: 'account-name', sure, places })
+    }
+    const RECENT = /^(recents?|recently (?:viewed|opened|visited|edited)|history|recent (?:files|projects|documents|items|pages|boards|chats|conversations|searches))$/i
+    const ITEMS = 'a[href], [role="link"], [role="menuitem"], [role="treeitem"], [role="option"]'
+    const listed = new Set()
+    for (const el of document.querySelectorAll('h1, h2, h3, h4, h5, h6, [role="heading"], summary, div, span, p, li, label, strong, button, a')) {
+      if (el.children.length > 2) continue
+      const word = (el.textContent || '').replace(/\s+/g, ' ').trim()
+      if (word.length > 40 || !RECENT.test(word)) continue
+      // A nav link that happens to say History is a page, not a list.
+      if (/^(A|BUTTON)$/.test(el.tagName) && !el.hasAttribute('aria-expanded')) continue
+      if (!seen(el)) continue
+      for (const c of [el.nextElementSibling, el.parentElement && el.parentElement.nextElementSibling, el.parentElement]) {
+        if (!c || c === document.body) continue
+        const items = [...c.querySelectorAll(ITEMS)].filter((x) => x !== el && !x.contains(el) && seen(x))
+        if (items.length < 3) continue
+        const r = seen(c)
+        if (!r) continue
+        const selector = name(c)
+        if (!listed.has(selector)) {
+          listed.add(selector)
+          found.push({ kind: 'personal-list', heading: word, selector, items: items.length, rect: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) } })
+        }
+        break
+      }
+      if (listed.size >= 5) break
+    }
+    return found
+  }
+  // Read before any selector is made, so none of them quotes the name.
+  const noticeList = notices()`
+
+/**
  * The scan: visible text in the viewport, plus the values of text inputs.
  * Skips anything inside a masked element, password fields, and text the eye
  * cannot see. Reports kind + a selector-ish name for the element + its rect.
@@ -105,7 +210,10 @@ export const EXPOSURE_PROBE = `(() => {
   // layout's, and they come last. A value that itself holds what the scan
   // looks for is never used: the selector would quote it.
   const attr = (v) => '"' + v.replace(/\\\\/g, '\\\\\\\\').replace(/"/g, '\\\\"') + '"'
-  const quiet = (v) => !!v && v.length <= 80 && !kindsIn(v).length
+  // The signed-in account's own name, once the notices have read it: a
+  // selector never quotes it either.
+  let acct = null
+  const quiet = (v) => !!v && v.length <= 80 && !kindsIn(v).length && !(acct && v.toLowerCase().includes(acct.toLowerCase()))
   const segment = (el) => {
     const tag = el.tagName.toLowerCase()
     if (el.id && /^[A-Za-z_][\\w-]*$/.test(el.id) && !/\\d{2,}/.test(el.id) && quiet(el.id)) return tag + '#' + el.id
@@ -147,6 +255,7 @@ export const EXPOSURE_PROBE = `(() => {
     if (s.visibility === 'hidden' || s.display === 'none' || +s.opacity === 0) return null
     return r
   }
+  ${NOTICE_SRC}
   const out = [], keys = new Set()
   const add = (el, text) => {
     const kinds = kindsIn(text)
@@ -173,7 +282,7 @@ export const EXPOSURE_PROBE = `(() => {
   }
   const hits = {}
   for (const [sel, n] of Object.entries(window.__vosMaskHits || {})) hits[sel] = n
-  return { exposures: out, maskHits: hits }
+  return { exposures: out, maskHits: hits, notices: noticeList }
 })()`
 
 /**
@@ -286,3 +395,56 @@ export function exposureLine(e: Exposure): string {
 
 export const EXPOSURE_ADVICE =
   'The recording shows these. Record from a demo account, or hide them before the camera rolls with "mask" in actions.json: { "selector": "…", "as": "text", "text": "demo@acme.test" } swaps the words, "as": "blur" blurs. Then re-record.'
+
+/**
+ * Accumulates the notices across a take: the account's name is ONE notice,
+ * its places gathered from every scan; a recent-items list is one notice
+ * per list. Each keeps the first step it was seen at.
+ */
+export class NoticeLog {
+  private byKey = new Map<string, Notice>()
+
+  add(step: number, notices: ScannedNotice[] | undefined | null): void {
+    for (const n of notices ?? []) {
+      const key =
+        n.kind === 'account-name' ? n.kind : `${n.kind}|${n.selector ?? ''}`
+      const had = this.byKey.get(key)
+      if (!had) {
+        this.byKey.set(key, { step, ...n, seen: 1 })
+        continue
+      }
+      had.seen += 1
+      if (n.kind !== 'account-name') continue
+      if (n.sure) had.sure = true
+      const places = had.places ?? []
+      for (const p of n.places ?? [])
+        if (
+          places.length < 20 &&
+          !places.some((q) => q.selector === p.selector)
+        )
+          places.push(p)
+      had.places = places
+    }
+  }
+
+  notices(): Notice[] {
+    return [...this.byKey.values()]
+  }
+}
+
+/**
+ * One notice, in words. The account's name is never printed: the line says
+ * where it showed, so each place can be masked.
+ */
+export function noticeLine(n: Notice): string {
+  const when = n.step < 0 ? 'as the page opened' : `from step #${n.step}`
+  if (n.kind === 'account-name') {
+    const places = n.places ?? []
+    return `${n.sure ? '' : 'what may be '}the account's name (${places.length} ${places.length === 1 ? 'place' : 'places'}, ${when}): ${places.map((p) => p.selector).join('; ')}`
+  }
+  const mask = JSON.stringify({ selector: n.selector, as: 'blur' })
+  return `a "${n.heading}" list of the account's own items (${n.items} items, ${when}) in ${n.selector}; to hide it, add to "mask": ${mask}`
+}
+
+export const NOTICE_ADVICE =
+  'These are the signed-in account\'s own: fine for a demo account, worth a mask on a real one. The name reads better swapped than blurred: { "selector": "…", "as": "text", "text": "Jane Doe" }.'

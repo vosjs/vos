@@ -52,7 +52,13 @@ import type {
   StepSpan,
 } from '@vosjs/studio-core'
 import { WALL_PROBE } from './wall'
-import { EXPOSURE_PROBE, ExposureLog, maskInitScript } from './exposure'
+import {
+  EXPOSURE_PROBE,
+  ExposureLog,
+  NoticeLog,
+  maskInitScript,
+} from './exposure'
+import type { ScannedNotice } from './exposure'
 import { SetupError, runSetup } from './setup'
 import {
   MEDIA_DRAIN_PROBE,
@@ -216,6 +222,11 @@ export interface RecordResult {
   wall: WallVerdict | null
   /** Sensitive-looking text seen in the frame (kind + place, never the string). */
   exposures: NonNullable<RecordingMeta['exposures']>
+  /**
+   * INFORMATION, never a failure and never in `exposures`: the signed-in
+   * account's own name and its recent-items lists (also `meta.notices`).
+   */
+  notices: NonNullable<RecordingMeta['notices']>
   /** The script's masks with how many elements each reached; hits 0 hid nothing. */
   masks: NonNullable<RecordingMeta['masks']>
   /**
@@ -428,12 +439,14 @@ export async function recordTake(
   await context.addInitScript(MEDIA_WATCH_SCRIPT)
   const soundLog = new PageSoundLog()
   const exposureLog = new ExposureLog(masks)
+  const noticeLog = new NoticeLog()
   const page = await context.newPage()
   // What the frame shows, read after each step. A few ms in the page; a scan
   // that fails (mid-navigation) is skipped, never fatal.
   const scanExposures = async (step: number) => {
     const scan = await page.evaluate(EXPOSURE_PROBE).catch(() => null)
     exposureLog.add(step, scan as Parameters<ExposureLog['add']>[1])
+    noticeLog.add(step, (scan as { notices?: ScannedNotice[] } | null)?.notices)
   }
   // One line per distinct page error, cut short; repeats are counted and
   // said once at the end (pageErrors.ts). The full text rides the result.
@@ -1381,6 +1394,7 @@ export async function recordTake(
     ...(exposureLog.exposures().length
       ? { exposures: exposureLog.exposures() }
       : {}),
+    ...(noticeLog.notices().length ? { notices: noticeLog.notices() } : {}),
     ...(masks.length ? { masks: exposureLog.masks(masks) } : {}),
     ...(skips.length ? { skips } : {}),
     ...(outputs.length ? { outputs } : {}),
@@ -1420,6 +1434,7 @@ export async function recordTake(
     ready,
     wall,
     exposures: exposureLog.exposures(),
+    notices: noticeLog.notices(),
     masks: exposureLog.masks(masks),
     freezes,
     freezePct,

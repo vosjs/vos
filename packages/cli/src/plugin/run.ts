@@ -89,7 +89,12 @@ import {
 } from '@vosjs/render-core/record'
 import type { ReadyMode, ReadyReport } from '@vosjs/render-core/record'
 import { WALL_PROBE, WallError, wallVerdict } from './wall'
-import { EXPOSURE_ADVICE, exposureLine } from './exposure'
+import {
+  EXPOSURE_ADVICE,
+  NOTICE_ADVICE,
+  exposureLine,
+  noticeLine,
+} from './exposure'
 import { SetupEnvError, SetupError, parseHeaders } from './setup'
 import {
   listSessions,
@@ -388,7 +393,11 @@ the currentSrc of a video, audio or img; as: the file name), listed in
 meta.outputs[]. Sound the page plays (a video or audio element heard,
 not muted) lands in meta.media[] with the footage stretches it was heard;
 its file is fetched into page-sound/ and the plan places it as audio
-clips with source "page", which a re-plan replaces. A click, press or type with "guard": "spend" costs
+clips with source "page", which a re-plan replaces. The scan after each
+step reports exposures (an email, a key, a card: kind and place) and,
+apart, notices: the signed-in account's own name (its places, never the
+name) and a list of its recent items, with the mask that hides it;
+notices are information, never a --strict failure. A click, press or type with "guard": "spend" costs
 something real: --dry-run hovers it and never presses, and record presses
 it only with --confirm <id> (repeatable), refusing before any capture
 otherwise. --hosted refuses guarded and download steps.
@@ -631,6 +640,11 @@ function navTimeoutNote(rec: {
   return ''
 }
 
+/** `vos validate`'s notices section: information about the footage, after the warnings. */
+function noticeLines(notices: string[]): string {
+  return notices.length ? `\n  noticed:\n  ${notices.join('\n  ')}` : ''
+}
+
 /** The sound the page played, as the take-ready line says it. */
 function pageSoundNote(rec: Pick<RecordResult, 'media'>): string {
   const heard = rec.media.filter((m) => m.intervals.length)
@@ -645,6 +659,16 @@ function maskMisses(rec: {
   masks?: { selector: string; hits: number }[]
 }): string[] {
   return (rec.masks ?? []).filter((m) => m.hits === 0).map((m) => m.selector)
+}
+
+/** What the recorder noticed (the account's name, its recent items), in words: information, never a failure. */
+function noticeNote(rec: {
+  notices: Parameters<typeof noticeLine>[0][]
+}): string {
+  if (!rec.notices.length) return ''
+  return `\n  NOTICED in the frame (${rec.notices.length}):\n${rec.notices
+    .map((n) => `    - ${noticeLine(n)}`)
+    .join('\n')}\n  ${NOTICE_ADVICE}`
 }
 
 /** What the frame shows, in words, for the end of a record or a rehearsal. */
@@ -1134,9 +1158,10 @@ async function cmdRecord(argv: string[]): Promise<number> {
           navTimeout: rec.navTimeout,
           ready: rec.ready,
           exposures: rec.exposures,
+          notices: rec.notices,
           masks: rec.masks,
         },
-        `${failed ? 'REHEARSAL FAILED' : 'Rehearsal passed'}: ${resolved}/${actions.steps.length} steps resolved in ${((Date.now() - started) / 1000).toFixed(1)}s${rec.navTimeout ? ' (the first load never reached networkidle)' : rec.ready.capped ? ' (the first page never stopped changing)' : ''}\n${lines.join('\n')}\n  ${maskMisses(rec).length ? `MASK hid nothing: ${maskMisses(rec).join(', ')} (the selector reached no element). ` : ''}${rec.stopped ? `STOPPED: ${rec.stopped.reason}. ` : ''}${failed ? 'Fix the script, rehearse again, then record.' : `Rects are capture px (the step rects a pin or a callout reads). Next: vos record --actions ${actionsPath} --out ${nextOut}${carried ? ` ${carried}` : ''} --strict${guardNote}`}${exposureNote(rec)}`,
+        `${failed ? 'REHEARSAL FAILED' : 'Rehearsal passed'}: ${resolved}/${actions.steps.length} steps resolved in ${((Date.now() - started) / 1000).toFixed(1)}s${rec.navTimeout ? ' (the first load never reached networkidle)' : rec.ready.capped ? ' (the first page never stopped changing)' : ''}\n${lines.join('\n')}\n  ${maskMisses(rec).length ? `MASK hid nothing: ${maskMisses(rec).join(', ')} (the selector reached no element). ` : ''}${rec.stopped ? `STOPPED: ${rec.stopped.reason}. ` : ''}${failed ? 'Fix the script, rehearse again, then record.' : `Rects are capture px (the step rects a pin or a callout reads). Next: vos record --actions ${actionsPath} --out ${nextOut}${carried ? ` ${carried}` : ''} --strict${guardNote}`}${exposureNote(rec)}${noticeNote(rec)}`,
       )
       // An await that gave up stops the take, in a rehearsal as in a record.
       return rec.stopped ? EXIT_ERROR : failed ? EXIT_USAGE : EXIT_OK
@@ -1239,6 +1264,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
         pace: rec.pace,
         ...(rec.wall ? { wall: rec.wall } : {}),
         exposures: rec.exposures,
+        notices: rec.notices,
         ...(rec.masks.length ? { masks: rec.masks } : {}),
         disabled: rec.disabled,
         confirmed: rec.confirmed,
@@ -1249,8 +1275,8 @@ async function cmdRecord(argv: string[]): Promise<number> {
         ...(strictFail ? { strictFailed: true } : {}),
       },
       strictFail
-        ? `STRICT: take recorded but incomplete — ${strictReason(rec)}; fix the flow and re-record.${skippedNote}${stepNote}${navTimeoutNote(rec)}${exposureNote(rec)}`
-        : `Take ready: ${outDir}\n  ${(rec.meta.durationMs / 1000).toFixed(1)}s · ${rec.frames.length} frames · ${rec.events.length} cursor events · ${clicks} clicks · ${plan.doc.zoom.length} zoom spans planned · ${rec.freezePct}% frozen · ${rec.dead.pct}% dead${deadWarns(rec.dead) ? ' ⚠ ' + deadLine(rec.dead) : ''}${skippedNote}${stepNote}${navTimeoutNote(rec)}${pageSoundNote(rec)}\n  Next: edit ${join(outDir, 'doc.json')} (optional), then: vos render ${outDir}${exposureNote(rec)}`,
+        ? `STRICT: take recorded but incomplete — ${strictReason(rec)}; fix the flow and re-record.${skippedNote}${stepNote}${navTimeoutNote(rec)}${exposureNote(rec)}${noticeNote(rec)}`
+        : `Take ready: ${outDir}\n  ${(rec.meta.durationMs / 1000).toFixed(1)}s · ${rec.frames.length} frames · ${rec.events.length} cursor events · ${clicks} clicks · ${plan.doc.zoom.length} zoom spans planned · ${rec.freezePct}% frozen · ${rec.dead.pct}% dead${deadWarns(rec.dead) ? ' ⚠ ' + deadLine(rec.dead) : ''}${skippedNote}${stepNote}${navTimeoutNote(rec)}${pageSoundNote(rec)}\n  Next: edit ${join(outDir, 'doc.json')} (optional), then: vos render ${outDir}${exposureNote(rec)}${noticeNote(rec)}`,
     )
     return strictFail ? EXIT_USAGE : EXIT_OK
   } finally {
@@ -1418,6 +1444,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
         freezePct: rec.freezePct,
         dead: rec.dead,
         exposures: rec.exposures,
+        notices: rec.notices,
         ...(rec.masks.length ? { masks: rec.masks } : {}),
         disabled: rec.disabled,
         confirmed: rec.confirmed,
@@ -1427,7 +1454,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
         pageErrors: rec.pageErrors,
         ...(flags.draft === true ? { draft: true } : {}),
       },
-      `Created ${result.out} (${(result.bytes / 1024).toFixed(0)} KB, ${result.width}x${result.height}@${result.fps}, ${result.duration.toFixed(1)}s, ${result.zoomSpans} zoom spans, ${result.clicks} click effects${result.audio ? ', audio' : ''}${flags.draft === true ? ', DRAFT' : ''})\n  take: ${outDir} — inspect with: vos frames ${outDir} --at-zooms; edit doc.json and re-render with: vos render ${outDir}${stepReportNote(rec)}${navTimeoutNote(rec)}${exposureNote(rec)}`,
+      `Created ${result.out} (${(result.bytes / 1024).toFixed(0)} KB, ${result.width}x${result.height}@${result.fps}, ${result.duration.toFixed(1)}s, ${result.zoomSpans} zoom spans, ${result.clicks} click effects${result.audio ? ', audio' : ''}${flags.draft === true ? ', DRAFT' : ''})\n  take: ${outDir} — inspect with: vos frames ${outDir} --at-zooms; edit doc.json and re-render with: vos render ${outDir}${stepReportNote(rec)}${navTimeoutNote(rec)}${exposureNote(rec)}${noticeNote(rec)}`,
     )
     return EXIT_OK
   } finally {
@@ -2419,6 +2446,11 @@ async function cmdValidate(argv: string[]): Promise<number> {
   for (const e of take.meta.exposures ?? [])
     warnings.push(`the recording shows ${exposureLine(e)}`)
   if (take.meta.exposures?.length) warnings.push(EXPOSURE_ADVICE)
+  // Information, never a warning: whose account the footage shows.
+  const notices = (take.meta.notices ?? []).map(
+    (n) => `the recording shows ${noticeLine(n)}`,
+  )
+  if (notices.length) notices.push(NOTICE_ADVICE)
   for (const m of take.meta.masks ?? [])
     if (m.hits === 0)
       warnings.push(
@@ -2486,15 +2518,22 @@ async function cmdValidate(argv: string[]): Promise<number> {
         problems,
         warnings,
         ...(notes.length ? { notes } : {}),
+        ...(notices.length ? { notices } : {}),
       },
-      `${target}:\n  ${problems.join('\n  ')}${warnings.length ? `\n  warnings:\n  ${warnings.join('\n  ')}` : ''}${notes.length ? `\n  notes:\n  ${notes.join('\n  ')}` : ''}`,
+      `${target}:\n  ${problems.join('\n  ')}${warnings.length ? `\n  warnings:\n  ${warnings.join('\n  ')}` : ''}${notes.length ? `\n  notes:\n  ${notes.join('\n  ')}` : ''}${noticeLines(notices)}`,
     )
     return EXIT_ERROR
   }
   const noteLines = notes.length ? `\n  notes:\n  ${notes.join('\n  ')}` : ''
   r.done(
-    { valid: true, target, warnings, ...(notes.length ? { notes } : {}) },
-    `${target}: take is complete and renderable${warnings.length ? `\n  warnings:\n  ${warnings.join('\n  ')}` : ''}${noteLines}`,
+    {
+      valid: true,
+      target,
+      warnings,
+      ...(notes.length ? { notes } : {}),
+      ...(notices.length ? { notices } : {}),
+    },
+    `${target}: take is complete and renderable${warnings.length ? `\n  warnings:\n  ${warnings.join('\n  ')}` : ''}${noteLines}${noticeLines(notices)}`,
   )
   return EXIT_OK
 }

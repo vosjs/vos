@@ -8,12 +8,16 @@ export {
   EXPOSURE_MATCHERS_SRC,
   EXPOSURE_PROBE,
   ExposureLog,
+  NOTICE_ADVICE,
+  NoticeLog,
   exposureLine,
   maskInitScript,
+  noticeLine,
 } from '@vosjs/render-core/record'
 export type {
   Exposure,
   ExposureKind,
   MaskReport,
   MaskRule,
+  Notice,
 } from '@vosjs/render-core/record'
