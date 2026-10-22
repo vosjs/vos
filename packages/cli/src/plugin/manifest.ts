@@ -74,6 +74,11 @@ export const manifest: PluginManifest = {
         'several takes and video files as one take: each next input a media, its spans tagged, its layers moved to where it starts; --captions anchors every step caption',
     },
     {
+      name: 'score',
+      summary:
+        "a music track as the film's score, its strongest swell landed on a step or a second (--dry-run prints the loudness envelope and the plan)",
+    },
+    {
       name: 'port',
       summary:
         'bring a page, a HyperFrames or a Remotion piece: inventory (its words, colours, faces, media, scenes) then scaffold (a data-first program.mjs to translate the motion into)',

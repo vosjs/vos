@@ -123,6 +123,7 @@ import { urlSchemeProblem } from '@vosjs/render-core/record'
 import { cmdActions } from './agentBrowser'
 import { cmdIngest } from './ingest'
 import { cmdJoin } from './join'
+import { cmdScore } from './score'
 import { bareCaptionsFlag, landStepCaptions } from './stepCaptions'
 import type { StepCaptionReport } from './stepCaptions'
 import { cmdDoctor, cmdLogout, cmdSetup, cmdWhoami } from './machineCmd'
@@ -180,6 +181,8 @@ Take pipeline
             a take from a recording someone else made (a cloud agent's PR video, a Playwright run's video, a Loom export): the file becomes recording.<container>, meta.json from its own dimensions and duration, and a trace beside it becomes cursor.json so the planner has clicks to zoom on; without one, nothing is planned and the done event says so. Without a trace the file opens as FINISHED footage (a render from HyperFrames or Remotion, a film): no card, no browser bar, no drawn cursor, its own frame rate; --as take gives a screen demo the card
   vos join <take> <take|file.mp4>... --out <dir> [--force] [--captions] [--json]
             several takes (and plain video files) as ONE take, cut in argument order: the first is the primary (its frame, cursor, export and sound), each next one a media m1, m2, … with its footage copied, its spans tagged and renamed, its layers moved to where it now starts; a file opens full-bleed. --captions lands every step's caption anchored to its step. The result must pass vos validate before anything is written
+  vos score <take> --track <slug|file> [--at <step id|output seconds>] [--gain 0..1] [--fade-out <s>] [--dry-run] [--json]
+            the film's music as one audio clip (id score): reads the track's loudness, finds its strongest swell and offsets the track so the swell lands at --at (a step, resolved through the cut, or output seconds); without --at it starts where the track first rises above its median level
   vos port inventory <page.html|project dir> [--render <their render.mp4>] [--out port] [--json]
             a finished piece (a HyperFrames composition, a Remotion project bundled with its own bundler, a hand-rolled page) read as a browser renders it: words, palette, faces (catalog or missing), media, scenes, gaps → port/inventory.json, with stills from its render
   vos port scaffold [--from port/inventory.json] [--out port/program] [--json]
@@ -2445,6 +2448,8 @@ export async function run(argv: string[]): Promise<number> {
         return await cmdIngest(rest)
       case 'join':
         return await cmdJoin(rest)
+      case 'score':
+        return await cmdScore(rest)
       default:
         throw new UsageError(`unknown command "${cmd}" — run: vos help`)
     }
