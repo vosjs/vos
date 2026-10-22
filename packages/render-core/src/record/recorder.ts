@@ -55,6 +55,7 @@ import { EXPOSURE_PROBE, ExposureLog, maskInitScript } from './exposure'
 import { SetupError, runSetup } from './setup'
 import { TakeClock } from './takeClock'
 import { PageErrorLog } from './pageErrors'
+import { fitSurfaceToViewport } from './surfaceFit'
 import type { PageError } from './pageErrors'
 import {
   AWAIT_POLL_S,
@@ -483,6 +484,9 @@ export async function recordTake(
   await scanExposures(-1)
 
   const cdp = await context.newCDPSession(page)
+  // The surface the screencast reads is the viewport, or the take is short
+  // (surfaceFit.ts). Before the camera rolls; a rehearsal captures nothing.
+  if (!dry) await fitSurfaceToViewport(cdp, vw, vh)
   const frames: FrameRec[] = []
   let frameIdx = 0
   let t0 = 0
