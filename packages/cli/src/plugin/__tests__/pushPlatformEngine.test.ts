@@ -24,12 +24,15 @@ import type { ProjectDoc, TextOverlayClip } from '@vosjs/studio-core'
 import type { Reporter } from '../output'
 
 let server: Server | undefined
-afterEach(async () => {
-  await new Promise<void>((done) =>
-    server ? server.close(() => done()) : done(),
-  )
+/** Close the server now: Node 18 waits on a kept-alive connection otherwise. */
+async function stop(): Promise<void> {
+  const s = server
   server = undefined
-})
+  if (!s) return
+  s.closeAllConnections?.()
+  await new Promise<void>((done) => s.close(() => done()))
+}
+afterEach(stop)
 
 interface Seen {
   method: string
@@ -232,8 +235,7 @@ describe('vos push reads the platform’s studio-core first', () => {
           /could not read which studio-core .* renders with/.test(l),
         ),
       ).toBe(true)
-      await new Promise<void>((done) => server!.close(() => done()))
-      server = undefined
+      await stop()
     }
   })
 
