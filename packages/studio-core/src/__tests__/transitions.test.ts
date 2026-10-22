@@ -6,7 +6,11 @@ import {
   sample,
   totalDuration,
 } from '@vosjs/timeline'
-import { lowerToComposition, ratedSegments } from '../lower/lowerToComposition'
+import {
+  lowerToComposition,
+  ratedSegments,
+  zoomTrackFromDoc,
+} from '../lower/lowerToComposition'
 import {
   TRANSITION_TRAVEL,
   docTransitions,
@@ -233,9 +237,42 @@ describe('the camera rests through a window', () => {
     ).keyframes
     const zoomed = keys.filter((k) => k.value[0] > 1.001)
     expect(zoomed.length).toBeGreaterThan(0)
+    // A's span ends AT the boundary (its hold pin at 4 is its own end); the
+    // first zoomed keyframe past it is B's arrival, after the window.
     expect(
-      Math.min(...zoomed.filter((k) => k.t > 3).map((k) => k.t)),
+      Math.min(...zoomed.filter((k) => k.t > 4).map((k) => k.t)),
     ).toBeGreaterThanOrEqual(4.6)
+  })
+
+  it('A’s span before the boundary is drawn to its end, and no pan carries the camera through the window', () => {
+    const { data } = lowerToComposition(push({ zoom: spans }))
+    const track = data.zoomTrack as { keyframes: unknown[] }
+    const at = (t: number) =>
+      (sample(track as never, t, lerpArray) as number[])[0]
+    // Held at its level through A's last second, pulled back to rest where
+    // its zoom-out lands inside the window, zoomed again once B's rested
+    // span has ramped in.
+    expect(at(3)).toBeCloseTo(2, 1)
+    expect(at(4.5)).toBe(1)
+    expect(at(5.5)).toBeCloseTo(2, 1)
+  })
+
+  it('a chain gap holding a window is not a chain', () => {
+    const two = [
+      { id: 'a', in: 2, out: 4, level: 2, cx: 0.3, cy: 0.3 },
+      { id: 'b', in: 4.6, out: 6, level: 2, cx: 0.7, cy: 0.7 },
+    ]
+    const full = [{ in: 0, out: 10 }]
+    const at = (track: { keyframes: unknown[] }, t: number) =>
+      (sample(track as never, t, lerpArray) as number[])[0]
+    // 0.6 s apart, the spans chain: the camera never rests between them.
+    expect(at(zoomTrackFromDoc(two, full), 4.3)).toBeGreaterThan(1.5)
+    // With a window in that gap, each span stands alone.
+    const rested = zoomTrackFromDoc(two, full, undefined, {
+      rests: [{ t: 4, d: 0.6 }],
+    })
+    expect(at(rested, 4.5)).toBe(1)
+    expect(at(rested, 5.5)).toBeCloseTo(2, 1)
   })
 
   it('a document with no transition carries no table and rests nothing', () => {
