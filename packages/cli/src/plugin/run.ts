@@ -158,6 +158,7 @@ const BOOLEAN_FLAGS = new Set([
   'hosted',
   'claimable',
   'share',
+  'verbose',
 ])
 /** Repeatable value flags (accumulate): --set path=value on render/frames, --override id on push, --browser-arg=<switch> and --confirm <id> on record/create. */
 export const MULTI_FLAGS = new Set([
@@ -172,7 +173,7 @@ export const HELP = `vos — record a browser flow, plan effects, render a produ
 
 Take pipeline
   vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
-  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [--json]
+  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [--verbose] [--json]
   vos record --hosted --actions actions.json [--url <url>] [--out take] [--title "…"] [--folder <id>] [--header name=value]... [--json]
             the take recorded on vos.so's fleet (no browser here): lands as a private vos with its doc and digest, then fetched into --out with its media
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
@@ -925,6 +926,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
           headers,
           context,
           dryRun: true,
+          verbose: flags.verbose === true,
           // A rehearsal is always strict, and it touches no directory.
           onArrival: wallGate(flags, r, { strict: true }),
         }),
@@ -994,6 +996,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
           disabled: rec.disabled,
           skips: rec.skips,
           outputs: rec.outputs,
+          pageErrors: rec.pageErrors,
           ...(rec.stopped ? { stopped: rec.stopped } : {}),
           navTimeout: rec.navTimeout,
           exposures: rec.exposures,
@@ -1040,6 +1043,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
         headers,
         context,
         confirm,
+        verbose: flags.verbose === true,
         onArrival: wallGate(flags, r, {
           strict: flags.strict === true,
           prepare,
@@ -1081,6 +1085,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
           confirmed: rec.confirmed,
           skips: rec.skips,
           outputs: rec.outputs,
+          pageErrors: rec.pageErrors,
         },
         `FAILED: ${rec.stopped.reason}.\n  The footage up to it is in ${outDir}.${skippedNote}${stepNote}`,
       )
@@ -1109,6 +1114,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
         confirmed: rec.confirmed,
         skips: rec.skips,
         outputs: rec.outputs,
+        pageErrors: rec.pageErrors,
         ...(strictFail ? { strictFailed: true } : {}),
       },
       strictFail
@@ -1195,6 +1201,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
         headers,
         context,
         confirm,
+        verbose: flags.verbose === true,
         onArrival: wallGate(flags, r, {
           strict: flags.strict === true,
           prepare,
@@ -1288,6 +1295,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
         confirmed: rec.confirmed,
         skips: rec.skips,
         outputs: rec.outputs,
+        pageErrors: rec.pageErrors,
         ...(flags.draft === true ? { draft: true } : {}),
       },
       `Created ${result.out} (${(result.bytes / 1024).toFixed(0)} KB, ${result.width}x${result.height}@${result.fps}, ${result.duration.toFixed(1)}s, ${result.zoomSpans} zoom spans, ${result.clicks} click effects${result.audio ? ', audio' : ''}${flags.draft === true ? ', DRAFT' : ''})\n  take: ${outDir} — inspect with: vos frames ${outDir} --at-zooms; edit doc.json and re-render with: vos render ${outDir}${stepReportNote(rec)}${exposureNote(rec)}`,

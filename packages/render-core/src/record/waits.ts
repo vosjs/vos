@@ -60,8 +60,12 @@ export async function readCondition(
 /**
  * Poll the condition every `everyMs` until it holds or `timeoutMs` pass.
  * `between` runs before each look but the first (an `await`'s reload).
- * The clock is the wall's: a rehearsal waits as long as a take would,
- * because how long a result takes is what a rehearsal is for.
+ * With `confirm`, a hold counts only once it has held on that many reads
+ * in a row, `confirm.gapMs` apart: a page that renders after network quiet
+ * reads half-built for a moment, and a `gone` condition holds on a list
+ * that has not been drawn yet. The clock is the wall's: a rehearsal waits
+ * as long as a take would, because how long a result takes is what a
+ * rehearsal is for.
  */
 export async function pollCondition(
   page: RecorderPage,
@@ -72,18 +76,78 @@ export async function pollCondition(
     sleep: (ms: number) => Promise<void>
     now?: () => number
     between?: () => Promise<void>
+    confirm?: { reads: number; gapMs: number }
   },
 ): Promise<{ ok: boolean; ms: number; last: ConditionState }> {
   const now = opts.now ?? Date.now
   const start = now()
+  const reads = Math.max(1, opts.confirm?.reads ?? 1)
   for (let first = true; ; first = false) {
     if (!first && opts.between) await opts.between()
-    const last = await readCondition(page, c)
+    let last = await readCondition(page, c)
+    for (let n = 1; last.holds && n < reads; n++) {
+      await opts.sleep(opts.confirm?.gapMs ?? 0)
+      last = await readCondition(page, c)
+    }
     const ms = now() - start
     if (last.holds) return { ok: true, ms, last }
     const left = opts.timeoutMs - ms
     if (left <= 0) return { ok: false, ms, last }
     await opts.sleep(Math.min(opts.everyMs, left))
+  }
+}
+
+/** The DOM counts as settled after this long with no change. */
+export const DOM_QUIET_MS = 800
+/** The longest a settle waits on a page that never stops changing. */
+export const DOM_SETTLE_CAP_MS = 5000
+
+/**
+ * The page's own count of DOM changes: an observer installed once per
+ * document, read back as a number. A string, the one evaluate shape every
+ * driver shares.
+ */
+export const DOM_CHANGE_PROBE = `(() => {
+  if (!window.__vosDomChanges) {
+    window.__vosDomChanges = { n: 0 };
+    new MutationObserver((list) => { window.__vosDomChanges.n += list.length })
+      .observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+  }
+  return window.__vosDomChanges.n;
+})()`
+
+/**
+ * Wait until the DOM has not changed for `quietMs`, at most `capMs`: what
+ * a page does after its network went quiet (a list rendered from data, a
+ * hydration). The count is polled from here rather than timed in the
+ * page, because a background tab throttles its own timers.
+ */
+export async function domSettled(
+  page: RecorderPage,
+  opts: {
+    sleep: (ms: number) => Promise<void>
+    now?: () => number
+    quietMs?: number
+    capMs?: number
+    tickMs?: number
+  },
+): Promise<{ settled: boolean; ms: number }> {
+  const now = opts.now ?? Date.now
+  const quiet = opts.quietMs ?? DOM_QUIET_MS
+  const cap = opts.capMs ?? DOM_SETTLE_CAP_MS
+  const start = now()
+  let seen = await page.evaluate<number>(DOM_CHANGE_PROBE).catch(() => -1)
+  let since = start
+  for (;;) {
+    const t = now()
+    if (t - since >= quiet) return { settled: true, ms: t - start }
+    if (t - start >= cap) return { settled: false, ms: t - start }
+    await opts.sleep(opts.tickMs ?? 100)
+    const n = await page.evaluate<number>(DOM_CHANGE_PROBE).catch(() => -1)
+    if (n !== seen) {
+      seen = n
+      since = now()
+    }
   }
 }
 

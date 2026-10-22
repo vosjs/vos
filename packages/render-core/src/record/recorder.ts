@@ -54,6 +54,8 @@ import { WALL_PROBE } from './wall'
 import { EXPOSURE_PROBE, ExposureLog, maskInitScript } from './exposure'
 import { SetupError, runSetup } from './setup'
 import { TakeClock } from './takeClock'
+import { PageErrorLog } from './pageErrors'
+import type { PageError } from './pageErrors'
 import {
   AWAIT_POLL_S,
   AWAIT_TIMEOUT_S,
@@ -64,6 +66,7 @@ import {
 import type { ActionsFile } from './actions'
 import {
   conditionMiss,
+  domSettled,
   pollCondition,
   sayCondition,
   sayDuration,
@@ -71,7 +74,7 @@ import {
 import type { WaitCondition } from './waits'
 import {
   OUTPUT_MAX_BYTES,
-  currentSrcScript,
+  readMediaSource,
   fetchInPageScript,
   nameFromUrl,
   outputName,
@@ -227,6 +230,8 @@ export interface RecordResult {
   outputs: RecordingOutput[]
   /** An `await` timed out and the take stopped there; null when it ran to the end. */
   stopped: StoppedTake | null
+  /** The page's own console errors, each distinct one with its full text and how often it came. */
+  pageErrors: PageError[]
   /** The actions as recorded, `url` resolved: what a take directory writes back. */
   actions: ActionsFile
 }
@@ -289,6 +294,8 @@ export interface RecordOpts {
    * A rehearsal fetches the file and keeps nothing.
    */
   outputs?: OutputSink
+  /** Print every page error whole, each time it comes; by default one cut line per distinct error. */
+  verbose?: boolean
 }
 
 /** The longest any pause lasts in a rehearsal. */
@@ -395,8 +402,13 @@ export async function recordTake(
     const scan = await page.evaluate(EXPOSURE_PROBE).catch(() => null)
     exposureLog.add(step, scan as Parameters<ExposureLog['add']>[1])
   }
+  // One line per distinct page error, cut short; repeats are counted and
+  // said once at the end (pageErrors.ts). The full text rides the result.
+  const pageErrors = new PageErrorLog(opts.verbose === true)
   page.on('console', (m) => {
-    if (m.type() === 'error') log(`   [page error] ${m.text()}`)
+    if (m.type() !== 'error') return
+    const line = pageErrors.add(m.text())
+    if (line) log(line)
   })
 
   log(`goto ${url}`)
@@ -604,15 +616,22 @@ export async function recordTake(
   }
 
   /**
-   * A media element's source, waited for like a selector: null when no
-   * element matches in time, '' when one does and has no source yet.
+   * A media element's source, through the page's locator engine like every
+   * other step's selector (`video >> nth=0`, `text=…`, `role=…` all hold):
+   * waited for until attached (an `<audio>` is never visible), then read
+   * until it has a source. Null when no element matches in time, '' when
+   * one does and has no source yet.
    */
   const srcOf = async (selector: string): Promise<string | null> => {
     const deadline = Date.now() + SRC_WAIT_MS
+    const loc = page.locator(selector).first()
+    try {
+      await loc.waitFor({ state: 'attached', timeout: SRC_WAIT_MS })
+    } catch {
+      return null
+    }
     for (;;) {
-      const v = await page
-        .evaluate<string | null>(currentSrcScript(selector))
-        .catch(() => null)
+      const v = await loc.evaluate(readMediaSource).catch(() => '')
       if (v || Date.now() >= deadline) return v
       await realSleep(200)
     }
@@ -1046,6 +1065,9 @@ export async function recordTake(
               await (
                 page.reload ? page.reload(opts) : page.goto(page.url(), opts)
               ).catch(() => null)
+              // Network quiet is not a drawn page: a list rendered from its
+              // data lands after it. Let the DOM settle before the look.
+              await domSettled(page, { sleep: realSleep })
             }
           : undefined
         log(`await ${sayCondition(cond)} (off camera)…`)
@@ -1055,6 +1077,9 @@ export async function recordTake(
             everyMs: (step.poll ?? AWAIT_POLL_S) * 1000,
             sleep: realSleep,
             between: reload,
+            // After a reload the condition must hold on two reads in a row,
+            // or a half-built page ends the wait early.
+            ...(reload ? { confirm: { reads: 2, gapMs: 500 } } : {}),
           }),
         )
         extra.offCameraMs = ms
@@ -1234,6 +1259,7 @@ export async function recordTake(
   await cdp.send('Page.stopScreencast').catch(() => {})
   await sleep(200)
   const pageTitle = await page.title().catch(() => '')
+  for (const line of pageErrors.repeats()) log(line)
   await context.close()
   // Every frame the screencast delivered has reached the sink.
   await sinkChain
@@ -1310,6 +1336,7 @@ export async function recordTake(
     skips,
     outputs,
     stopped,
+    pageErrors: pageErrors.entries(),
     actions: { ...actions, url },
   }
 }

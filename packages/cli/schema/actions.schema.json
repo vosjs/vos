@@ -599,7 +599,7 @@
               "src": {
                 "type": "string",
                 "minLength": 1,
-                "description": "a CSS selector of a video, audio or img element"
+                "description": "a selector (the same grammar as every other step) of a video, audio or img element"
               },
               "as": {
                 "type": "string",

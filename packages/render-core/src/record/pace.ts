@@ -322,6 +322,9 @@ export function deadTime(
   let ms = 0
   let longestMs = 0
   for (const s of steps) {
+    // A check or a wait for the page is not a hold the author asked for:
+    // its time is the page's, and "cut the step's ms" is no advice for it.
+    if (s.do === 'expect' || s.do === 'await') continue
     const t0 = s.tStart * 1000
     const t1 = s.tEnd * 1000
     if (!(t1 > t0)) continue

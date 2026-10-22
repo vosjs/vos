@@ -5,6 +5,7 @@
  * the fetch, and the host's `OutputSink` puts the bytes somewhere.
  */
 import { fileNameProblem } from './actions'
+import type { RecorderMediaElement } from './driver'
 
 /** The most a download keeps: a file the page made, never a disk's worth. */
 export const OUTPUT_MAX_BYTES = 512 * 1024 * 1024
@@ -94,13 +95,14 @@ export async function readAllBytes(
 }
 
 /**
- * The expression that reads a media element's source: its `currentSrc`
- * (what it is actually playing), else its `src`. '' while it has none
- * yet, null when nothing matches. A CSS selector, read in the page.
+ * Read a media element's source, run in the page on the element the
+ * step's selector matched through the locator engine: its `currentSrc`
+ * (what it is actually playing), else its `src`, else the attribute; ''
+ * while it has none yet. Self-contained, since it is serialized into the
+ * page.
  */
-export function currentSrcScript(selector: string): string {
-  return `(() => { const el = document.querySelector(${JSON.stringify(selector)}); if (!el) return null; return el.currentSrc || el.src || el.getAttribute('src') || '' })()`
-}
+export const readMediaSource = (el: RecorderMediaElement): string =>
+  el.currentSrc || el.src || el.getAttribute('src') || ''
 
 /**
  * The expression that fetches a URL inside the page, for what the page

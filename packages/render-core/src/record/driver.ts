@@ -20,7 +20,10 @@ export interface RecorderRect {
 }
 
 export interface RecorderLocator {
-  waitFor(opts: { state: 'visible'; timeout: number }): Promise<unknown>
+  waitFor(opts: {
+    state: 'visible' | 'attached'
+    timeout: number
+  }): Promise<unknown>
   scrollIntoViewIfNeeded(): Promise<unknown>
   boundingBox(): Promise<RecorderRect | null>
   click(): Promise<unknown>
@@ -28,6 +31,15 @@ export interface RecorderLocator {
   /** what an `expect` and an `await` read, and the disabled-click report */
   isVisible(): Promise<boolean>
   isEnabled(opts?: { timeout?: number }): Promise<boolean>
+  /** a `download` src reads the media element's source through the locator engine */
+  evaluate<R>(fn: (el: RecorderMediaElement) => R): Promise<R>
+}
+
+/** What a `download` src reads off the element its selector matched. */
+export interface RecorderMediaElement {
+  currentSrc?: string
+  src?: string
+  getAttribute(name: string): string | null
 }
 
 /** A browser download, as Playwright's `Download` answers it. */

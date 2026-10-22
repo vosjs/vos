@@ -82,6 +82,7 @@ function fakeBrowser(offsetsMs: number[]): RecorderBrowser {
       fill: async () => {},
       isVisible: async () => false,
       isEnabled: async () => true,
+      evaluate: async <R>() => '' as R,
     }),
   }
   const page: RecorderPage = {

@@ -32,6 +32,21 @@ body{margin:0;font:16px system-ui}button,a{display:inline-block;margin:12px;padd
 <div id="spin"></div>
 <a id="dl" href="/report">Export CSV</a>
 <video id="v" src="/clip.webm" preload="auto" muted></video>
+<audio src="/clip.webm?audio" preload="none">Episode audio</audio>
+</body></html>`
+
+const listPage = (state: 'pending' | 'done') =>
+  `<!doctype html><html><head><meta charset="utf-8"><title>Jobs</title></head><body>
+<ul id="list"></ul>
+<script>setTimeout(function(){document.getElementById('list').innerHTML='<li class="${state}">${state}</li>'},1000)</script>
+</body></html>`
+let listLoads = 0
+
+// A third party's policy violation: long, and the same on every load.
+const LONG_ERROR = `Refused to load the script 'https://cdn.example.test/widget.js' because it violates the following Content Security Policy directive: ${'script-src self '.repeat(120)}`
+const NOISY = `<!doctype html><html><head><meta charset="utf-8"><title>Noisy</title></head><body>
+<p id="p">hello</p>
+<script>for (var i = 0; i < 4; i++) console.error(${JSON.stringify(LONG_ERROR)}); console.error('second, short error')</script>
 </body></html>`
 
 const CSV = 'name,count\nalpha,1\nbeta,2\n'
@@ -52,9 +67,22 @@ beforeAll(async () => {
       res.end(CSV)
       return
     }
-    if (req.url === '/clip.webm') {
+    if (req.url?.startsWith('/clip.webm')) {
       res.writeHead(200, { 'content-type': 'video/webm' })
       res.end(Buffer.from(CLIP))
+      return
+    }
+    if (req.url === '/list') {
+      // A job that is pending for the first two loads, and whose list the
+      // page draws a second after it loaded, after the network is quiet.
+      listLoads++
+      res.writeHead(200, { 'content-type': 'text/html' })
+      res.end(listPage(listLoads > 2 ? 'done' : 'pending'))
+      return
+    }
+    if (req.url === '/noisy') {
+      res.writeHead(200, { 'content-type': 'text/html' })
+      res.end(NOISY)
       return
     }
     res.writeHead(200, { 'content-type': 'text/html' })
@@ -384,5 +412,90 @@ describe('download keeps what the page makes', () => {
         { env: {} },
       ),
     ).rejects.toThrow(/nowhere to keep a file/)
+  }, 60_000)
+
+  it('resolves src with the same selector grammar as every other step', async () => {
+    if (!browser) return
+    const saved: string[] = []
+    const result = await recordTake(
+      browser,
+      `${base}/`,
+      {
+        viewport: VIEWPORT,
+        steps: [
+          { do: 'download', src: 'video >> nth=0', as: 'first.webm' },
+          { do: 'download', src: 'text=Episode audio', as: 'episode.webm' },
+        ],
+      },
+      frameSink(),
+      () => {},
+      { env: {}, outputs: { save: (name) => void saved.push(name) } },
+    )
+    expect(result.skipped).toEqual([])
+    expect(saved).toEqual(['first.webm', 'episode.webm'])
+    expect(result.outputs.map((o) => o.bytes)).toEqual([
+      CLIP.length,
+      CLIP.length,
+    ])
+  }, 60_000)
+})
+
+describe('await with reload', () => {
+  it('lets the reloaded page draw, and holds the condition on two reads, before it resumes', async () => {
+    if (!browser) return
+    listLoads = 0
+    const result = await recordTake(
+      browser,
+      `${base}/list`,
+      {
+        viewport: VIEWPORT,
+        steps: [
+          { do: 'wait', ms: 1200 },
+          {
+            id: 'done',
+            do: 'await',
+            until: { gone: '.pending' },
+            reload: true,
+            poll: 0.3,
+            timeout: 30,
+            read: '#list',
+          },
+        ],
+      },
+      frameSink(),
+      () => {},
+      { dryRun: true, env: {} },
+    )
+    // The reload that served a pending job drew no list for a second; a
+    // single read straight after network quiet saw no `.pending` there and
+    // ended the wait on a job that was not done.
+    expect(result.meta.steps?.[1].timedOut).toBeUndefined()
+    expect(result.meta.steps?.[1].text).toBe('done')
+    expect(listLoads).toBeGreaterThanOrEqual(3)
+  }, 90_000)
+})
+
+describe("the page's own errors", () => {
+  it('are one cut line each, a repeat counted, and the full text in the result', async () => {
+    if (!browser) return
+    const logs: string[] = []
+    const result = await recordTake(
+      browser,
+      `${base}/noisy`,
+      { viewport: VIEWPORT, steps: [{ do: 'wait', ms: 100 }] },
+      frameSink(),
+      (m) => logs.push(m),
+      { dryRun: true, env: {} },
+    )
+    const errorLines = logs.filter((l) => l.includes('[page error'))
+    expect(errorLines).toHaveLength(3)
+    expect(errorLines.every((l) => l.length <= 200)).toBe(true)
+    expect(errorLines.some((l) => l.startsWith('   [page error ×4] '))).toBe(
+      true,
+    )
+    expect(result.pageErrors).toEqual([
+      { text: LONG_ERROR, count: 4 },
+      { text: 'second, short error', count: 1 },
+    ])
   }, 60_000)
 })
