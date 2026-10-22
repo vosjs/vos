@@ -1,5 +1,11 @@
 # @vosjs/studio-core
 
+## 0.42.4
+
+### Patch Changes
+
+- d076888: Zoom, tilt and cam spans in a take of several media now play in output order: a span on a later media no longer clamps away the primary's spans that play before it, and a connected pan never carries the camera through a transition window.
+
 ## 0.42.3
 
 ### Patch Changes
