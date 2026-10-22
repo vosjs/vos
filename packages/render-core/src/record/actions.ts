@@ -89,7 +89,55 @@ export type ActionStep = (
       ty: number
       ms?: number
     }
+  /**
+   * Check that the page is as the flow expects, with no cursor move: an
+   * element visible (`selector`; with `enabled`, enabled or disabled), some
+   * visible text containing `text`, or `gone` no longer visible. Exactly
+   * one of the three. Waits up to `timeout` seconds (default 5); a
+   * condition that never holds is a skip with its reason.
+   */
+  | {
+      do: 'expect'
+      selector?: string
+      text?: string
+      gone?: string
+      enabled?: boolean
+      timeout?: number
+    }
+  /**
+   * Wait OFF CAMERA for something slow (a render, a generated result, a
+   * deploy): the capture stops, the predicate is polled every `poll`
+   * seconds (default 2) for up to `timeout` (default 600), reloading the
+   * page between polls when `reload` is set, and the capture resumes when
+   * it holds. The footage has no gap and no frozen stretch; the cut lands
+   * in `meta.skips[]`. On timeout, `onTimeout: "fail"` (the default) stops
+   * the take and `"continue"` resumes it.
+   */
+  | {
+      do: 'await'
+      until: AwaitUntil
+      timeout?: number
+      poll?: number
+      reload?: boolean
+      onTimeout?: 'fail' | 'continue'
+    }
+  /**
+   * Keep a file the page makes: click `selector` and wait for the
+   * browser's download, or fetch the `currentSrc` of the video, audio or
+   * img element `src` names, with the page's own cookies. Saved under the
+   * take's `outputs/` as `as`, else the name the page suggested, and listed
+   * in `meta.outputs[]`.
+   */
+  | { do: 'download'; selector?: string; src?: string; as?: string }
 ) & {
+  /**
+   * `"spend"`: the step costs something real (credits, a purchase, a
+   * message sent). Only a click, a press or a type carries it, and it
+   * needs an `id`. A rehearsal hovers it and never presses it; a recording
+   * presses it only when the command names it (`--confirm <id>`) and
+   * refuses before capturing anything otherwise.
+   */
+  guard?: StepGuard
   /**
    * Optional stable identity: anchors in doc.json name a step by this
    * id (else by index), so a step can move or gain neighbours across script
@@ -113,6 +161,28 @@ export type ActionStep = (
   read?: string
 }
 
+/** What an `await` waits for: exactly one of the three. */
+export interface AwaitUntil {
+  selector?: string
+  text?: string
+  gone?: string
+}
+
+/** The guards a step may carry: one today, a step that spends. */
+export const STEP_GUARDS = ['spend'] as const
+export type StepGuard = (typeof STEP_GUARDS)[number]
+
+/** The verbs a guard may sit on: the ones that commit something. */
+const GUARDABLE = new Set(['click', 'press', 'type'])
+
+/** How long an `expect` waits by default, in seconds. */
+export const EXPECT_TIMEOUT_S = 5
+/** An `await`'s defaults, in seconds. */
+export const AWAIT_TIMEOUT_S = 600
+export const AWAIT_POLL_S = 2
+/** How long a `download` click waits for the browser's download, in seconds. */
+export const DOWNLOAD_TIMEOUT_S = 30
+
 const VERBS = new Set([
   'wait',
   'hover',
@@ -122,6 +192,9 @@ const VERBS = new Set([
   'scroll',
   'move',
   'drag',
+  'expect',
+  'await',
+  'download',
 ])
 
 /** The keys a `press` step may name: navigation and control, never a character. */
@@ -265,6 +338,96 @@ export function validateActions(value: unknown): string[] {
     ) {
       errors.push(`${at}: move needs x and y (CSS px)`)
     }
+    if (s.guard !== undefined) {
+      if (!(STEP_GUARDS as readonly unknown[]).includes(s.guard))
+        errors.push(
+          `${at}: guard must be ${STEP_GUARDS.map((g) => `"${g}"`).join(' or ')}`,
+        )
+      else if (!GUARDABLE.has(s.do))
+        errors.push(
+          `${at}: guard sits on a click, a press or a type, the steps that commit something; a ${s.do} spends nothing`,
+        )
+      else if (typeof s.id !== 'string' || !s.id.trim())
+        errors.push(
+          `${at}: a guarded step needs an id, which is what --confirm <id> names`,
+        )
+    }
+    if (s.do === 'expect') {
+      const given = (['selector', 'text', 'gone'] as const).filter(
+        (k) => s[k] !== undefined,
+      )
+      if (given.length !== 1)
+        errors.push(
+          `${at}: expect needs exactly one of selector, text or gone${given.length ? ` (it has ${given.join(' and ')})` : ''}`,
+        )
+      for (const k of given)
+        if (!isFilled(s[k]))
+          errors.push(`${at}: expect ${k} must be a non-empty string`)
+      if (s.enabled !== undefined) {
+        if (typeof s.enabled !== 'boolean')
+          errors.push(`${at}: expect enabled must be true or false`)
+        else if (s.selector === undefined)
+          errors.push(
+            `${at}: expect enabled is about the selector's element, so it needs a selector`,
+          )
+      }
+      errors.push(...secondsProblem(at, 'expect timeout', s.timeout))
+    }
+    if (s.do === 'await') {
+      const u = s.until
+      if (typeof u !== 'object' || u === null || Array.isArray(u)) {
+        errors.push(
+          `${at}: await needs until, one of { "selector" }, { "text" } or { "gone" }`,
+        )
+      } else {
+        const until = u as Record<string, unknown>
+        const keys = Object.keys(until)
+        const known: string[] = keys.filter(
+          (k) => k === 'selector' || k === 'text' || k === 'gone',
+        )
+        const unknown = keys.filter((k) => !known.includes(k))
+        if (unknown.length)
+          errors.push(
+            `${at}: await until takes selector, text or gone, not ${unknown.join(', ')}`,
+          )
+        if (known.length !== 1)
+          errors.push(
+            `${at}: await until needs exactly one of selector, text or gone${known.length ? ` (it has ${known.join(' and ')})` : ''}`,
+          )
+        for (const k of known) {
+          const v = until[k]
+          if (typeof v !== 'string' || !v.trim())
+            errors.push(`${at}: await until.${k} must be a non-empty string`)
+        }
+      }
+      errors.push(...secondsProblem(at, 'await timeout', s.timeout))
+      errors.push(...secondsProblem(at, 'await poll', s.poll))
+      if (s.reload !== undefined && typeof s.reload !== 'boolean')
+        errors.push(`${at}: await reload must be true or false`)
+      if (
+        s.onTimeout !== undefined &&
+        s.onTimeout !== 'fail' &&
+        s.onTimeout !== 'continue'
+      )
+        errors.push(`${at}: await onTimeout must be "fail" or "continue"`)
+    }
+    if (s.do === 'download') {
+      const given = (['selector', 'src'] as const).filter(
+        (k) => s[k] !== undefined,
+      )
+      if (given.length !== 1)
+        errors.push(
+          `${at}: download needs exactly one of selector (a control that downloads) or src (a video, audio or img element whose source is fetched)`,
+        )
+      for (const k of given)
+        if (!isFilled(s[k]))
+          errors.push(`${at}: download ${k} must be a non-empty string`)
+      if (s.as !== undefined) {
+        const problem =
+          typeof s.as === 'string' ? fileNameProblem(s.as) : 'is not a string'
+        if (problem) errors.push(`${at}: download as ${problem}`)
+      }
+    }
     if (s.do === 'drag') {
       if (typeof s.tx !== 'number' || typeof s.ty !== 'number') {
         errors.push(`${at}: drag needs tx and ty (CSS px)`)
@@ -279,4 +442,108 @@ export function validateActions(value: unknown): string[] {
     }
   })
   return errors
+}
+
+const isFilled = (v: unknown): boolean =>
+  typeof v === 'string' && v.trim().length > 0
+
+function secondsProblem(at: string, what: string, v: unknown): string[] {
+  if (v === undefined) return []
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0)
+    return [`${at}: ${what} must be a number of seconds above 0`]
+  return []
+}
+
+/**
+ * Why a name is not one a download may be saved under, or null. A plain
+ * file name only: the file lands in the take's `outputs/` and nowhere
+ * else, so no separator, no `..`, nothing hidden, nothing empty.
+ */
+export function fileNameProblem(name: string): string | null {
+  if (!name.trim()) return 'must be a file name'
+  if (/[/\\]/.test(name))
+    return `"${name}" must be a plain file name, with no path separator`
+  if (name.includes('..'))
+    return `"${name}" must be a plain file name, with no ".."`
+  if (name.startsWith('.')) return `"${name}" must not be a hidden file`
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(name))
+    return `"${name}" must not hold control characters`
+  if (name.length > 200) return 'must be at most 200 characters'
+  return null
+}
+
+/** A guarded step of a script: where it is, what it is, the id that confirms it. */
+export interface GuardedStep {
+  step: number
+  id: string
+  do: string
+  guard: StepGuard
+}
+
+/** The guarded steps of a script, in order. */
+export function guardedSteps(
+  actions: Pick<ActionsFile, 'steps'>,
+): GuardedStep[] {
+  const out: GuardedStep[] = []
+  actions.steps.forEach((s, i) => {
+    if (s.guard)
+      out.push({ step: i, id: s.id ?? String(i), do: s.do, guard: s.guard })
+  })
+  return out
+}
+
+/**
+ * Whether a recording may run with the confirmations it was given: every
+ * guarded step named by `--confirm`, and every name a guarded step. A
+ * refusal is one sentence naming the steps and the flag, said before
+ * anything is captured.
+ */
+export function guardVerdict(
+  actions: Pick<ActionsFile, 'steps'>,
+  confirm: readonly string[],
+):
+  | { ok: true }
+  | { ok: false; unconfirmed: string[]; unknown: string[]; message: string } {
+  const guarded = guardedSteps(actions)
+  const unconfirmed = guarded.filter((g) => !confirm.includes(g.id))
+  const unknown = confirm.filter((c) => !guarded.some((g) => g.id === c))
+  if (!unconfirmed.length && !unknown.length) return { ok: true }
+  const parts: string[] = []
+  if (unconfirmed.length) {
+    const one = unconfirmed.length === 1
+    parts.push(
+      `${unconfirmed.map((g) => `#${g.step} ${g.id} (${g.do})`).join(', ')} ${one ? 'is' : 'are'} guarded (${unconfirmed[0].guard}): ${one ? 'it spends' : 'they spend'} something real, so the recorder presses ${one ? 'it' : 'them'} only when the command says so. Add ${unconfirmed.map((g) => `--confirm ${g.id}`).join(' ')} to record ${one ? 'it' : 'them'}, or rehearse with --dry-run, which hovers and never presses`,
+    )
+  }
+  if (unknown.length)
+    parts.push(
+      `${unknown.map((c) => `--confirm ${c}`).join(', ')} names no guarded step${guarded.length ? ` (the guarded ones: ${guarded.map((g) => g.id).join(', ')})` : ''}`,
+    )
+  return {
+    ok: false,
+    unconfirmed: unconfirmed.map((g) => g.id),
+    unknown,
+    message: `${parts.join('. ')}. Nothing was recorded.`,
+  }
+}
+
+/**
+ * What a hosted recorder cannot do with a script, in words, or []: a
+ * guarded step has nobody to confirm it on a fleet, and a download has no
+ * take directory to land in there.
+ */
+export function hostedRefusals(actions: Pick<ActionsFile, 'steps'>): string[] {
+  const out: string[] = []
+  for (const g of guardedSteps(actions))
+    out.push(
+      `steps[${g.step}] (${g.id}) is guarded (${g.guard}), and a hosted take has no way to confirm it: record it on this machine with --confirm ${g.id}`,
+    )
+  actions.steps.forEach((s, i) => {
+    if (s.do === 'download')
+      out.push(
+        `steps[${i}] is a download, which a hosted take does not keep: record it on this machine, where the file lands in the take's outputs/`,
+      )
+  })
+  return out
 }

@@ -79,6 +79,13 @@ import { deadLine, deadWarns } from './pace'
 import type { TakePaths } from './take'
 import { BrowserUnavailableError, launchBrowser } from '../browser'
 import { recordTake } from './recorder'
+import type { RecordResult, SkippedStep } from './recorder'
+import {
+  RecordRefusedError,
+  guardVerdict,
+  guardedSteps,
+  hostedRefusals,
+} from '@vosjs/render-core/record'
 import { WALL_PROBE, WallError, wallVerdict } from './wall'
 import { EXPOSURE_ADVICE, exposureLine } from './exposure'
 import { SetupEnvError, SetupError, parseHeaders } from './setup'
@@ -158,15 +165,22 @@ const BOOLEAN_FLAGS = new Set([
   'hosted',
   'claimable',
   'share',
+  'verbose',
 ])
-/** Repeatable value flags (accumulate): --set path=value on render/frames, --override id on push, --browser-arg=<switch> on record/create. */
-export const MULTI_FLAGS = new Set(['set', 'override', 'browser-arg', 'header'])
+/** Repeatable value flags (accumulate): --set path=value on render/frames, --override id on push, --browser-arg=<switch> and --confirm <id> on record/create. */
+export const MULTI_FLAGS = new Set([
+  'set',
+  'override',
+  'browser-arg',
+  'header',
+  'confirm',
+])
 
 export const HELP = `vos — record a browser flow, plan effects, render a product video; sync with vos.so
 
 Take pipeline
-  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>|--session <name>] [--header name=value]... [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
-  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>|--session <name>] [--header name=value]... [--browser-arg=<switch>]... [--background <slug|url|none>] [--json]
+  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
+  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [--verbose] [--json]
   vos record --hosted --actions actions.json [--url <url>] [--out take] [--title "…"] [--folder <id>] [--header name=value]... [--json]
             the take recorded on vos.so's fleet (no browser here): lands as a private vos with its doc and digest, then fetched into --out with its media
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
@@ -340,11 +354,25 @@ reuse block NAMES whatever could not follow — fix by exception, never
 re-cut from scratch. Give steps ids in actions.json so re-timing survives
 script edits.
 
-record --strict exits 2 when any selector was skipped, the page never
-reached networkidle, or the take hit --max-duration (the done event lists
-skipped[] and capped either way). --max-duration defaults to the hosted
-recording cap, read live from GET /api/limits (30 min when the origin is
-unreachable): the capture stops there and says so in one line.
+record --strict exits 2 when any selector was skipped, an expect never
+held, a click landed on a disabled control, an await timed out, or the
+take hit --max-duration (the done event lists skipped[], disabled[] and
+capped either way). A first load that never reaches networkidle (a page
+holding a socket open) is a warning, navTimeout in the done event, never
+a strict failure. --max-duration defaults to
+the hosted recording cap, read live from GET /api/limits (30 min when the
+origin is unreachable): the capture stops there and says so in one line.
+Three steps beyond the gestures: expect checks the page on camera
+(selector, text or gone; enabled; timeout 5 s); await waits OFF camera
+(until {selector|text|gone}, timeout 600 s, poll 2 s, reload, onTimeout
+fail|continue), so the footage has no gap and the cut lands in
+meta.skips[] and becomes a segment boundary; download keeps a file the page
+makes in the take's outputs/ (selector: the download a click starts; src:
+the currentSrc of a video, audio or img; as: the file name), listed in
+meta.outputs[]. A click, press or type with "guard": "spend" costs
+something real: --dry-run hovers it and never presses, and record presses
+it only with --confirm <id> (repeatable), refusing before any capture
+otherwise. --hosted refuses guarded and download steps.
 frames captures PNG stills at OUTPUT times (seconds or % of duration);
 --at-zooms adds every zoom span's apex, --at-moments every digest moment —
 the agent's eyes (--size WxH for an exact size). render
@@ -506,12 +534,16 @@ async function maxDuration(
 
 function strictReason(rec: {
   skipped: unknown[]
-  navTimeout: boolean
+  disabled?: unknown[]
   capped: boolean
   masks?: { selector: string; hits: number }[]
+  meta?: { steps?: { do: string; timedOut?: boolean }[] }
 }): string {
   const parts = [`${rec.skipped.length} skipped step(s)`]
-  if (rec.navTimeout) parts.push('networkidle timeout')
+  if (rec.disabled?.length)
+    parts.push(`${rec.disabled.length} click(s) on a disabled control`)
+  const timedOut = timedOutAwaits(rec)
+  if (timedOut) parts.push(`${timedOut} await(s) that timed out`)
   if (rec.capped) parts.push('stopped at --max-duration')
   const missed = maskMisses(rec)
   if (missed.length)
@@ -519,6 +551,40 @@ function strictReason(rec: {
       `${missed.length} mask(s) that hid nothing (${missed.join(', ')}): whatever they were for may be showing`,
     )
   return parts.join(' + ')
+}
+
+/** How many awaits gave up and let the take go on (`onTimeout: "continue"`). */
+function timedOutAwaits(rec: {
+  meta?: { steps?: { do: string; timedOut?: boolean }[] }
+}): number {
+  return (rec.meta?.steps ?? []).filter((s) => s.do === 'await' && s.timedOut)
+    .length
+}
+
+/**
+ * What `--strict` fails a take on: a skipped step (a selector that never
+ * appeared, an expect that never held, a download that never came), a
+ * click on a disabled control, an await that timed out, the cap, a mask
+ * that hid nothing. Never a first load that missed networkidle: plenty of
+ * real apps hold a socket open for good and never go network-idle, so that
+ * is a warning (`navTimeout` in the done event), or every take of them
+ * would fail.
+ */
+export function strictFails(rec: RecordResult): boolean {
+  return (
+    rec.skipped.length > 0 ||
+    rec.disabled.length > 0 ||
+    timedOutAwaits(rec) > 0 ||
+    rec.capped ||
+    maskMisses(rec).length > 0
+  )
+}
+
+/** The warning a take or rehearsal prints when the first load never went network-idle. */
+function navTimeoutNote(rec: { navTimeout: boolean }): string {
+  return rec.navTimeout
+    ? '\n  note: the first load never reached networkidle (a page holding a socket open never does); recorded anyway'
+    : ''
 }
 
 /** A mask whose selector never reached an element hid nothing. */
@@ -536,6 +602,75 @@ function exposureNote(rec: {
   return `\n  EXPOSED in the frame (${rec.exposures.length}):\n${rec.exposures
     .map((e) => `    - ${exposureLine(e)}`)
     .join('\n')}\n  ${EXPOSURE_ADVICE}`
+}
+
+/**
+ * `--confirm <id>`, repeatable: the guarded steps a recording may press.
+ * Checked against the script BEFORE a browser opens, so a step that
+ * spends is refused (or a typo in an id is caught) at no cost; a
+ * rehearsal presses no guarded step, so it takes the flag and checks
+ * nothing.
+ */
+function takeConfirm(
+  multi: ParsedArgs['multi'],
+  actions: ActionsFile,
+  opts: { dryRun: boolean; r: Reporter },
+): string[] {
+  const given = ((multi.confirm as string[] | undefined) ?? []).filter(Boolean)
+  if (opts.dryRun) return given
+  const verdict = guardVerdict(actions, given)
+  if (!verdict.ok) {
+    // Under --json the refusal is an event too, one per step or name it is
+    // about, beside the sentence on stderr.
+    const guarded = guardedSteps(actions)
+    for (const id of verdict.unconfirmed)
+      opts.r.event({
+        event: 'refused',
+        reason: verdict.message,
+        step: guarded.find((g) => g.id === id)?.step ?? null,
+        id,
+      })
+    for (const id of verdict.unknown)
+      opts.r.event({
+        event: 'refused',
+        reason: verdict.message,
+        step: null,
+        id,
+      })
+    throw new UsageError(verdict.message)
+  }
+  return given
+}
+
+/** What the new steps reported, in lines for the end of a record or a rehearsal. */
+function stepReportNote(
+  rec: Pick<
+    RecordResult,
+    'disabled' | 'skips' | 'outputs' | 'confirmed' | 'stopped'
+  >,
+): string {
+  const lines: string[] = []
+  if (rec.disabled.length)
+    lines.push(
+      `DISABLED when clicked: ${rec.disabled.map((d) => `#${d.step}${d.id ? ` ${d.id}` : ''} ${d.selector}`).join(', ')} (the press likely did nothing; an expect with enabled: true before it waits for the control)`,
+    )
+  if (rec.skips.length)
+    lines.push(
+      `off camera: ${rec.skips.map((s) => `#${s.step}${s.id ? ` ${s.id}` : ''} ${(s.ms / 1000).toFixed(1)} s, cut at ${s.at.toFixed(2)}s${s.timedOut ? ' (timed out)' : ''}`).join(', ')}`,
+    )
+  if (rec.outputs.length)
+    lines.push(
+      `outputs/: ${rec.outputs.map((o) => `${o.name} (${o.bytes} bytes)`).join(', ')}`,
+    )
+  if (rec.confirmed.length)
+    lines.push(`pressed, as --confirm said: ${rec.confirmed.join(', ')}`)
+  if (rec.stopped) lines.push(`STOPPED: ${rec.stopped.reason}`)
+  return lines.map((l) => `\n  ${l}`).join('')
+}
+
+/** A skipped step in words: the reason when it has one, else the selector that never appeared. */
+function skippedLine(s: SkippedStep): string {
+  return `#${s.step}${s.id ? ` ${s.id}` : ''} ${s.do}${s.reason ? `: ${s.reason}` : ` ${s.selector}`}`
 }
 
 /**
@@ -720,6 +855,15 @@ async function cmdRecord(argv: string[]): Promise<number> {
   const sessionName = takeSessionName(flags, storageState)
   const browserArgs = takeBrowserArgs(multi)
   const headers = takeHeaders(multi)
+  // A guarded step the command did not name is refused here, before a
+  // browser opens; on the fleet there is no way to name one at all.
+  const confirm =
+    flags.hosted === true
+      ? []
+      : takeConfirm(multi, actions, {
+          dryRun: flags['dry-run'] === true,
+          r,
+        })
 
   // ON THE FLEET: the script goes up, vos.so records, plans and lands the
   // take, and it comes home with `vos fetch --media`. No browser is opened
@@ -732,6 +876,17 @@ async function cmdRecord(argv: string[]): Promise<number> {
     if (storageState || sessionName)
       throw new UsageError(
         'a session never reaches vos.so: --hosted takes no --session or --storage-state. Put the sign-in in the setup steps with { "env": "NAME" }, or record here with vos record.',
+      )
+    // Nobody can confirm a step that spends on the fleet, and a download
+    // has no take directory to land in there.
+    const refusals = hostedRefusals(actions)
+    if (refusals.length)
+      throw new UsageError(
+        `a hosted take cannot run this script: ${refusals.join('; ')}`,
+      )
+    if ((multi.confirm as string[] | undefined)?.length)
+      throw new UsageError(
+        '--confirm presses a guarded step on this machine; a hosted take runs no guarded step, so drop --hosted to record it here',
       )
     const origin = platformOrigin({
       origin: strFlag(flags, 'origin'),
@@ -840,6 +995,8 @@ async function cmdRecord(argv: string[]): Promise<number> {
           headers,
           context,
           dryRun: true,
+          verbose: flags.verbose === true,
+          onEvent: (e) => r.event(e),
           // A rehearsal is always strict, and it touches no directory.
           onArrival: wallGate(flags, r, { strict: true }),
         }),
@@ -850,10 +1007,42 @@ async function cmdRecord(argv: string[]): Promise<number> {
           ? `  rect ${s.rect.x},${s.rect.y} ${s.rect.w}×${s.rect.h}`
           : ''
         const what = s.selector ? ` ${s.selector}` : ''
-        return `  ${s.skipped ? '✗' : '✓'} #${s.step}${s.id ? ` (${s.id})` : ''} ${s.do}${what}${s.skipped ? '  NOT FOUND' : rect}${s.navigated ? '  → navigated' : ''}`
+        const out = rec.outputs.find((o) => o.step === s.step)
+        const notes = [
+          ...(rec.disabled.some((d) => d.step === s.step)
+            ? ['DISABLED, pressed anyway']
+            : []),
+          ...(s.guard && !s.skipped
+            ? [`guarded (${s.guard}), hovered, not pressed`]
+            : []),
+          ...(s.followsGuard !== undefined
+            ? [
+                `not waited: it follows #${s.followsGuard} (guarded, not pressed)`,
+              ]
+            : []),
+          ...(s.offCameraMs !== undefined
+            ? [
+                `${s.timedOut ? 'timed out after' : 'held after'} ${(s.offCameraMs / 1000).toFixed(1)} s off camera`,
+              ]
+            : []),
+          ...(out
+            ? [`→ ${out.name} (${out.bytes} bytes, not kept in a rehearsal)`]
+            : []),
+        ].map((n) => `  ${n}`)
+        return `  ${s.skipped ? '✗' : '✓'} #${s.step}${s.id ? ` (${s.id})` : ''} ${s.do}${what}${s.skipped ? `  ${s.reason ?? 'NOT FOUND'}` : rect}${s.navigated ? '  → navigated' : ''}${notes.join('')}`
       })
-      const failed =
-        rec.skipped.length > 0 || rec.navTimeout || maskMisses(rec).length > 0
+      // A step that never ran (the take stopped, or hit the cap) is listed
+      // too, so the count is out of the whole script.
+      for (const [i, step] of actions.steps.entries())
+        if (!steps.some((s) => s.step === i))
+          lines.push(
+            `  – #${i}${step.id ? ` (${step.id})` : ''} ${step.do}  not run`,
+          )
+      const resolved = steps.filter((s) => !s.skipped).length
+      // A rehearsal is always strict; a first load that never went
+      // network-idle is a note, as in a take.
+      const failed = strictFails(rec) || rec.stopped !== null
+      const unconfirmed = guardVerdict(actions, confirm)
       // The next command is THIS command minus --dry-run. A hint that
       // dropped --storage-state sent a signed-in rehearsal on to record
       // the sign-in page.
@@ -867,8 +1056,16 @@ async function cmdRecord(argv: string[]): Promise<number> {
         ...Object.keys(headers).map((k) => `--header ${k}=…`),
         ...(sessionName ? [`--session ${sessionName}`] : []),
         ...(flags['allow-wall'] === true ? ['--allow-wall'] : []),
+        ...confirm.map((c) => `--confirm ${c}`),
       ].join(' ')
       const nextOut = strFlag(flags, 'out') ?? 'take'
+      // A guarded step the next command does not name would refuse it: the
+      // hint says so rather than adding the confirmation for the person.
+      const guardNote = !unconfirmed.ok
+        ? unconfirmed.unconfirmed.length
+          ? ` (it refuses until you add ${unconfirmed.unconfirmed.map((id) => `--confirm ${id}`).join(' ')}: ${unconfirmed.unconfirmed.length === 1 ? 'that step spends' : 'those steps spend'} something real)`
+          : ` (${unconfirmed.unknown.map((c) => `--confirm ${c}`).join(', ')} names no guarded step)`
+        : ''
       r.done(
         {
           dryRun: true,
@@ -876,13 +1073,19 @@ async function cmdRecord(argv: string[]): Promise<number> {
           seconds: +((Date.now() - started) / 1000).toFixed(1),
           steps,
           skipped: rec.skipped,
+          disabled: rec.disabled,
+          skips: rec.skips,
+          outputs: rec.outputs,
+          pageErrors: rec.pageErrors,
+          ...(rec.stopped ? { stopped: rec.stopped } : {}),
           navTimeout: rec.navTimeout,
           exposures: rec.exposures,
           masks: rec.masks,
         },
-        `${failed ? 'REHEARSAL FAILED' : 'Rehearsal passed'}: ${steps.length - rec.skipped.length}/${steps.length} steps resolved in ${((Date.now() - started) / 1000).toFixed(1)}s${rec.navTimeout ? ' (the first load never reached networkidle)' : ''}\n${lines.join('\n')}\n  ${maskMisses(rec).length ? `MASK hid nothing: ${maskMisses(rec).join(', ')} (the selector reached no element). ` : ''}${failed ? 'Fix the script, rehearse again, then record.' : `Rects are capture px (the step rects a pin or a callout reads). Next: vos record --actions ${actionsPath} --out ${nextOut}${carried ? ` ${carried}` : ''} --strict`}${exposureNote(rec)}`,
+        `${failed ? 'REHEARSAL FAILED' : 'Rehearsal passed'}: ${resolved}/${actions.steps.length} steps resolved in ${((Date.now() - started) / 1000).toFixed(1)}s${rec.navTimeout ? ' (the first load never reached networkidle)' : ''}\n${lines.join('\n')}\n  ${maskMisses(rec).length ? `MASK hid nothing: ${maskMisses(rec).join(', ')} (the selector reached no element). ` : ''}${rec.stopped ? `STOPPED: ${rec.stopped.reason}. ` : ''}${failed ? 'Fix the script, rehearse again, then record.' : `Rects are capture px (the step rects a pin or a callout reads). Next: vos record --actions ${actionsPath} --out ${nextOut}${carried ? ` ${carried}` : ''} --strict${guardNote}`}${exposureNote(rec)}`,
       )
-      return failed ? EXIT_USAGE : EXIT_OK
+      // An await that gave up stops the take, in a rehearsal as in a record.
+      return rec.stopped ? EXIT_ERROR : failed ? EXIT_USAGE : EXIT_OK
     } finally {
       await browser.close()
     }
@@ -919,6 +1122,9 @@ async function cmdRecord(argv: string[]): Promise<number> {
         storageState: storageState,
         headers,
         context,
+        confirm,
+        verbose: flags.verbose === true,
+        onEvent: (e) => r.event(e),
         onArrival: wallGate(flags, r, {
           strict: flags.strict === true,
           prepare,
@@ -935,15 +1141,31 @@ async function cmdRecord(argv: string[]): Promise<number> {
     const plan = await planTake(outDir, { backdrop })
     const clicks = rec.events.filter((e) => e.type === 'down').length
     const strict = flags.strict === true
-    const strictFail =
-      strict &&
-      (rec.skipped.length > 0 ||
-        rec.navTimeout ||
-        rec.capped ||
-        maskMisses(rec).length > 0)
+    const strictFail = strict && strictFails(rec)
     const skippedNote = rec.skipped.length
-      ? `\n  SKIPPED ${rec.skipped.length} step(s): ${rec.skipped.map((s) => `#${s.step} ${s.do} ${s.selector}`).join(', ')}`
+      ? `\n  SKIPPED ${rec.skipped.length} step(s): ${rec.skipped.map(skippedLine).join(', ')}`
       : ''
+    const stepNote = stepReportNote(rec)
+    // An await that gave up stopped the take: the directory holds the
+    // footage up to it, whole, and the command fails in words.
+    if (rec.stopped) {
+      r.done(
+        {
+          take: outDir,
+          ok: false,
+          stopped: rec.stopped,
+          durationMs: rec.meta.durationMs,
+          skipped: rec.skipped,
+          disabled: rec.disabled,
+          confirmed: rec.confirmed,
+          skips: rec.skips,
+          outputs: rec.outputs,
+          pageErrors: rec.pageErrors,
+        },
+        `FAILED: ${rec.stopped.reason}.\n  The footage up to it is in ${outDir}.${skippedNote}${stepNote}${navTimeoutNote(rec)}`,
+      )
+      return EXIT_ERROR
+    }
     r.done(
       {
         take: outDir,
@@ -963,11 +1185,16 @@ async function cmdRecord(argv: string[]): Promise<number> {
         ...(rec.wall ? { wall: rec.wall } : {}),
         exposures: rec.exposures,
         ...(rec.masks.length ? { masks: rec.masks } : {}),
+        disabled: rec.disabled,
+        confirmed: rec.confirmed,
+        skips: rec.skips,
+        outputs: rec.outputs,
+        pageErrors: rec.pageErrors,
         ...(strictFail ? { strictFailed: true } : {}),
       },
       strictFail
-        ? `STRICT: take recorded but incomplete — ${strictReason(rec)}; fix the flow and re-record.${skippedNote}${exposureNote(rec)}`
-        : `Take ready: ${outDir}\n  ${(rec.meta.durationMs / 1000).toFixed(1)}s · ${rec.frames.length} frames · ${rec.events.length} cursor events · ${clicks} clicks · ${plan.doc.zoom.length} zoom spans planned · ${rec.freezePct}% frozen · ${rec.dead.pct}% dead${deadWarns(rec.dead) ? ' ⚠ ' + deadLine(rec.dead) : ''}${skippedNote}\n  Next: edit ${join(outDir, 'doc.json')} (optional), then: vos render ${outDir}${exposureNote(rec)}`,
+        ? `STRICT: take recorded but incomplete — ${strictReason(rec)}; fix the flow and re-record.${skippedNote}${stepNote}${navTimeoutNote(rec)}${exposureNote(rec)}`
+        : `Take ready: ${outDir}\n  ${(rec.meta.durationMs / 1000).toFixed(1)}s · ${rec.frames.length} frames · ${rec.events.length} cursor events · ${clicks} clicks · ${plan.doc.zoom.length} zoom spans planned · ${rec.freezePct}% frozen · ${rec.dead.pct}% dead${deadWarns(rec.dead) ? ' ⚠ ' + deadLine(rec.dead) : ''}${skippedNote}${stepNote}${navTimeoutNote(rec)}\n  Next: edit ${join(outDir, 'doc.json')} (optional), then: vos render ${outDir}${exposureNote(rec)}`,
     )
     return strictFail ? EXIT_USAGE : EXIT_OK
   } finally {
@@ -980,7 +1207,8 @@ async function cmdRecord(argv: string[]): Promise<number> {
  * auto-plan effects, render the video — one command, one browser session.
  * The take dir still lands on disk, so the full loop (frames → doc.json edit
  * → re-render) stays available afterwards. --strict aborts BEFORE rendering
- * when the recording is incomplete (skipped selector / networkidle timeout).
+ * when the recording is incomplete (a skipped step, a disabled click, a
+ * timed-out await, the cap); a missed networkidle is only a warning.
  */
 async function cmdCreate(argv: string[]): Promise<number> {
   const { positionals, flags, multi } = parseArgs(
@@ -1015,6 +1243,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
   const sessionName = takeSessionName(flags, storageState)
   const browserArgs = takeBrowserArgs(multi)
   const headers = takeHeaders(multi)
+  const confirm = takeConfirm(multi, actions, { dryRun: false, r })
 
   // Run by the wall gate, once the recorder has landed where it was asked.
   // A re-record replaces the FOOTAGE, never the cut. The previous doc.json
@@ -1047,6 +1276,9 @@ async function cmdCreate(argv: string[]): Promise<number> {
         storageState: storageState,
         headers,
         context,
+        confirm,
+        verbose: flags.verbose === true,
+        onEvent: (e) => r.event(e),
         onArrival: wallGate(flags, r, {
           strict: flags.strict === true,
           prepare,
@@ -1062,17 +1294,27 @@ async function cmdCreate(argv: string[]): Promise<number> {
     r.event({ event: 'phase', phase: 'plan' })
     await planTake(outDir, { backdrop })
 
-    if (
-      flags.strict === true &&
-      (rec.skipped.length > 0 ||
-        rec.navTimeout ||
-        rec.capped ||
-        maskMisses(rec).length > 0)
-    ) {
+    // An await that gave up stopped the take: nothing is rendered.
+    if (rec.stopped) {
+      r.done(
+        {
+          take: outDir,
+          ok: false,
+          stopped: rec.stopped,
+          skipped: rec.skipped,
+          rendered: false,
+        },
+        `FAILED: ${rec.stopped.reason}. NOT rendering; the footage up to it is in ${outDir}.`,
+      )
+      return EXIT_ERROR
+    }
+
+    if (flags.strict === true && strictFails(rec)) {
       r.done(
         {
           take: outDir,
           skipped: rec.skipped,
+          disabled: rec.disabled,
           navTimeout: rec.navTimeout,
           capped: rec.capped,
           strictFailed: true,
@@ -1119,9 +1361,14 @@ async function cmdCreate(argv: string[]): Promise<number> {
         dead: rec.dead,
         exposures: rec.exposures,
         ...(rec.masks.length ? { masks: rec.masks } : {}),
+        disabled: rec.disabled,
+        confirmed: rec.confirmed,
+        skips: rec.skips,
+        outputs: rec.outputs,
+        pageErrors: rec.pageErrors,
         ...(flags.draft === true ? { draft: true } : {}),
       },
-      `Created ${result.out} (${(result.bytes / 1024).toFixed(0)} KB, ${result.width}x${result.height}@${result.fps}, ${result.duration.toFixed(1)}s, ${result.zoomSpans} zoom spans, ${result.clicks} click effects${result.audio ? ', audio' : ''}${flags.draft === true ? ', DRAFT' : ''})\n  take: ${outDir} — inspect with: vos frames ${outDir} --at-zooms; edit doc.json and re-render with: vos render ${outDir}${exposureNote(rec)}`,
+      `Created ${result.out} (${(result.bytes / 1024).toFixed(0)} KB, ${result.width}x${result.height}@${result.fps}, ${result.duration.toFixed(1)}s, ${result.zoomSpans} zoom spans, ${result.clicks} click effects${result.audio ? ', audio' : ''}${flags.draft === true ? ', DRAFT' : ''})\n  take: ${outDir} — inspect with: vos frames ${outDir} --at-zooms; edit doc.json and re-render with: vos render ${outDir}${stepReportNote(rec)}${navTimeoutNote(rec)}${exposureNote(rec)}`,
     )
     return EXIT_OK
   } finally {
@@ -2449,7 +2696,11 @@ export async function run(argv: string[]): Promise<number> {
       process.stderr.write(`usage error: ${e.message}\n`)
       return EXIT_USAGE
     }
-    if (e instanceof SetupError || e instanceof SetupEnvError) {
+    if (
+      e instanceof SetupError ||
+      e instanceof SetupEnvError ||
+      e instanceof RecordRefusedError
+    ) {
       process.stderr.write(`${e.message}\n`)
       return EXIT_USAGE
     }
