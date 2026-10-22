@@ -89,6 +89,35 @@ describe('the loudness envelope', () => {
   })
 })
 
+describe('a track that fades in from silence', () => {
+  it('is starting, not swelling: the later swell wins', async () => {
+    // 0..4 s a fade in from silence, a steady bed to 20 s, a build to 22 s,
+    // held to 30 s, the bed again to 40 s.
+    const path = join(root, 'fade-in.wav')
+    const amp = (t: number) =>
+      t < 4
+        ? (t / 4) * 0.15
+        : t < 20
+          ? 0.15
+          : t < 22
+            ? 0.15 + ((t - 20) / 2) * 0.45
+            : t < 30
+              ? 0.6
+              : 0.15
+    await writeFixtureWav(
+      path,
+      40,
+      (t) => amp(t) * Math.sin(2 * Math.PI * 440 * t),
+    )
+    const m = await measureTrack(path)
+    const swell = findSwell(levelCurve(m.blocks, m.unit))!
+    expect(Math.abs(swell.at - 22)).toBeLessThanOrEqual(0.75)
+    expect(swell.from).toBeGreaterThan(5)
+    expect(swell.rise).toBeGreaterThan(8)
+    expect(swell.rise).toBeLessThan(16)
+  })
+})
+
 describe('planScore', () => {
   const curve = [
     { t: 0.5, level: -40 },
@@ -196,10 +225,24 @@ describe('vos score', () => {
       key: 'music/track.wav',
       start: 0,
       gain: 0.4,
+      fadeIn: 0.8,
       fadeOut: 1.5,
     })
     expect(Math.abs(c.in - 5)).toBeLessThanOrEqual(0.5)
     expect(c.out - c.in).toBeCloseTo(6, 6)
+    // `--fade-in` sets the opening fade, 0 for a cut.
+    expect(
+      await cmdScore([
+        dir,
+        '--track',
+        track,
+        '--at',
+        'payoff',
+        '--fade-in',
+        '0',
+      ]),
+    ).toBe(0)
+    expect((await readDoc(dir)).audio[0].fadeIn).toBe(0)
     // A second run replaces it.
     expect(await cmdScore([dir, '--track', track])).toBe(0)
     const again = (await readDoc(dir)).audio

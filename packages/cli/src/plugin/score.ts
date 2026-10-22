@@ -49,6 +49,9 @@ import type { AudioClip, ProjectDoc } from '@vosjs/studio-core'
 /** The clip a score writes, and replaces on the next run. */
 export const SCORE_ID = 'score'
 
+/** The fade a track entered mid-song opens on (seconds), unless `--fade-in` says. */
+export const MID_SONG_FADE_IN = 0.8
+
 /** Seconds per measured block, the BS.1770 gating block's step. */
 export const BLOCK_SECONDS = 0.1
 /** The short-term window a level point averages, and the step between points. */
@@ -228,14 +231,33 @@ const SWELL_HOLD_DB = 3
 const SWELL_ARRIVE_DB = 1
 /** A rise smaller than this is no swell. */
 const SWELL_MIN_RISE = 3
+/**
+ * A level this far under the track's median is the track not yet playing
+ * (a fade in from silence): a rise is measured from no lower than it.
+ */
+const SWELL_FLOOR_DB = 12
+/** Seconds after the track first reaches that level before a rise may start. */
+const SWELL_SETTLE = 5
 
-/** The track's strongest swell: the largest sustained rise to a peak. */
+/**
+ * The track's strongest swell: the largest sustained rise to a peak, once
+ * the track has established its level. A track that fades in from silence
+ * rises tens of dB in its first seconds, and that is the track starting,
+ * never a swell: a rise starts no earlier than SWELL_SETTLE after the
+ * first moment within SWELL_FLOOR_DB of the median level, and is measured
+ * from no lower than that floor.
+ */
 export function findSwell(curve: readonly LevelPoint[]): Swell | null {
   const step = HOP_SECONDS
   const back = Math.round(SWELL_LOOKBACK / step)
   const hold = Math.round(SWELL_SUSTAIN / step)
+  const floor = median(curve.map((p) => p.level)) - SWELL_FLOOR_DB
+  const begun = curve.findIndex((p) => p.level >= floor)
+  if (begun < 0) return null
+  const settled = begun + Math.round(SWELL_SETTLE / step)
+  const levelAt = (j: number) => Math.max(curve[j].level, floor)
   let best: Swell | null = null
-  for (let i = 1; i < curve.length; i++) {
+  for (let i = settled + 1; i < curve.length; i++) {
     const p = curve[i]
     // Sustained: the level holds near the peak for a while after it.
     let held = true
@@ -246,11 +268,12 @@ export function findSwell(curve: readonly LevelPoint[]): Swell | null {
       }
     }
     if (!held) continue
-    // The quiet it rose from: the lowest point in the lookback.
+    // The quiet it rose from: the lowest point in the lookback, never
+    // before the track settled, never lower than the floor.
     let lo = i
-    for (let j = Math.max(0, i - back); j < i; j++)
-      if (curve[j].level < curve[lo].level) lo = j
-    const rise = p.level - curve[lo].level
+    for (let j = Math.max(settled, i - back); j < i; j++)
+      if (levelAt(j) < levelAt(lo)) lo = j
+    const rise = p.level - levelAt(lo)
     if (rise < SWELL_MIN_RISE) continue
     // Only the summit of a climb is a candidate (a better peak follows it).
     if (i + 1 < curve.length && curve[i + 1].level > p.level) continue
@@ -595,7 +618,7 @@ async function resolveTrack(
 const BOOLEAN_FLAGS = new Set(['json', 'help', 'dry-run'])
 
 const USAGE =
-  'vos score <take> --track <slug|file> [--at <step id|output seconds>] [--gain 0..1] [--fade-out <s>] [--dry-run] [--json]'
+  'vos score <take> --track <slug|file> [--at <step id|output seconds>] [--gain 0..1] [--fade-in <s>] [--fade-out <s>] [--dry-run] [--json]'
 
 export async function cmdScore(argv: string[]): Promise<number> {
   const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
@@ -609,6 +632,9 @@ export async function cmdScore(argv: string[]): Promise<number> {
     throw new UsageError('--gain expects a number from 0 to 1')
   const fadeOut = numFlag(flags, 'fade-out', 1.5)
   if (!(fadeOut >= 0)) throw new UsageError('--fade-out expects seconds ≥ 0')
+  const fadeInFlag = strFlag(flags, 'fade-in')
+  const fadeInAsked = numFlag(flags, 'fade-in', MID_SONG_FADE_IN)
+  if (!(fadeInAsked >= 0)) throw new UsageError('--fade-in expects seconds ≥ 0')
   const take = await loadTake(dir)
   if (!take.doc)
     throw new UsageError(`${dir} has no doc.json; run vos plan first`)
@@ -643,7 +669,12 @@ export async function cmdScore(argv: string[]): Promise<number> {
     out: plan.out,
     duration: r3(measured.duration),
     gain,
-    fadeIn: 0,
+    // A track entered mid-song opens on a fade, never a cut into the bar;
+    // one that starts at its own top needs none unless asked.
+    fadeIn: Math.min(
+      fadeInFlag !== undefined || plan.in > 0 ? fadeInAsked : 0,
+      Math.max(0, plan.out - plan.in),
+    ),
     fadeOut: Math.min(fadeOut, Math.max(0, plan.out - plan.in)),
     ...(doc.source.micKey ? { duck: true } : {}),
   }
