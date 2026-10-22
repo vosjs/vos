@@ -217,7 +217,7 @@ Take pipeline
             per-frame SSIM and source | vos | difference sheets; exit 1 when ANY frame is under the threshold (needs ffmpeg)
   vos look <url> [--session <name>|--storage-state <file>] [--viewport WxH] [--headed] [--click <selector>]... [--type <selector>=<text>]... [--wait <ms>] [--header name=value]... [--browser-arg=<switch>]... [--out look] [--json]
             see a page before scripting it, signed in the way vos record would be: <out>/look.png and every control in view with ONE proposed selector (test id, aria-label, role + name, then words in its dialog or landmark), UNIQUE or AMBIGUOUS as the recorder's own engine counts it, plus what the frame exposes. --click/--type run first, in order; a click on a spend or delete word is refused. Exit 4 at a sign-in wall
-  vos session open <url> --name <app>   a plain Chrome window on a vos-owned profile; sign in, close it
+  vos session open <url> --name <app>   a plain Chrome window on a vos-owned profile; sign in, set the account up, close the window (or Enter)
   vos session check <name> [--url <url>]   headless: does the session still open the page? exit 0/4
   vos session list | rm <name>          what exists and how old; delete one
   vos actions script <actions.json> [--json]
@@ -2791,11 +2791,12 @@ async function cmdSession(argv: string[]): Promise<number> {
       }
       if (!/^https?:$/.test(url.protocol))
         throw new UsageError('vos session open wants an http(s) URL')
-      await openSession(name!, url.href, { log: r.log })
+      const opened = await openSession(name!, url.href, { log: r.log })
       const summary = await summarizeSession(name!)
       r.done(
         {
           name: summary.name,
+          finish: opened.finish,
           origins: summary.origins,
           newestExpires: summary.newestExpires,
           sessionOnly: summary.sessionOnly,

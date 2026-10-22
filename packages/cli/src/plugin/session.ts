@@ -23,6 +23,14 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { chromium } from 'playwright'
 import type { BrowserContext } from 'playwright'
+import {
+  cookieWatch,
+  enterPressed,
+  helpersGone,
+  readChromeTree,
+  runSessionWindow,
+} from './sessionWindow'
+import type { SessionFinish } from './sessionWindow'
 
 export const SESSIONS_DIR = join(homedir(), '.config', 'vos', 'sessions')
 
@@ -82,43 +90,114 @@ export function systemChromePath(): string {
 }
 
 /**
- * Open a plain Chrome window on the session's profile and wait for it to
- * EXIT. A child process with no debugging pipe and no automation switch, so
- * a sign-in that refuses automated browsers (Google's) goes through, and
- * the person signs in however the app demands. The cookie store is flushed
- * when Chrome quits, not before: a killed Chrome writes nothing, which is
- * why this waits rather than polls.
+ * Open a plain Chrome window on the session's profile and wait for the
+ * person to FINISH, however they finish (sessionWindow.ts): the last window
+ * closed, Chrome quit, or Enter in the terminal. A child process with no
+ * debugging endpoint and no automation switch, so a sign-in that refuses
+ * automated browsers goes through, and the person signs in however the app
+ * demands. The cookie store is written when Chrome quits, so a finish that
+ * leaves Chrome running (a closed window on a Mac, Enter) quits THIS
+ * Chrome, by its PID, and only then is the session read.
  */
 export async function openSession(
   name: string,
   url: string,
   opts: { log: (line: string) => void } = { log: () => {} },
-): Promise<{ code: number | null }> {
+): Promise<SessionOpened> {
   const dir = sessionDir(name)
   mkdirSync(dir, { recursive: true, mode: 0o700 })
+  return openSessionWindow({
+    dir,
+    url,
+    label: `session "${name}"`,
+    log: opts.log,
+  })
+}
+
+export interface SessionOpened {
+  finish: SessionFinish
+  /** Chrome had to be stopped after the grace: the last cookies may be missing */
+  forced: boolean
+  /** Chrome's exit code; 0 on a clean quit */
+  code: number | null
+}
+
+/**
+ * The window itself, on any profile directory. `extraArgs` exists for the
+ * test of this, which closes the page through a debugging endpoint the
+ * person's window never has.
+ */
+export async function openSessionWindow(opts: {
+  dir: string
+  url: string
+  label: string
+  log: (line: string) => void
+  extraArgs?: string[]
+  pollMs?: number
+  /** listen for Enter (default: when stdin is a terminal) */
+  stdin?: boolean
+}): Promise<SessionOpened> {
   const exe = systemChromePath()
   const args = [
-    `--user-data-dir=${dir}`,
+    `--user-data-dir=${opts.dir}`,
     '--no-first-run',
     '--no-default-browser-check',
     '--window-size=1100,800',
-    url,
+    ...(opts.extraArgs ?? []),
+    opts.url,
   ]
-  // On a Mac, closing the last window leaves Chrome running, and this waits
-  // on the PROCESS: a person who closed the window and reported "done" left
-  // the command hanging and nothing saved (measured on the first real run).
-  const leave =
-    process.platform === 'darwin'
-      ? 'then quit Chrome with ⌘Q (closing the window alone leaves it running, and this waiting)'
-      : 'then close the window'
+  const host = new URL(opts.url).host
+  const tty = opts.stdin !== false && process.stdin.isTTY === true
+  const enter = tty
+    ? enterPressed()
+    : { pressed: new Promise<void>(() => {}), close: () => {} }
   opts.log(
-    `a Chrome window opened on session "${name}": sign in to ${new URL(url).host}, ${leave}`,
+    `a Chrome window opened on ${opts.label}: sign in to ${host}, and set the account up the way the takes should find it (a workspace, demo data). When you are done, close the window${tty ? ' or press Enter here' : ''}; the session saves either way`,
   )
-  return new Promise((resolve, reject) => {
-    const child = spawn(exe, args, { stdio: 'ignore' })
-    child.on('error', reject)
-    child.on('exit', (code) => resolve({ code }))
+  const child = spawn(exe, args, { stdio: 'ignore' })
+  let failed: Error | null = null
+  let code: number | null = null
+  const exited = new Promise<void>((resolve) => {
+    child.once('exit', (c) => {
+      code = c
+      resolve()
+    })
+    child.once('error', (e) => {
+      failed = e
+      resolve()
+    })
   })
+  try {
+    const pid = child.pid
+    if (pid === undefined) {
+      await exited
+      throw failed ?? new Error(`could not start ${exe}`)
+    }
+    // The last helper PIDs seen: the cookie store is written by one of them.
+    let helpers: number[] = []
+    const { finish, forced } = await runSessionWindow({
+      pid,
+      watch: {
+        pages: async () => {
+          const tree = await readChromeTree(pid)
+          if (tree) helpers = tree.pids
+          return tree ? tree.pages : null
+        },
+        exited,
+        enter: enter.pressed,
+        onTick: cookieWatch(opts.dir, host, opts.log),
+        ...(opts.pollMs !== undefined ? { pollMs: opts.pollMs } : {}),
+      },
+      kill: (p, signal) => process.kill(p, signal),
+      afterExit: () => helpersGone(helpers),
+      save: async () => undefined,
+      log: opts.log,
+    })
+    if (failed) throw failed
+    return { finish, forced, code }
+  } finally {
+    enter.close()
+  }
 }
 
 /** What a session holds, said in counts and dates. Never a value. */
