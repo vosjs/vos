@@ -2079,7 +2079,7 @@ function checkOverlayAnchor(
     r.miss !== 'step'
   )
     warnings.push(
-      `${name}: {elapsed} stays as written, because ${step} recorded no off-camera wait (an await step's ms)`,
+      `${name}: {elapsed} stays as written, because ${step} recorded no off-camera wait (no meta.skips entry names it, and it has no offCameraMs)`,
     )
   return r.start ?? fallback
 }

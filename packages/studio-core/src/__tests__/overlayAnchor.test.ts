@@ -59,7 +59,7 @@ const second: Media = {
         do: 'await',
         tStart: 5,
         tEnd: 5,
-        ...{ ms: 12 * 60_000 },
+        ...{ offCameraMs: 12 * 60_000 },
       } as StepSpan,
     ]),
   },
@@ -191,13 +191,35 @@ describe('a caption anchored to a step', () => {
     expect(JSON.stringify(lowered[1])).toContain('{"t":"12 minutes","f":1}')
   })
 
-  it('reads a wait from meta.skips when the step carries none', () => {
+  it('reads a wait from meta.skips first, then offCameraMs, never a step’s ms', () => {
+    // The recorder's shape: a skip names its step by index and id, says
+    // where in the footage the cut is and how long the wait ran.
     const skips = doc()
-    ;(skips.source.meta as unknown as { skips: unknown }).skips = [
-      { step: 'save', ms: 40_000 },
+    const meta = skips.source.meta as unknown as {
+      skips: unknown
+      steps: Record<string, unknown>[]
+    }
+    meta.skips = [
+      { step: 3, id: 'save', at: 9, ms: 40_000 },
+      { step: 1, at: 6, ms: 95_000, timedOut: true },
     ]
-    const r = resolveAnchor(skips, { step: 'save' }, ratedSegments(skips))
-    expect(r.elapsedMs).toBe(40_000)
+    // A copy: the fixture's step list is shared by every document.
+    meta.steps = meta.steps.map((st, i) =>
+      i === 1 ? { ...st, offCameraMs: 5_000 } : st,
+    )
+    const rated = ratedSegments(skips)
+    expect(resolveAnchor(skips, { step: 'save' }, rated).elapsedMs).toBe(40_000)
+    // By index, and the skip wins over the step's own field.
+    expect(resolveAnchor(skips, { step: 'open' }, rated).elapsedMs).toBe(95_000)
+    // A step's `ms` is its reading time in the script, not a wait.
+    const reading = doc()
+    reading.source.meta.steps = reading.source.meta.steps!.map((st, i) =>
+      i === 3 ? ({ ...st, ms: 700 } as StepSpan) : st,
+    )
+    expect(
+      resolveAnchor(reading, { step: 'save' }, ratedSegments(reading))
+        .elapsedMs,
+    ).toBeUndefined()
     // No wait recorded: the words are left as written.
     const out = resolveOverlayAnchors(
       doc({ overlays: [caption('x', { step: 'open' }, '{elapsed} on')] }),

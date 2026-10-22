@@ -963,7 +963,7 @@
             "type": "object",
             "required": ["step"],
             "additionalProperties": false,
-            "description": "When the layer starts, as a recorder step: the lowering maps the step's moment (meta.steps, SOURCE seconds of its media) through the segments, speed spans and freezes exactly as a source-anchored span is mapped, and adds `offset`. A trim, a speed change or a re-record moves the layer with its step; `start` is the fallback when the step is missing, skipped or cut out (validate says which), and `duration` stays the layer's own. A text layer's {elapsed} fills with the anchored step's off-camera wait (an await step's recorded ms) as a rounded duration, like \"12 minutes\". Not the re-record `anchor` on spans, which the lowering never reads",
+            "description": "When the layer starts, as a recorder step: the lowering maps the step's moment (meta.steps, SOURCE seconds of its media) through the segments, speed spans and freezes exactly as a source-anchored span is mapped, and adds `offset`. A trim, a speed change or a re-record moves the layer with its step; `start` is the fallback when the step is missing, skipped or cut out (validate says which), and `duration` stays the layer's own. A text layer's {elapsed} fills with the anchored step's off-camera wait (the meta.skips entry naming the step, else its offCameraMs) as a rounded duration, like \"12 minutes\". Not the re-record `anchor` on spans, which the lowering never reads",
             "properties": {
               "step": {
                 "type": ["string", "integer"],

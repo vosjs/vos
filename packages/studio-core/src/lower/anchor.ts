@@ -13,8 +13,8 @@
  * fallback when the step cannot be found or the cut leaves it out.
  *
  * A text layer's `{elapsed}` fills with the anchored step's off-camera
- * wait, when the recorder kept one (`ms` on the step, or an entry of
- * `meta.skips` that names it), as a rounded human duration.
+ * wait, when the recorder kept one (the entry of `meta.skips` that names
+ * it, or `offCameraMs` on the step), as a rounded human duration.
  *
  * Pure: the caller hands in the rated pieces (`ratedSegments(doc)`), so the
  * lowering, the lint and the CLI read one map.
@@ -82,16 +82,16 @@ const isNum = (v: unknown): v is number =>
   typeof v === 'number' && Number.isFinite(v)
 
 /**
- * The off-camera wait the recorder kept for a step: `ms` on the step
- * itself, else an entry of `meta.skips` naming the step (by its id or its
- * index) with an `ms`. Read defensively: an older take carries neither.
+ * The off-camera wait the recorder kept for a step: the entry of
+ * `meta.skips` that names the step (by its id or its index) with an `ms`,
+ * else `offCameraMs` on the step itself. A step's own `ms` is never read:
+ * in a script it is a reading time, not a wait. Read defensively: an older
+ * take carries neither.
  */
 export function stepElapsedMs(
   meta: Pick<RecordingMeta, 'steps'> & { skips?: unknown },
   step: StepSpan,
 ): number | null {
-  const own = (step as { ms?: unknown }).ms
-  if (isNum(own) && own >= 0) return own
   const skips = Array.isArray(meta.skips) ? (meta.skips as unknown[]) : []
   for (const raw of skips) {
     if (!raw || typeof raw !== 'object') continue
@@ -102,7 +102,8 @@ export function stepElapsedMs(
       s.step === step.step
     if (named) return s.ms
   }
-  return null
+  const own = (step as { offCameraMs?: unknown }).offCameraMs
+  return isNum(own) && own >= 0 ? own : null
 }
 
 /** Resolve one anchor against the document and its rated pieces. */
