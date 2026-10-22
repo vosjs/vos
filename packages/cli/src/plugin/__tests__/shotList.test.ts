@@ -125,3 +125,42 @@ describe('shotList', () => {
     expect(text).not.toContain('has-text')
   })
 })
+
+describe('the canvas gestures in words', () => {
+  it('says chords, sequences, held modifiers, drawn strokes, multi-clicks and pastes', () => {
+    const list = shotList({
+      steps: [
+        { do: 'press', keys: 'Mod+Z' },
+        { do: 'press', keys: ['v', 'Escape'] },
+        { do: 'press', keys: 'Shift+D' },
+        { do: 'drag', selector: '#box', tx: 300, ty: 200, modifiers: ['Alt'] },
+        { do: 'drag', path: 'loop.json' },
+        {
+          do: 'drag',
+          path: [
+            [0, 0],
+            [5, 5],
+            [9, 9],
+          ],
+          modifiers: ['Shift'],
+        },
+        { do: 'click', selector: 'text=Title', count: 2 },
+        { do: 'click', selector: 'text=Layer', button: 'right' },
+        { do: 'paste', text: 'hello', selector: '[placeholder="Name"]' },
+        { do: 'paste', file: 'logo.svg' },
+      ],
+    })
+    expect(list.beats.map((b) => b.line)).toEqual([
+      'Press ⌘/Ctrl+Z',
+      'Press v then Escape',
+      'Press Shift+D',
+      'Hold Alt/Option and drag `#box` across',
+      'Draw the stroke in loop.json, in one press',
+      'Hold Shift and draw the stroke of 3 points, in one press',
+      'Double-click "Title"',
+      'Click "Layer" with the right button',
+      'Copy "hello", then paste it into the "Name" field (⌘/Ctrl+V)',
+      'Copy the file logo.svg, then paste it (⌘/Ctrl+V)',
+    ])
+  })
+})

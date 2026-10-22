@@ -1,0 +1,7 @@
+---
+'@vosjs/render-core': minor
+'@vosjs/cli': minor
+'@vosjs/studio-core': patch
+---
+
+`actions.json` speaks canvas. `press` takes `keys`: a chord (`"Shift+D"`, `"Mod+Z"`, with `Mod` Meta on macOS and Control elsewhere), a plain key (`"r"`) or a sequence (`["v", "Escape"]`), each a typing ping that never carries the key. `drag` takes `modifiers` held for the whole drag, and `path`: viewport points inline or in a file beside the actions file, replayed point by point by their own times or evenly over `ms`, drawn with a pen when the points carry pressure. `click` takes `count: 2 | 3` and `button: "right" | "middle"`. A new `paste` step puts words or a file (an image, an SVG, text) on the browser's clipboard and pastes it with a trusted chord, falling back to a paste dispatched in the page when the clipboard refuses the item; a hosted take refuses it. A gesture may `settle` (per step, or for the whole script): it waits until the page has made no DOM change and painted no new frame for 300 ms. A paced gesture that ran more than a fifth past its script is reported as `meta.steps[].overrunMs`, `overruns` in the done event and one line. `vos actions script` says the new steps in words. The recorder's driver contract gains `mouse.down`/`up` options, `keyboard.down`/`up` and an optional `grantPermissions`; `RecordOpts.files` reads the files a script names. `StepSpan` gains `overrunMs` and `settleMs`.

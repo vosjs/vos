@@ -8,8 +8,8 @@
  * file a `download` step kept.
  */
 import { writeFileSync } from 'node:fs'
-import { mkdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { lstat, mkdir, readFile, realpath } from 'node:fs/promises'
+import { join, sep } from 'node:path'
 import {
   fileNameProblem,
   recordTake as recordTakeCore,
@@ -17,6 +17,7 @@ import {
 import type {
   OutputSink,
   RecordOpts as CoreRecordOpts,
+  ScriptFiles,
 } from '@vosjs/render-core/record'
 import type { Browser, BrowserContext } from 'playwright'
 import { writeJson } from './take'
@@ -49,10 +50,38 @@ export function outputsSink(dir: string): OutputSink {
   }
 }
 
+/**
+ * The files a script names beside itself (a drag's path, a paste's file):
+ * a plain name in the actions file's own directory, never a link, never a
+ * path that resolves outside it, whoever wrote the name.
+ */
+export function actionsDirFiles(dir: string): ScriptFiles {
+  return {
+    read: async (name) => {
+      const problem = fileNameProblem(name)
+      if (problem) throw new Error(problem)
+      const file = join(dir, name)
+      if ((await lstat(file)).isSymbolicLink())
+        throw new Error(
+          `${name} is a symbolic link, which a script never follows`,
+        )
+      const [real, root] = await Promise.all([realpath(file), realpath(dir)])
+      if (!real.startsWith(root + sep))
+        throw new Error(`${name} resolves outside the actions file's directory`)
+      return new Uint8Array(await readFile(real))
+    },
+  }
+}
+
 export type RecordOpts = Omit<
   CoreRecordOpts,
-  'context' | 'env' | 'platform' | 'outputs'
+  'context' | 'env' | 'platform' | 'outputs' | 'files'
 > & {
+  /**
+   * The actions file's directory: where a drag's path file and a paste's
+   * file are read from. Absent, a script that names one is refused.
+   */
+  actionsDir?: string
   /**
    * A ready-made context to record IN, instead of one made from `browser`:
    * `--session <name>`, a persistent profile the person signed in to.
@@ -82,6 +111,7 @@ export async function recordTake(
     {
       ...opts,
       outputs: outputsSink(paths.dir),
+      ...(opts.actionsDir ? { files: actionsDirFiles(opts.actionsDir) } : {}),
       env: process.env,
       platform:
         process.platform === 'darwin'

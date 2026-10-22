@@ -1,6 +1,16 @@
 import type { MaskRule } from './exposure'
 import type { SetupStep } from './setup'
 import { urlSchemeProblem, validateSetup } from './setup'
+import type { ClickButton, DragModifier, PathPoint } from './gestures'
+import {
+  CLICK_BUTTONS,
+  DRAG_MODIFIERS,
+  MAX_KEYS,
+  chordProblem,
+  readPath,
+} from './gestures'
+import { pasteTypeOf } from './paste'
+import { SETTLE_VERBS } from './settle'
 
 /**
  * The action script — the declarative recipe an agent (or human) writes to
@@ -30,14 +40,29 @@ export interface ActionsFile {
    * or stored.
    */
   setup?: SetupStep[]
+  /**
+   * Every gesture waits on the app after it (`settle` on a step overrides):
+   * a canvas that falls behind under load finishes the last stroke before
+   * the next one starts.
+   */
+  settle?: boolean
   steps: ActionStep[]
 }
 
 export type ActionStep = (
   | { do: 'wait'; ms: number }
   | { do: 'hover'; selector: string; ms?: number }
-  /** `ms` is the settle after the press (default 150). */
-  | { do: 'click'; selector: string; ms?: number }
+  /**
+   * `ms` is the settle after the press (default 150). `count` 2 or 3 is a
+   * real double or triple click; `button` presses the right or middle one.
+   */
+  | {
+      do: 'click'
+      selector: string
+      ms?: number
+      count?: 1 | 2 | 3
+      button?: ClickButton
+    }
   /**
    * Type into `selector`. The recorder clicks the field first, which is what
    * opens the typing zoom on it; `focus: false` types into the field as it is
@@ -66,12 +91,21 @@ export type ActionStep = (
       ms?: number
     }
   /**
-   * One named key, recorded as a typing ping where the pointer is (or on
-   * `selector` when given, with no click): Escape closes what a click
-   * opened, Enter submits what was typed, Tab moves on, an arrow nudges.
-   * Never a character: words are typed with `type`.
+   * A key, a chord or a sequence, each recorded as a typing ping where the
+   * pointer is (or on `selector` when given, with no click), never as the
+   * key itself. `key` names one control key (Escape closes what a click
+   * opened, Enter submits what was typed); `keys` names a chord
+   * (`"Shift+D"`, `"Mod+Z"`, with `Mod` Meta on macOS and Control
+   * elsewhere), a plain key (`"r"`, a tool's shortcut) or a sequence
+   * (`["v", "Escape"]`). Words are typed with `type`.
    */
-  | { do: 'press'; key: PressKey; selector?: string; ms?: number }
+  | {
+      do: 'press'
+      key?: PressKey
+      keys?: string | string[]
+      selector?: string
+      ms?: number
+    }
   /** `ms` is the settle after the scroll lands (default 200). */
   | { do: 'scroll'; dy: number; ms?: number }
   | { do: 'move'; x: number; y: number }
@@ -79,14 +113,32 @@ export type ActionStep = (
    * Press-move-release — real edits (drag an element on the stage canvas,
    * slide a range input, move a timeline clip). Start = the selector's center
    * when given, else (x, y); end = (tx, ty); eased over ms (default 700).
+   * `path` draws instead: viewport points (inline, or a file beside the
+   * actions file), the press at the first and the release at the last,
+   * replayed by the points' own times or evenly over ms. `modifiers` are
+   * held for the whole drag.
    */
   | {
       do: 'drag'
       selector?: string
       x?: number
       y?: number
-      tx: number
-      ty: number
+      tx?: number
+      ty?: number
+      path?: PathPoint[] | string
+      modifiers?: DragModifier[]
+      ms?: number
+    }
+  /**
+   * Put words or a file (an image, an SVG) on the clipboard and paste it
+   * the way a person's ⌘V does, into `selector` (clicked first) or where
+   * the focus is. A file is read beside the actions file, by a plain name.
+   */
+  | {
+      do: 'paste'
+      selector?: string
+      text?: string
+      file?: string
       ms?: number
     }
   /**
@@ -159,6 +211,13 @@ export type ActionStep = (
    * what is read. Only what the flow names, never a secret it did not.
    */
   read?: string
+  /**
+   * After the gesture, wait until the page has made no DOM change and
+   * painted no new frame for a beat (at most a few seconds): an app that
+   * falls behind catches up before the next step. The script's top-level
+   * `settle` is the default.
+   */
+  settle?: boolean
 }
 
 /** What an `await` waits for: exactly one of the three. */
@@ -195,6 +254,7 @@ const VERBS = new Set([
   'expect',
   'await',
   'download',
+  'paste',
 ])
 
 /** The keys a `press` step may name: navigation and control, never a character. */
@@ -241,6 +301,8 @@ export function validateActions(value: unknown): string[] {
     }
   }
   if (obj.setup !== undefined) errors.push(...validateSetup(obj.setup))
+  if (obj.settle !== undefined && typeof obj.settle !== 'boolean')
+    errors.push('settle must be true or false')
   if (obj.mask !== undefined) {
     if (!Array.isArray(obj.mask)) {
       errors.push('mask must be an array of { selector, as?, text? }')
@@ -320,15 +382,79 @@ export function validateActions(value: unknown): string[] {
     )
       errors.push(`${at}: type at must be "end" or "start"`)
     if (s.do === 'press') {
-      if (
+      if (s.key !== undefined && s.keys !== undefined)
+        errors.push(
+          `${at}: press takes key or keys, not both (keys says everything key does)`,
+        )
+      else if (s.keys !== undefined) {
+        const list: unknown[] = Array.isArray(s.keys) ? s.keys : [s.keys]
+        if (!list.length)
+          errors.push(`${at}: press keys must name at least one key`)
+        else if (list.length > MAX_KEYS)
+          errors.push(`${at}: press keys names more than ${MAX_KEYS} keys`)
+        list.forEach((k, j) => {
+          const problem = chordProblem(k)
+          if (problem)
+            errors.push(
+              `${at}: press keys${Array.isArray(s.keys) ? `[${j}]` : ''} ${problem}`,
+            )
+        })
+      } else if (
         typeof s.key !== 'string' ||
         !(PRESS_KEYS as readonly string[]).includes(s.key)
       )
         errors.push(
-          `${at}: press needs a key, one of ${PRESS_KEYS.join(', ')}; words are typed with type`,
+          `${at}: press needs a key, one of ${PRESS_KEYS.join(', ')}, or keys (a chord like "Shift+D", a plain key like "r", or a sequence); words are typed with type`,
         )
       if (s.selector !== undefined && typeof s.selector !== 'string')
         errors.push(`${at}: press selector must be a string`)
+    }
+    if (s.do === 'click') {
+      if (
+        s.count !== undefined &&
+        s.count !== 1 &&
+        s.count !== 2 &&
+        s.count !== 3
+      )
+        errors.push(
+          `${at}: click count must be 1, 2 (a double click) or 3 (a triple click)`,
+        )
+      if (
+        s.button !== undefined &&
+        !(CLICK_BUTTONS as readonly unknown[]).includes(s.button)
+      )
+        errors.push(`${at}: click button must be "left", "right" or "middle"`)
+    }
+    if (s.settle !== undefined) {
+      if (typeof s.settle !== 'boolean')
+        errors.push(`${at}: settle must be true or false`)
+      else if (!SETTLE_VERBS.has(s.do))
+        errors.push(
+          `${at}: settle follows a gesture (hover, click, type, press, scroll, move, drag, paste); a ${s.do} sends the page nothing to catch up on`,
+        )
+    }
+    if (s.do === 'paste') {
+      const given = (['text', 'file'] as const).filter(
+        (k) => s[k] !== undefined,
+      )
+      if (given.length !== 1)
+        errors.push(
+          `${at}: paste needs exactly one of text (words) or file (an image, an SVG or a text file beside the actions file)`,
+        )
+      if (s.text !== undefined && typeof s.text !== 'string')
+        errors.push(`${at}: paste text must be a string`)
+      if (s.file !== undefined) {
+        const problem =
+          typeof s.file === 'string'
+            ? (fileNameProblem(s.file) ??
+              (pasteTypeOf(s.file)
+                ? null
+                : `"${s.file}" is not a type a paste takes (.png, .jpg, .webp, .gif, .svg, .txt, .md, .html, .json, .csv)`))
+            : 'is not a string'
+        if (problem) errors.push(`${at}: paste file ${problem}`)
+      }
+      if (s.selector !== undefined && !isFilled(s.selector))
+        errors.push(`${at}: paste selector must be a non-empty string`)
     }
     if (s.do === 'scroll' && typeof s.dy !== 'number')
       errors.push(`${at}: scroll needs dy`)
@@ -429,16 +555,50 @@ export function validateActions(value: unknown): string[] {
       }
     }
     if (s.do === 'drag') {
-      if (typeof s.tx !== 'number' || typeof s.ty !== 'number') {
-        errors.push(`${at}: drag needs tx and ty (CSS px)`)
-      }
-      const hasStart =
-        typeof s.selector === 'string' ||
-        (typeof s.x === 'number' && typeof s.y === 'number')
-      if (!hasStart)
-        errors.push(
-          `${at}: drag needs a selector OR x and y as the start point`,
+      if (s.path !== undefined) {
+        const clash = (['selector', 'x', 'y', 'tx', 'ty'] as const).filter(
+          (k) => s[k] !== undefined,
         )
+        if (clash.length)
+          errors.push(
+            `${at}: a drag with a path starts at its first point and ends at its last, so it takes no ${clash.join(', ')}`,
+          )
+        if (typeof s.path === 'string') {
+          const problem = fileNameProblem(s.path)
+          if (problem)
+            errors.push(
+              `${at}: drag path ${problem} (a file beside the actions file)`,
+            )
+        } else {
+          const read = readPath(s.path)
+          if ('problems' in read)
+            for (const p of read.problems) errors.push(`${at}: drag path ${p}`)
+        }
+      } else {
+        if (typeof s.tx !== 'number' || typeof s.ty !== 'number') {
+          errors.push(`${at}: drag needs tx and ty (CSS px), or a path`)
+        }
+        const hasStart =
+          typeof s.selector === 'string' ||
+          (typeof s.x === 'number' && typeof s.y === 'number')
+        if (!hasStart)
+          errors.push(
+            `${at}: drag needs a selector OR x and y as the start point`,
+          )
+      }
+      if (s.modifiers !== undefined) {
+        if (
+          !Array.isArray(s.modifiers) ||
+          s.modifiers.some(
+            (m) => !(DRAG_MODIFIERS as readonly unknown[]).includes(m),
+          )
+        )
+          errors.push(
+            `${at}: drag modifiers must be a list of ${DRAG_MODIFIERS.map((m) => `"${m}"`).join(', ')} (Mod is Meta on macOS, Control elsewhere)`,
+          )
+        else if (new Set(s.modifiers).size !== s.modifiers.length)
+          errors.push(`${at}: drag modifiers names a modifier twice`)
+      }
     }
   })
   return errors
@@ -544,6 +704,31 @@ export function hostedRefusals(actions: Pick<ActionsFile, 'steps'>): string[] {
       out.push(
         `steps[${i}] is a download, which a hosted take does not keep: record it on this machine, where the file lands in the take's outputs/`,
       )
+    if (s.do === 'paste')
+      out.push(
+        `steps[${i}] is a paste, and a hosted browser has no clipboard to paste from: record it on this machine`,
+      )
+    if (s.do === 'drag' && typeof s.path === 'string')
+      out.push(
+        `steps[${i}] draws a path from the file "${s.path}", and a hosted take carries the script alone: write the points inline as path`,
+      )
+  })
+  return out
+}
+
+/**
+ * The files a script names beside itself, in order: a drag's path file
+ * and a paste's file. A host reads them before anything is captured.
+ */
+export function scriptFiles(
+  actions: Pick<ActionsFile, 'steps'>,
+): { step: number; name: string; as: 'path' | 'paste' }[] {
+  const out: { step: number; name: string; as: 'path' | 'paste' }[] = []
+  actions.steps.forEach((s, i) => {
+    if (s.do === 'drag' && typeof s.path === 'string')
+      out.push({ step: i, name: s.path, as: 'path' })
+    if (s.do === 'paste' && typeof s.file === 'string')
+      out.push({ step: i, name: s.file, as: 'paste' })
   })
   return out
 }

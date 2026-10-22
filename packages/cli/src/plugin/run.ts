@@ -2,7 +2,7 @@ import { videoFormat } from '../outputs'
 import { landedLines, waitForLanded } from './landed'
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import {
   END_CARD_FROM,
   docOutputDuration,
@@ -85,6 +85,7 @@ import {
   guardVerdict,
   guardedSteps,
   hostedRefusals,
+  overrunLine,
 } from '@vosjs/render-core/record'
 import { WALL_PROBE, WallError, wallVerdict } from './wall'
 import { EXPOSURE_ADVICE, exposureLine } from './exposure'
@@ -658,9 +659,12 @@ function stepReportNote(
   rec: Pick<
     RecordResult,
     'disabled' | 'skips' | 'outputs' | 'confirmed' | 'stopped'
-  >,
+  > &
+    Partial<Pick<RecordResult, 'overruns'>>,
 ): string {
   const lines: string[] = []
+  const overrun = overrunLine(rec.overruns ?? [])
+  if (overrun) lines.push(`OVERRUN: ${overrun}`)
   if (rec.disabled.length)
     lines.push(
       `DISABLED when clicked: ${rec.disabled.map((d) => `#${d.step}${d.id ? ` ${d.id}` : ''} ${d.selector}`).join(', ')} (the press likely did nothing; an expect with enabled: true before it waits for the control)`,
@@ -1002,6 +1006,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
       const started = Date.now()
       const rec = await inSession(sessionName, actions, (context) =>
         recordTake(browser, url, actions, takePaths(outDir), r.log, {
+          actionsDir: dirname(resolve(actionsPath)),
           storageState,
           headers,
           context,
@@ -1129,6 +1134,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
     r.event({ event: 'phase', phase: 'record' })
     const rec = await inSession(sessionName, actions, (context) =>
       recordTake(browser, url, actions, paths, r.log, {
+        actionsDir: dirname(resolve(actionsPath)),
         maxDurationSeconds: maxDurationSeconds,
         storageState: storageState,
         headers,
@@ -1200,6 +1206,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
         confirmed: rec.confirmed,
         skips: rec.skips,
         outputs: rec.outputs,
+        overruns: rec.overruns,
         pageErrors: rec.pageErrors,
         ...(strictFail ? { strictFailed: true } : {}),
       },
@@ -1283,6 +1290,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
     r.event({ event: 'phase', phase: 'record' })
     const rec = await inSession(sessionName, actions, (context) =>
       recordTake(browser, url, actions, paths, r.log, {
+        actionsDir: dirname(resolve(actionsPath)),
         maxDurationSeconds: maxDurationSeconds,
         storageState: storageState,
         headers,
@@ -1376,6 +1384,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
         confirmed: rec.confirmed,
         skips: rec.skips,
         outputs: rec.outputs,
+        overruns: rec.overruns,
         pageErrors: rec.pageErrors,
         ...(flags.draft === true ? { draft: true } : {}),
       },

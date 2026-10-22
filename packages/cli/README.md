@@ -284,7 +284,51 @@ A re-record replaces the footage, the cursor track, the frames, `outputs/` and e
 }
 ```
 
-Eight verbs: `wait`, `hover` (`ms` 700, the dwell), `click` (`ms` the settle after the press, 150), `type` (`delayMs` 40 per key, paced by the clock; `focus: false` skips the focusing click; `replace: true` selects the field's value first so the typing replaces it; `at: "end" | "start"` puts the caret there before the first character, for a code editor line; `ms` the settle after, 150), `press` (one named key, `Escape`, `Enter`, `Tab`, `Backspace`, `Delete`, the arrows, `Home`, `End`, `PageUp`, `PageDown`, `Space`, recorded as a typing ping where the pointer is or on `selector` with no click, so an Escape closes what a click opened and an Enter submits what was typed without a second click ringing on the field; `ms` the settle, 150), `scroll` (`ms` the settle, 200), `move`, `drag` (press, move, release: a range input, a canvas element, a timeline clip; `ms` the travel, 700). The recorder's pace is the script's: a gesture is driven by the clock, so a page that answers each pointer sample slowly costs samples, never seconds, and the only pauses are the ones the script names (`wait`, a hover's dwell, a settle). `vos record` ends with a pace line, what the script asked, what the gestures added, what the page cost, and the steps that ran slow, and the `--json` done event carries it as `pace`. Every step takes an optional unique `id`; give steps ids so a span anchored to a step survives script edits and `vos plan --reuse` can follow it, and so a layer can name the element a step touched (`overlays[].pin.step`; the recorder keeps each hover, click, type and drag step's element rect on `meta.steps[].rect`). **The take carries its payload**: every step keeps the page it left (`meta.steps[].url`, origin and path), and a step with `read: "<selector>"` keeps that element's words once the step has settled (`meta.steps[].text`, at most 2 KB; on a click, what the click opened: the URL a share button minted, the code a dialog printed), so a layer quotes the take instead of a replay of the flow. Because the CLI issues every input itself, the cursor track is synthesized with exact coordinates, exact timing and fresh element rects, which is what powers element-aware auto-zoom and click effects downstream. The schema is [`schema/actions.schema.json`](./schema/actions.schema.json); `vos validate actions.json` checks a script without running anything.
+Nine verbs: `wait`, `hover` (`ms` 700, the dwell), `click` (`ms` the settle after the press, 150; `count: 2 | 3` for a double or triple click, `button: "right" | "middle"`), `type` (`delayMs` 40 per key, paced by the clock; `focus: false` skips the focusing click; `replace: true` selects the field's value first so the typing replaces it; `at: "end" | "start"` puts the caret there before the first character, for a code editor line; `ms` the settle after, 150), `press` (one named key, `Escape`, `Enter`, `Tab`, `Backspace`, `Delete`, the arrows, `Home`, `End`, `PageUp`, `PageDown`, `Space`, recorded as a typing ping where the pointer is or on `selector` with no click, so an Escape closes what a click opened and an Enter submits what was typed without a second click ringing on the field; or `keys`, a chord, a plain key or a sequence, below; `ms` the settle, 150), `scroll` (`ms` the settle, 200), `move`, `drag` (press, move, release: a range input, a canvas element, a timeline clip; `ms` the travel, 700; `modifiers` and `path`, below), `paste` (below). The recorder's pace is the script's: a gesture is driven by the clock, so a page that answers each pointer sample slowly costs samples, never seconds, and the only pauses are the ones the script names (`wait`, a hover's dwell, a settle). `vos record` ends with a pace line, what the script asked, what the gestures added, what the page cost, and the steps that ran slow, and the `--json` done event carries it as `pace`. Every step takes an optional unique `id`; give steps ids so a span anchored to a step survives script edits and `vos plan --reuse` can follow it, and so a layer can name the element a step touched (`overlays[].pin.step`; the recorder keeps each hover, click, type and drag step's element rect on `meta.steps[].rect`). **The take carries its payload**: every step keeps the page it left (`meta.steps[].url`, origin and path), and a step with `read: "<selector>"` keeps that element's words once the step has settled (`meta.steps[].text`, at most 2 KB; on a click, what the click opened: the URL a share button minted, the code a dialog printed), so a layer quotes the take instead of a replay of the flow. Because the CLI issues every input itself, the cursor track is synthesized with exact coordinates, exact timing and fresh element rects, which is what powers element-aware auto-zoom and click effects downstream. The schema is [`schema/actions.schema.json`](./schema/actions.schema.json); `vos validate actions.json` checks a script without running anything.
+
+**Canvas gestures**: what a whiteboard, a design tool or a timeline is recorded with.
+
+```json
+{
+  "settle": true,
+  "steps": [
+    { "do": "press", "keys": "r" },
+    { "do": "drag", "x": 200, "y": 160, "tx": 420, "ty": 300 },
+    { "do": "press", "keys": ["v", "Escape"] },
+    {
+      "do": "drag",
+      "selector": ".shape",
+      "tx": 600,
+      "ty": 300,
+      "modifiers": ["Alt"]
+    },
+    { "do": "drag", "path": "signature.json" },
+    {
+      "do": "drag",
+      "path": [
+        [300, 400],
+        [340, 420],
+        [380, 400]
+      ],
+      "ms": 500
+    },
+    { "do": "click", "selector": "text=Title", "count": 2 },
+    { "do": "click", "selector": ".layer", "button": "right" },
+    { "do": "paste", "file": "logo.svg" },
+    { "do": "press", "keys": "Mod+Z" }
+  ]
+}
+```
+
+- **`press` `keys`** takes a chord (`"Shift+D"`, `"Meta+Shift+z"`, `"Mod+Z"`: `Mod` is Meta on macOS and Control elsewhere, wherever the browser runs), a plain key (`"r"`, a tool's shortcut) or a sequence (`["v", "Escape"]`, 150 ms apart). A key is a single character, a named key (`Escape`, `ArrowLeft`, `Space`), `F1` to `F24`, or a code (`KeyA`, `Digit1`); the modifiers are `Shift`, `Control`, `Alt`, `Meta`, `Mod`. Each key is a typing ping on the cursor track, when and where, never which key. The older `key` form still works.
+- **`drag` `modifiers`** (`Alt`, `Shift`, `Meta`, `Control`, `Mod`) are held from the press to the release: Alt-drag to duplicate, Shift to constrain.
+- **`drag` `path`** draws: viewport points inline (`[x, y]`, `[x, y, tMs]`, `[x, y, tMs, pressure]` or `{ "x", "y", "t", "pressure" }`, every point timed or none), or a file beside the actions file by a plain name (`"path": "loop.json"`, an array of points or `{ "points": [...] }`). The pointer travels to the first point, presses there, moves through every later point in order and releases at the last, replayed by the points' own times, or evenly over `ms` when they carry none. Every point is sent: a page that answers slowly makes the stroke late (an overrun, below), never a different stroke. A point that carries `pressure` draws the whole path with a pen, so the page's pointer events carry that pressure; without, the mouse draws it. A path takes no `selector`, `x`, `y`, `tx` or `ty`. The cursor track holds the press, every point and the release.
+- **`click` `count`** 2 or 3 is a real double or triple click (that many presses inside the platform's double-click interval, each with its click count); `button` presses the right or middle one. Every press is a down and an up on the cursor track.
+- **`paste`** puts `text`, or a `file` beside the actions file (an image, an SVG, a text file; at most 10 MB), on the clipboard and pastes it the way a person's ⌘V does, into `selector` (clicked first) or where the focus is. The browser's own clipboard holds the item (a headless browser keeps its own, so this machine's clipboard is untouched), and the recorder presses the platform's paste chord, so the page gets a trusted keydown and a trusted `paste` event, and a page that reads `navigator.clipboard.read()` itself finds the item there. A picture other than PNG is pasted as PNG; an SVG rides as its markup too. When the browser refuses the item, the paste is dispatched in the page instead (the focused element gets a `paste` event holding it, and `navigator.clipboard.read` answers it), and the log says so, because those events are untrusted. A paste is a typing ping, never its contents.
+- **`settle: true`** on a gesture step (or at the top of the script, for every one; a step's `settle: false` opts out) waits after the gesture until the page has made no DOM change and painted no new frame for 300 ms, at most 4 s: a heavy canvas that falls behind under load finishes the last stroke before the next one starts. `meta.steps[].settleMs` says how long it waited, and a page still changing at the cap is said in the log. A rehearsal captures no frames, so there it waits on the DOM alone.
+- **Overruns**: a gesture the script paces (a straight drag's travel, a path's timing, typing, a key sequence) that took more than a fifth longer than planned is reported: `meta.steps[].overrunMs`, `overruns: [{ step, id, do, plannedMs, tookMs, overrunMs }]` in the done event, and one line (`3 steps ran 2.1× slower than scripted (…): the page could not keep up; add settle or raise ms`).
+
+A hosted take (`--hosted`) refuses a `paste` (a fleet browser has no clipboard) and a `path` read from a file (the script travels alone; write the points inline).
 
 Three steps that are not gestures, and a guard:
 
@@ -314,7 +358,7 @@ Three steps that are not gestures, and a guard:
 - **`download`** keeps a file the page makes, in the take's `outputs/`: `selector` clicks a control and waits up to 30 s for the browser's download (the name the page sends in `Content-Disposition`); `src` names a `<video>`, `<audio>` or `<img>` (any selector the other steps take: `video >> nth=0`, `text=…`) and fetches its `currentSrc` with the page's own cookies. `as` names the file (a plain file name: no path separator, no `..`); absent, the page's name is used, made plain and unique. Each file is listed in `meta.outputs[]` (`{ step, id, name, bytes, contentType }`). A download that never arrives is a skip with its reason. A rehearsal fetches the file and keeps nothing.
 - **`"guard": "spend"`** marks a `click`, `press` or `type` that costs something real: credits, a purchase, a message sent. It needs an `id`. `vos record --dry-run` moves the pointer to its target and never presses it (`#9 generate: guarded (spend), hovered, not pressed`); `vos record` presses it only when the command names it with `--confirm <id>` (repeatable), and otherwise refuses before capturing anything, naming the step and the flag (under `--json` also as `{ event: "refused", reason, step, id }`). The done event's `confirmed` and the step's `meta.steps[].confirmed` say which guarded steps were pressed.
 
-`vos actions script` says these too: `Check that … is enabled`, `Wait until … (off camera: pause the recording meanwhile)`, `Download …`, and a guarded step is marked as one that spends.
+`vos actions script` says these too: `Check that … is enabled`, `Wait until … (off camera: pause the recording meanwhile)`, `Download …`, `Press ⌘/Ctrl+Z`, `Press v then Escape`, `Hold Alt/Option and drag …`, `Draw the stroke in loop.json, in one press`, `Double-click …`, `Copy the file logo.svg, then paste it (⌘/Ctrl+V)`, and a guarded step is marked as one that spends.
 
 Verified the flow in agent-browser already? `vos actions from-agent-browser steps.jsonl [--out actions.json] [--url] [--viewport WxH]` writes the script from that walk (each command kept beside its `--json` result, the batch record shape; refs resolve through the last `snapshot -i`), and names every step the recorder cannot follow rather than dropping it.
 

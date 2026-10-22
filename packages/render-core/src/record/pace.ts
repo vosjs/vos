@@ -31,6 +31,7 @@ export const SETTLE_MS = {
   click: 150,
   type: 150,
   press: 150,
+  paste: 150,
   scroll: 200,
   drag: 80,
 } as const
@@ -228,6 +229,8 @@ export function askedMs(step: {
       return (step.text?.length ?? 0) * (step.delayMs ?? 40)
     case 'press':
       return step.ms ?? SETTLE_MS.press
+    case 'paste':
+      return step.ms ?? SETTLE_MS.paste
     default:
       return 0
   }

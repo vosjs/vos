@@ -353,6 +353,17 @@ export interface StepSpan {
    * waits for cannot come.
    */
   followsGuard?: number
+  /**
+   * A paced gesture (a drag's travel, a drawn path, typing, a key
+   * sequence) ran this many ms past what the script planned, more than a
+   * fifth over: the page could not keep up with what it was sent.
+   */
+  overrunMs?: number
+  /**
+   * The step waited on the app after its gesture (`settle`): the ms until
+   * the page made no DOM change and painted no new frame for a beat.
+   */
+  settleMs?: number
 }
 
 /**
