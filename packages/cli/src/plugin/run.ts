@@ -122,6 +122,9 @@ import { announceEnvNames, hostedEnv, recordHosted } from './hostedRecord'
 import { urlSchemeProblem } from '@vosjs/render-core/record'
 import { cmdActions } from './agentBrowser'
 import { cmdIngest } from './ingest'
+import { cmdJoin } from './join'
+import { bareCaptionsFlag, landStepCaptions } from './stepCaptions'
+import type { StepCaptionReport } from './stepCaptions'
 import { cmdDoctor, cmdLogout, cmdSetup, cmdWhoami } from './machineCmd'
 import type { Backdrop, ProjectDoc } from '@vosjs/studio-core'
 import type { ActionsFile } from './actions'
@@ -163,7 +166,7 @@ Take pipeline
   vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>|--session <name>] [--header name=value]... [--browser-arg=<switch>]... [--background <slug|url|none>] [--json]
   vos record --hosted --actions actions.json [--url <url>] [--out take] [--title "…"] [--folder <id>] [--header name=value]... [--json]
             the take recorded on vos.so's fleet (no browser here): lands as a private vos with its doc and digest, then fetched into --out with its media
-  vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
+  vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions|--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--at-still] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--json]
   vos deliver <take> --to youtube,x,shorts,github (or all) [--look plate|gradient|dark|none] [--brand BRAND.md] [--set path=value] [--release v2.1] [--out dir] [--range a..b] [--parallel N] [--json]
@@ -175,6 +178,8 @@ Take pipeline
   vos actions from-agent-browser <steps.jsonl> [--out actions.json] [--url <url>] [--viewport WxH] [--json]
   vos ingest <video.webm|mp4> [--cursor <trace.zip|steps.jsonl|cursor.csv>] [--as footage|take] [--out take] [--offset <ms>] [--viewport WxH] [--background <slug|url|none>] [--json]
             a take from a recording someone else made (a cloud agent's PR video, a Playwright run's video, a Loom export): the file becomes recording.<container>, meta.json from its own dimensions and duration, and a trace beside it becomes cursor.json so the planner has clicks to zoom on; without one, nothing is planned and the done event says so. Without a trace the file opens as FINISHED footage (a render from HyperFrames or Remotion, a film): no card, no browser bar, no drawn cursor, its own frame rate; --as take gives a screen demo the card
+  vos join <take> <take|file.mp4>... --out <dir> [--force] [--captions] [--json]
+            several takes (and plain video files) as ONE take, cut in argument order: the first is the primary (its frame, cursor, export and sound), each next one a media m1, m2, … with its footage copied, its spans tagged and renamed, its layers moved to where it now starts; a file opens full-bleed. --captions lands every step's caption anchored to its step. The result must pass vos validate before anything is written
   vos port inventory <page.html|project dir> [--render <their render.mp4>] [--out port] [--json]
             a finished piece (a HyperFrames composition, a Remotion project bundled with its own bundler, a hand-rolled page) read as a browser renders it: words, palette, faces (catalog or missing), media, scenes, gaps → port/inventory.json, with stills from its render
   vos port scaffold [--from port/inventory.json] [--out port/program] [--json]
@@ -1120,7 +1125,9 @@ async function cmdCreate(argv: string[]): Promise<number> {
   }
 }
 
-async function cmdPlan(argv: string[]): Promise<number> {
+async function cmdPlan(argvIn: string[]): Promise<number> {
+  // A bare `--captions` lands every step's caption anchored to its step.
+  const argv = bareCaptionsFlag(argvIn)
   const { positionals, flags, multi } = parseArgs(
     argv,
     BOOLEAN_FLAGS,
@@ -1162,6 +1169,10 @@ async function cmdPlan(argv: string[]): Promise<number> {
   // end card; the roles decide the motion proposals; the brand's mark is
   // fetched into the take's brand/ folder for the layout and the end card.
   const release = await releaseInputs(dir, flags, r, multi.with ?? [])
+  const stepCaptions = strFlag(flags, 'captions') === 'steps'
+  // Step captions are anchored to their steps; the plan's fixed-time beat
+  // captions would say the same words twice.
+  if (stepCaptions) release.launchRoles.captions = 'none'
   const motionWanted = !hasDoc || flags.motion === true || flags.fresh === true
   // The frame that stands for the take: --still, else LAUNCH.md's still:.
   const stillRaw = strFlag(flags, 'still') ?? release.launchRoles.still
@@ -1192,6 +1203,18 @@ async function cmdPlan(argv: string[]): Promise<number> {
         }
       : {}),
   })
+  let captions: StepCaptionReport | null = null
+  if (stepCaptions) {
+    const take = await loadTake(dir)
+    captions = landStepCaptions(s.doc, new Map([['', take.actions]]))
+    await writeJson(take.paths.doc, s.doc, true)
+  }
+  const captionLines = captions
+    ? `\n  ${captions.landed.length} step caption${captions.landed.length === 1 ? '' : 's'} anchored to their steps` +
+      (captions.skipped.length
+        ? `\n  not landed: ${captions.skipped.join('; ')}`
+        : '')
+    : ''
   const layoutLines = s.layout
     ? `\n  layout from ${s.styleFrom}: ${[
         s.layout.clips.length ? `${s.layout.clips.length} stage clip(s)` : '',
@@ -1231,8 +1254,9 @@ async function cmdPlan(argv: string[]): Promise<number> {
       ...(s.layout ? { layout: s.layout } : {}),
       ...(s.motion ? { motion: s.motion } : {}),
       ...(s.reuse ? { reuse: s.reuse } : {}),
+      ...(captions ? { captions } : {}),
     },
-    `${s.reuse ? 'Reused' : s.fresh ? 'Planned' : 'Refreshed'} ${join(dir, 'doc.json')}: ${s.zoomAuto} auto + ${s.zoomManual} manual zoom spans${s.cursorKept ? '' : ' (cursor track dropped)'}${layoutLines}${motionLines}${reuseLines}`,
+    `${s.reuse ? 'Reused' : s.fresh ? 'Planned' : 'Refreshed'} ${join(dir, 'doc.json')}: ${s.zoomAuto} auto + ${s.zoomManual} manual zoom spans${s.cursorKept ? '' : ' (cursor track dropped)'}${layoutLines}${motionLines}${reuseLines}${captionLines}`,
   )
   return EXIT_OK
 }
@@ -2419,6 +2443,8 @@ export async function run(argv: string[]): Promise<number> {
         return await cmdActions(rest)
       case 'ingest':
         return await cmdIngest(rest)
+      case 'join':
+        return await cmdJoin(rest)
       default:
         throw new UsageError(`unknown command "${cmd}" — run: vos help`)
     }
