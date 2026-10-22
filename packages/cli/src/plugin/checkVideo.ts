@@ -19,6 +19,8 @@ import { startTakeServer, waitForPageDone } from './server'
 import { launchBrowser } from '../browser'
 import {
   SCENE_CHANGE_AT,
+  CELL_CHANGED_AT,
+  ISOLATED_CHANGE_AT,
   SCENE_WINDOW,
   SUB_BLOCK_SECONDS,
   createLoudnessMeter,
@@ -113,6 +115,7 @@ async function mediabunnyBundle(): Promise<string> {
 interface DecodeDone {
   times: number[]
   changes: number[]
+  coverage: number[]
   firstDeviation: number
   lastDeviation: number
   firstTime: number
@@ -137,6 +140,7 @@ async function decodeInPage(opts: {
   thumbW: number
   thumbH: number
   subBlock: number
+  cellChanged: number
 }) {
   const w = window as unknown as Record<string, any>
   try {
@@ -195,6 +199,31 @@ async function decodeInPage(opts: {
       for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i])
       return s / Math.max(1, a.length) / 255
     }
+    // How much of the frame changed: the share of 4 px cells whose own
+    // mean difference reaches `opts.cellChanged`.
+    const coverageOf = (a: number[], b: number[]) => {
+      const W = opts.thumbW
+      const H = opts.thumbH
+      let cells = 0
+      let changed = 0
+      for (let cy = 0; cy < H; cy += 4)
+        for (let cx = 0; cx < W; cx += 4) {
+          let s = 0
+          let n = 0
+          for (let y = cy; y < Math.min(H, cy + 4); y++)
+            for (let x = cx; x < Math.min(W, cx + 4); x++) {
+              const k = (y * W + x) * 3
+              s +=
+                Math.abs(a[k] - b[k]) +
+                Math.abs(a[k + 1] - b[k + 1]) +
+                Math.abs(a[k + 2] - b[k + 2])
+              n += 3
+            }
+          cells++
+          if (s / Math.max(1, n) / 255 >= opts.cellChanged) changed++
+        }
+      return changed / Math.max(1, cells)
+    }
 
     // Every frame is decoded in order (never a seek per sample, which
     // re-decodes from the keyframe each time) and drawn small with the
@@ -210,6 +239,7 @@ async function decodeInPage(opts: {
     const step = 1 / opts.sampleFps
     const times: number[] = []
     const changes: number[] = []
+    const coverage: number[] = []
     let next = -Infinity
     let prev: number[] | null = null
     let first: number[] | null = null
@@ -239,6 +269,7 @@ async function decodeInPage(opts: {
       }
       times.push(t)
       changes.push(prev ? difference(prev, g) : 0)
+      coverage.push(prev ? coverageOf(prev, g) : 0)
       prev = g
       lastKept = t
       lastGray = g
@@ -251,6 +282,7 @@ async function decodeInPage(opts: {
     if (tail && lastTime > lastKept) {
       times.push(lastTime)
       changes.push(prev ? difference(prev, tail) : 0)
+      coverage.push(prev ? coverageOf(prev, tail) : 0)
       lastGray = tail
     }
 
@@ -311,6 +343,7 @@ async function decodeInPage(opts: {
     w.__done = {
       times,
       changes,
+      coverage,
       firstDeviation: deviation(first),
       lastDeviation: deviation(lastGray),
       firstTime,
@@ -329,6 +362,8 @@ export interface CheckVideoResult extends VideoFacts {
     /** Frames per second the change was measured at. */
     sampleFps: number
     threshold: number
+    /** The smaller change that still counts when it stands alone. */
+    isolatedThreshold: number
     window: number
     changes: SceneChange[]
     perWindow: { start: number; count: number }[]
@@ -382,6 +417,7 @@ export async function checkVideo(
         thumbW: side(facts.width),
         thumbH: side(facts.height),
         subBlock: SUB_BLOCK_SECONDS,
+        cellChanged: CELL_CHANGED_AT,
       })
       .catch(() => {})
     done = (await waitForPageDone(
@@ -401,7 +437,7 @@ export async function checkVideo(
   await writeFile(firstFile, Buffer.from(done.firstPng, 'base64'))
   await writeFile(lastFile, Buffer.from(done.lastPng, 'base64'))
 
-  const changes = sceneChanges(done.times, done.changes)
+  const changes = sceneChanges(done.times, done.changes, done.coverage)
   const loudness = done.audio
     ? loudnessFromEnergies(done.audio.energies, done.audio.peak)
     : null
@@ -433,6 +469,7 @@ export async function checkVideo(
     scenes: {
       sampleFps: round2(sampleFps),
       threshold: SCENE_CHANGE_AT,
+      isolatedThreshold: ISOLATED_CHANGE_AT,
       window: SCENE_WINDOW,
       changes: changes.map((c) => ({ ...c, time: round2(c.time) })),
       perWindow: windowCounts(changes, facts.duration),

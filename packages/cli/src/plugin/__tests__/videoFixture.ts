@@ -14,10 +14,19 @@ import type { Browser } from 'playwright'
 export interface FixtureScene {
   /** Output seconds the scene starts at. */
   at: number
-  /** A flat colour, or a busy picture (stripes, rings, text) under a hue. */
-  kind: 'solid' | 'busy'
+  /**
+   * A flat colour; a busy picture (stripes, rings, text) under a hue; a
+   * page (a light ground with a few boxes and lines, like an app); or a
+   * sparse one (small light boxes on a dark ground, like a canvas seen
+   * whole).
+   */
+  kind: 'solid' | 'busy' | 'page' | 'sparse'
   /** A busy scene's picture moves this many pixels a second (a pan). */
   pan?: number
+  /** The picture drawn this much larger, about the frame's centre. */
+  scale?: number
+  /** A zoom from `scale` to `to` over `over` seconds from the scene's start, eased in and out. */
+  zoom?: { to: number; over: number }
   color: string
 }
 
@@ -72,6 +81,52 @@ async function encodeInPage(opts: { mbCode: string; spec: FixtureSpec }) {
     for (const s of spec.scenes) if (s.at <= t + 1e-9) scene = s
     g.fillStyle = scene.color
     g.fillRect(0, 0, spec.width, spec.height)
+    const from = scene.scale ?? 1
+    let k = from
+    if (scene.zoom) {
+      const u = Math.min(1, Math.max(0, (t - scene.at) / scene.zoom.over))
+      k = from + (scene.zoom.to - from) * (u * u * (3 - 2 * u))
+    }
+    g.save()
+    g.translate(spec.width / 2, spec.height / 2)
+    g.scale(k, k)
+    g.translate(-spec.width / 2, -spec.height / 2)
+    if (scene.kind === 'page') {
+      g.fillStyle = '#20242c'
+      g.fillRect(0, 0, spec.width * 0.18, spec.height)
+      g.strokeStyle = '#222'
+      g.lineWidth = 2
+      for (let j = 0; j < 4; j++)
+        g.strokeRect(
+          spec.width * (0.24 + j * 0.19),
+          spec.height * 0.25,
+          spec.width * 0.15,
+          spec.height * 0.14,
+        )
+      g.fillStyle = '#f3c77a'
+      for (let j = 0; j < 3; j++)
+        g.fillRect(
+          spec.width * (0.26 + j * 0.2),
+          spec.height * 0.55,
+          spec.width * 0.16,
+          spec.height * 0.22,
+        )
+      g.fillStyle = '#333'
+      g.font = `${Math.round(spec.height / 18)}px sans-serif`
+      g.fillText(
+        'Sign up  Verify  Pick a plan',
+        spec.width * 0.25,
+        spec.height * 0.17,
+      )
+    }
+    if (scene.kind === 'sparse') {
+      g.strokeStyle = 'rgba(200,210,120,0.8)'
+      g.lineWidth = 1
+      for (let y = spec.height * 0.15; y < spec.height * 0.85; y += 9)
+        for (let x = spec.width * 0.15; x < spec.width * 0.85; x += 14)
+          g.strokeRect(x, y, 8, 4)
+    }
+    g.restore()
     if (scene.kind === 'busy') {
       const dx = ((scene.pan ?? 0) * (t - scene.at)) % 64
       g.save()

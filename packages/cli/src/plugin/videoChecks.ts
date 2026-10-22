@@ -15,6 +15,9 @@
 /** A full-frame change: the mean absolute difference (0..1) at or above this. */
 export const SCENE_CHANGE_AT = 0.12
 
+/** A 4 px cell of the small frame has changed when its own mean difference reaches this. */
+export const CELL_CHANGED_AT = 0.03
+
 /** The window a cut is counted in, seconds. */
 export const SCENE_WINDOW = 5
 
@@ -33,13 +36,6 @@ export const SUB_BLOCK_SECONDS = 0.1
 /** Short-term loudness is reported every this many seconds, over as many. */
 export const SHORT_TERM_SECONDS = 3
 
-export interface SceneChange {
-  /** Output seconds of the first frame after the change. */
-  time: number
-  /** Mean absolute difference from the frame before, 0..1. */
-  change: number
-}
-
 /**
  * A cut stands out from the frames around it: at least this many times the
  * median change of its two neighbours on either side. Motion (a zoom, a
@@ -49,20 +45,45 @@ export interface SceneChange {
 export const SCENE_SPIKE = 2.5
 
 /**
- * The full-frame changes in a series of sampled frames: each frame's change
- * from the one before, kept where it reaches `threshold`, stands out from
- * its neighbours (SCENE_SPIKE) and is the peak of its run, so a cut that
- * spreads over two decoded frames counts once and a camera move none.
+ * A smaller change is still a cut when it stands ALONE: the picture held
+ * still on both sides of it (each of the two frames either side changed by
+ * under 1/ISOLATED_SPIKE of it) and it reached ISOLATED_CHANGE_AT over at
+ * least ISOLATED_COVERAGE of the frame. Two views of one dark or sparse
+ * picture differ by little on average, and a camera that jumps between
+ * them in one frame is a cut all the same. A fade's first step has the
+ * fade's next steps beside it, so it never stands alone.
+ */
+export const ISOLATED_CHANGE_AT = 0.03
+export const ISOLATED_SPIKE = 8
+export const ISOLATED_COVERAGE = 0.25
+
+export interface SceneChange {
+  /** Output seconds of the first frame after the change. */
+  time: number
+  /** Mean absolute difference from the frame before, 0..1. */
+  change: number
+  /** The share of the frame that changed, 0..1, when it was measured. */
+  coverage?: number
+}
+
+/**
+ * The full-frame changes in a series of sampled frames, from each frame's
+ * change from the one before (and, when measured, the share of the frame
+ * that changed). A frame is a cut when it is the peak of its run, so a cut
+ * that spreads over two decoded frames counts once, and either a large
+ * change that stands out from its neighbours (SCENE_CHANGE_AT,
+ * SCENE_SPIKE), or a smaller one that stands alone (ISOLATED_*). A camera
+ * move is neither.
  */
 export function sceneChanges(
   times: readonly number[],
   changes: readonly number[],
-  threshold = SCENE_CHANGE_AT,
+  coverage?: readonly number[],
 ): SceneChange[] {
   const out: SceneChange[] = []
   for (let i = 1; i < changes.length; i++) {
     const c = changes[i]
-    if (c < threshold) continue
+    if (c < Math.min(SCENE_CHANGE_AT, ISOLATED_CHANGE_AT)) continue
     if (i > 1 && changes[i - 1] > c) continue
     if (i + 1 < changes.length && changes[i + 1] >= c) continue
     const around = [i - 2, i - 1, i + 1, i + 2]
@@ -74,8 +95,19 @@ export function sceneChanges(
         ? around[(around.length - 1) / 2]
         : (around[around.length / 2 - 1] + around[around.length / 2]) / 2
       : 0
-    if (c < SCENE_SPIKE * mid) continue
-    out.push({ time: times[i], change: Math.round(c * 1e4) / 1e4 })
+    const most = around.length ? around[around.length - 1] : 0
+    const share = coverage ? coverage[i] : 1
+    const standsOut = c >= SCENE_CHANGE_AT && c >= SCENE_SPIKE * mid
+    const standsAlone =
+      c >= ISOLATED_CHANGE_AT &&
+      share >= ISOLATED_COVERAGE &&
+      c >= ISOLATED_SPIKE * most
+    if (!standsOut && !standsAlone) continue
+    out.push({
+      time: times[i],
+      change: Math.round(c * 1e4) / 1e4,
+      ...(coverage ? { coverage: Math.round(share * 1000) / 1000 } : {}),
+    })
   }
   return out
 }

@@ -106,6 +106,52 @@ describe('vos check-video', () => {
     expect(r.warnings).toEqual([])
   }, 120_000)
 
+  it('counts no cut in a fast zoom easing in on a still page', async () => {
+    if (!browser) return console.warn(`skipped: no browser (${skipReason})`)
+    const r = await check(
+      'zoom-ramp',
+      base({
+        width: 320,
+        height: 180,
+        fps: 60,
+        tone: undefined,
+        scenes: [
+          { at: 0, kind: 'page', color: '#f7f7f5' },
+          {
+            at: 2,
+            kind: 'page',
+            color: '#f7f7f5',
+            zoom: { to: 1.5, over: 0.4 },
+          },
+        ],
+      }),
+    )
+    expect(r.scenes.changes).toEqual([])
+    expect(r.warnings).toEqual([])
+  }, 120_000)
+
+  it('counts one cut where the camera jumps in one frame between two views of a sparse picture', async () => {
+    if (!browser) return console.warn(`skipped: no browser (${skipReason})`)
+    const r = await check(
+      'scale-jump',
+      base({
+        width: 320,
+        height: 180,
+        fps: 60,
+        tone: undefined,
+        scenes: [
+          { at: 0, kind: 'sparse', color: '#101114', scale: 2.5 },
+          { at: 3, kind: 'sparse', color: '#101114' },
+        ],
+      }),
+    )
+    // Little of a dark picture changes on average, and it is a cut.
+    expect(r.scenes.changes).toHaveLength(1)
+    expect(r.scenes.changes[0].time).toBeCloseTo(3, 1)
+    expect(r.scenes.changes[0].change).toBeLessThan(0.12)
+    expect(r.warnings).toEqual([])
+  }, 120_000)
+
   it('warns on a silent sound track', async () => {
     if (!browser) return console.warn(`skipped: no browser (${skipReason})`)
     const r = await check('silent', base({ tone: { amplitude: 0 } }))

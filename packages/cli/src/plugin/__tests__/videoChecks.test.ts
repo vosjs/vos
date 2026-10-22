@@ -128,6 +128,25 @@ describe('scene changes', () => {
     ).toEqual([0.7])
   })
 
+  it('counts a small change that stands alone over a quarter of the frame, and never a fade’s first step', () => {
+    const t = (n: number) => Array.from({ length: n }, (_, i) => i / 30)
+    // A camera jump between two views of one dark picture: little changes
+    // on average, the frames either side hold still.
+    const jump = [0, 0, 0, 0.0005, 0.05, 0.0004, 0, 0]
+    expect(
+      sceneChanges(t(8), jump, [0, 0, 0, 0, 0.31, 0, 0, 0]).map(
+        (c) => c.change,
+      ),
+    ).toEqual([0.05])
+    // The same change over a corner of the frame is not a full-frame one.
+    expect(sceneChanges(t(8), jump, [0, 0, 0, 0, 0.1, 0, 0, 0])).toEqual([])
+    // A cross-fade opens with its biggest step, and the next steps follow.
+    const fade = [0, 0, 0, 0.067, 0.045, 0.036, 0.034, 0.03]
+    expect(
+      sceneChanges(t(8), fade, [0, 0, 0, 0.7, 0.3, 0.3, 0.3, 0.3]),
+    ).toEqual([])
+  })
+
   it('counts per 5 s window and finds two cuts closer than 5 s wherever the window starts', () => {
     const cuts = [
       { time: 4.8, change: 0.4 },
