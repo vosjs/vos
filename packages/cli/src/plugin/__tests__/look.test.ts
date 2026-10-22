@@ -8,6 +8,7 @@ import {
   quote,
   scopeSelector,
   selectorCandidates,
+  shownUrl,
   spendWord,
   splitTypeFlag,
   stableId,
@@ -26,6 +27,7 @@ const control = (over: Partial<RawControl> = {}): RawControl => ({
   nameAttr: null,
   placeholder: null,
   href: null,
+  hrefAttr: null,
   rect: { x: 0, y: 0, w: 10, h: 10 },
   disabled: false,
   covered: false,
@@ -101,6 +103,38 @@ describe('selector candidates, most stable first', () => {
       'nav[aria-label="Primary"] >> role=link[name="Docs"]',
       'nav[aria-label="Primary"] >> text="Docs"',
     ])
+  })
+
+  it('tries a link by its own href, query kept, after the test id and aria-label', () => {
+    const sel = selectorCandidates(
+      control({
+        tag: 'a',
+        role: 'link',
+        name: 'Open',
+        text: 'Open',
+        href: '/studio?vos=a',
+        hrefAttr: '/studio?vos=a',
+      }),
+    )
+    expect(sel.map((c) => c.selector)).toEqual([
+      'a[href="/studio?vos=a"]',
+      'role=link[name="Open"]',
+      'text="Open"',
+    ])
+    expect(
+      selectorCandidates(
+        control({
+          tag: 'a',
+          role: 'link',
+          ariaLabel: 'Report',
+          hrefAttr: '/f/1',
+        }),
+      ).map((c) => c.basis),
+    ).toEqual(['aria-label', 'href'])
+    for (const hrefAttr of ['#', 'javascript:void(0)'])
+      expect(
+        selectorCandidates(control({ tag: 'a', role: 'link', hrefAttr })),
+      ).toEqual([])
   })
 
   it('reaches a form field by its own attributes and a written id, never by position', () => {
@@ -211,11 +245,26 @@ describe('the proposal is judged by which elements a candidate reaches', () => {
 })
 
 describe('a look presses nothing that spends, sends or destroys', () => {
-  it('finds the word in any of the control’s words, as a whole word', () => {
+  it('finds the word by its stem, in any of the control’s words', () => {
     expect(spendWord(['Delete project'])).toBe('delete')
     expect(spendWord(['', 'Generate video'])).toBe('generate')
     expect(spendWord(['PUBLISH'])).toBe('publish')
+    expect(spendWord(['Allow deleting'])).toBe('deleting')
+    expect(spendWord(['Move  to Trash'])).toBe('move to trash')
     for (const w of [
+      'Revoke',
+      'Revoke key',
+      'Allow deleting',
+      'Discard changes',
+      'Erase all',
+      'Empty Trash',
+      'Move to Trash',
+      'Deploy',
+      'Unsubscribe',
+      'Cancel subscription',
+      'Remove access',
+      'Leave team',
+      'Transfer ownership',
       'Submit',
       'Remove member',
       'Buy now',
@@ -225,21 +274,45 @@ describe('a look presses nothing that spends, sends or destroys', () => {
       'Subscribe',
       'Confirm',
       'Send invite',
+      'Generating',
+      'Destroy',
     ])
-      expect(spendWord([w])).not.toBeNull()
+      expect(spendWord([w]), w).not.toBeNull()
   })
 
   it('lets an ordinary control through', () => {
     for (const w of [
       'Continue',
       'Open settings',
-      'Payments',
-      'Sender',
-      'Deleted items',
       'Cancel',
+      'Docs',
+      'New project',
     ])
-      expect(spendWord([w])).toBeNull()
+      expect(spendWord([w]), w).toBeNull()
     expect(spendWord([null, undefined, ''])).toBeNull()
+  })
+
+  it('cannot know every spend: Make and Create pass, the script guard is the fence', () => {
+    expect(spendWord(['Make a video'])).toBeNull()
+    expect(spendWord(['Create'])).toBeNull()
+  })
+
+  it('errs toward refusing a near miss', () => {
+    // A stem matches a word's start: a look can afford to be wrong this way.
+    expect(spendWord(['Payments'])).toBe('payments')
+    expect(spendWord(['Deleted items'])).toBe('deleted')
+  })
+})
+
+describe('a URL is printed as it was given, without credentials', () => {
+  it('keeps the query and drops a user and password', () => {
+    expect(shownUrl('https://app.test/studio?vos=abc')).toBe(
+      'https://app.test/studio?vos=abc',
+    )
+    expect(shownUrl('https://me:secret@app.test/x?y=1')).toBe(
+      'https://app.test/x?y=1',
+    )
+    expect(shownUrl('not a url')).toBe('not a url')
   })
 })
 

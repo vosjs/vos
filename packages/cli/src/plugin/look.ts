@@ -67,8 +67,10 @@ export interface RawControl {
   /** a form control's `name` attribute */
   nameAttr: string | null
   placeholder: string | null
-  /** origin + path of a link, never its query or hash */
+  /** a link's path and query (origin too when it leaves the page's), never its hash */
   href: string | null
+  /** a link's `href` attribute as the page wrote it, for the selector */
+  hrefAttr: string | null
   rect: { x: number; y: number; w: number; h: number }
   disabled: boolean
   /** something else is on top of its centre (an overlay, a modal's backdrop) */
@@ -82,6 +84,7 @@ export interface RawControl {
 export type SelectorBasis =
   | 'testid'
   | 'aria-label'
+  | 'href'
   | 'role'
   | 'form'
   | 'id'
@@ -152,7 +155,9 @@ export function stableId(id: string | null): boolean {
 
 /**
  * Every selector worth trying for a control, most stable first: the test
- * id; the `aria-label` (inside the open dialog it sits in); role + name; a
+ * id; the `aria-label` (inside the open dialog it sits in); a link's own
+ * `href`, query included (two tiles to `?vos=a` and `?vos=b` are two
+ * links), which holds where a computed name does not; role + name; a
  * form control's own attributes; a written id; its words inside the dialog
  * or landmark around it. Never a position in the tree: a `:nth-child` chain
  * breaks the first time the page changes.
@@ -174,6 +179,14 @@ export function selectorCandidates(c: RawControl): Candidate[] {
   }
   if (c.ariaLabel && c.ariaLabel.length <= NAME_MAX)
     add(css(`[aria-label=${quote(c.ariaLabel)}]`), 'aria-label')
+  if (
+    c.tag === 'a' &&
+    c.hrefAttr &&
+    c.hrefAttr.length <= 200 &&
+    !/^\s*javascript:/i.test(c.hrefAttr) &&
+    c.hrefAttr.trim() !== '#'
+  )
+    add(css(`a[href=${quote(c.hrefAttr)}]`), 'href')
   if (c.role && c.name && c.name.length <= NAME_MAX) {
     const sel = `role=${c.role}[name=${quote(c.name)}]`
     add(chain(sel), 'role')
@@ -248,29 +261,58 @@ export function chooseProposal(
 /**
  * Words that spend, send or destroy. A look presses nothing that says one:
  * the screenshot is not worth a generation, an email or a deleted row.
+ * Matched as word STEMS at a word's start, so `Deleting`, `Revoked` and
+ * `Unsubscribe` are caught with `Delete`, and a near miss like `Payments`
+ * is refused too: a look can afford to be wrong in that direction.
+ *
+ * It cannot know every spend. `Make a video` or `Create` on a primary
+ * button may start paid work, and refusing every Make and Create would
+ * refuse half of every app, so they pass. A recorded flow fences a step
+ * like that with `guard: "spend"` in actions.json; this list is a floor
+ * under the look, never the fence.
  */
-export const SPEND_WORDS = [
-  'generate',
-  'submit',
+export const SPEND_STEMS = [
+  'delet',
+  'remov',
+  'revok',
+  'eras',
+  'discard',
   'publish',
-  'delete',
-  'remove',
-  'buy',
+  'deploy',
+  'purchas',
+  'subscri',
+  'unsubscri',
   'pay',
-  'purchase',
-  'upgrade',
-  'subscribe',
-  'confirm',
+  'buy',
+  'generat',
+  'submit',
   'send',
+  'transfer',
+  'upgrad',
+  'confirm',
+  'leav',
+  'destroy',
 ] as const
 
-const SPEND = new RegExp(`\\b(${SPEND_WORDS.join('|')})\\b`, 'i')
+/** Phrases whose words are harmless alone. */
+export const SPEND_PHRASES = [
+  'move to trash',
+  'empty trash',
+  'cancel subscription',
+  'cancel plan',
+  'close account',
+] as const
+
+const SPEND = new RegExp(
+  `\\b(?:${SPEND_PHRASES.map((p) => p.replace(/ /g, '\\s+')).join('|')}|(?:${SPEND_STEMS.join('|')})[a-z]*)`,
+  'i',
+)
 
 /** The spend or delete word a control's words hold, or null. */
 export function spendWord(words: (string | null | undefined)[]): string | null {
   for (const w of words) {
-    const m = w ? SPEND.exec(w) : null
-    if (m) return m[1].toLowerCase()
+    const m = w ? SPEND.exec(w.replace(/\s+/g, ' ')) : null
+    if (m) return m[0].toLowerCase()
   }
   return null
 }
@@ -473,7 +515,7 @@ export const LOOK_PROBE = `(() => {
   } : null
   const hrefOf = (el) => {
     if (el.tagName !== 'A' || !el.hasAttribute('href')) return null
-    try { const u = new URL(el.href, location.href); return u.origin === location.origin ? u.pathname : u.origin + u.pathname } catch { return null }
+    try { const u = new URL(el.href, location.href); const at = u.pathname + u.search; return u.origin === location.origin ? at : u.origin + at } catch { return null }
   }
   const out = []
   let offscreen = 0, more = 0
@@ -490,8 +532,9 @@ export const LOOK_PROBE = `(() => {
     let name = nameOf(el), text = /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) ? '' : textOf(el)
     let ariaLabel = squash(el.getAttribute('aria-label')) || null
     let placeholder = squash(el.getAttribute('placeholder')) || null
-    const kinds = [...new Set([...kindsIn(name), ...kindsIn(text), ...kindsIn(ariaLabel || ''), ...kindsIn(placeholder || '')])]
-    if (kinds.length) { name = ''; text = ''; ariaLabel = null; placeholder = null }
+    let hrefAttr = el.tagName === 'A' ? el.getAttribute('href') : null, href = hrefOf(el)
+    const kinds = [...new Set([...kindsIn(name), ...kindsIn(text), ...kindsIn(ariaLabel || ''), ...kindsIn(placeholder || ''), ...kindsIn(hrefAttr || '')])]
+    if (kinds.length) { name = ''; text = ''; ariaLabel = null; placeholder = null; hrefAttr = null; href = null }
     const cx = Math.min(vw - 1, Math.max(0, r.left + r.width / 2)), cy = Math.min(vh - 1, Math.max(0, r.top + r.height / 2))
     const hit = document.elementFromPoint(cx, cy)
     const covered = !!hit && !(hit === el || el.contains(hit) || (el.labels && [...el.labels].some((l) => l.contains(hit))))
@@ -507,7 +550,8 @@ export const LOOK_PROBE = `(() => {
       id: el.id || null,
       nameAttr: /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName) ? el.getAttribute('name') || null : null,
       placeholder,
-      href: hrefOf(el),
+      href,
+      hrefAttr,
       rect: { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) },
       disabled: el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true',
       covered,
@@ -601,10 +645,24 @@ export interface LookOpts {
   log?: (line: string) => void
 }
 
+/** Where a page landed: origin and path (a redirect's query can carry a code). */
 const place = (u: string): string => {
   try {
     const x = new URL(u)
     return `${x.origin}${x.pathname}`
+  } catch {
+    return u
+  }
+}
+
+/** The URL as it was given, query and all, without a `user:password@`. */
+export function shownUrl(u: string): string {
+  try {
+    const x = new URL(u)
+    if (!x.username && !x.password) return u
+    x.username = ''
+    x.password = ''
+    return x.href
   } catch {
     return u
   }
@@ -622,7 +680,7 @@ export async function lookAt(
   opts: LookOpts,
 ): Promise<LookResult> {
   const log = opts.log ?? (() => {})
-  log(`goto ${place(url)}`)
+  log(`goto ${shownUrl(url)}`)
   const response = await page
     .goto(url, { waitUntil: 'load', timeout: 45000 })
     .catch((e: unknown) => {
@@ -630,7 +688,7 @@ export async function lookAt(
       // connection did not.
       if (e instanceof Error && /net::ERR_/.test(e.message))
         throw new Error(
-          `could not open ${place(url)}: ${e.message.split('\n')[0]}`,
+          `could not open ${shownUrl(url)}: ${(e.message.split('\n')[0] ?? '').split(url).join(shownUrl(url))}`,
         )
       log('   (the load event never fired; looking anyway)')
       return null
@@ -683,7 +741,7 @@ export async function lookAt(
           .catch(() => [] as string[])
         const word = spendWord(words)
         if (word) {
-          const label = words.find((w) => w && SPEND.test(w)) ?? word
+          const label = words.find((w) => spendWord([w])) ?? word
           throw new LookRefusal(
             refusalLine(step.selector, label.slice(0, 60), word),
           )
@@ -761,7 +819,7 @@ export async function lookAt(
     await page.evaluate(UNSTAMP).catch(() => {})
   }
   return {
-    url: place(url),
+    url: shownUrl(url),
     landed: place(page.url()),
     screenshot,
     viewport: page.viewportSize() ?? { width: 0, height: 0 },

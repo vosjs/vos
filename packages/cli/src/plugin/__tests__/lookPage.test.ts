@@ -31,6 +31,11 @@ dialog{position:fixed;inset:auto 20px 20px auto;margin:0}</style></head><body>
   <input name="title" placeholder="Title">
   <button>jane@realmail.com</button>
   <p>signed in as jane@realmail.com</p>
+  <a href="/studio?vos=a">Open</a> <a href="/studio?vos=b">Open</a>
+  <a href="/app/files/f1"><span>report.pdf</span>
+     <span>2 MB</span></a>
+  <button id="revoke" onclick="window.__revoked = true">Revoke</button>
+  <input class="inline-block h-7" name="owner" value="jane@realmail.com">
 </main>
 <dialog open aria-label="Rename"><button>Continue</button></dialog>
 </body></html>`
@@ -124,7 +129,8 @@ describe('vos look on a real page', () => {
       expect(newProject.disabled).toBe(false)
 
       const [docs] = byName(r.controls, 'Docs')
-      expect(docs.href).toBe('/docs')
+      // The path and query a link goes to, never its hash.
+      expect(docs.href).toBe('/docs?token=abc')
       expect(docs.role).toBe('link')
 
       // A field named only by its placeholder is still reached by role + name.
@@ -141,6 +147,21 @@ describe('vos look on a real page', () => {
       expect(JSON.stringify(r.controls)).not.toContain('realmail')
       expect(r.exposures.some((e) => e.kind === 'email')).toBe(true)
       expect(JSON.stringify(r.exposures)).not.toContain('realmail')
+
+      // Two links with one name are told apart by their href, query kept.
+      const opens = byName(r.controls, 'Open')
+      expect(opens.map((c) => [c.selector, c.match])).toEqual([
+        ['a[href="/studio?vos=a"]', 'unique'],
+        ['a[href="/studio?vos=b"]', 'unique'],
+      ])
+      // A row whose name wraps still has a selector: its href.
+      const [row] = r.controls.filter((c) => c.href === '/app/files/f1')
+      expect(row.selector).toBe('a[href="/app/files/f1"]')
+      expect(row.match).toBe('unique')
+
+      // A mask for an exposure names the field, never its utility classes.
+      const field = r.exposures.find((e) => e.selector.includes('owner'))
+      expect(field?.selector).toBe('input[name="owner"]')
 
       expect(r.wall).toBeNull()
       // The stamps a look puts on the page come off again.
@@ -162,6 +183,21 @@ describe('vos look on a real page', () => {
       expect(error).toBeInstanceOf(LookRefusal)
       expect((error as Error).message).toContain('"delete"')
       expect(await page.evaluate('window.__deleted === true')).toBe(false)
+    } finally {
+      await ctx.close()
+    }
+  }, 60_000)
+
+  it('refuses a --click on a revoke, before pressing it', async () => {
+    if (!browser)
+      return void console.warn(`skipped: no browser (${skipReason})`)
+    const { error, page, ctx } = await look('/', [
+      { do: 'click', selector: '#revoke' },
+    ])
+    try {
+      expect(error).toBeInstanceOf(LookRefusal)
+      expect((error as Error).message).toContain('"revoke"')
+      expect(await page.evaluate('window.__revoked === true')).toBe(false)
     } finally {
       await ctx.close()
     }
