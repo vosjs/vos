@@ -99,11 +99,26 @@ export const EXPOSURE_PROBE = `(() => {
   const vw = innerWidth, vh = innerHeight
   // A selector that reaches THIS element and no other, so it can be pasted
   // into "mask" as it is: climb until the path is unique, and say which
-  // sibling wherever a tag-and-class alone would match several.
+  // sibling wherever a tag-and-class alone would match several. What the
+  // page wrote for people and tests comes first (an id, a test id, an
+  // aria-label, a field's name or placeholder); utility classes are a
+  // layout's, and they come last. A value that itself holds what the scan
+  // looks for is never used: the selector would quote it.
+  const attr = (v) => '"' + v.replace(/\\\\/g, '\\\\\\\\').replace(/"/g, '\\\\"') + '"'
+  const quiet = (v) => !!v && v.length <= 80 && !kindsIn(v).length
   const segment = (el) => {
+    const tag = el.tagName.toLowerCase()
+    if (el.id && /^[A-Za-z_][\\w-]*$/.test(el.id) && !/\\d{2,}/.test(el.id) && quiet(el.id)) return tag + '#' + el.id
     const tid = el.getAttribute('data-testid')
-    if (tid) return el.tagName.toLowerCase() + '[data-testid="' + tid + '"]'
-    if (el.id && /^[A-Za-z_][\\w-]*$/.test(el.id)) return el.tagName.toLowerCase() + '#' + el.id
+    if (quiet(tid)) return tag + '[data-testid=' + attr(tid) + ']'
+    const label = el.getAttribute('aria-label')
+    if (quiet(label)) return tag + '[aria-label=' + attr(label) + ']'
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName)) {
+      const nm = el.getAttribute('name')
+      if (quiet(nm)) return tag + '[name=' + attr(nm) + ']'
+      const ph = el.getAttribute('placeholder')
+      if (quiet(ph)) return tag + '[placeholder=' + attr(ph) + ']'
+    }
     const cls = [...el.classList].filter((c) => /^[A-Za-z_-][\\w-]*$/.test(c)).slice(0, 2)
     let seg = el.tagName.toLowerCase() + (cls.length ? '.' + cls.join('.') : '')
     const p = el.parentElement
