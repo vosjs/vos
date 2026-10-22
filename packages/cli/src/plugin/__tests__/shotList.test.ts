@@ -81,6 +81,32 @@ describe('shotList', () => {
     ])
   })
 
+  it('says checks, off-camera waits and downloads, and marks a step that spends', () => {
+    const list = shotList({
+      steps: [
+        { do: 'expect', selector: 'text=Generate video', enabled: true },
+        {
+          id: 'generate',
+          do: 'click',
+          selector: 'text=Generate video',
+          guard: 'spend',
+        },
+        { do: 'await', until: { text: 'Your video is ready' } },
+        { do: 'expect', gone: '.spinner' },
+        { do: 'download', selector: 'text=Download', as: 'demo.mp4' },
+        { do: 'download', src: 'video' },
+      ],
+    })
+    expect(list.beats.map((b) => b.line)).toEqual([
+      'Check that "Generate video" is enabled',
+      'Click "Generate video" (this spends something real: do it only if you mean to)',
+      'Wait until "Your video is ready" shows on the page (off camera: pause the recording meanwhile)',
+      'Check that `.spinner` is gone',
+      'Download the file "Download" gives, as demo.mp4',
+      'Download what `video` plays',
+    ])
+  })
+
   it('reads as instructions to a person', () => {
     const text = formatShotList(shotList(actions))
     expect(text).toContain(

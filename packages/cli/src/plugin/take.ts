@@ -148,6 +148,8 @@ export async function prepareReRecord(
     p.framesDir,
     join(dir, 'stills'),
     join(dir, 'digest'),
+    // What the last run's download steps kept: this run downloads again.
+    join(dir, 'outputs'),
   ]) {
     await rm(stale, { recursive: true, force: true })
   }
