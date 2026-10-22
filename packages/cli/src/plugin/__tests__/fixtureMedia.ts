@@ -7,16 +7,21 @@
 import { writeFile } from 'node:fs/promises'
 import {
   BufferTarget,
+  EncodedAudioPacketSource,
   EncodedPacket,
   EncodedVideoPacketSource,
   Mp4OutputFormat,
   Output,
 } from 'mediabunny'
 
-/** An MP4 of `seconds` at `fps`, `width`×`height`, its frames placeholders. */
+/**
+ * An MP4 of `seconds` at `fps`, `width`×`height`, its frames placeholders;
+ * with `audio`, an AAC track of placeholder packets too, which Node cannot
+ * decode (as with a real file's AAC).
+ */
 export async function writeFixtureMp4(
   path: string,
-  { seconds = 2, fps = 30, width = 640, height = 360 } = {},
+  { seconds = 2, fps = 30, width = 640, height = 360, audio = false } = {},
 ): Promise<void> {
   const target = new BufferTarget()
   const output = new Output({
@@ -25,6 +30,8 @@ export async function writeFixtureMp4(
   })
   const source = new EncodedVideoPacketSource('vp9')
   output.addVideoTrack(source, { frameRate: fps })
+  const sound = audio ? new EncodedAudioPacketSource('aac') : null
+  if (sound) output.addAudioTrack(sound)
   await output.start()
   const frames = Math.round(seconds * fps)
   for (let i = 0; i < frames; i++) {
@@ -46,6 +53,30 @@ export async function writeFixtureMp4(
           }
         : undefined,
     )
+  }
+  if (sound) {
+    // 1024 samples a packet at 44.1 kHz.
+    const step = 1024 / 44100
+    for (let i = 0; (i + 1) * step <= seconds; i++) {
+      await sound.add(
+        new EncodedPacket(
+          new Uint8Array([0x21, 0x10, 0x04, 0x60, 0x8c, 0x1c]),
+          'key',
+          i * step,
+          step,
+        ),
+        i === 0
+          ? {
+              decoderConfig: {
+                codec: 'mp4a.40.2',
+                numberOfChannels: 1,
+                sampleRate: 44100,
+                description: new Uint8Array([0x12, 0x08]),
+              },
+            }
+          : undefined,
+      )
+    }
   }
   await output.finalize()
   await writeFile(path, new Uint8Array(target.buffer!))

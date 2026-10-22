@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -24,6 +25,14 @@ import type {
 } from '@vosjs/studio-core'
 
 let root: string
+const hasFfmpeg = (() => {
+  try {
+    execFileSync('ffmpeg', ['-version'], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+})()
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), 'vos-join-'))
   vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
@@ -238,6 +247,173 @@ describe('vos join', () => {
     await expect(cmdJoin([a, b, '--out', join(a, 'inner')])).rejects.toThrow(
       /overlaps/,
     )
+  })
+})
+
+describe('vos join: a file’s own sound, captions per clip', () => {
+  const doneOf = (writes: string[]) =>
+    writes
+      .flatMap((l) => l.split('\n'))
+      .filter((l) => l.startsWith('{'))
+      .map((l) => JSON.parse(l) as Record<string, unknown>)
+      .find((e) => e.event === 'done') as {
+      notes: string[]
+      captions?: { landed: { id: string }[] }
+    }
+
+  it('carries a file’s sound as an audio clip, and --mute leaves it out', async () => {
+    const a = await writeTake('sound-a', takeA(), {})
+    const shot = join(root, 'shot.mp4')
+    await writeFixtureMp4(shot, { seconds: 3, audio: true })
+    const out = join(root, 'with-sound')
+    const writes: string[] = []
+    const stdout = process.stdout.write as unknown as ReturnType<typeof vi.fn>
+    stdout.mockImplementation((chunk: string) => {
+      writes.push(String(chunk))
+      return true
+    })
+    try {
+      expect(await cmdJoin([a, shot, '--out', out, '--json'])).toBe(0)
+      expect(doneOf(writes).notes).toContainEqual(
+        expect.stringMatching(
+          /its own sound plays as audio clip m1-sound, 10\.00\.\.13\.00s/,
+        ),
+      )
+      const doc = JSON.parse(
+        await readFile(join(out, 'doc.json'), 'utf8'),
+      ) as ProjectDoc
+      expect(doc.audio).toEqual([
+        {
+          id: 'm1-sound',
+          key: 'm1/recording.mp4',
+          name: 'shot.mp4',
+          start: 10,
+          in: 0,
+          out: 3,
+          duration: 3,
+          gain: 1,
+          fadeIn: 0.15,
+          fadeOut: 0.15,
+        },
+      ])
+      expect(lintDoc(doc).problems).toEqual([])
+
+      writes.length = 0
+      expect(
+        await cmdJoin([
+          a,
+          shot,
+          '--out',
+          out,
+          '--force',
+          '--mute',
+          shot,
+          '--json',
+        ]),
+      ).toBe(0)
+      expect(doneOf(writes).notes).toContainEqual(
+        `${shot}: its own sound is left out (--mute)`,
+      )
+      const muted = JSON.parse(
+        await readFile(join(out, 'doc.json'), 'utf8'),
+      ) as ProjectDoc
+      expect(muted.audio).toEqual([])
+      await expect(
+        cmdJoin([a, shot, '--out', out, '--force', '--mute', 'elsewhere.mp4']),
+      ).rejects.toThrow(/not one of the inputs/)
+    } finally {
+      stdout.mockImplementation(() => true)
+    }
+  })
+
+  // A real AAC track, which Node cannot decode, needs a real encoder to
+  // make; where ffmpeg is installed, the join says one line about it.
+  it.skipIf(!hasFfmpeg)(
+    'says in one line that Node could not read a file’s audio, never a raw dump',
+    async () => {
+      const a = await writeTake('aac-a', takeA(), {})
+      const shot = join(root, 'aac.mp4')
+      execFileSync('ffmpeg', [
+        '-loglevel',
+        'error',
+        '-y',
+        '-f',
+        'lavfi',
+        '-i',
+        'testsrc=size=320x180:rate=30:duration=1',
+        '-f',
+        'lavfi',
+        '-i',
+        'sine=frequency=440:duration=1',
+        '-c:v',
+        'libx264',
+        '-pix_fmt',
+        'yuv420p',
+        '-c:a',
+        'aac',
+        '-shortest',
+        shot,
+      ])
+      const writes: string[] = []
+      const stdout = process.stdout.write as unknown as ReturnType<typeof vi.fn>
+      stdout.mockImplementation((chunk: string) => {
+        writes.push(String(chunk))
+        return true
+      })
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        expect(
+          await cmdJoin([a, shot, '--out', join(root, 'aac-film'), '--json']),
+        ).toBe(0)
+        expect(warn).not.toHaveBeenCalled()
+        expect(doneOf(writes).notes).toContainEqual(
+          "could not read aac.mp4's audio in Node, so it was copied as it is; its length comes from the container",
+        )
+      } finally {
+        warn.mockRestore()
+        stdout.mockImplementation(() => true)
+      }
+    },
+  )
+
+  it('ends a caption with its clip, and names an input with no caption', async () => {
+    // A's last step lands at 8.5 s (8.3 + 0.2) of its 10 s: 1.5 s of room.
+    const doc = takeA()
+    doc.source.meta.steps = [
+      ...doc.source.meta.steps!,
+      { step: 2, id: 'wrap', do: 'click', tStart: 8, tEnd: 8.3 },
+    ]
+    const a = await writeTake('cap-a', doc, {
+      open: 'Open the panel',
+      wrap: 'Wrap it up',
+    })
+    const b = await writeTake('cap-b', takeB(), {})
+    const out = join(root, 'cap-film')
+    const writes: string[] = []
+    const stdout = process.stdout.write as unknown as ReturnType<typeof vi.fn>
+    stdout.mockImplementation((chunk: string) => {
+      writes.push(String(chunk))
+      return true
+    })
+    try {
+      expect(await cmdJoin([a, b, '--out', out, '--captions', '--json'])).toBe(
+        0,
+      )
+      expect(doneOf(writes).notes).toContainEqual(
+        `no step in ${b} carries a caption`,
+      )
+    } finally {
+      stdout.mockImplementation(() => true)
+    }
+    const joined = JSON.parse(
+      await readFile(join(out, 'doc.json'), 'utf8'),
+    ) as ProjectDoc
+    const wrap = joined.overlays!.find((o) => o.id === 'step-wrap')!
+    expect(wrap.start).toBe(8.5)
+    expect(wrap.duration).toBe(1.5)
+    // Nothing of A's outlives A's clip, which ends at 10 s.
+    for (const o of joined.overlays!.filter((o) => o.from === 'steps'))
+      expect(o.start + o.duration).toBeLessThanOrEqual(10 + 1e-9)
   })
 })
 

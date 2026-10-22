@@ -17,6 +17,7 @@ import {
   mediaKey,
   ratedSegments,
   resolveAnchor,
+  segmentOutputExtents,
 } from '@vosjs/studio-core'
 import { totalDuration } from '@vosjs/timeline'
 import { CAPTION_ID_PREFIX, houseCaption } from './motionPlan'
@@ -45,6 +46,8 @@ export interface StepCaptionReport {
   landed: { id: string; step: string | number; media?: string; start: number }[]
   /** Steps with a caption that did not land, in words. */
   skipped: string[]
+  /** The media (`''` = the primary) that have steps and not one caption among them. */
+  uncaptioned: string[]
 }
 
 /** A step's caption: on the step itself, else its actions.json step, else the document's embedded script. */
@@ -85,10 +88,32 @@ export function landStepCaptions(
   doc: ProjectDoc,
   actions: ReadonlyMap<string, ActionsFile | null>,
 ): StepCaptionReport {
-  const report: StepCaptionReport = { landed: [], skipped: [] }
+  const report: StepCaptionReport = { landed: [], skipped: [], uncaptioned: [] }
   const kept = (doc.overlays ?? []).filter((o) => o.from !== STEP_CAPTIONS_FROM)
   const rated = ratedSegments(doc)
   const footageEnd = totalDuration(rated)
+  // Where each clip of the cut ends, and whose it is: a caption is about
+  // its media and never outlives the clip it starts in (after a join, the
+  // next clip is someone else's footage).
+  const docSegments = (
+    doc.segments.length
+      ? doc.segments
+      : [{ in: 0, out: doc.source.meta.durationMs / 1000 }]
+  ) as { media?: string }[]
+  const extents = segmentOutputExtents(doc)
+  const clipEnd = (start: number, media: string): number => {
+    for (let i = 0; i < extents.length; i++) {
+      const e = extents[i]
+      if (
+        mediaKey(docSegments[i]?.media) === media &&
+        start >= e.start - 1e-6 &&
+        start < e.end - 1e-6
+      )
+        return e.end
+    }
+    return footageEnd
+  }
+  const ends = new Map<OverlayClip, number>()
   /** Does a caption the run keeps already speak for this step? */
   const spoken = (media: string, step: StepSpan, steps: StepSpan[]) =>
     kept.some((o) => {
@@ -102,9 +127,11 @@ export function landStepCaptions(
   const taken = new Set(kept.map((o) => o.id))
   for (const { id: media, source } of docMediaList(doc)) {
     const steps = source.meta.steps ?? []
+    let captioned = 0
     for (const step of steps) {
       const caption = captionOf(step, actions.get(media), source.script)
       if (!caption) continue
+      captioned++
       const ref = step.id ?? step.step
       const label = `step ${JSON.stringify(ref)}${media ? ` of ${media}` : ''}`
       if (step.skipped) {
@@ -126,21 +153,22 @@ export function landStepCaptions(
         report.skipped.push(`${label}: the cut leaves it out`)
         continue
       }
-      if (placed.start >= footageEnd - CAPTION_MIN) {
-        report.skipped.push(
-          `${label}: it plays in the last second of the footage`,
-        )
+      const end = clipEnd(placed.start, media)
+      if (placed.start >= end - CAPTION_MIN) {
+        report.skipped.push(`${label}: it plays in the last second of its clip`)
         continue
       }
       const base = `step-${media ? `${media}-` : ''}${safeId(ref)}`
       let id = base
       for (let n = 2; taken.has(id); n++) id = `${base}-${n}`
       taken.add(id)
-      fresh.push({
+      const clip: OverlayClip = {
         ...houseCaption(id, caption, placed.start, CAPTION_MAX),
         anchor,
         from: STEP_CAPTIONS_FROM,
-      })
+      }
+      ends.set(clip, end)
+      fresh.push(clip)
       report.landed.push({
         id,
         step: ref,
@@ -148,19 +176,19 @@ export function landStepCaptions(
         start: placed.start,
       })
     }
+    if (steps.length && !captioned) report.uncaptioned.push(media)
   }
-  // In playing order, each caption gives way to the next one and to the
-  // end of the footage.
+  // In playing order, each caption gives way to the next one, and ends
+  // with the clip it starts in.
   fresh.sort((a, b) => a.start - b.start)
   fresh.forEach((c, i) => {
     const next = fresh[i + 1]
-    const room = Math.min(
-      next ? next.start - CAPTION_GAP : Infinity,
-      footageEnd,
-    )
-    c.duration = +Math.max(
-      CAPTION_MIN,
-      Math.min(CAPTION_MAX, room - c.start),
+    const clipRoom = (ends.get(c) ?? footageEnd) - c.start
+    const nextRoom = next ? next.start - CAPTION_GAP - c.start : Infinity
+    c.duration = +Math.min(
+      CAPTION_MAX,
+      clipRoom,
+      Math.max(CAPTION_MIN, nextRoom),
     ).toFixed(3)
   })
   const overlays = [...kept, ...fresh]

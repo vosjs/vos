@@ -179,8 +179,8 @@ Take pipeline
   vos actions from-agent-browser <steps.jsonl> [--out actions.json] [--url <url>] [--viewport WxH] [--json]
   vos ingest <video.webm|mp4> [--cursor <trace.zip|steps.jsonl|cursor.csv>] [--as footage|take] [--out take] [--offset <ms>] [--viewport WxH] [--background <slug|url|none>] [--json]
             a take from a recording someone else made (a cloud agent's PR video, a Playwright run's video, a Loom export): the file becomes recording.<container>, meta.json from its own dimensions and duration, and a trace beside it becomes cursor.json so the planner has clicks to zoom on; without one, nothing is planned and the done event says so. Without a trace the file opens as FINISHED footage (a render from HyperFrames or Remotion, a film): no card, no browser bar, no drawn cursor, its own frame rate; --as take gives a screen demo the card
-  vos join <take> <take|file.mp4>... --out <dir> [--force] [--captions] [--json]
-            several takes (and plain video files) as ONE take, cut in argument order: the first is the primary (its frame, cursor, export and sound), each next one a media m1, m2, … with its footage copied, its spans tagged and renamed, its layers moved to where it now starts; a file opens full-bleed. --captions lands every step's caption anchored to its step. The result must pass vos validate before anything is written
+  vos join <take> <take|file.mp4>... --out <dir> [--force] [--captions] [--mute <file>]... [--json]
+            several takes (and plain video files) as ONE take, cut in argument order: the first is the primary (its frame, cursor, export and sound), each next one a media m1, m2, … with its footage copied, its spans tagged and renamed, its layers moved to where it now starts; a file opens full-bleed and its own sound plays as an audio clip (--mute <file> leaves it out). --captions lands every step's caption anchored to its step, each ending with its clip. The result must pass vos validate before anything is written
   vos score <take> --track <slug|file> [--at <step id|output seconds>] [--gain 0..1] [--fade-in <s>] [--fade-out <s>] [--dry-run] [--json]
             the film's music as one audio clip (id score): reads the track's loudness, finds its strongest swell and offsets the track so the swell lands at --at (a step, resolved through the cut, or output seconds); without --at it starts where the track first rises above its median level
   vos port inventory <page.html|project dir> [--render <their render.mp4>] [--out port] [--json]
@@ -1216,6 +1216,9 @@ async function cmdPlan(argvIn: string[]): Promise<number> {
     ? `\n  ${captions.landed.length} step caption${captions.landed.length === 1 ? '' : 's'} anchored to their steps` +
       (captions.skipped.length
         ? `\n  not landed: ${captions.skipped.join('; ')}`
+        : '') +
+      (captions.uncaptioned.length
+        ? `\n  no step in ${captions.uncaptioned.length === 1 && captions.uncaptioned[0] === '' ? 'this take' : captions.uncaptioned.map((m) => (m ? `media ${m}` : 'the primary')).join(', ')} carries a caption`
         : '')
     : ''
   const layoutLines = s.layout

@@ -23,7 +23,15 @@
  */
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { copyFile, mkdir, rm } from 'node:fs/promises'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from 'node:path'
 import {
   mediaKey,
   mediaRefId,
@@ -82,8 +90,10 @@ export interface JoinPart {
   dir: string
   /** The actions.json that recorded it, when there is one. */
   actions: ActionsFile | null
-  /** A plain file: the video itself and its container. */
-  file?: { path: string; ext: ProbedVideo['ext'] }
+  /** A plain file: the video itself, its container, and whether it carries sound. */
+  file?: { path: string; ext: ProbedVideo['ext']; hasAudio?: boolean }
+  /** Leave a plain file's own sound out (`--mute`). */
+  mute?: boolean
 }
 
 /** A file the joined take needs: its source on disk and its key in the new take. */
@@ -107,6 +117,9 @@ export interface JoinPlan {
 }
 
 const round3 = (v: number): number => Math.round(v * 1000) / 1000
+
+/** The fade at each end of a plain file's own sound, seconds. */
+export const FILE_SOUND_FADE = 0.15
 
 /** The take-relative key a later input's file lands under. */
 const prefixed = (id: string, key: string): string =>
@@ -176,6 +189,13 @@ function dropEnding(d: ProjectDoc, label: string, notes: string[]): void {
   notes.push(
     `${label}: dropped ${named}, which played after its footage and would land over the next input (only the last input's ending stays, at the end of the film)`,
   )
+}
+
+/** An input's first clip (its cut, or its whole length). */
+function segs0(d: ProjectDoc): { in: number; out: number } | undefined {
+  return d.segments.length
+    ? d.segments[0]
+    : { in: 0, out: round3(d.source.meta.durationMs / 1000) }
 }
 
 /**
@@ -386,6 +406,40 @@ export function joinDocs(parts: readonly JoinPart[]): JoinPlan {
       notes.push(
         `${part.label}: ${dropped} pinned layer${dropped === 1 ? '' : 's'} kept ${dropped === 1 ? 'its' : 'their'} time and lost the pin (a pin places a layer on the first input's footage only)`,
       )
+    // A plain file's own sound is part of what it is: a media plays its
+    // picture only, so the sound rides the take's audio, keyed to the copied
+    // file, starting where the file now plays, trimmed to its clip, with a
+    // short fade at each end. A take's added sound is its own choice and
+    // stays behind (above).
+    if (part.file?.hasAudio) {
+      const seg = segs0(d)
+      const at = extents[firstSegment]
+      if (part.mute) {
+        notes.push(`${part.label}: its own sound is left out (--mute)`)
+      } else if (seg && at) {
+        const len = Math.max(0, seg.out - seg.in)
+        const fade = round3(Math.min(FILE_SOUND_FADE, len / 4))
+        const id = `${pid}-sound`
+        doc.audio = [
+          ...doc.audio,
+          {
+            id,
+            key: d.source.videoKey,
+            name: basename(part.file.path),
+            start: round3(at.start),
+            in: round3(seg.in),
+            out: round3(seg.out),
+            duration: round3(d.source.meta.durationMs / 1000),
+            gain: 1,
+            fadeIn: fade,
+            fadeOut: fade,
+          },
+        ]
+        notes.push(
+          `${part.label}: its own sound plays as audio clip ${id}, ${at.start.toFixed(2)}..${(at.start + len).toFixed(2)}s (--mute ${part.label} to leave it out)`,
+        )
+      }
+    }
     for (const ob of d.objects ?? []) {
       ;(doc.objects ??= []).push({
         ...ob,
@@ -396,6 +450,15 @@ export function joinDocs(parts: readonly JoinPart[]): JoinPlan {
       })
     }
   }
+  for (const part of rest)
+    if (part.mute && !part.file?.hasAudio)
+      notes.push(
+        `${part.label}: --mute leaves nothing out (${part.file ? 'the file carries no sound' : "a take's own footage sound is its recording's; its added sound stays behind anyway"})`,
+      )
+  if (first.mute)
+    notes.push(
+      `${first.label}: --mute leaves nothing out (the first input's sound is the film's own)`,
+    )
   // Every anchored layer's fallback start is where it plays now.
   const pieces = ratedSegments(doc)
   for (const o of doc.overlays ?? []) {
@@ -407,9 +470,10 @@ export function joinDocs(parts: readonly JoinPart[]): JoinPlan {
 }
 
 const BOOLEAN_FLAGS = new Set(['json', 'help', 'force', 'captions'])
+const MULTI = new Set(['mute'])
 
 const USAGE =
-  'vos join <take> <take|file.mp4>… --out <dir> [--force] [--captions] [--json]'
+  'vos join <take> <take|file.mp4>… --out <dir> [--force] [--captions] [--mute <file>]... [--json]'
 
 /** Is `inner` the same path as `outer`, or inside it? */
 const within = (inner: string, outer: string): boolean => {
@@ -456,17 +520,28 @@ async function readPart(arg: string): Promise<JoinPart> {
     doc,
     dir: dirname(path),
     actions: null,
-    file: { path, ext: probed.ext },
+    file: { path, ext: probed.ext, hasAudio: probed.hasAudio },
   }
 }
 
 export async function cmdJoin(argv: string[]): Promise<number> {
-  const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
+  const { positionals, flags, multi } = parseArgs(argv, BOOLEAN_FLAGS, MULTI)
   const r = createReporter(flags.json === true)
   const outArg = strFlag(flags, 'out')
+  const force = flags.force === true
+  const withCaptions = flags.captions === true
   if (positionals.length < 2 || !outArg) throw new UsageError(USAGE)
   const out = resolve(outArg)
   const inputs = positionals.map((p) => resolve(p))
+  const muted = new Set<number>()
+  for (const m of multi.mute ?? []) {
+    const i = inputs.indexOf(resolve(m))
+    if (i < 0)
+      throw new UsageError(
+        `--mute ${m}: not one of the inputs; name a file as it is given to vos join`,
+      )
+    muted.add(i)
+  }
   for (const [i, input] of inputs.entries()) {
     if (within(out, input) || within(input, out))
       throw new UsageError(
@@ -474,7 +549,7 @@ export async function cmdJoin(argv: string[]): Promise<number> {
       )
   }
   if (existsSync(out)) {
-    if (flags.force !== true)
+    if (!force)
       throw new UsageError(
         `--out ${outArg} exists; pass --force to replace it, or name a new directory`,
       )
@@ -491,14 +566,26 @@ export async function cmdJoin(argv: string[]): Promise<number> {
   }
 
   const parts: JoinPart[] = []
-  for (const p of positionals) {
+  for (const [i, p] of positionals.entries()) {
     r.log(`reading ${p}…`)
-    parts.push(await readPart(p))
+    parts.push({
+      ...(await readPart(p)),
+      ...(muted.has(i) ? { mute: true } : {}),
+    })
   }
   const plan = joinDocs(parts)
   let captions: StepCaptionReport | null = null
-  if (flags.captions === true)
+  if (withCaptions) {
     captions = landStepCaptions(plan.doc, plan.actions)
+    const labelOf = new Map<string, string>([
+      ['', positionals[0]],
+      ...plan.media.map((m) => [m.id, m.label] as [string, string]),
+    ])
+    for (const k of captions.uncaptioned)
+      plan.notes.push(
+        `no step in ${labelOf.get(k) ?? `media ${k}`} carries a caption`,
+      )
+  }
 
   // The result must validate before a byte is written.
   const lint = lintDoc(plan.doc)
@@ -525,8 +612,15 @@ export async function cmdJoin(argv: string[]): Promise<number> {
   for (const c of plan.copies) {
     const to = join(out, c.to)
     await mkdir(dirname(to), { recursive: true })
-    if (c.remux) await copyRecording(c.from, to, c.remux)
-    else await copyFile(c.from, to)
+    if (c.remux) {
+      const remuxed = await copyRecording(c.from, to, c.remux)
+      // Node decodes no compressed audio, so a file whose sound it cannot
+      // read is copied as it is; the render reads it in the browser.
+      if (!remuxed && c.remux !== 'mov')
+        plan.notes.push(
+          `could not read ${basename(c.from)}'s audio in Node, so it was copied as it is; its length comes from the container`,
+        )
+    } else await copyFile(c.from, to)
   }
   const doc = plan.doc
   await writeJson(join(out, 'meta.json'), doc.source.meta, true)
