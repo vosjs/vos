@@ -696,7 +696,11 @@ export async function cmdJoin(argv: string[]): Promise<number> {
         `note: ${outArg} carries no ${JOIN_RECORD_NAME} (joined by an older vos), so its inputs are matched by the footage it holds; a video file joined then was re-encoded on the way in and reads as new`,
       )
     }
-    rejoined = rejoinDocs(migrateMotion(prev), record, read)
+    // The record's paths are relative to the take; the done line says them
+    // from where the command runs.
+    rejoined = rejoinDocs(migrateMotion(prev), record, read, {
+      where: (p) => relative(process.cwd(), resolve(out, p)) || '.',
+    })
     plan = rejoined.plan
   } else plan = joinDocs(parts)
   // A re-join captions and re-plans only the media it added.
@@ -803,15 +807,25 @@ export async function cmdJoin(argv: string[]): Promise<number> {
   const length = extents.length ? extents[extents.length - 1].end : 0
   for (const n of plan.notes) r.log(`note: ${n}`)
   for (const w of lint.warnings) r.log(`warning: ${w}`)
-  const captionLine = captions
-    ? `\n  ${captions.landed.length} step caption${captions.landed.length === 1 ? '' : 's'} landed` +
-      (captions.skipped.length
-        ? `; not landed: ${captions.skipped.join('; ')}`
-        : '')
-    : ''
-  const beatLine = perBeat
-    ? `\n  ${perBeatLine(perBeat, (k) => labelOf.get(k) ?? `media ${k}`)}`
-    : ''
+  // A re-join captions and re-plans its new inputs alone: say which, or
+  // that there were none, never a count over inputs it did not look at.
+  const newLabels = only
+    ? plan.media.filter((m) => only.has(m.id)).map((m) => m.label)
+    : []
+  const onNew = only ? ` on ${newLabels.join(', ')}` : ''
+  const captionLine = !captions
+    ? ''
+    : only && !newLabels.length
+      ? '\n  --captions: no new input to caption (a re-join captions only the inputs it adds; the kept ones keep their captions as edited)'
+      : `\n  ${captions.landed.length} step caption${captions.landed.length === 1 ? '' : 's'} landed${onNew}` +
+        (captions.skipped.length
+          ? `; not landed: ${captions.skipped.join('; ')}`
+          : '')
+  const beatLine = !perBeat
+    ? ''
+    : only && !newLabels.length
+      ? '\n  --zooms per-beat: no new input to re-plan (a re-join re-plans only the inputs it adds; the kept ones keep their zooms as edited)'
+      : `\n  ${only ? `${newLabels.join(', ')}: ` : ''}${perBeatLine(perBeat, (k) => labelOf.get(k) ?? `media ${k}`)}`
   const rejoinText = rejoined
     ? rejoinLines(rejoined.report)
         .map((l) => `\n  ${l}`)

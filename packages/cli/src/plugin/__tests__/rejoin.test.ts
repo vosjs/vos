@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_CAM_STYLE,
@@ -287,7 +287,8 @@ describe('vos join --keep-edits', () => {
     expect(doc.still).toBe(3.25)
     expect(report.dropped).toEqual([
       {
-        input: '../b',
+        // Said from where the command runs, not from the take.
+        input: relative(process.cwd(), b),
         id: 'm1',
         why: 'removed',
         segments: 1,
@@ -500,7 +501,7 @@ describe('vos join --keep-edits', () => {
       label: again,
       from: 'm1',
       id: 'm2',
-      was: '../scene',
+      was: relative(process.cwd(), scene),
       segments: 2,
     })
     expect(redone.layers.sort()).toEqual(['c6', 'c6b', 'over-scene'])
@@ -540,9 +541,32 @@ describe('vos join --keep-edits', () => {
     expect(existsSync(join(out, 'm1'))).toBe(false)
     expect(existsSync(join(out, 'm2/recording.webm'))).toBe(true)
     expect(lintDoc(doc).problems).toEqual([])
-    expect(rejoinLines(report).join('\n')).toMatch(
-      /re-recorded .*scene-again \(was \.\.\/scene\): m1 → m2; its edits re-timed by its steps: 2 segments, 3 spans, layers c6, c6b, over-scene/,
+    expect(rejoinLines(report).join('\n')).toContain(
+      `re-recorded ${again} (was ${relative(process.cwd(), scene)}): m1 → m2; its edits re-timed by its steps: 2 segments, 3 spans, layers c6, c6b, over-scene`,
     )
+  })
+
+  it('says what --captions and --zooms acted on in a re-join', async () => {
+    const out = join(root, 'film-words')
+    expect(await cmdJoin([a, b, '--out', out])).toBe(0)
+    const flags = ['--keep-edits', '--captions', '--zooms', 'per-beat']
+    const text = () => {
+      const t = writes.join('')
+      writes = []
+      return t
+    }
+    writes = []
+    // Nothing new: no count over inputs the re-join did not look at.
+    expect(await cmdJoin([a, b, '--out', out, ...flags])).toBe(0)
+    let said = text()
+    expect(said).toContain('--captions: no new input to caption')
+    expect(said).toContain('--zooms per-beat: no new input to re-plan')
+    expect(said).not.toMatch(/0 step captions landed|0 beats held zooms/)
+    // A new input: the counts are its own, and say so.
+    expect(await cmdJoin([a, b, c, '--out', out, ...flags])).toBe(0)
+    said = text()
+    expect(said).toMatch(new RegExp(`step captions? landed on ${c}`))
+    expect(said).toContain(`${c}: one zoom per beat:`)
   })
 
   it('matches a take joined before join.json by the footage it holds', async () => {
