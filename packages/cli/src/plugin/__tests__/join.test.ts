@@ -193,28 +193,19 @@ describe('vos join', () => {
     expect(callout.pin).toBeUndefined()
     expect(callout.anchor).toEqual({ step: 'share', media: 'm1', offset: 0.5 })
     expect(callout.start).toBe(12.5)
-    // The step captions, anchored to their steps.
+    // The step captions, anchored to their steps, each landing as its step
+    // begins.
     const steps = doc.overlays!.filter((o) => o.from === STEP_CAPTIONS_FROM)
     expect(
       steps.map((o) => [o.id, (o as TextOverlayClip).text, o.anchor, o.start]),
     ).toEqual([
-      [
-        'step-open',
-        'Open the panel',
-        { step: 'open', at: 'end', offset: 0.2 },
-        2.7,
-      ],
-      [
-        'step-save',
-        'Save the change',
-        { step: 'save', at: 'end', offset: 0.2 },
-        6.7,
-      ],
+      ['step-open', 'Open the panel', { step: 'open', at: 'start' }, 2],
+      ['step-save', 'Save the change', { step: 'save', at: 'start' }, 6],
       [
         'step-m1-share',
         'Share the link',
-        { step: 'share', media: 'm1', at: 'end', offset: 0.2 },
-        12.6,
+        { step: 'share', media: 'm1', at: 'start' },
+        12,
       ],
     ])
     // Every file the document names is in the new take.
@@ -386,11 +377,11 @@ describe('vos join: a file’s own sound, captions per clip', () => {
   )
 
   it('ends a caption with its clip, and names an input with no caption', async () => {
-    // A's last step lands at 8.5 s (8.3 + 0.2) of its 10 s: 1.5 s of room.
+    // A's last step begins at 8.5 s of its 10 s: 1.5 s of room.
     const doc = takeA()
     doc.source.meta.steps = [
       ...doc.source.meta.steps!,
-      { step: 2, id: 'wrap', do: 'click', tStart: 8, tEnd: 8.3 },
+      { step: 2, id: 'wrap', do: 'click', tStart: 8.5, tEnd: 8.8 },
     ]
     const a = await writeTake('cap-a', doc, {
       open: 'Open the panel',

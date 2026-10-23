@@ -33,8 +33,12 @@ import type { ActionsFile } from './actions'
 /** The provenance a landed step caption carries. */
 export const STEP_CAPTIONS_FROM = 'steps'
 
-/** A step caption lands this long after its gesture ends (the response has shown). */
-export const STEP_CAPTION_OFFSET = 0.2
+/**
+ * Where a step caption lands: as its step BEGINS (`at: "start"`, no
+ * offset), so the words name the beat while it plays. Landing after the
+ * gesture ended ran a caption over the next beat's payoff.
+ */
+export const STEP_CAPTION_AT = 'start' as const
 
 /** The longest a step caption stays, and the shortest it is cut to by the next one. */
 const CAPTION_MAX = 3
@@ -155,8 +159,7 @@ export function landStepCaptions(
       const anchor: OverlayAnchor = {
         step: ref,
         ...(media ? { media } : {}),
-        at: 'end',
-        offset: STEP_CAPTION_OFFSET,
+        at: STEP_CAPTION_AT,
       }
       const placed = resolveAnchor(doc, anchor, rated)
       if (placed.start === null) {
