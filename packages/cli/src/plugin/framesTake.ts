@@ -20,7 +20,8 @@ import {
   planForDigest,
   ratedSegments,
   resolveExportSize,
-  spanOutputExtent,
+  cameraSpanExtents,
+  spanOutputExtents,
 } from '@vosjs/studio-core'
 import { loadTake } from './take'
 import { startTakeServer, waitForPageDone } from './server'
@@ -150,24 +151,29 @@ export function zoomApexes(doc: ProjectDoc): {
       })
       continue
     }
-    const ext = spanOutputExtent(rated, z.in, z.out, z.media)
-    if (!ext) {
+    const exts = cameraSpanExtents(rated, z.in, z.out, z.media)
+    if (!exts.length) {
       skipped.push({
         id: z.id,
         ...of,
         in: z.in,
         out: z.out,
-        reason: 'the cut keeps none of it, so it never plays',
+        reason: spanOutputExtents(rated, z.in, z.out, z.media).length
+          ? 'every pass of it plays in a segment whose camera rests'
+          : 'the cut keeps none of it, so it never plays',
       })
       continue
     }
-    apexes.push({
-      id: z.id,
-      ...of,
-      time: (ext.start + ext.end) / 2,
-      start: ext.start,
-      end: ext.end,
-    })
+    // A cut that replays the span's seconds plays its zoom each time the
+    // camera plays them: one apex per occurrence, none in a resting pass.
+    for (const ext of exts)
+      apexes.push({
+        id: z.id,
+        ...of,
+        time: (ext.start + ext.end) / 2,
+        start: ext.start,
+        end: ext.end,
+      })
   }
   return { apexes, skipped }
 }

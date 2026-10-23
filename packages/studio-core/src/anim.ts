@@ -206,7 +206,10 @@ export function lastLayerEnd(
   >,
 ): number {
   let end = 0
-  for (const o of doc.overlays ?? []) end = Math.max(end, o.start + o.duration)
+  // A layer with no start is an anchored one read before its anchor
+  // placed it (or one that resolves nowhere): it ends nowhere yet.
+  for (const o of doc.overlays ?? [])
+    if (o.start !== undefined) end = Math.max(end, o.start + o.duration)
   for (const o of doc.objects ?? [])
     if (o.span) end = Math.max(end, o.span.start + o.span.duration)
   return Number.isFinite(end) && end > 0 ? end : 0

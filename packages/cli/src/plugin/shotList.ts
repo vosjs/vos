@@ -127,10 +127,19 @@ function sayCondition(c: {
 
 function beatOf(step: ActionStep): string | null {
   const line = gestureBeat(step)
+  if (!line) return line
+  // What the cut's camera does here, said where a person reads it: a step
+  // marked as the beat's payoff is zoomed in on, one marked against it is not.
+  const camera =
+    step.zoom === true
+      ? ' (zoomed in on in the cut)'
+      : step.zoom === false
+        ? ' (the cut stays wide here)'
+        : ''
   // A step that spends something real is marked where a person reads it.
-  return line && step.guard
-    ? `${line} (this spends something real: do it only if you mean to)`
-    : line
+  return step.guard
+    ? `${line}${camera} (this spends something real: do it only if you mean to)`
+    : `${line}${camera}`
 }
 
 function gestureBeat(step: ActionStep): string | null {

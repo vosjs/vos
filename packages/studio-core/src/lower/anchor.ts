@@ -10,7 +10,9 @@
  * its media's SOURCE seconds) is mapped through the rated pieces, the same
  * list every source-anchored span is mapped through, and the anchor's
  * `offset` (OUTPUT seconds) is added. The clip's own `start` is the
- * fallback when the step cannot be found or the cut leaves it out.
+ * fallback when the step cannot be found or the cut leaves it out; an
+ * anchored layer may carry none, and then one whose step does not resolve
+ * plays nowhere (the lowering drops it, validate refuses it).
  *
  * A text layer's `{elapsed}` fills with the anchored step's off-camera
  * wait, when the recorder kept one (the entry of `meta.skips` that names
@@ -18,12 +20,16 @@
  * same media (the beat after an await waited for nothing itself), as a
  * rounded human duration.
  *
+ * On a cut that replays the step's seconds, the layer starts in the pass
+ * where the step plays the longest (`stepMomentToOutput`).
+ *
  * Pure: the caller hands in the rated pieces (`ratedSegments(doc)`), so the
  * lowering, the lint and the CLI read one map.
  */
 import { segmentRate } from '@vosjs/timeline'
 import { mediaSource, sameMedia } from '../media'
 import { findStep } from './pin'
+import { hasReplay, longestOutputExtent, momentOutputs } from './occurrences'
 import type { Segment } from '@vosjs/timeline'
 import type { RichText } from '@vosjs/elements/text'
 import type {
@@ -43,7 +49,9 @@ const EPS = 1e-9
  * Where a SOURCE moment of one media plays in the cut: the output second of
  * the first rated piece of that media that holds it, null when the cut
  * leaves it out. A moment on a piece's closing edge counts as held there
- * (the last frame of a clip is still that clip).
+ * (the last frame of a clip is still that clip). On a cut that plays the
+ * moment more than once this is its FIRST occurrence; a step's moment is
+ * read through `stepMomentToOutput`, which takes the step's longest pass.
  */
 export function sourceMomentToOutput(
   rated: readonly (Segment & { media?: string })[],
@@ -64,6 +72,32 @@ export function sourceMomentToOutput(
     acc += len
   }
   return edge
+}
+
+/**
+ * Where a step's moment (its start, or its end with `at: 'end'`) plays in
+ * the cut: in the PASS where the step plays the longest
+ * (`longestOutputExtent`; the first on a tie), so a caption about a step
+ * lands in the main play, not in a short cold open of the same seconds.
+ * Null when the cut leaves the moment out. A cut with no replay plays each
+ * moment once, and this is `sourceMomentToOutput`.
+ */
+export function stepMomentToOutput(
+  rated: readonly (Segment & { media?: string })[],
+  step: Pick<StepSpan, 'tStart' | 'tEnd'>,
+  at: 'start' | 'end' | undefined,
+  media?: string,
+): number | null {
+  const moment = at === 'end' ? step.tEnd : step.tStart
+  const first = sourceMomentToOutput(rated, moment, media)
+  if (first === null || !hasReplay(rated)) return first
+  const pass = longestOutputExtent(rated, step.tStart, step.tEnd, media)
+  if (!pass) return first
+  return (
+    momentOutputs(rated, moment, media).find(
+      (o) => o >= pass.start - 1e-6 && o <= pass.end + 1e-6,
+    ) ?? first
+  )
 }
 
 /** Why an anchor did not resolve. */
@@ -156,8 +190,7 @@ export function resolveAnchor(
       }
     : {}
   if (step.skipped) return { start: null, step, miss: 'skipped', ...extra }
-  const moment = anchor.at === 'end' ? step.tEnd : step.tStart
-  const out = sourceMomentToOutput(rated, moment, anchor.media)
+  const out = stepMomentToOutput(rated, step, anchor.at, anchor.media)
   if (out === null) return { start: null, step, miss: 'cut', ...extra }
   const offset = isNum(anchor.offset) ? anchor.offset : 0
   return { start: round3(Math.max(0, out + offset)), step, ...extra }
@@ -228,9 +261,38 @@ export function anchoredClip<C extends OverlayClip>(
 }
 
 /**
+ * Where a layer starts as the document stands (OUTPUT seconds): where its
+ * anchor's step plays when it resolves, else its own `start`; null for an
+ * anchored layer that resolves nowhere and carries no `start`.
+ */
+export function layerStart(
+  clip: OverlayClip,
+  doc: Pick<ProjectDoc, 'source' | 'media'>,
+  rated: readonly (Segment & { media?: string })[],
+): number | null {
+  const own = isNum(clip.start) ? clip.start : null
+  if (!clip.anchor || typeof clip.anchor !== 'object' || !doc.source) return own
+  return resolveAnchor(doc, clip.anchor, rated).start ?? own
+}
+
+/**
+ * The document without the layers that have no `start` (an anchored layer
+ * whose step resolved nowhere): the same object when every layer has one.
+ */
+export function placedOverlays<D extends { overlays?: OverlayClip[] }>(
+  doc: D,
+): D {
+  const overlays = Array.isArray(doc.overlays) ? doc.overlays : []
+  if (overlays.every((o) => !o || isNum(o.start))) return doc
+  return { ...doc, overlays: overlays.filter((o) => !o || isNum(o.start)) }
+}
+
+/**
  * The document with every anchored layer resolved (its `start` where its
- * step plays, its `{elapsed}` filled). A document with no anchored layer is
- * returned as it is, the same object, so its lowering is byte-identical.
+ * step plays, its `{elapsed}` filled), and every anchored layer that has
+ * no `start` and whose step does not resolve left out: it has no time to
+ * play at. A document with no anchored layer is returned as it is, the
+ * same object, so its lowering is byte-identical.
  */
 export function resolveOverlayAnchors<
   D extends Pick<ProjectDoc, 'source' | 'media' | 'overlays'>,
@@ -239,8 +301,10 @@ export function resolveOverlayAnchors<
   if (!overlays.some((o) => o && o.anchor)) return doc
   return {
     ...doc,
-    overlays: overlays.map((o) =>
-      o && o.anchor ? anchoredClip(o, doc, rated) : o,
-    ),
+    overlays: overlays.flatMap((o) => {
+      if (!o || !o.anchor) return [o]
+      const next = doc.source ? anchoredClip(o, doc, rated) : o
+      return isNum(next.start) ? [next] : []
+    }),
   }
 }

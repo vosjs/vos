@@ -21,6 +21,7 @@ import {
 } from '@vosjs/studio-core'
 import { totalDuration } from '@vosjs/timeline'
 import { CAPTION_ID_PREFIX, houseCaption } from './motionPlan'
+import { scriptStepOf } from './scriptStep'
 import type {
   OverlayAnchor,
   OverlayClip,
@@ -32,8 +33,12 @@ import type { ActionsFile } from './actions'
 /** The provenance a landed step caption carries. */
 export const STEP_CAPTIONS_FROM = 'steps'
 
-/** A step caption lands this long after its gesture ends (the response has shown). */
-export const STEP_CAPTION_OFFSET = 0.2
+/**
+ * Where a step caption lands: as its step BEGINS (`at: "start"`, no
+ * offset), so the words name the beat while it plays. Landing after the
+ * gesture ended ran a caption over the next beat's payoff.
+ */
+export const STEP_CAPTION_AT = 'start' as const
 
 /** The longest a step caption stays, and the shortest it is cut to by the next one. */
 const CAPTION_MAX = 3
@@ -50,11 +55,17 @@ export interface StepCaptionReport {
   uncaptioned: string[]
 }
 
-/** A step's caption: on the step itself, else its actions.json step, else the document's embedded script. */
-function captionOf(
+/**
+ * A step's caption: on the step itself, else its actions.json step, else
+ * the document's embedded script. `recorded` is the media's recorded steps,
+ * which find the script step a recorded one was made from when the script
+ * was edited after recording (`scriptStepOf`).
+ */
+export function captionOf(
   step: StepSpan,
   actions: ActionsFile | null | undefined,
   script: Record<string, unknown> | undefined,
+  recorded: readonly StepSpan[] = [],
 ): string | null {
   const own = (step as { caption?: unknown }).caption
   if (typeof own === 'string' && own.trim()) return own.trim()
@@ -62,12 +73,7 @@ function captionOf(
     actions?.steps,
     Array.isArray(script?.steps) ? (script.steps as unknown[]) : undefined,
   ]) {
-    if (!Array.isArray(list)) continue
-    const byId =
-      step.id !== undefined
-        ? list.find((s) => (s as { id?: unknown })?.id === step.id)
-        : undefined
-    const raw = (byId ?? list[step.step]) as { caption?: unknown } | undefined
+    const raw = scriptStepOf(step, list, recorded)
     if (typeof raw?.caption === 'string' && raw.caption.trim())
       return raw.caption.trim()
   }
@@ -87,9 +93,16 @@ const safeId = (v: string | number): string =>
 export function landStepCaptions(
   doc: ProjectDoc,
   actions: ReadonlyMap<string, ActionsFile | null>,
+  opts: { only?: ReadonlySet<string> } = {},
 ): StepCaptionReport {
   const report: StepCaptionReport = { landed: [], skipped: [], uncaptioned: [] }
-  const kept = (doc.overlays ?? []).filter((o) => o.from !== STEP_CAPTIONS_FROM)
+  // `only` (a re-join): land the captions of these media alone, and keep
+  // every other media's step captions as they were edited.
+  const mine = (o: OverlayClip) =>
+    !opts.only || opts.only.has(mediaKey(o.anchor?.media))
+  const kept = (doc.overlays ?? []).filter(
+    (o) => o.from !== STEP_CAPTIONS_FROM || !mine(o),
+  )
   const rated = ratedSegments(doc)
   const footageEnd = totalDuration(rated)
   // Where each clip of the cut ends, and whose it is: a caption is about
@@ -123,13 +136,14 @@ export function landStepCaptions(
       // The plan's own beat caption (`vos plan` on the primary).
       return media === '' && o.id === `${CAPTION_ID_PREFIX}${step.step}`
     })
-  const fresh: OverlayClip[] = []
+  const fresh: (OverlayClip & { start: number })[] = []
   const taken = new Set(kept.map((o) => o.id))
   for (const { id: media, source } of docMediaList(doc)) {
+    if (opts.only && !opts.only.has(media)) continue
     const steps = source.meta.steps ?? []
     let captioned = 0
     for (const step of steps) {
-      const caption = captionOf(step, actions.get(media), source.script)
+      const caption = captionOf(step, actions.get(media), source.script, steps)
       if (!caption) continue
       captioned++
       const ref = step.id ?? step.step
@@ -145,8 +159,7 @@ export function landStepCaptions(
       const anchor: OverlayAnchor = {
         step: ref,
         ...(media ? { media } : {}),
-        at: 'end',
-        offset: STEP_CAPTION_OFFSET,
+        at: STEP_CAPTION_AT,
       }
       const placed = resolveAnchor(doc, anchor, rated)
       if (placed.start === null) {
@@ -162,8 +175,9 @@ export function landStepCaptions(
       let id = base
       for (let n = 2; taken.has(id); n++) id = `${base}-${n}`
       taken.add(id)
-      const clip: OverlayClip = {
+      const clip: OverlayClip & { start: number } = {
         ...houseCaption(id, caption, placed.start, CAPTION_MAX),
+        start: placed.start,
         anchor,
         from: STEP_CAPTIONS_FROM,
       }

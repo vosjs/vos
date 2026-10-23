@@ -979,6 +979,7 @@ export async function recordTake(
       if (reason) extra.reason = reason
     }
     if (step.guard) extra.guard = step.guard
+    if (typeof step.zoom === 'boolean') extra.zoom = step.zoom
     // What a `js` check last answered, kept on the step: the app's own
     // state at that moment, which the frames cannot say.
     const keepValue = (last: ConditionState) => {

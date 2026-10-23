@@ -20,7 +20,7 @@
  *   +ry swings the LEFT edge toward the camera (the +x edge moves away).
  * "Lean toward the focus" therefore means rx ∝ −(cy − 0.5), ry ∝ −(cx − 0.5).
  */
-import { spanOutputExtent } from '../lower/lowerToComposition'
+import { cameraSpanExtents } from '../lower/occurrences'
 import { TILT_INTENSITY_MAX, clampTiltDeg } from '../types'
 import type { Segment } from '@vosjs/timeline'
 import type { TiltSpan, TiltStyleName, ZoomSpan } from '../types'
@@ -52,7 +52,7 @@ export function planAutoTilt(
   const max = TILT_INTENSITY_MAX[options.intensity]
   const spans: TiltSpan[] = []
   for (const z of [...zoom].sort((a, b) => a.in - b.in)) {
-    const ext = spanOutputExtent(segments, z.in, z.out)
+    const ext = cameraSpanExtents(segments, z.in, z.out)[0] ?? null
     if (!ext || ext.end - ext.start < TILT_AUTO_MIN) continue
     // Focus offset from center; auto-focus (cursor-follow) spans use their
     // stored entry focus — the tilt pose HOLDS while the zoom's internal

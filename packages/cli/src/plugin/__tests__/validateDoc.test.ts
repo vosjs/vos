@@ -70,6 +70,115 @@ describe('lintDoc', () => {
     expect(r.warnings).toEqual([])
   })
 
+  it('lets a segment replay seconds an earlier one played, and says so once', () => {
+    const r = lintDoc(
+      makeDoc({
+        // A cold open of the last two seconds, then the whole take.
+        segments: [
+          { in: 18, out: 20 },
+          { in: 0, out: 10 },
+          { in: 10, out: 20 },
+        ],
+        zoom: [{ id: 'z1', in: 18.5, out: 19.5, level: 2, cx: 0.5, cy: 0.5 }],
+      }),
+    )
+    expect(r.problems).toEqual([])
+    // The seconds played again are the cold open's, in the one segment
+    // that holds them; 0..10 plays for the first time.
+    expect(r.notes).toEqual([
+      expect.stringContaining(
+        'segments[2] replays 18.00–20.00s of the recording',
+      ),
+    ])
+  })
+
+  it('names no replay for the trims after a cold open, nor for a reordered cut', () => {
+    const coldOpen = lintDoc(
+      makeDoc({
+        segments: [
+          { in: 18, out: 19.5 },
+          { in: 1, out: 4 },
+          { in: 6, out: 9 },
+          { in: 11, out: 20 },
+        ],
+      }),
+    )
+    expect(coldOpen.notes).toEqual([
+      expect.stringContaining(
+        'segments[3] replays 18.00–19.50s of the recording',
+      ),
+    ])
+    const reordered = lintDoc(
+      makeDoc({
+        segments: [
+          { in: 10, out: 20 },
+          { in: 0, out: 10 },
+        ],
+      }),
+    )
+    expect((reordered.notes ?? []).filter((n) => /replays/.test(n))).toEqual([])
+  })
+
+  it('still holds a replayed segment to its footage, and other spans to one per second', () => {
+    const r = lintDoc(
+      makeDoc({
+        segments: [
+          { in: 5, out: 8 },
+          { in: 0, out: 22 },
+        ],
+        zoom: [
+          { id: 'z1', in: 1, out: 3, level: 2, cx: 0.5, cy: 0.5 },
+          { id: 'z2', in: 2, out: 4, level: 2, cx: 0.5, cy: 0.5 },
+        ],
+      }),
+    )
+    expect(r.problems.some((p) => p.includes('exceeds the footage'))).toBe(true)
+    expect(r.problems.some((p) => p.includes('z2 overlaps zoom z1'))).toBe(true)
+    expect(r.problems.some((p) => p.includes('segment'))).toBe(true)
+    expect(r.problems.some((p) => /segment .* overlaps/.test(p))).toBe(false)
+  })
+
+  it('lets a clip rest the camera, and warns of a camera span that plays only there', () => {
+    const r = lintDoc(
+      makeDoc({
+        segments: [
+          { in: 18, out: 20, camera: 'rest' },
+          { in: 0, out: 10 },
+          { in: 2, out: 4, camera: 'still' },
+        ],
+        zoom: [
+          { id: 'z1', in: 18.5, out: 19.5, level: 2, cx: 0.5, cy: 0.5 },
+          { id: 'z2', in: 2.5, out: 3, level: 2, cx: 0.5, cy: 0.5 },
+        ],
+      } as unknown as Partial<ProjectDoc>),
+    )
+    expect(r.problems).toEqual([
+      'segments[2].camera must be "rest" (the camera rests through this clip\'s pass); absent = the camera plays here',
+    ])
+    expect(r.warnings).toContainEqual(
+      'zoom z1: it plays only in segments whose camera rests (segments[].camera: "rest"), so it never moves the camera',
+    )
+    expect(r.warnings.some((w) => w.startsWith('zoom z2'))).toBe(false)
+  })
+
+  it('says a replay plays the camera only where it is not at rest, the cold open first', () => {
+    const r = lintDoc(
+      makeDoc({
+        // A cold open at rest, then the trimmed recording replays it.
+        segments: [
+          { in: 18, out: 20, camera: 'rest' },
+          { in: 0, out: 10 },
+          { in: 12, out: 20 },
+        ],
+        zoom: [{ id: 'z1', in: 17, out: 19.5, level: 2, cx: 0.5, cy: 0.5 }],
+      } as unknown as Partial<ProjectDoc>),
+    )
+    expect(r.problems).toEqual([])
+    expect(r.notes).toEqual([
+      'segments[2] replays 18.00–20.00s of the recording, which segments[0] played with the camera at rest: clicks, freezes and speed spans over those seconds play in every occurrence, zooms, tilts and cam moves only in segments[2]',
+    ])
+  })
+
   it('catches the pixel-coords trap (cx/cy must be normalized [0..1])', () => {
     const r = lintDoc(
       makeDoc({

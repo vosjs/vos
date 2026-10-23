@@ -226,6 +226,15 @@ export type ActionStep = (
    */
   caption?: string
   /**
+   * The cut's camera on this step: `true` marks the step as its beat's
+   * payoff, the moment worth the zoom (`vos plan --zooms per-beat` keeps
+   * the proposal on it, and only it); `false` means never zoom here (the
+   * planner's proposal on it is rejected). The planner still decides the
+   * level and the focus; a mark never invents a zoom. On a gesture only
+   * (ZOOM_MARK_VERBS).
+   */
+  zoom?: boolean
+  /**
    * A selector whose words the recorder keeps once the step has settled
    * (`meta.steps[].text`: trimmed, whitespace collapsed, at most 2 KB), so
    * a layer quotes the take instead of a replay: the URL a share button
@@ -255,6 +264,16 @@ export interface AwaitUntil {
 /** The guards a step may carry: one today, a step that spends. */
 export const STEP_GUARDS = ['spend'] as const
 export type StepGuard = (typeof STEP_GUARDS)[number]
+
+/** The verbs a `zoom` mark may sit on: the gestures a camera can be about. */
+export const ZOOM_MARK_VERBS: readonly string[] = [
+  'click',
+  'drag',
+  'type',
+  'paste',
+  'press',
+  'hover',
+]
 
 /** The verbs a guard may sit on: the ones that commit something. */
 const GUARDABLE = new Set(['click', 'press', 'type'])
@@ -506,6 +525,14 @@ export function validateActions(value: unknown): string[] {
       (typeof s.x !== 'number' || typeof s.y !== 'number')
     ) {
       errors.push(`${at}: move needs x and y (CSS px)`)
+    }
+    if (s.zoom !== undefined) {
+      if (typeof s.zoom !== 'boolean')
+        errors.push(`${at}: zoom must be true or false`)
+      else if (!ZOOM_MARK_VERBS.includes(s.do))
+        errors.push(
+          `${at}: zoom marks a gesture (${ZOOM_MARK_VERBS.join(', ')}); a ${s.do} shows nothing to zoom on`,
+        )
     }
     if (s.guard !== undefined) {
       if (!(STEP_GUARDS as readonly unknown[]).includes(s.guard))

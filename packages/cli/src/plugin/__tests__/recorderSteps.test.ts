@@ -187,6 +187,7 @@ describe('a guarded step', () => {
         selector: '#buy',
         guard: 'spend' as const,
         read: '#bought',
+        zoom: true,
       },
     ],
   }
@@ -204,6 +205,8 @@ describe('a guarded step', () => {
     )
     expect(result.meta.steps?.[0].text).toBe('0')
     expect(result.meta.steps?.[0].guard).toBe('spend')
+    // The script's zoom mark is kept on the step it marks.
+    expect(result.meta.steps?.[0].zoom).toBe(true)
     expect(result.meta.steps?.[0].confirmed).toBeUndefined()
     expect(result.meta.steps?.[0].rect?.w).toBeGreaterThan(0)
     expect(result.events.some((e) => e.type === 'down')).toBe(false)

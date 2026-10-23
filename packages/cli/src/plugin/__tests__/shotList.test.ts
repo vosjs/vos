@@ -107,6 +107,19 @@ describe('shotList', () => {
     ])
   })
 
+  it('says where the cut zooms in, and where it stays wide', () => {
+    const list = shotList({
+      steps: [
+        { do: 'drag', selector: '#loop', zoom: true, x: 1, y: 1, tx: 9, ty: 9 },
+        { do: 'click', selector: 'text=Draw', zoom: false },
+      ],
+    })
+    expect(list.beats.map((b) => b.line)).toEqual([
+      'Drag `#loop` across (zoomed in on in the cut)',
+      'Click "Draw" (the cut stays wide here)',
+    ])
+  })
+
   it('reads as instructions to a person', () => {
     const text = formatShotList(shotList(actions))
     expect(text).toContain(
