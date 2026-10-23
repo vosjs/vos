@@ -276,7 +276,12 @@ export function enterPressed(): { pressed: Promise<void>; close: () => void } {
 export interface CookieRow {
   host: string
   name: string
-  expires: number
+  /**
+   * Chrome's own expiry, as text: microseconds since 1601, which for any
+   * cookie that lasts is past the largest integer a JavaScript number holds
+   * exactly, and some Nodes' SQLite refuses to hand it back as one.
+   */
+  expires: string
 }
 
 /** Does a cookie stored for `cookieHost` go with requests to `host`? */
@@ -374,15 +379,15 @@ export async function readCookieRows(
     const db = new mod.DatabaseSync(file, { readOnly: true })
     try {
       return (
-        db.prepare('SELECT host_key, name, expires_utc FROM cookies').all() as {
-          host_key: string
-          name: string
-          expires_utc: number
-        }[]
+        db
+          .prepare(
+            'SELECT host_key, name, CAST(expires_utc AS TEXT) AS expires FROM cookies',
+          )
+          .all() as { host_key: string; name: string; expires: string | null }[]
       ).map((r) => ({
         host: r.host_key,
         name: r.name,
-        expires: Number(r.expires_utc),
+        expires: r.expires ?? '0',
       }))
     } finally {
       db.close()

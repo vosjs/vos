@@ -98,9 +98,16 @@ describe('vos session open saves when the window closes', () => {
     expect(log.join('\n')).toContain('the window closed')
     // The cookie store is read with node:sqlite (Node 22.5 and up).
     const rows = await readCookieRows(dir)
-    if (rows === null) console.warn('cookie store not read: no node:sqlite')
+    // Quiet only where this Node has no node:sqlite at all; a store that
+    // could not be READ is a failure, never a skip.
+    const hasSqlite = Boolean(
+      (
+        process as { getBuiltinModule?: (id: string) => unknown }
+      ).getBuiltinModule?.('node:sqlite'),
+    )
+    if (!hasSqlite) console.warn('cookie store not read: no node:sqlite')
     else
-      expect(rows.map((r) => [r.host, r.name])).toContainEqual([
+      expect(rows?.map((r) => [r.host, r.name])).toContainEqual([
         '127.0.0.1',
         'signedin',
       ])

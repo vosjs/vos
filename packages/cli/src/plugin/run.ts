@@ -2801,7 +2801,9 @@ async function cmdSession(argv: string[]): Promise<number> {
           newestExpires: summary.newestExpires,
           sessionOnly: summary.sessionOnly,
         },
-        `${summaryLine(summary)}\n  Record on it: vos record --actions actions.json --out take --session ${name} --strict`,
+        summary.origins.length
+          ? `${summaryLine(summary)}\n  Record on it: vos record --actions actions.json --out take --session ${name} --strict`
+          : `${summaryLine(summary)}\n  Nothing was saved. Try again: vos session open ${url.href} --name ${name}, sign in, and close the window once the app shows you signed in (a cookie can take half a minute to be written; closing the window writes it at once)`,
       )
       return summary.origins.length ? EXIT_OK : EXIT_ERROR
     }
