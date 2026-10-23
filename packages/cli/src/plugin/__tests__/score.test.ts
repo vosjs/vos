@@ -15,6 +15,7 @@ import {
   measureTrack,
   planScore,
   resolveAt,
+  spanLoudness,
 } from '../score'
 import { writeFixtureWav } from './fixtureMedia'
 import type { ProjectDoc } from '@vosjs/studio-core'
@@ -86,6 +87,21 @@ describe('the loudness envelope', () => {
     expect(Math.abs(swell.at - 8)).toBeLessThanOrEqual(0.5)
     expect(swell.rise).toBeGreaterThan(20)
     expect(swell.from).toBeLessThan(6.5)
+  })
+})
+
+describe('the loudness of the stretch a clip plays', () => {
+  it('is read from the measured blocks, not the whole file', async () => {
+    const m = await measureTrack(track)
+    // 8..14 s is the swell held at 0.6 of full scale: a 440 Hz sine there (K-weighted a little under 0 dB at 440 Hz)
+    // reads about -3 + 20·log10(0.6) LUFS.
+    const swell = spanLoudness(m, 8, 14)!
+    expect(Math.abs(swell - (-3.01 + 20 * Math.log10(0.6)))).toBeLessThan(1)
+    // The quiet bar, at 0.03: a clip that plays only it is 26 dB under what
+    // the whole file measures (the gate keeps the swell).
+    const bar = spanLoudness(m, 0, 5)!
+    expect(Math.abs(bar - (-3.01 + 20 * Math.log10(0.03)))).toBeLessThan(1)
+    expect(m.lufs! - bar).toBeGreaterThan(20)
   })
 })
 
@@ -192,8 +208,16 @@ describe('vos score', () => {
       .find((e) => e.event === 'done') as {
       clip: { in: number; out: number; key: string }
       film: number
+      playsAt: number
     }
     expect(done.film).toBe(6)
+    // The level it reports is the stretch the film plays, at its gain.
+    const m = await measureTrack(track)
+    const g = Math.pow(10, (-16 - m.lufs!) / 20) * 0.5
+    expect(done.playsAt).toBeCloseTo(
+      spanLoudness(m, done.clip.in, done.clip.out)! + 20 * Math.log10(g),
+      0,
+    )
     expect(Math.abs(done.clip.in - 6)).toBeLessThanOrEqual(0.5)
     expect(done.clip.out - done.clip.in).toBeCloseTo(6, 6)
     expect((await readDoc(dir)).audio).toEqual([])
@@ -250,5 +274,31 @@ describe('vos score', () => {
     // Without --at: from its first rise above the median level.
     expect(again[0].in).toBeGreaterThan(5)
     expect(again[0].in).toBeLessThan(8)
+  })
+
+  it('carries the track’s loudness and a -16 LUFS target, unless --normalize says', async () => {
+    const dir = await writeTake('level')
+    expect(await cmdScore([dir, '--track', track])).toBe(0)
+    const [c] = (await readDoc(dir)).audio
+    expect(c.normalize).toBe(-16)
+    expect(c.gain).toBe(0.5)
+    expect(c.loudness?.src).toBe(c.key)
+    expect(c.loudness!.lufs).toBeLessThan(-6)
+    expect(c.loudness!.lufs).toBeGreaterThan(-30)
+    // The swell peaks at 0.6 of full scale.
+    expect(c.loudness!.peakDb).toBeCloseTo(20 * Math.log10(0.6), 0)
+    expect(await cmdScore([dir, '--track', track, '--normalize', '-20'])).toBe(
+      0,
+    )
+    expect((await readDoc(dir)).audio[0].normalize).toBe(-20)
+    expect(await cmdScore([dir, '--track', track, '--normalize', 'off'])).toBe(
+      0,
+    )
+    const off = (await readDoc(dir)).audio[0]
+    expect(off).not.toHaveProperty('normalize')
+    expect(off.loudness?.src).toBe(off.key)
+    await expect(
+      cmdScore([dir, '--track', track, '--normalize', '-3']),
+    ).rejects.toThrow(/--normalize expects LUFS from -30 to -6/)
   })
 })

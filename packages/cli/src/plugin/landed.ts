@@ -11,7 +11,7 @@
  * A render that is deferred (the fleet rates media) or slow is not a failed
  * push: the wait ends in words, with the links to come back to.
  */
-import { apiJson } from './platform'
+import { apiJson, bearerFor } from './platform'
 
 export interface Landed {
   /** The version's still rendered before the wait ran out. */
@@ -59,7 +59,7 @@ export async function waitForLanded(opts: WaitOptions): Promise<Landed> {
     for (;;) {
       const res = await fetch(
         `${origin}/api/vos/${opts.vosId}/versions/${opts.versionId}/thumbnail`,
-        { headers: { authorization: `Bearer ${opts.key}` } },
+        { headers: bearerFor(opts.key, origin) },
       )
       await res.arrayBuffer().catch(() => undefined)
       if (res.ok) {

@@ -39,6 +39,12 @@ function serve(seen: { url: string; body: Record<string, unknown> }[]) {
     const chunks: Buffer[] = []
     req.on('data', (c: Buffer) => chunks.push(c))
     req.on('end', () => {
+      // The push asks which studio-core the platform renders with first;
+      // this platform cannot say, which never blocks a push.
+      if (req.url === '/api/engine') {
+        res.writeHead(404, { 'content-type': 'application/json' })
+        return res.end('{}')
+      }
       seen.push({
         url: req.url ?? '',
         body: JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'),

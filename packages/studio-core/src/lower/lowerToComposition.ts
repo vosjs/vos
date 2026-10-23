@@ -112,6 +112,7 @@ import {
 } from '../zoomStyle'
 import { isRecordingDoc, programDuration } from '../doc/studioDoc'
 import { clipEnvelope } from './audioEnvelope'
+import { clipGain } from './loudness'
 import { followFocusEvents } from './cursorFollow'
 import { pinPlacement, pinReferent } from './pin'
 import { resolveOverlayAnchors } from './anchor'
@@ -2992,17 +2993,22 @@ export function studioLayerData(
     // preview scheduler and the export's offline mix). `duckEnv` (the mic-derived
     // duck multiplier curve) is merged in asynchronously by useComposition — it
     // needs a decoded recording, which a sync lowering can't produce.
-    audio: (layers.audio ?? []).map((c) => ({
-      key: c.key,
-      start: round(c.start),
-      in: round(c.in),
-      out: round(c.out),
-      gain: round(c.gain),
-      loop: !!c.loop,
-      len: round(clipLength(c)),
-      duck: !!c.duck,
-      env: clipEnvelope(c).map((p) => ({ t: round(p.t), g: round(p.g) })),
-    })),
+    // A measured `normalize` sets the gain (it may exceed 1); a clip with
+    // no target keeps its own, byte for byte.
+    audio: (layers.audio ?? []).map((c) => {
+      const g = clipGain(c)
+      return {
+        key: c.key,
+        start: round(c.start),
+        in: round(c.in),
+        out: round(c.out),
+        gain: round(g.basis === 'normalize' ? g.gain : c.gain),
+        loop: !!c.loop,
+        len: round(clipLength(c)),
+        duck: !!c.duck,
+        env: clipEnvelope(c).map((p) => ({ t: round(p.t), g: round(p.g) })),
+      }
+    }),
     // Object clips: numbers resolved HERE; shapes are the drafted engine spec.
     ...(layers.objects && layers.objects.length
       ? {
