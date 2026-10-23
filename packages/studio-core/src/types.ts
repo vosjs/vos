@@ -242,6 +242,13 @@ export interface RecordingMeta {
     seen: number
   }[]
   /**
+   * INFORMATION the recorder noticed in the frame, never a failure: the
+   * signed-in account's own name (every place it showed, never the name
+   * itself) and a list of the account's recent items. Listed once, at the
+   * first step it was seen; `seen` counts the scans that saw it.
+   */
+  notices?: RecordingNotice[]
+  /**
    * What the script asked the recorder to hide before the camera rolled, and
    * how many elements each selector reached. `hits: 0` is a mask that hid
    * nothing, so whatever it was for may be showing.
@@ -251,6 +258,59 @@ export interface RecordingMeta {
   skips?: RecordingSkip[]
   /** The files `download` steps kept (CLI takes only). */
   outputs?: RecordingOutput[]
+  /**
+   * Sound the page played during the take: every `<video>` or `<audio>`
+   * (the page's own and its same-origin frames') that played audibly,
+   * with the footage stretches it was heard (CLI takes only).
+   */
+  media?: RecordingPageMedia[]
+}
+
+/** Something the recorder noticed in the frame (`meta.notices`): information, never a failure. */
+export interface RecordingNotice {
+  /** the first step it was seen at; -1 = as the page opened */
+  step: number
+  kind: 'account-name' | 'personal-list'
+  /** account-name: every place in the frame the name was seen (viewport CSS px); never the name */
+  places?: { selector: string; rect: Rect }[]
+  /** account-name: read from a line that says whose account it is; false = it may be the name */
+  sure?: boolean
+  /** personal-list: the page's own heading over it (`Recents`, `History`) */
+  heading?: string
+  /** personal-list: the list, as a selector a mask can take */
+  selector?: string
+  rect?: Rect
+  /** personal-list: how many items it showed */
+  items?: number
+  seen: number
+}
+
+/** A media element the page played during the take (`meta.media`). */
+export interface RecordingPageMedia {
+  /** the step during which it first played audibly */
+  step?: number
+  /** what it played: its `currentSrc`, query and hash kept off */
+  src: string
+  /** `video` or `audio` */
+  tag?: 'video' | 'audio'
+  /** the element's own length, seconds, when it knew one */
+  duration?: number
+  /** its volume while heard, 0..1 */
+  volume?: number
+  /**
+   * The stretches it was heard: footage seconds `at` while it played media
+   * seconds `from`..`to`. An off-camera wait splits a stretch.
+   */
+  intervals: { at: number; from: number; to: number }[]
+  /** it played, but never with sound: nothing to place */
+  muted?: boolean
+  /**
+   * Where the fetched source landed, take-relative (`page-sound/voice.mp3`):
+   * what the plan's clips are keyed to. Absent when nothing was fetched
+   * (a hosted take, or a fetch that failed: `fetchError` says why).
+   */
+  file?: string
+  fetchError?: string
 }
 
 /**
@@ -353,6 +413,17 @@ export interface StepSpan {
    * waits for cannot come.
    */
   followsGuard?: number
+  /**
+   * A paced gesture (a drag's travel, a drawn path, typing, a key
+   * sequence) ran this many ms past what the script planned, more than a
+   * fifth over: the page could not keep up with what it was sent.
+   */
+  overrunMs?: number
+  /**
+   * The step waited on the app after its gesture (`settle`): the ms until
+   * the page made no DOM change and painted no new frame for a beat.
+   */
+  settleMs?: number
 }
 
 /**
@@ -908,8 +979,21 @@ export interface AudioClip {
   out: number
   /** full source-file length, seconds — the trim ceiling (set on add). */
   duration: number
-  /** linear gain 0..1. */
+  /** linear gain 0..1 (a trim on top of `normalize`, when that applies). */
   gain: number
+  /**
+   * The clip's loudness as a TARGET: integrated loudness in LUFS (-30..-6,
+   * e.g. -16). Applies only while `loudness` was measured for this `key`:
+   * the lowering plays the clip at 10^((normalize - lufs) / 20) × gain,
+   * which may exceed 1, capped so the sample peak stays under -1 dBFS.
+   * Absent = `gain` alone, as always.
+   */
+  normalize?: number
+  /**
+   * What the file measures, written by tooling (`vos audio measure`), never
+   * by hand: the fact `normalize` is computed from.
+   */
+  loudness?: AudioLoudness
   /** fade durations, seconds. */
   fadeIn: number
   fadeOut: number
@@ -921,6 +1005,29 @@ export interface AudioClip {
   duck?: boolean
   /** The template that placed this clip (see the overlay clip's `from`). */
   from?: string
+  /**
+   * `page`: sound the recorded page itself played (a `<video>` or `<audio>`
+   * heard during the take, `meta.media`), placed by the plan. A re-plan
+   * replaces only these; absent = a clip someone added.
+   */
+  source?: 'page'
+}
+
+/**
+ * A file's measured loudness (BS.1770, K-weighted, gated), stored next to
+ * the clip that plays it. `src` is the key it was measured for: a clip whose
+ * key moved to another file no longer matches, and its `normalize` is
+ * ignored until it is measured again.
+ */
+export interface AudioLoudness {
+  /** Integrated loudness, LUFS. */
+  lufs: number
+  /** Sample peak, dBFS (not oversampled); null for digital silence. */
+  peakDb: number | null
+  /** When it was measured (ISO date). */
+  at: string
+  /** The key it was measured for. */
+  src: string
 }
 
 /** Effective placed length of a clip on the output timeline, seconds. */

@@ -14,6 +14,7 @@ import { readFile } from 'node:fs/promises'
 import { audioProducerCode, studioEntryData } from '@vosjs/render-core'
 import { studioAudioPlan } from '@vosjs/studio-core'
 import { MEDIA_HEAD_BYTES, resolveMediaType } from './plugin/container'
+import { bearerFor } from './plugin/platform'
 import { localFile } from './programAssets'
 import type { EnvelopePoint, LoweredAudioClip } from '@vosjs/studio-core'
 
@@ -54,7 +55,7 @@ async function reach(
       return null
     }
     const res = await fetch(`${opts.origin}${clipKey}`, {
-      headers: { authorization: `Bearer ${opts.key}` },
+      headers: bearerFor(opts.key, opts.origin),
     })
     if (!res.ok) {
       opts.log(

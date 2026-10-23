@@ -39,6 +39,7 @@ import { MEDIA_HEAD_BYTES, nameForType, resolveMediaType } from './container'
 import { resolvePushFolder } from './folder'
 import { uploadAsset } from './uploadAsset'
 import { looksLikeStorageState } from './session'
+import { checkPlatformPlays } from './platformEngine'
 import {
   apiJson,
   clientId,
@@ -67,7 +68,7 @@ export function apiContext(flags: {
 }): ApiContext {
   return {
     origin: platformOrigin(flags),
-    key: requireCredential(flags.key),
+    key: requireCredential(flags.key, platformOrigin(flags)),
   }
 }
 
@@ -230,6 +231,8 @@ export async function pushTake(
     overrides?: string[]
     /** The prompt that made it, shown on its watch page (the person's words). */
     prompt?: string
+    /** Send fields the platform cannot play yet as what it reads (a copy). */
+    bake?: boolean
   },
   r: Reporter,
 ): Promise<{ vosId: string; versionId: string; versionNumber: number }> {
@@ -257,8 +260,34 @@ export async function pushTake(
   const ctx = apiContext(flags)
   const tracked = readSyncState(dir)
   // The first push of this DIRECTORY uploads its recording either way, so
-  // consent is asked of the directory, not of the vos it lands on.
+  // consent is asked of the directory, not of the vos it lands on, and
+  // before anything is asked of the platform or done to the document.
   const firstPush = tracked === null
+  // Never upload unprompted: explicit consent on the first push.
+  if (firstPush && !flags.yes) {
+    if (!process.stdin.isTTY) {
+      throw new Error(
+        'first push of this take uploads its recording — pass --yes to consent headlessly',
+      )
+    }
+    const rl = createInterface({ input: process.stdin, output: process.stderr })
+    const answer = await rl.question(
+      `Push this take (recording + doc.json) to ${ctx.origin}? [y/N] `,
+    )
+    rl.close()
+    if (!/^y(es)?$/i.test(answer.trim())) {
+      throw new Error('push cancelled')
+    }
+  }
+
+  // Before anything uploads: can the platform play every field this take
+  // uses? A refusal costs nothing; a platform that cannot say is warned of.
+  const plays = await checkPlatformPlays(take.doc, {
+    origin: ctx.origin,
+    bake: flags.bake,
+  })
+  for (const line of plays.lines) r.log(line)
+  const sendDoc = plays.doc as ProjectDoc
 
   // ADOPTION: `--vos <id>` on a directory with no vos.json. It used to be
   // ignored, and a second vos appeared on the shelf every time a take was
@@ -298,23 +327,6 @@ export async function pushTake(
     const target = await resolvePushFolder(ctx.origin, ctx.key, flags.folder)
     folderId = target.id
     if (target.note) r.log(target.note)
-  }
-
-  // Never upload unprompted: explicit consent on the first push.
-  if (firstPush && !flags.yes) {
-    if (!process.stdin.isTTY) {
-      throw new Error(
-        'first push of this take uploads its recording — pass --yes to consent headlessly',
-      )
-    }
-    const rl = createInterface({ input: process.stdin, output: process.stderr })
-    const answer = await rl.question(
-      `Push this take (recording + doc.json) to ${ctx.origin}? [y/N] `,
-    )
-    rl.close()
-    if (!/^y(es)?$/i.test(answer.trim())) {
-      throw new Error('push cancelled')
-    }
   }
 
   // 1. The recording, content-addressed — re-pushes reuse the same asset.
@@ -362,7 +374,7 @@ export async function pushTake(
 
   // 2. The doc, keys rewritten to hosted URLs; lower through the real
   //    pipeline so the hosted program is exactly what renders locally.
-  const docForPush: ProjectDoc = structuredClone(take.doc)
+  const docForPush: ProjectDoc = structuredClone(sendDoc)
   docForPush.source.videoKey = assetUrl
   embedScript(docForPush, dir)
   // The voice and the webcam ride the same content-addressed door as the
@@ -670,6 +682,13 @@ export async function pullTake(
 }
 
 /**
+ * A push refused for something the person can change (the command or the
+ * take): exit 2, like every other refusal of that kind, in words that say
+ * what to do instead.
+ */
+export class PushRefusedError extends Error {}
+
+/**
  * `vos push <take> --claimable`: a REMIX of a public take, pushed with no
  * account. The claim never takes footage, so every file the document names
  * must already be on vos.so: a file `vos fetch --media` brought home is
@@ -686,6 +705,7 @@ export async function pushTakeClaimable(
     title?: string
     prompt?: string
     share?: boolean
+    bake?: boolean
   },
   r: Reporter,
 ): Promise<{
@@ -696,51 +716,79 @@ export async function pushTakeClaimable(
 }> {
   const stateFile = storageStateInDir(dir)
   if (stateFile)
-    throw new Error(
+    throw new PushRefusedError(
       `${stateFile} looks like a Playwright storage state (cookies + origins): a live session in the take directory would be sent with it. Move it out of the take and push again`,
     )
   const take = await loadTake(dir)
   if (!take.doc) {
-    throw new Error('no doc.json in this take — run `vos plan` first')
+    throw new PushRefusedError(
+      'no doc.json in this take — run `vos plan` first',
+    )
   }
   const lint = lintDoc(take.doc)
   if (lint.problems.length) {
-    throw new Error(`doc.json fails lint:\n  ${lint.problems.join('\n  ')}`)
+    throw new PushRefusedError(
+      `doc.json fails lint:\n  ${lint.problems.join('\n  ')}`,
+    )
   }
   const state = readSyncState(dir)
   const hosted = state?.hostedMedia ?? {}
-  const docForPush: ProjectDoc = structuredClone(take.doc)
-  embedScript(docForPush, dir)
-  const refs = [
-    ...(isTakeRelativeKey(docForPush.source.videoKey)
+  // A claimable take is a remix of a public take brought home with its
+  // media, which is the only footage a claim can name: a take recorded
+  // here (or fetched without --media) has nothing it may carry. Refused
+  // before anything is asked of the platform.
+  if (!Object.keys(hosted).length)
+    throw new PushRefusedError(
+      `${dir} was not fetched from a public take with its media (its vos.json records no hosted files), and a claimable push never uploads footage. Push it with an account (vos login, then vos push ${dir}), or remix a public take: vos fetch <url> --media, edit, then vos push <dir> --claimable`,
+    )
+  // Every file the claim names is checked here, on this machine, before
+  // anything is asked of the platform: each must be a file the take
+  // fetched, unchanged since.
+  const claimRefs = (doc: ProjectDoc) => [
+    ...(isTakeRelativeKey(doc.source.videoKey)
       ? [
           {
             where: 'the recording',
-            key: docForPush.source.videoKey,
+            key: doc.source.videoKey,
             set: (next: string) => {
-              docForPush.source.videoKey = next
+              doc.source.videoKey = next
             },
           },
         ]
       : []),
-    ...sourceSidecarRefs(docForPush),
-    ...docMediaRefs(docForPush),
+    ...sourceSidecarRefs(doc),
+    ...docMediaRefs(doc),
   ]
-  for (const ref of refs) {
+  for (const ref of claimRefs(take.doc)) {
     const file = takeRelativeFile(ref.key)
     const origin = hosted[file]
     if (!origin) {
-      throw new Error(
+      throw new PushRefusedError(
         `${ref.where} (${file}) is not a file this take fetched from vos.so, and a claimable push never uploads footage. Push the take with an account (vos login, then vos push ${dir}), or remix a public take fetched with \`vos fetch <url> --media\``,
       )
     }
     const path = join(dir, file)
     const now = existsSync(path) ? await fileSha256(path) : null
     if (now !== origin.sha256) {
-      throw new Error(
+      throw new PushRefusedError(
         `${ref.where} (${file}) changed since it was fetched, so it is no longer the hosted file. A claimable push names only the original; push with an account to upload the new one`,
       )
     }
+  }
+  const plays = await checkPlatformPlays(take.doc, {
+    origin: platformOrigin(flags),
+    bake: flags.bake,
+  })
+  for (const line of plays.lines) r.log(line)
+  const docForPush: ProjectDoc = structuredClone(plays.doc as ProjectDoc)
+  embedScript(docForPush, dir)
+  // The document pushed names the hosted originals, checked above.
+  for (const ref of claimRefs(docForPush)) {
+    const origin = hosted[takeRelativeFile(ref.key)]
+    if (!origin)
+      throw new PushRefusedError(
+        `${ref.where} (${takeRelativeFile(ref.key)}) is not a file this take fetched from vos.so, and a claimable push never uploads footage`,
+      )
     ref.set(origin.ref)
   }
 

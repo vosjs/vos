@@ -9,7 +9,7 @@
  * attribution doctrine: never print a credential).
  */
 import { hostname } from 'node:os'
-import { apiError, apiJson, writeCredential } from './platform'
+import { apiError, apiJson, mintAt, writeCredential } from './platform'
 import type { Reporter } from './output'
 
 /** The origin has no device-flow endpoints (older server) — caller falls
@@ -33,7 +33,7 @@ export interface BrowserLoginOptions {
   /** Injected for tests. */
   sleep?: (ms: number) => Promise<void>
   /** Injected for tests — defaults to the real credentials file. */
-  store?: (key: string) => string
+  store?: (key: string, origin: string) => string
 }
 
 /**
@@ -133,7 +133,10 @@ export async function browserLogin(
     }
     if (res.status === 200 && status === 'ok') {
       // The one delivery — straight to disk, never through any output path.
-      const path = (opts.store ?? writeCredential)(res.body.key as string)
+      const path = (opts.store ?? writeCredential)(
+        res.body.key as string,
+        origin,
+      )
       const user =
         typeof res.body.user === 'object' && res.body.user !== null
           ? ((res.body.user as { name?: string }).name ?? '')
@@ -160,7 +163,7 @@ export async function browserLogin(
     )
   }
   throw new Error(
-    'no approval within 15 minutes — run `vos login` again, or mint a key at https://vos.so/app/api and pass --key',
+    `no approval within 15 minutes — run \`vos login\` again, or mint a key at ${mintAt(origin)} and pass --key`,
   )
 }
 
@@ -189,7 +192,7 @@ export function parseHandoffUrl(
 export async function handoffLogin(
   url: string,
   r: Reporter,
-  opts: { store?: (key: string) => string } = {},
+  opts: { store?: (key: string, origin: string) => string } = {},
 ): Promise<{ path: string; user: string; keyName: string; origin: string }> {
   const parsed = parseHandoffUrl(url)
   if (!parsed)
@@ -202,7 +205,10 @@ export async function handoffLogin(
     body: { token: parsed.token, hostname: hostname().slice(0, 64) },
   })
   if (res.status === 200 && res.body.status === 'ok') {
-    const path = (opts.store ?? writeCredential)(res.body.key as string)
+    const path = (opts.store ?? writeCredential)(
+      res.body.key as string,
+      parsed.origin,
+    )
     const user =
       typeof res.body.user === 'object' && res.body.user !== null
         ? ((res.body.user as { name?: string }).name ?? '')

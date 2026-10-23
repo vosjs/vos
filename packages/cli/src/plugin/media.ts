@@ -34,7 +34,7 @@ import {
   resolveMediaType,
 } from './container'
 import { uploadAsset } from './uploadAsset'
-import { writeSyncState } from './platform'
+import { bearerFor, writeSyncState } from './platform'
 import type { UploadTarget, UploadedAsset } from './uploadAsset'
 import type {
   AudioClip,
@@ -270,6 +270,9 @@ export function docAudioRefs(
       where: `audio ${clip.id}`,
       key: clip.key,
       set: (next) => {
+        // The same bytes under a new name (uploaded, or brought home): a
+        // measurement taken for the old name holds for the new one.
+        if (clip.loudness?.src === clip.key) clip.loudness.src = next
         clip.key = next
       },
     })
@@ -418,8 +421,7 @@ export async function downloadMedia(
 ): Promise<{ file: string; bytes: number }> {
   const plan = downloadPlan(ctx, url)
   const res = await fetch(plan.url, {
-    headers:
-      plan.bearer && ctx.key ? { authorization: `Bearer ${ctx.key}` } : {},
+    headers: plan.bearer ? bearerFor(ctx.key, plan.url) : {},
   })
   if (!res.ok || !res.body) {
     throw new Error(

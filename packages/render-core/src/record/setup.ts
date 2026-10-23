@@ -141,6 +141,8 @@ export async function runSetup(
     sleep: (ms: number) => Promise<void>
     /** Absent means no env at all: a `{ env }` text then fails in words. */
     env?: Record<string, string | undefined>
+    /** How a `goto` opens its page and waits for it (the take's ready mode); absent, network idle. */
+    goto?: (url: string) => Promise<unknown>
   },
 ): Promise<SetupResult> {
   const env = opts.env ?? {}
@@ -154,9 +156,14 @@ export async function runSetup(
           lines.push(`setup #${i} wait ${step.ms}ms`)
           break
         case 'goto':
-          await page
-            .goto(step.url, { waitUntil: 'networkidle', timeout: 45000 })
-            .catch(() => null)
+          await (
+            opts.goto
+              ? opts.goto(step.url)
+              : page.goto(step.url, {
+                  waitUntil: 'networkidle',
+                  timeout: 45000,
+                })
+          ).catch(() => null)
           lines.push(`setup #${i} goto ${step.url}`)
           break
         case 'press':

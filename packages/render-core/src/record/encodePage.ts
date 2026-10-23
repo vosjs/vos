@@ -55,7 +55,15 @@ try {
       fi = next
       const blob = await (await fetch(${JSON.stringify(o.framesBaseUrl)} + frames[fi].file + ${JSON.stringify(q)})).blob()
       const bmp = await createImageBitmap(blob)
-      c2.drawImage(bmp, 0, 0, W, H)
+      // A frame is drawn at its own size, never stretched to the take's: a
+      // frame of another size means the surface moved mid-take, and a
+      // picture scaled to fit would be a distorted take nobody was told of.
+      if (bmp.width !== W || bmp.height !== H) {
+        const size = bmp.width + 'x' + bmp.height
+        bmp.close()
+        throw new Error('frame ' + frames[fi].file + ' is ' + size + ', the take is ' + W + 'x' + H + ' (meta.captureWidth/captureHeight): frames are never resized, so the recorded surface changed size mid-take. Re-record it')
+      }
+      c2.drawImage(bmp, 0, 0)
       bmp.close()
     }
     await src.add(t, 1 / FPS)

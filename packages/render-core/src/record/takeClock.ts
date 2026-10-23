@@ -50,6 +50,36 @@ export class TakeClock {
   }
 
   /**
+   * The parts of a wall-clock stretch the camera saw: each sub-stretch
+   * outside every off-camera wait, as its wall start (`wallMs`), its
+   * footage start (`atMs`) and its length. A stretch an `await` cut in two
+   * comes back as two; one wholly off camera as none.
+   */
+  onCamera(
+    fromWall: number,
+    toWall: number,
+  ): { wallMs: number; atMs: number; ms: number }[] {
+    const out: { wallMs: number; atMs: number; ms: number }[] = []
+    let cur = Math.max(fromWall, this.t0)
+    for (const p of this.pauses) {
+      const pTo = p.to ?? Infinity
+      if (pTo <= cur) continue
+      if (p.from >= toWall) break
+      if (p.from > cur)
+        out.push({
+          wallMs: cur,
+          atMs: this.footageMs(cur),
+          ms: p.from - cur,
+        })
+      cur = Math.max(cur, pTo)
+      if (cur >= toWall) return out
+    }
+    if (toWall > cur)
+      out.push({ wallMs: cur, atMs: this.footageMs(cur), ms: toWall - cur })
+    return out
+  }
+
+  /**
    * A captured frame's footage ms, or null when it is not later than the
    * last frame kept (the frame is dropped; see the module comment).
    */

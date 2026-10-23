@@ -9,9 +9,10 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { projectFromArtifact } from '@vosjs/studio-core'
 import { pushTakeClaimable } from '../sync'
+import { run } from '../run'
 import { recordHostedMedia } from '../media'
 import { readSyncState } from '../platform'
 import { createReporter } from '../output'
@@ -39,6 +40,12 @@ function serve(seen: { url: string; body: Record<string, unknown> }[]) {
     const chunks: Buffer[] = []
     req.on('data', (c: Buffer) => chunks.push(c))
     req.on('end', () => {
+      // The push asks which studio-core the platform renders with first;
+      // this platform cannot say, which never blocks a push.
+      if (req.url === '/api/engine') {
+        res.writeHead(404, { 'content-type': 'application/json' })
+        return res.end('{}')
+      }
       seen.push({
         url: req.url ?? '',
         body: JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'),
@@ -138,6 +145,85 @@ describe('vos push <take> --claimable', () => {
         createReporter(true),
       ),
     ).rejects.toThrow(/never uploads footage/)
+    expect(seen).toEqual([])
+  })
+})
+
+/** `vos <argv>` through the dispatcher, as the binary runs it: its exit and what it wrote. */
+async function vos(argv: string[]) {
+  const out: string[] = []
+  const err: string[] = []
+  const stdout = vi
+    .spyOn(process.stdout, 'write')
+    .mockImplementation((s: string | Uint8Array) => {
+      out.push(String(s))
+      return true
+    })
+  const stderr = vi
+    .spyOn(process.stderr, 'write')
+    .mockImplementation((s: string | Uint8Array) => {
+      err.push(String(s))
+      return true
+    })
+  try {
+    return { code: await run(argv), out: out.join(''), err: err.join('') }
+  } finally {
+    stdout.mockRestore()
+    stderr.mockRestore()
+  }
+}
+
+describe('vos push <take> --claimable, through the command line', () => {
+  it('pushes a fetched public take as a claimable remix, naming the originals', async () => {
+    const seen: { url: string; body: Record<string, unknown> }[] = []
+    const origin = await serve(seen)
+    const dir = fetchedTake()
+    const r = await vos([
+      'push',
+      dir,
+      '--claimable',
+      '--share',
+      '--title',
+      'Grafana tour, shorter',
+      '--origin',
+      origin,
+      '--json',
+    ])
+    expect(r.err).toBe('')
+    expect(r.code).toBe(0)
+    expect(seen.map((s) => s.url)).toEqual(['/api/claim'])
+    const body = seen[0].body
+    expect((body.doc as { source: { videoKey: string } }).source.videoKey).toBe(
+      REF,
+    )
+    expect(body.remixOfId).toBe('src-take')
+    expect(body.share).toBe(true)
+    expect(body.title).toBe('Grafana tour, shorter')
+    expect(r.out).toContain('https://vos.so/claim/t')
+  })
+
+  it('refuses footage that changed since the fetch as a refusal, exit 2', async () => {
+    const seen: { url: string; body: Record<string, unknown> }[] = []
+    const origin = await serve(seen)
+    const dir = fetchedTake()
+    writeFileSync(join(dir, 'recording.webm'), 'a new recording')
+    const r = await vos(['push', dir, '--claimable', '--origin', origin])
+    expect(r.code).toBe(2)
+    expect(r.err).toMatch(
+      /^the recording \(recording\.webm\) changed since it was fetched/,
+    )
+    expect(seen).toEqual([])
+  })
+
+  it('refuses a take that was never fetched, saying why and what to do', async () => {
+    const seen: { url: string; body: Record<string, unknown> }[] = []
+    const origin = await serve(seen)
+    const dir = fetchedTake({ record: false })
+    const r = await vos(['push', dir, '--claimable', '--origin', origin])
+    expect(r.code).toBe(2)
+    expect(r.err).toBe(
+      `${dir} was not fetched from a public take with its media (its vos.json records no hosted files), and a claimable push never uploads footage. Push it with an account (vos login, then vos push ${dir}), or remix a public take: vos fetch <url> --media, edit, then vos push <dir> --claimable\n`,
+    )
     expect(seen).toEqual([])
   })
 })

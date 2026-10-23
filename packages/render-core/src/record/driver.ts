@@ -57,6 +57,12 @@ export interface RecorderApiResponse {
   body(): Promise<Uint8Array>
 }
 
+/** Which button a press is, and which press of a multi-click. */
+export interface RecorderButtonOpts {
+  button?: 'left' | 'right' | 'middle'
+  clickCount?: number
+}
+
 export interface RecorderLocatorRoot {
   first(): RecorderLocator
 }
@@ -73,13 +79,13 @@ export interface RecorderConsoleMessage {
 export interface RecorderPage {
   goto(
     url: string,
-    opts: { waitUntil: 'networkidle'; timeout: number },
+    opts: { waitUntil: 'networkidle' | 'load'; timeout: number },
   ): Promise<RecorderResponse | null>
   url(): string
   title(): Promise<string>
   /** An `await` with `reload: true`; absent, the recorder opens the page's URL again. */
   reload?(opts: {
-    waitUntil: 'networkidle'
+    waitUntil: 'networkidle' | 'load'
     timeout: number
   }): Promise<RecorderResponse | null>
   /** A `download` step's click; absent, the recorder says the browser reports none. */
@@ -98,13 +104,18 @@ export interface RecorderPage {
   locator(selector: string): RecorderLocatorRoot
   mouse: {
     move(x: number, y: number): Promise<void>
-    down(): Promise<void>
-    up(): Promise<void>
+    // A click's `button` and `count` (a double click is two presses, the
+    // second with clickCount 2).
+    down(opts?: RecorderButtonOpts): Promise<void>
+    up(opts?: RecorderButtonOpts): Promise<void>
     wheel(dx: number, dy: number): Promise<void>
   }
   keyboard: {
     type(text: string): Promise<void>
     press(key: string): Promise<void>
+    /** A drag's modifiers, held from the press to the release. */
+    down(key: string): Promise<void>
+    up(key: string): Promise<void>
   }
 }
 
@@ -142,6 +153,14 @@ export interface RecorderContext {
   // The page handed back is the one `newPage()` answered; typed loosely so
   // Playwright's `Page | Frame` parameter satisfies the contract.
   newCDPSession(page: unknown): Promise<RecorderCdp>
+  /**
+   * A `paste` step's clipboard access, when the driver grants it; absent,
+   * the paste is dispatched in the page and the recorder says so.
+   */
+  grantPermissions?(
+    permissions: string[],
+    opts?: { origin?: string },
+  ): Promise<unknown>
   close(): Promise<void>
 }
 
@@ -176,6 +195,31 @@ export interface OutputSink {
     bytes: Uint8Array,
     contentType?: string,
   ): Promise<void> | void
+}
+
+/**
+ * Where the sound a page played during the take is kept: the CLI writes
+ * `page-sound/<name>` in the take directory and answers that take-relative
+ * key, which the plan's audio clips name. A host that hands in none (the
+ * fleet) still records `meta.media`; the plan then places nothing.
+ */
+export interface SoundSink {
+  save(
+    name: string,
+    bytes: Uint8Array,
+    contentType?: string,
+  ): Promise<string> | string
+}
+
+/**
+ * Where the files a script names beside itself come from: a drag's path
+ * file, a paste's file, by a plain name. The CLI reads the actions file's
+ * directory. A host that hands in none (a hosted recorder carries the
+ * script alone) cannot run such a step, and the recorder refuses it before
+ * capturing anything.
+ */
+export interface ScriptFiles {
+  read(name: string): Promise<Uint8Array>
 }
 
 /** The clock and the pauses, injectable so a rehearsal runs fast. */
