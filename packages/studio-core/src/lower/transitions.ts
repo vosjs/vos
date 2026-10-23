@@ -24,6 +24,7 @@ import {
   TRANSITION_SECONDS_MIN,
 } from '../anim'
 import { mediaAtOutput, sameMedia } from '../media'
+import { cameraRests } from './occurrences'
 import type { Segment } from '@vosjs/timeline'
 import type { AnimSide, AnimStep, ProjectDoc } from '../types'
 
@@ -141,7 +142,8 @@ const REST_LEAD = 0.1
  * their own end. The open's record (t = 0) is the entrance's business
  * (`prependEntrance`) and is skipped here. A span is a SOURCE span, so on
  * a cut that plays its seconds more than once it is read by its first
- * occurrence: the window that occurrence starts in rests every one.
+ * occurrence the camera plays: the window that one starts in rests every
+ * one.
  */
 export function restSpansThroughTransitions<
   T extends { in: number; out: number; media?: string },
@@ -178,7 +180,11 @@ export function restSpansThroughTransitions<
  * its media's pieces (null when the cut dropped it all).
  */
 function outputStartOf(
-  rated: readonly (Segment & { media?: string; rate?: number })[],
+  rated: readonly (Segment & {
+    media?: string
+    rate?: number
+    camera?: string
+  })[],
   sIn: number,
   sOut: number,
   media: string | undefined,
@@ -187,7 +193,8 @@ function outputStartOf(
   for (const p of rated) {
     const rate = p.rate ?? 1
     const len = Math.max(0, p.out - p.in) / rate
-    if (sameMedia(p.media, media)) {
+    // A pass where the camera rests plays none of a camera span.
+    if (sameMedia(p.media, media) && !cameraRests(p)) {
       const ovIn = Math.max(sIn, p.in)
       const ovOut = Math.min(sOut, p.out)
       if (ovOut > ovIn) return acc + (ovIn - p.in) / rate

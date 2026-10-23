@@ -18,15 +18,25 @@
  * played (`replayedSeconds`); a reordered cut starts passes and replays
  * nothing.
  *
- * The inverse maps (source → output) come in two forms, and each caller
- * says which it takes: every occurrence (the camera tracks, the clicks,
- * the freezes), or the first (a lane item, an anchor, a digest moment).
+ * The inverse maps (source → output) come in three forms, and each caller
+ * says which it takes: every occurrence (the clicks, the freezes), every
+ * occurrence the CAMERA plays in (the zoom, tilt and cam tracks: a segment
+ * marked `camera: 'rest'` keeps the camera at rest through its pass), or
+ * one: the first (a lane item), or the longest pass of a step (an anchor,
+ * a digest step or moment, a callout's window).
  */
 import { segmentRate } from '@vosjs/timeline'
 import { mediaKey, sameMedia } from '../media'
 import type { Segment } from '@vosjs/timeline'
 
-type Piece = Segment & { media?: string }
+type Piece = Segment & { media?: string; camera?: string }
+
+/**
+ * Does the camera rest through this piece? A segment marked
+ * `camera: 'rest'` carries the mark into every piece it is rated into.
+ */
+export const cameraRests = (p: { camera?: string }): boolean =>
+  p.camera === 'rest'
 
 /**
  * How far before the end of its media's previous piece a piece may start
@@ -117,6 +127,72 @@ export function spanOutputExtents(
   sOut: number,
   media?: string,
 ): OutputExtent[] {
+  return extentsOf(pieces, sIn, sOut, media, false)
+}
+
+/**
+ * Every occurrence of a camera span (zoom, tilt, cam move) the camera
+ * plays: `spanOutputExtents` without the passes of a segment whose camera
+ * rests. A span that runs into such a pass ends at its edge, and one that
+ * runs out of it starts there, so the track ramps at the edge as it does
+ * at any span's. The same as `spanOutputExtents` for a cut with no rest.
+ */
+export function cameraSpanExtents(
+  pieces: readonly Piece[],
+  sIn: number,
+  sOut: number,
+  media?: string,
+): OutputExtent[] {
+  return extentsOf(pieces, sIn, sOut, media, true)
+}
+
+/**
+ * Where the camera rests on the output (each run of resting pieces as
+ * `{ t, d }`): no connected move of a camera track crosses one. Empty for
+ * a cut with no rest.
+ */
+export function cameraRestWindows(
+  pieces: readonly Piece[],
+): { t: number; d: number }[] {
+  const out: { t: number; d: number }[] = []
+  let acc = 0
+  for (const p of pieces) {
+    const len = Math.max(0, p.out - p.in) / segmentRate(p)
+    if (cameraRests(p)) {
+      const last = out.at(-1)
+      if (last && Math.abs(last.t + last.d - acc) < 1e-9) last.d += len
+      else out.push({ t: acc, d: len })
+    }
+    acc += len
+  }
+  return out.filter((w) => w.d > 0)
+}
+
+/**
+ * The pass a step plays in, as ONE output extent: the occurrence of its
+ * seconds that plays the longest (a cold open of a second or two loses to
+ * the main play), the first on a tie, null when the cut keeps none of it.
+ * A forward cut has one occurrence, so this is `spanOutputExtent`.
+ */
+export function longestOutputExtent(
+  pieces: readonly Piece[],
+  sIn: number,
+  sOut: number,
+  media?: string,
+): OutputExtent | null {
+  let best: OutputExtent | null = null
+  for (const e of spanOutputExtents(pieces, sIn, sOut, media))
+    if (!best || e.end - e.start > best.end - best.start + 1e-9) best = e
+  return best
+}
+
+function extentsOf(
+  pieces: readonly Piece[],
+  sIn: number,
+  sOut: number,
+  media: string | undefined,
+  camera: boolean,
+): OutputExtent[] {
   const replays = replayFlags(pieces)
   const runs: OutputExtent[] = []
   let cur: OutputExtent | null = null
@@ -127,7 +203,10 @@ export function spanOutputExtents(
     const len = Math.max(0, p.out - p.in) / rate
     // Source seconds are one media's: a piece of another media is output
     // time this span never covers, however its numbers overlap.
-    if (sameMedia(p.media, media)) {
+    if (camera && cameraRests(p)) {
+      // The camera rests here: a run ends at the pass's edge.
+      cur = null
+    } else if (sameMedia(p.media, media)) {
       if (replays[i]) cur = null
       const ovIn = Math.max(sIn, p.in)
       const ovOut = Math.min(sOut, p.out)

@@ -34,6 +34,15 @@ export type DocSegment = Segment & {
   anim?: Anim
   /** @deprecated migrated on read into a `FreezeSpan` at this segment's `out`. */
   hold?: number
+  /**
+   * `'rest'`: the camera rests through this clip's pass. No source-anchored
+   * camera move applies there (zoom, tilt, cam move, a follow zoom's
+   * recenters), even over seconds another pass zooms on; the cursor, the
+   * click effects, the speed spans and the freezes are the footage's and
+   * still play. A span that runs into or out of the pass ramps at its edge
+   * as at any span's. Absent = the camera plays here as everywhere.
+   */
+  camera?: 'rest'
 }
 
 /** A single input event captured in the page, relative to the recording's t0. */
@@ -1415,7 +1424,9 @@ export interface OverlayPin {
  * re-record moves the caption with its step, and nobody recomputes a
  * `start`. `start` stays the clip's fallback when the step cannot be
  * found or the cut leaves it out (validate says which), and may be left
- * out; `duration` is the clip's own either way.
+ * out; `duration` is the clip's own either way. On a cut that replays the
+ * step's seconds, the layer starts in the pass where the step plays the
+ * longest (the first on a tie).
  */
 export interface OverlayAnchor {
   /** The step: its `id` (`meta.steps[].id`) when it has one, else its index. */

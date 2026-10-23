@@ -35,7 +35,7 @@ import {
   pinBox,
   ratedSegments,
   resolvePins,
-  spanOutputExtent,
+  longestOutputExtent,
 } from '@vosjs/studio-core'
 import { decodePng, medianColour } from './picture'
 import type { Browser } from 'playwright'
@@ -134,7 +134,8 @@ export function windowForStep(
     steps.find((x) => String(x.step) === String(step))
   if (!s || s.skipped) return null
   const rated = ratedSegments(doc)
-  const ext = spanOutputExtent(rated, s.tStart, s.tEnd)
+  // A step the cut replays is read in the pass it plays longest.
+  const ext = longestOutputExtent(rated, s.tStart, s.tEnd)
   if (!ext) return null
   // The press is at the step's start for a click, the gesture's end for a
   // hover or a type; the card opens once the press has landed.
@@ -144,7 +145,7 @@ export function windowForStep(
   for (const n of steps) {
     if (n.tStart <= s.tStart) continue
     if (n.do !== 'scroll' && !n.navigated) continue
-    const ne = spanOutputExtent(rated, n.tStart, n.tEnd)
+    const ne = longestOutputExtent(rated, n.tStart, n.tEnd)
     if (ne && ne.start > start && ne.start < end) end = ne.start - 0.05
   }
   return { start, duration: +Math.max(0.5, end - start).toFixed(3) }

@@ -20,12 +20,16 @@
  * same media (the beat after an await waited for nothing itself), as a
  * rounded human duration.
  *
+ * On a cut that replays the step's seconds, the layer starts in the pass
+ * where the step plays the longest (`stepMomentToOutput`).
+ *
  * Pure: the caller hands in the rated pieces (`ratedSegments(doc)`), so the
  * lowering, the lint and the CLI read one map.
  */
 import { segmentRate } from '@vosjs/timeline'
 import { mediaSource, sameMedia } from '../media'
 import { findStep } from './pin'
+import { hasReplay, longestOutputExtent, momentOutputs } from './occurrences'
 import type { Segment } from '@vosjs/timeline'
 import type { RichText } from '@vosjs/elements/text'
 import type {
@@ -46,8 +50,8 @@ const EPS = 1e-9
  * the first rated piece of that media that holds it, null when the cut
  * leaves it out. A moment on a piece's closing edge counts as held there
  * (the last frame of a clip is still that clip). On a cut that plays the
- * moment more than once this is its FIRST occurrence, so a layer anchored
- * to a step starts the first time that step plays.
+ * moment more than once this is its FIRST occurrence; a step's moment is
+ * read through `stepMomentToOutput`, which takes the step's longest pass.
  */
 export function sourceMomentToOutput(
   rated: readonly (Segment & { media?: string })[],
@@ -68,6 +72,32 @@ export function sourceMomentToOutput(
     acc += len
   }
   return edge
+}
+
+/**
+ * Where a step's moment (its start, or its end with `at: 'end'`) plays in
+ * the cut: in the PASS where the step plays the longest
+ * (`longestOutputExtent`; the first on a tie), so a caption about a step
+ * lands in the main play, not in a short cold open of the same seconds.
+ * Null when the cut leaves the moment out. A cut with no replay plays each
+ * moment once, and this is `sourceMomentToOutput`.
+ */
+export function stepMomentToOutput(
+  rated: readonly (Segment & { media?: string })[],
+  step: Pick<StepSpan, 'tStart' | 'tEnd'>,
+  at: 'start' | 'end' | undefined,
+  media?: string,
+): number | null {
+  const moment = at === 'end' ? step.tEnd : step.tStart
+  const first = sourceMomentToOutput(rated, moment, media)
+  if (first === null || !hasReplay(rated)) return first
+  const pass = longestOutputExtent(rated, step.tStart, step.tEnd, media)
+  if (!pass) return first
+  return (
+    momentOutputs(rated, moment, media).find(
+      (o) => o >= pass.start - 1e-6 && o <= pass.end + 1e-6,
+    ) ?? first
+  )
 }
 
 /** Why an anchor did not resolve. */
@@ -160,8 +190,7 @@ export function resolveAnchor(
       }
     : {}
   if (step.skipped) return { start: null, step, miss: 'skipped', ...extra }
-  const moment = anchor.at === 'end' ? step.tEnd : step.tStart
-  const out = sourceMomentToOutput(rated, moment, anchor.media)
+  const out = stepMomentToOutput(rated, step, anchor.at, anchor.media)
   if (out === null) return { start: null, step, miss: 'cut', ...extra }
   const offset = isNum(anchor.offset) ? anchor.offset : 0
   return { start: round3(Math.max(0, out + offset)), step, ...extra }

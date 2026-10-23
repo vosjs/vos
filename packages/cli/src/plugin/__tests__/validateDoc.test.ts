@@ -138,6 +138,29 @@ describe('lintDoc', () => {
     expect(r.problems.some((p) => /segment .* overlaps/.test(p))).toBe(false)
   })
 
+  it('lets a clip rest the camera, and warns of a camera span that plays only there', () => {
+    const r = lintDoc(
+      makeDoc({
+        segments: [
+          { in: 18, out: 20, camera: 'rest' },
+          { in: 0, out: 10 },
+          { in: 2, out: 4, camera: 'still' },
+        ],
+        zoom: [
+          { id: 'z1', in: 18.5, out: 19.5, level: 2, cx: 0.5, cy: 0.5 },
+          { id: 'z2', in: 2.5, out: 3, level: 2, cx: 0.5, cy: 0.5 },
+        ],
+      } as unknown as Partial<ProjectDoc>),
+    )
+    expect(r.problems).toEqual([
+      'segments[2].camera must be "rest" (the camera rests through this clip\'s pass); absent = the camera plays here',
+    ])
+    expect(r.warnings).toContainEqual(
+      'zoom z1: it plays only in segments whose camera rests (segments[].camera: "rest"), so it never moves the camera',
+    )
+    expect(r.warnings.some((w) => w.startsWith('zoom z2'))).toBe(false)
+  })
+
   it('catches the pixel-coords trap (cx/cy must be normalized [0..1])', () => {
     const r = lintDoc(
       makeDoc({

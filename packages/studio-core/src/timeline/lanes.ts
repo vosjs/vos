@@ -16,8 +16,8 @@ import {
   totalDuration,
   trimSegment,
 } from '@vosjs/timeline'
-import { ratedSegments, spanOutputExtent } from '../lower/lowerToComposition'
-import { replayFlags } from '../lower/occurrences'
+import { ratedSegments } from '../lower/lowerToComposition'
+import { cameraSpanExtents, replayFlags } from '../lower/occurrences'
 import {
   docFreezes,
   freezeOutputExtents,
@@ -433,7 +433,7 @@ export const zoomLane: LaneAdapter<ProjectDoc> = {
   items(doc): LaneItem[] {
     const segments = ratedSegments(doc)
     return doc.zoom.flatMap((z) => {
-      const ext = spanOutputExtent(segments, z.in, z.out, z.media)
+      const ext = cameraSpanExtents(segments, z.in, z.out, z.media)[0] ?? null
       return ext === null
         ? []
         : [
@@ -610,7 +610,7 @@ export const tiltLane: LaneAdapter<ProjectDoc> = {
   items(doc): LaneItem[] {
     const segments = ratedSegments(doc)
     return (doc.tilt ?? []).flatMap((z) => {
-      const ext = spanOutputExtent(segments, z.in, z.out, z.media)
+      const ext = cameraSpanExtents(segments, z.in, z.out, z.media)[0] ?? null
       return ext === null
         ? []
         : [
@@ -758,7 +758,7 @@ export const camMoveLane: LaneAdapter<ProjectDoc> = {
     if (!doc.source.camKey) return []
     const segments = ratedSegments(doc)
     return (doc.camMotion ?? []).flatMap((z) => {
-      const ext = spanOutputExtent(segments, z.in, z.out, z.media)
+      const ext = cameraSpanExtents(segments, z.in, z.out, z.media)[0] ?? null
       return ext === null
         ? []
         : [

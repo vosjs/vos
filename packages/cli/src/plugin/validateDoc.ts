@@ -62,6 +62,8 @@ import {
   RUN_STYLE_KEYS,
   ratedSegments,
   replayedSeconds,
+  cameraSpanExtents,
+  spanOutputExtents,
   clipGain,
   recommendedExportResolution,
   resolvePins,
@@ -797,9 +799,41 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
         const which = spans
           .map((r) => `${r.in.toFixed(2)}–${r.out.toFixed(2)}s`)
           .join(', ')
+        const rests = entries(doc.segments)[index[p]]?.camera === 'rest'
         notes.push(
-          `segments[${index[p]}] replays ${which} of ${m ? `media "${m}"` : 'the recording'}: zooms, tilts, clicks, freezes and speed spans over those seconds play in every occurrence`,
+          rests
+            ? `segments[${index[p]}] replays ${which} of ${m ? `media "${m}"` : 'the recording'} with its camera at rest: clicks, freezes and speed spans over those seconds play again, zooms, tilts and cam moves do not`
+            : `segments[${index[p]}] replays ${which} of ${m ? `media "${m}"` : 'the recording'}: zooms, tilts, clicks, freezes and speed spans over those seconds play in every occurrence`,
         )
+      }
+    }
+    // A clip may keep the camera at rest through its pass, and a camera
+    // span that plays only in such passes moves nothing.
+    const segList = entries(doc.segments)
+    segList.forEach((seg, i) => {
+      if (seg.camera !== undefined && seg.camera !== 'rest')
+        problems.push(
+          `segments[${i}].camera must be "rest" (the camera rests through this clip's pass); absent = the camera plays here`,
+        )
+    })
+    if (segList.some((s) => s.camera === 'rest')) {
+      const rated = ratedSegments(doc as unknown as ProjectDoc)
+      for (const [label, list] of [
+        ['zoom', zoom],
+        ['tilt', entries(doc.tilt)],
+        ['camMotion', entries(doc.camMotion)],
+      ] as const) {
+        for (const s of list) {
+          if (!isNum(s.in) || !isNum(s.out)) continue
+          const media = typeof s.media === 'string' ? s.media : undefined
+          if (
+            spanOutputExtents(rated, s.in, s.out, media).length &&
+            !cameraSpanExtents(rated, s.in, s.out, media).length
+          )
+            warnings.push(
+              `${spanName(label, s)}: it plays only in segments whose camera rests (segments[].camera: "rest"), so it never moves the camera`,
+            )
+        }
       }
     }
     // A clip's transitions: the vocabulary a footage clip accepts, never

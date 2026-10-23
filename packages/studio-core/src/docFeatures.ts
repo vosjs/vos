@@ -177,6 +177,17 @@ export const DOC_FEATURES: readonly DocFeature[] = [
         ? new Set(replayedSeconds(doc.segments).map((r) => r.piece)).size
         : 0,
   },
+  {
+    id: 'segment-camera-rest',
+    since: '0.45.0',
+    name: 'clips whose camera rests',
+    before:
+      'would play the zooms, tilts and cam moves over those clips as if the camera were not resting',
+    uses: (doc) =>
+      isRecordingDoc(doc)
+        ? doc.segments.filter((s) => s && s.camera === 'rest').length
+        : 0,
+  },
 ]
 
 /** `a` against `b` as releases (`x.y.z`; a pre-release tag is ignored): -1, 0 or 1. */

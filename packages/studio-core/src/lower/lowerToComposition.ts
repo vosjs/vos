@@ -116,7 +116,13 @@ import { followFocusEvents } from './cursorFollow'
 import { pinPlacement, pinReferent } from './pin'
 import { layerStart, placedOverlays, resolveOverlayAnchors } from './anchor'
 import { cursorIdleFade } from './cursorIdle'
-import { hasReplay, momentOutputs, spanOutputExtents } from './occurrences'
+import {
+  cameraRestWindows,
+  cameraSpanExtents,
+  hasReplay,
+  momentOutputs,
+  spanOutputExtents,
+} from './occurrences'
 import { STUDIO_ENTRY_ID, studioEntry } from './studioEntry'
 import {
   cardEnter,
@@ -457,6 +463,19 @@ function restsBetween(
   )
 }
 
+/**
+ * The windows no connected camera move crosses: the transitions' and the
+ * passes of every segment whose camera rests. The transitions' own list
+ * when no segment rests.
+ */
+function cameraRestsOf(
+  rests: TrackOptions['rests'],
+  segments: readonly Segment[],
+): TrackOptions['rests'] {
+  const resting = cameraRestWindows(segments)
+  return resting.length ? [...(rests ?? []), ...resting] : rests
+}
+
 /** How far a connected transition may spill into the next span: half of it. */
 const spillLimit = (tIn: number, tOut: number) => tIn + (tOut - tIn) / 2
 
@@ -472,7 +491,8 @@ const spillLimit = (tIn: number, tOut: number) => tIn + (tOut - tIn) / 2
  * and the footage in order, output order IS source order, so a single-media
  * document lowers as it always did. A span over seconds the cut plays more
  * than once is an entry per occurrence, so the camera moves the same way
- * each time those seconds play.
+ * each time those seconds play, except in the pass of a segment whose
+ * camera rests (`camera: 'rest'`), which holds no entry.
  */
 function spansInOutputOrder<
   S extends { in: number; out: number; media?: string },
@@ -482,7 +502,7 @@ function spansInOutputOrder<
 ): { z: S; tIn: number; tOut: number }[] {
   return spans
     .flatMap((z) =>
-      spanOutputExtents(segments, z.in, z.out, z.media).map((ext) => ({
+      cameraSpanExtents(segments, z.in, z.out, z.media).map((ext) => ({
         z,
         tIn: ext.start,
         tOut: ext.end,
@@ -516,6 +536,7 @@ export function zoomTrackFromDoc(
   opts: TrackOptions = {},
 ): KeyframeTrack<number[]> {
   const notBefore = opts.notBefore ?? -Infinity
+  const rests = cameraRestsOf(opts.rests, segments)
   const panEase = style.panEase as NonNullable<Keyframe['ease']>
   const mapped = spansInOutputOrder(zoom, segments)
 
@@ -580,7 +601,7 @@ export function zoomTrackFromDoc(
     const pan =
       next &&
       next.tIn - tOut <= style.chainGap &&
-      !restsBetween(opts.rests, tOut, next.tIn)
+      !restsBetween(rests, tOut, next.tIn)
         ? connectedWindow({
             arrived,
             tOut,
@@ -750,6 +771,7 @@ export function tiltTrackFromDoc(
   const panDur = motion.pan ?? TILT_PAN
   const panEase = TILT_PAN_EASE as NonNullable<Keyframe['ease']>
   const rest = [0, 0]
+  const rests = cameraRestsOf(opts.rests, segments)
   const mapped = spansInOutputOrder(tilt, segments)
 
   const { keyframes, push } = trackEmitter()
@@ -783,7 +805,7 @@ export function tiltTrackFromDoc(
     const swing =
       next &&
       next.tIn - tOut <= chainGap &&
-      !restsBetween(opts.rests, tOut, next.tIn)
+      !restsBetween(rests, tOut, next.tIn)
         ? connectedWindow({
             arrived,
             tOut,
@@ -852,6 +874,7 @@ export function camTrackFromDoc(
     z.size != null ? clampCamSize(z.size) : rest[2],
   ]
   const panEase = CAM_PAN_EASE as NonNullable<Keyframe['ease']>
+  const rests = cameraRestWindows(segments)
   const mapped = spansInOutputOrder(spans, segments)
 
   const { keyframes, push } = trackEmitter()
@@ -877,7 +900,9 @@ export function camTrackFromDoc(
     // arrival, so its transition speed governs.
     const next = mapped.at(i + 1)
     const morph =
-      next && next.tIn - tOut <= CAM_CHAIN_GAP
+      next &&
+      next.tIn - tOut <= CAM_CHAIN_GAP &&
+      !restsBetween(rests, tOut, next.tIn)
         ? connectedWindow({
             arrived,
             tOut,

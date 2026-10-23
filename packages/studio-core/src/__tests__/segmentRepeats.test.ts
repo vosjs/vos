@@ -9,7 +9,10 @@ import {
 } from '../lower/lowerToComposition'
 import { docStillTime, placeFreezes } from '../lower/motion'
 import {
+  cameraRestWindows,
+  cameraSpanExtents,
   hasReplay,
+  longestOutputExtent,
   momentOutputs,
   replayFlags,
   replayedSeconds,
@@ -17,6 +20,8 @@ import {
 } from '../lower/occurrences'
 import { segmentOutputExtents } from '../lower/segmentStarts'
 import { STUDIO_ENTRY_ID } from '../lower/studioEntry'
+import { sourceMomentToOutput, stepMomentToOutput } from '../lower/anchor'
+import { digestSteps } from '../digest/build'
 import { freezeLane, speedLane, tiltLane, zoomLane } from '../timeline/lanes'
 import {
   DEFAULT_CAM_STYLE,
@@ -327,7 +332,7 @@ describe('a cold open from the same recording', () => {
     expect(segmentOutputExtents(d).at(-1)!.end).toBeCloseTo(15.7, 6)
   })
 
-  it('starts a step-anchored layer the first time its step plays', () => {
+  it('starts a step-anchored layer in the first pass when both play the step whole', () => {
     const d = doc({
       segments: COLD_OPEN,
       overlays: [
@@ -353,6 +358,182 @@ describe('a cold open from the same recording', () => {
     // A layer over the second pass is offered the step's second pass.
     const c = pinCandidates(d, { start: PASS2 + 10.8, duration: 1 })
     expect(c[0].output.start).toBeCloseTo(PASS2 + 11, 3)
+  })
+})
+
+describe('a step resolves to the pass it plays longest', () => {
+  // The cold open stops at 11.2 s, a fifth of a second into the step
+  // `done` (11..11.6); the main play holds all of it.
+  const SHORT_OPEN = [
+    { in: 10.3, out: 11.2 },
+    { in: 0, out: 12 },
+  ]
+  const MAIN = 0.9
+  const done = (d: ProjectDoc) => {
+    d.source.meta.steps = [
+      { step: 0, id: 'done', do: 'click', tStart: 11, tEnd: 11.6 },
+    ]
+    return d
+  }
+
+  it('starts an anchored layer in the main play, not the cold open', () => {
+    const d = done(
+      doc({
+        segments: SHORT_OPEN,
+        overlays: [
+          {
+            id: 'say',
+            kind: 'text',
+            text: 'Done',
+            preset: 'caption',
+            duration: 1,
+            transform: { x: 0.5, y: 0.8, scale: 1, rotation: 0 },
+            anchor: { step: 'done' },
+          },
+          {
+            id: 'after',
+            kind: 'text',
+            text: 'Saved',
+            preset: 'caption',
+            duration: 1,
+            transform: { x: 0.5, y: 0.8, scale: 1, rotation: 0 },
+            anchor: { step: 'done', at: 'end', offset: 0.1 },
+          },
+        ],
+      }),
+    )
+    const rated = ratedSegments(d)
+    const step = d.source.meta.steps![0]
+    expect(stepMomentToOutput(rated, step, 'start')).toBeCloseTo(MAIN + 11, 6)
+    expect(stepMomentToOutput(rated, step, 'end')).toBeCloseTo(MAIN + 11.6, 6)
+    // The first-occurrence map still answers the cold open.
+    expect(sourceMomentToOutput(rated, 11)).toBeCloseTo(0.7, 6)
+    const entry = lowerToComposition(d).stack[STUDIO_ENTRY_ID] as {
+      overlays: { id: string; start: number }[]
+    }
+    expect(entry.overlays.map((o) => [o.id, o.start])).toEqual([
+      ['say', expect.closeTo(MAIN + 11, 3)],
+      ['after', expect.closeTo(MAIN + 11.7, 3)],
+    ])
+  })
+
+  it('reads a digest step in its longest pass', () => {
+    const d = done(doc({ segments: SHORT_OPEN }))
+    const [s] = digestSteps(d)
+    expect(s.output!.in).toBeCloseTo(MAIN + 11, 3)
+    expect(s.output!.out).toBeCloseTo(MAIN + 11.6, 3)
+    expect(longestOutputExtent(ratedSegments(d), 11, 11.6)!.start).toBeCloseTo(
+      MAIN + 11,
+      6,
+    )
+  })
+})
+
+describe('a segment whose camera rests', () => {
+  const RESTING_OPEN = [
+    { in: 10.3, out: 12, camera: 'rest' as const },
+    { in: 0, out: 12 },
+  ]
+  const zoom = [
+    {
+      id: 'z1',
+      in: 10.5,
+      out: 11.8,
+      level: 2,
+      cx: 0.6,
+      cy: 0.5,
+      source: 'manual' as const,
+    },
+  ]
+
+  it('keeps the cold open at rest while the main play zooms, tilts and moves the cam', () => {
+    const d = doc({
+      segments: RESTING_OPEN,
+      zoom,
+      tilt: [{ id: 't1', in: 10.5, out: 11.8, rx: 6, ry: -10 }],
+      camMotion: [{ id: 'c1', in: 10.5, out: 11.8, size: 0.4 }],
+    })
+    d.source.camKey = 'blob:cam'
+    const { data } = lowerToComposition(d)
+    const zt = data.zoomTrack as KeyframeTrack<number[]>
+    const tt = data.tiltTrack as KeyframeTrack<number[]>
+    const ct = data.camTrack as KeyframeTrack<number[]>
+    for (const t of [0, 0.4, 0.8, 1.2, 1.6]) {
+      expect(sample(zt, t, lerpArray)[0]).toBe(1)
+      expect(sample(tt, t, lerpArray)).toEqual([0, 0])
+    }
+    expect(ct.keyframes.every((k) => k.t > PASS2)).toBe(true)
+    expect(sample(zt, PASS2 + 11.5, lerpArray)[0]).toBeCloseTo(2, 3)
+    expect(sample(tt, PASS2 + 11.5, lerpArray)[1]).toBeCloseTo(-10, 3)
+    expect(sample(ct, PASS2 + 11.5, lerpArray)[2]).toBeCloseTo(0.4, 3)
+    // The lane draws the zoom where the camera plays it.
+    expect(zoomLane.items(d)[0].t).toBeCloseTo(PASS2 + 10.5, 3)
+  })
+
+  it('keeps the footage facts: the cursor, the clicks, the speed and the freezes', () => {
+    const speed = [{ id: 'fast', in: 10.5, out: 11.5, rate: 2 }]
+    const freeze = [{ id: 'end', at: 12, seconds: 1 }]
+    const d = doc({ segments: RESTING_OPEN, speed, freeze })
+    const { data } = lowerToComposition(d)
+    expect((data.clicks as { ot: number }[]).length).toBe(2)
+    const rated = ratedSegments(d)
+    expect(rated.filter((p) => segmentRate(p) === 2)).toHaveLength(2)
+    expect(totalDuration(rated)).toBeCloseTo(13.7 - 1 + 2, 6)
+    // The freeze piece in the resting pass rests with it.
+    const resting = rated.filter(
+      (p) => (p as { camera?: string }).camera === 'rest',
+    )
+    expect(resting.at(-1)!.rate).toBeLessThan(0.01)
+    const plain = lowerToComposition(
+      doc({ segments: COLD_OPEN, speed, freeze }),
+    ).data
+    expect(data.cursor).toEqual(plain.cursor)
+    expect(data.clicks).toEqual(plain.clicks)
+    expect(data.segments).toEqual(plain.segments)
+  })
+
+  it('ramps at the pass edges and never pans across a resting pass', () => {
+    const segments = [
+      { in: 0, out: 6 },
+      { in: 6, out: 6.8 },
+      { in: 6.8, out: 12 },
+    ]
+    const resting = [
+      segments[0],
+      { ...segments[1], camera: 'rest' as const },
+      segments[2],
+    ]
+    const spans = [
+      { id: 'a', in: 4, out: 6, level: 2, cx: 0.3, cy: 0.3 },
+      { id: 'b', in: 6.8, out: 9, level: 2, cx: 0.7, cy: 0.7 },
+    ]
+    const track = (segs: ProjectDoc['segments'], z = spans) =>
+      lowerToComposition(doc({ segments: segs, zoom: z })).data
+        .zoomTrack as KeyframeTrack<number[]>
+    const atRest = (t: KeyframeTrack<number[]>) =>
+      t.keyframes.some((k) => k.t > 6 && k.t < 7.4 && k.value[0] === 1)
+    // 0.8 s apart, the camera pans straight from one to the other...
+    expect(atRest(track(segments))).toBe(false)
+    // ...unless the clip between them rests the camera.
+    expect(atRest(track(resting))).toBe(true)
+    // A span running into the resting clip ends at its edge and ramps out
+    // from there, as at any span's end: no snap at the cut.
+    const across = track(resting, [
+      { id: 'c', in: 4, out: 6.5, level: 2, cx: 0.5, cy: 0.5 },
+    ])
+    const held = across.keyframes.filter((k) => k.value[0] === 2)
+    expect(Math.max(...held.map((k) => k.t))).toBeCloseTo(6, 3)
+    const after = sample(across, 6.05, lerpArray)[0]
+    expect(after).toBeGreaterThan(1)
+    expect(after).toBeLessThan(2)
+  })
+
+  it('lowers a cut with no resting clip as before', () => {
+    const plain = doc({ segments: COLD_OPEN, zoom })
+    expect(cameraRestWindows(ratedSegments(plain))).toEqual([])
+    expect(cameraSpanExtents(ratedSegments(plain), 10.5, 11.8)).toEqual(
+      spanOutputExtents(ratedSegments(plain), 10.5, 11.8),
+    )
   })
 })
 

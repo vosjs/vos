@@ -27,7 +27,7 @@
         },
         "segments": {
           "type": "array",
-          "description": "Kept SOURCE-time footage spans; the output timeline is their concatenation, in list order. Trim dead time by shrinking spans. Empty array = untrimmed. Never carry `rate` here (only lowered/derived segments do). Unlike every other span list, segments may overlap: a segment may play seconds an earlier one already played (a cold open showing the end state, then the whole recording from its start), and every source-anchored span over those seconds (zoom, tilt, camMotion, speed, freeze, the cursor's clicks) plays in each occurrence. A layer anchored to a step starts where the step FIRST plays.",
+          "description": "Kept SOURCE-time footage spans; the output timeline is their concatenation, in list order. Trim dead time by shrinking spans. Empty array = untrimmed. Never carry `rate` here (only lowered/derived segments do). Unlike every other span list, segments may overlap: a segment may play seconds an earlier one already played (a cold open showing the end state, then the whole recording from its start), and every source-anchored span over those seconds (zoom, tilt, camMotion, speed, freeze, the cursor's clicks) plays in each occurrence. A layer anchored to a step starts in the pass where the step plays the longest. A segment with `camera: rest` keeps the camera at rest through its pass.",
           "items": {
             "type": "object",
             "required": ["in", "out"],
@@ -55,6 +55,10 @@
               "media": {
                 "type": "string",
                 "description": "the media this belongs to: a `media[].id`; absent = the primary, `source`"
+              },
+              "camera": {
+                "enum": ["rest"],
+                "description": "`rest`: the camera rests through this clip's pass. No zoom, tilt, cam move or follow recenter applies there, even over seconds another pass zooms on (a cold open of the settled whole before the recording plays with its zooms); the cursor, the click effects, the speed spans and the freezes still play. A span that runs into or out of the clip ramps at its edge as at any span's. Absent = the camera plays here as everywhere"
               }
             },
             "additionalProperties": true
@@ -964,7 +968,7 @@
             "type": "object",
             "required": ["step"],
             "additionalProperties": false,
-            "description": "When the layer starts, as a recorder step: the lowering maps the step's moment (meta.steps, SOURCE seconds of its media) through the segments, speed spans and freezes exactly as a source-anchored span is mapped, and adds `offset`. A trim, a speed change or a re-record moves the layer with its step; `start` is the fallback when the step is missing, skipped or cut out (validate says which) and may be left out, and `duration` stays the layer's own. On a cut that replays the step's seconds the layer starts where the step FIRST plays. A text layer's {elapsed} fills with the anchored step's off-camera wait (the meta.skips entry naming the step, else its offCameraMs; a step that waited for nothing reads the nearest earlier wait on its media) as a rounded duration, like \"12 minutes\". Not the re-record `anchor` on spans, which the lowering never reads",
+            "description": "When the layer starts, as a recorder step: the lowering maps the step's moment (meta.steps, SOURCE seconds of its media) through the segments, speed spans and freezes exactly as a source-anchored span is mapped, and adds `offset`. A trim, a speed change or a re-record moves the layer with its step; `start` is the fallback when the step is missing, skipped or cut out (validate says which) and may be left out, and `duration` stays the layer's own. On a cut that replays the step's seconds the layer starts in the pass where the step plays the longest (the first on a tie). A text layer's {elapsed} fills with the anchored step's off-camera wait (the meta.skips entry naming the step, else its offCameraMs; a step that waited for nothing reads the nearest earlier wait on its media) as a rounded duration, like \"12 minutes\". Not the re-record `anchor` on spans, which the lowering never reads",
             "properties": {
               "step": {
                 "type": ["string", "integer"],

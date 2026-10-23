@@ -87,6 +87,16 @@ describe('zoomApexes', () => {
     ])
   })
 
+  it('stills no apex in a clip whose camera rests, and says why when that is every pass', () => {
+    const doc = takeDoc()
+    doc.segments = [{ in: 1, out: 2.5, camera: 'rest' }, ...doc.segments]
+    doc.zoom.push({ id: 'z6', in: 1.2, out: 1.4, level: 2, cx: 0.5, cy: 0.5 })
+    doc.segments[1] = { in: 2.5, out: 6 }
+    const { apexes, skipped } = zoomApexes(doc)
+    expect(apexes.some((a) => a.id === 'z1' || a.id === 'z6')).toBe(false)
+    expect(skipped.find((s) => s.id === 'z6')!.reason).toMatch(/camera rests/)
+  })
+
   it('skips a span the cut keeps nothing of, and one naming a media the take lacks, saying why', () => {
     const doc = takeDoc()
     doc.zoom.push({

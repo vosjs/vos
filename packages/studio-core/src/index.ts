@@ -260,7 +260,11 @@ export {
 export type { LoweredComposition } from './lower/lowerToComposition'
 export {
   REPLAY_EPS,
+  cameraRestWindows,
+  cameraRests,
+  cameraSpanExtents,
   hasReplay,
+  longestOutputExtent,
   momentOutputs,
   replayFlags,
   replayedSeconds,
@@ -439,6 +443,7 @@ export {
   hasElapsed,
   layerStart,
   resolveAnchor,
+  stepMomentToOutput,
   resolveOverlayAnchors,
   sourceMomentToOutput,
   stepElapsedMs,

@@ -301,7 +301,13 @@ export function placeFreezes(
   const replays = replayFlags(rated)
   const pieces: Segment[] = []
   let acc = 0
-  const freezePiece = (f: FreezeSpan, media: string | undefined): void => {
+  // A freeze piece plays its piece's media, and rests the camera where
+  // its piece does.
+  const freezePiece = (
+    f: FreezeSpan,
+    media: string | undefined,
+    camera: string | undefined,
+  ): void => {
     const at = Math.max(HOLD_SOURCE_SPAN, f.at)
     if (!marks.has(f.id)) marks.set(f.id, { t: acc, duration: f.seconds })
     placements.push({ id: f.id, t: acc, duration: f.seconds })
@@ -310,6 +316,7 @@ export function placeFreezes(
       out: at,
       rate: HOLD_SOURCE_SPAN / f.seconds,
       ...(media !== undefined ? { media } : {}),
+      ...(camera !== undefined ? { camera } : {}),
     } as Segment)
     placed.add(f.id)
     acc += f.seconds
@@ -349,22 +356,23 @@ export function placeFreezes(
       )
       .sort((a, b) => a.at - b.at)
     const media = piece.media
+    const camera = (piece as { camera?: string }).camera
     let rest: Segment | null = piece
     for (const f of mine) {
       if (!rest) {
         // The piece is already pushed: a second freeze at its very end
         // (two moments on one frame, a hold beside a freeze) goes after it.
-        freezePiece(f, media)
+        freezePiece(f, media, camera)
       } else if (f.at <= rest.in + 1e-9) {
-        freezePiece(f, media)
+        freezePiece(f, media, camera)
       } else if (f.at < rest.out - 1e-9) {
         push({ ...rest, out: f.at })
-        freezePiece(f, media)
+        freezePiece(f, media, camera)
         rest = { ...rest, in: f.at }
       } else {
         push(rest)
         rest = null
-        freezePiece(f, media)
+        freezePiece(f, media, camera)
       }
     }
     if (rest) push(rest)
