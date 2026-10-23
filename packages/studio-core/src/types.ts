@@ -407,6 +407,11 @@ export interface StepSpan {
   guard?: 'spend'
   confirmed?: boolean
   /**
+   * The script's `zoom` mark on the step: `true` = the beat's payoff, the
+   * step a per-beat plan keeps its zoom on; `false` = never zoom here.
+   */
+  zoom?: boolean
+  /**
    * An `await` step: the wall-clock ms it waited OFF CAMERA. The footage
    * clock stood still meanwhile, so `tStart`..`tEnd` hold only the
    * moments around the cut, which is at `tStart` (`meta.skips[]`).

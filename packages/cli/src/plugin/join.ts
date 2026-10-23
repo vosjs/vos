@@ -1,5 +1,6 @@
 /**
- * `vos join <take> <take|file.mp4>… --out <dir> [--force] [--captions]`:
+ * `vos join <take> <take|file.mp4>… --out <dir> [--keep-edits|--force]
+ * [--captions] [--zooms per-beat]`:
  * several takes (and plain video files) as ONE film, cut in argument
  * order, editable as one document.
  *
@@ -19,10 +20,13 @@
  *
  * The document is assembled in memory (`joinDocs`, pure) and must pass
  * `vos validate` before anything is written; `--out` is refused when it
- * exists, unless `--force` names a take directory to replace.
+ * exists, unless `--force` names a take directory to replace or
+ * `--keep-edits` joins again over it and keeps the edits made since
+ * (rejoin.ts). Every join writes `join.json`, the record a re-join matches
+ * its inputs against.
  */
 import { existsSync, readdirSync, statSync } from 'node:fs'
-import { copyFile, mkdir, rm } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, rm } from 'node:fs/promises'
 import {
   basename,
   dirname,
@@ -57,6 +61,20 @@ import {
 import { EXIT_ERROR, EXIT_OK, createReporter } from './output'
 import { loudnessFact, measureTrack } from './score'
 import { landStepCaptions } from './stepCaptions'
+import { publicScript } from './takeScript'
+import { scriptDrift, scriptDriftLine } from './scriptStep'
+import { oneZoomPerBeat, perBeatLine, zoomModeOf } from './beats'
+import {
+  JOIN_RECORD_NAME,
+  joinRecordOf,
+  partFootage,
+  readJoinRecord,
+  recordFromFootage,
+  rejoinDocs,
+  rejoinLines,
+} from './rejoin'
+import type { PerBeatReport } from './beats'
+import type { RejoinInput } from './rejoin'
 import { loadTake, writeJson } from './take'
 import { lintDoc } from './validateDoc'
 import type {
@@ -96,6 +114,13 @@ export interface JoinPart {
   file?: { path: string; ext: ProbedVideo['ext']; hasAudio?: boolean }
   /** Leave a plain file's own sound out (`--mute`). */
   mute?: boolean
+  /**
+   * The media id this input keeps (a re-join that keeps the edits); absent
+   * = the next free one. Never set on the first input, which is the primary.
+   */
+  id?: string
+  /** Its own media's ids in the joined take, by their id in its document (a re-join). */
+  subIds?: Record<string, string>
 }
 
 /** A file the joined take needs: its source on disk and its key in the new take. */
@@ -116,6 +141,10 @@ export interface JoinPlan {
   /** actions.json per media key (`''` = the primary), for step captions. */
   actions: Map<string, ActionsFile | null>
   notes: string[]
+  /** Each input in argument order: its media id (`''` = the primary) and its own media's. */
+  ids: { id: string; sub: Record<string, string> }[]
+  /** The layers, props and sound clips placed for a later input, by their id: that input's media id. */
+  owners: Map<string, string>
 }
 
 const round3 = (v: number): number => Math.round(v * 1000) / 1000
@@ -204,7 +233,10 @@ function segs0(d: ProjectDoc): { in: number; out: number } | undefined {
  * Assemble the joined document. Pure: no file is read or written; the
  * plan names every file to copy.
  */
-export function joinDocs(parts: readonly JoinPart[]): JoinPlan {
+export function joinDocs(
+  parts: readonly JoinPart[],
+  opts: { reserved?: Iterable<string> } = {},
+): JoinPlan {
   if (parts.length < 2)
     throw new UsageError('vos join needs two inputs or more')
   const [first, ...rest] = parts
@@ -245,7 +277,23 @@ export function joinDocs(parts: readonly JoinPart[]): JoinPlan {
   if (!doc.segments.length)
     doc.segments = [{ in: 0, out: round3(doc.source.meta.durationMs / 1000) }]
 
-  const taken = new Set((doc.media ?? []).map((m) => m.id))
+  // A fresh id never lands on one a kept input holds, or on one a re-join
+  // retired (an id names one media for the life of the take).
+  const taken = new Set([
+    ...(doc.media ?? []).map((m) => m.id),
+    ...(opts.reserved ?? []),
+    ...rest.flatMap((p) => [
+      ...(p.id ? [p.id] : []),
+      ...Object.values(p.subIds ?? {}),
+    ]),
+  ])
+  const ids: JoinPlan['ids'] = [
+    {
+      id: '',
+      sub: Object.fromEntries((doc.media ?? []).map((m) => [m.id, m.id])),
+    },
+  ]
+  const owners = new Map<string, string>()
   const allocate = (): string => {
     let n = 1
     while (taken.has(`m${n}`)) n++
@@ -267,9 +315,16 @@ export function joinDocs(parts: readonly JoinPart[]): JoinPlan {
     // One vocabulary first: a legacy end card is clips, a hold a freeze.
     const d = structuredClone(migrateMotion(part.doc))
     if (part !== rest[rest.length - 1]) dropEnding(d, part.label, notes)
-    const pid = allocate()
+    const pid = part.id ?? allocate()
     const idMap = new Map<string, string>([['', pid]])
-    for (const m of d.media ?? []) idMap.set(m.id, allocate())
+    for (const m of d.media ?? [])
+      idMap.set(m.id, part.subIds?.[m.id] ?? allocate())
+    ids.push({
+      id: pid,
+      sub: Object.fromEntries(
+        (d.media ?? []).map((m) => [m.id, idMap.get(m.id)!]),
+      ),
+    })
     const mapMedia = (k: string | undefined): string =>
       idMap.get(mediaKey(k)) ?? pid
     joined.push({ label: part.label, id: pid })
@@ -326,9 +381,17 @@ export function joinDocs(parts: readonly JoinPart[]): JoinPlan {
       }
     }
 
+    // Its script rides its media, as a pushed take's rides its source, so
+    // its step captions (and the beats they mark) are read from the joined
+    // take alone.
+    const script =
+      !d.source.script && part.actions
+        ? publicScript(part.actions as unknown as Record<string, unknown>)
+        : undefined
     media.push({
       ...d.source,
       id: pid,
+      ...(script ? { script } : {}),
       ...(part.kind === 'file' ? { frame: { ...FULL_BLEED_FRAME } } : {}),
     } as Media)
     for (const m of d.media ?? []) media.push({ ...m, id: idMap.get(m.id)! })
@@ -405,6 +468,7 @@ export function joinDocs(parts: readonly JoinPart[]): JoinPlan {
         next.start = round3(o.start + offset)
       }
       ;(doc.overlays ??= []).push(next)
+      owners.set(next.id, pid)
     }
     if (dropped)
       notes.push(
@@ -424,6 +488,7 @@ export function joinDocs(parts: readonly JoinPart[]): JoinPlan {
         const len = Math.max(0, seg.out - seg.in)
         const fade = round3(Math.min(FILE_SOUND_FADE, len / 4))
         const id = `${pid}-sound`
+        owners.set(id, pid)
         doc.audio = [
           ...doc.audio,
           {
@@ -445,6 +510,7 @@ export function joinDocs(parts: readonly JoinPart[]): JoinPlan {
       }
     }
     for (const ob of d.objects ?? []) {
+      owners.set(ns(ob.id), pid)
       ;(doc.objects ??= []).push({
         ...ob,
         id: ns(ob.id),
@@ -471,14 +537,28 @@ export function joinDocs(parts: readonly JoinPart[]): JoinPlan {
     const r = resolveAnchor(doc, o.anchor, pieces)
     if (r.start !== null) o.start = r.start
   }
-  return { doc, copies: [...copies.values()], media: joined, actions, notes }
+  return {
+    doc,
+    copies: [...copies.values()],
+    media: joined,
+    actions,
+    notes,
+    ids,
+    owners,
+  }
 }
 
-const BOOLEAN_FLAGS = new Set(['json', 'help', 'force', 'captions'])
+const BOOLEAN_FLAGS = new Set([
+  'json',
+  'help',
+  'force',
+  'keep-edits',
+  'captions',
+])
 const MULTI = new Set(['mute'])
 
 const USAGE =
-  'vos join <take> <take|file.mp4>… --out <dir> [--force] [--captions] [--mute <file>]... [--json]'
+  'vos join <take> <take|file.mp4>… --out <dir> [--keep-edits|--force] [--captions] [--zooms per-beat] [--mute <file>]... [--json]'
 
 /** Is `inner` the same path as `outer`, or inside it? */
 const within = (inner: string, outer: string): boolean => {
@@ -534,8 +614,16 @@ export async function cmdJoin(argv: string[]): Promise<number> {
   const r = createReporter(flags.json === true)
   const outArg = strFlag(flags, 'out')
   const force = flags.force === true
+  const keepEdits = flags['keep-edits'] === true
   const withCaptions = flags.captions === true
+  const zoomMode = zoomModeOf(strFlag(flags, 'zooms'))
+  if (zoomMode && typeof zoomMode === 'object')
+    throw new UsageError(zoomMode.error)
   if (positionals.length < 2 || !outArg) throw new UsageError(USAGE)
+  if (force && keepEdits)
+    throw new UsageError(
+      '--force replaces the joined take and --keep-edits keeps its edits; pass one',
+    )
   const out = resolve(outArg)
   const inputs = positionals.map((p) => resolve(p))
   const muted = new Set<number>()
@@ -553,17 +641,27 @@ export async function cmdJoin(argv: string[]): Promise<number> {
         `--out ${outArg} overlaps the input ${positionals[i]}; write the joined take somewhere of its own`,
       )
   }
+  // --keep-edits over a joined take: its edited doc.json is the base.
+  let rejoin = false
   if (existsSync(out)) {
-    if (!force)
+    if (!force && !keepEdits)
       throw new UsageError(
-        `--out ${outArg} exists; pass --force to replace it, or name a new directory`,
+        `--out ${outArg} exists; pass --keep-edits to join again and keep every edit made since (its trims, spans, layers, frame, sound), --force to replace it, or name a new directory`,
       )
-    const isTake =
-      existsSync(join(out, 'doc.json')) || existsSync(join(out, 'meta.json'))
-    if (!isTake && readdirSync(out).length > 0)
-      throw new UsageError(
-        `--force replaces a take directory, and ${outArg} holds other files; name a new directory`,
-      )
+    if (keepEdits) {
+      if (!existsSync(join(out, 'doc.json')))
+        throw new UsageError(
+          `--keep-edits: ${outArg} holds no doc.json, so there are no edits to keep; name a new directory, or --force to replace it`,
+        )
+      rejoin = true
+    } else {
+      const isTake =
+        existsSync(join(out, 'doc.json')) || existsSync(join(out, 'meta.json'))
+      if (!isTake && readdirSync(out).length > 0)
+        throw new UsageError(
+          `--force replaces a take directory, and ${outArg} holds other files; name a new directory`,
+        )
+    }
     if (within(process.cwd(), out))
       throw new UsageError(
         `--out ${outArg} is the working directory or above it; name a new directory`,
@@ -571,26 +669,68 @@ export async function cmdJoin(argv: string[]): Promise<number> {
   }
 
   const parts: JoinPart[] = []
+  const read: RejoinInput[] = []
   for (const [i, p] of positionals.entries()) {
     r.log(`reading ${p}…`)
-    parts.push({
+    const part: JoinPart = {
       ...(await readPart(p)),
       ...(muted.has(i) ? { mute: true } : {}),
+    }
+    parts.push(part)
+    // An input's script edited since it was recorded: said, never refused.
+    const drift =
+      part.kind === 'take'
+        ? scriptDrift(part.doc.source.meta.steps ?? [], part.actions?.steps)
+        : null
+    if (drift) r.warn(`${p}: ${scriptDriftLine(drift)}`)
+    read.push({
+      part,
+      path: relative(out, inputs[i]) || '.',
+      footage: await partFootage(part),
     })
   }
-  const plan = joinDocs(parts)
+  if (keepEdits && !rejoin)
+    r.log(
+      `note: --keep-edits: ${outArg} does not exist yet, so this is a fresh join`,
+    )
+
+  let plan: JoinPlan
+  let rejoined: ReturnType<typeof rejoinDocs> | null = null
+  if (rejoin) {
+    const prev = JSON.parse(
+      await readFile(join(out, 'doc.json'), 'utf8'),
+    ) as ProjectDoc
+    let record = await readJoinRecord(out)
+    if (!record) {
+      record = await recordFromFootage(out, prev)
+      r.log(
+        `note: ${outArg} carries no ${JOIN_RECORD_NAME} (joined by an older vos), so its inputs are matched by the footage it holds; a video file joined then was re-encoded on the way in and reads as new`,
+      )
+    }
+    // The record's paths are relative to the take; the done line says them
+    // from where the command runs.
+    rejoined = rejoinDocs(migrateMotion(prev), record, read, {
+      where: (p) => relative(process.cwd(), resolve(out, p)) || '.',
+    })
+    plan = rejoined.plan
+  } else plan = joinDocs(parts)
+  // A re-join captions and re-plans only the media it added.
+  const only = rejoined ? rejoined.newIds : undefined
+  const labelOf = new Map<string, string>([
+    ['', positionals[0]],
+    ...plan.media.map((m) => [m.id, m.label] as [string, string]),
+  ])
   let captions: StepCaptionReport | null = null
   if (withCaptions) {
-    captions = landStepCaptions(plan.doc, plan.actions)
-    const labelOf = new Map<string, string>([
-      ['', positionals[0]],
-      ...plan.media.map((m) => [m.id, m.label] as [string, string]),
-    ])
+    captions = landStepCaptions(plan.doc, plan.actions, { only })
     for (const k of captions.uncaptioned)
       plan.notes.push(
         `no step in ${labelOf.get(k) ?? `media ${k}`} carries a caption`,
       )
   }
+  let perBeat: PerBeatReport | null = null
+  if (zoomMode === 'per-beat')
+    perBeat = oneZoomPerBeat(plan.doc, plan.actions, { only })
 
   // The result must validate before a byte is written.
   const lint = lintDoc(plan.doc)
@@ -612,8 +752,19 @@ export async function cmdJoin(argv: string[]): Promise<number> {
     c.from = found.file
   }
 
-  if (existsSync(out)) await rm(out, { recursive: true, force: true })
-  await mkdir(out, { recursive: true })
+  if (rejoined) {
+    // In place: everything else in the take (its vos.json, a score's
+    // track, renders) stays; a media that went takes its directory.
+    for (const k of rejoined.dropped) {
+      if (!/^[A-Za-z0-9_-]+$/.test(k)) continue
+      const dir = join(out, k)
+      if (existsSync(dir) && statSync(dir).isDirectory())
+        await rm(dir, { recursive: true, force: true })
+    }
+  } else {
+    if (existsSync(out)) await rm(out, { recursive: true, force: true })
+    await mkdir(out, { recursive: true })
+  }
   for (const c of plan.copies) {
     const to = join(out, c.to)
     await mkdir(dirname(to), { recursive: true })
@@ -631,7 +782,11 @@ export async function cmdJoin(argv: string[]): Promise<number> {
   // The sound the join added carries what its file measures, so a target
   // can be set on it later without decoding it again. A file that cannot
   // be measured here is copied all the same, and said.
-  const added = new Set(plan.media.map((m) => `${m.id}-sound`))
+  const added = new Set(
+    plan.media
+      .filter((m) => !only || only.has(m.id))
+      .map((m) => `${m.id}-sound`),
+  )
   for (const clip of doc.audio) {
     if (!added.has(clip.id) || !isTakeRelativeKey(clip.key)) continue
     try {
@@ -653,16 +808,52 @@ export async function cmdJoin(argv: string[]): Promise<number> {
   if (parts[0].actions)
     await writeJson(join(out, 'actions.json'), parts[0].actions, true)
   await writeJson(join(out, 'doc.json'), doc, true)
+  await writeJson(
+    join(out, JOIN_RECORD_NAME),
+    joinRecordOf(read, plan.ids),
+    true,
+  )
 
   const extents = segmentOutputExtents(doc)
   const length = extents.length ? extents[extents.length - 1].end : 0
   for (const n of plan.notes) r.log(`note: ${n}`)
   for (const w of lint.warnings) r.log(`warning: ${w}`)
-  const captionLine = captions
-    ? `\n  ${captions.landed.length} step caption${captions.landed.length === 1 ? '' : 's'} landed` +
-      (captions.skipped.length
-        ? `; not landed: ${captions.skipped.join('; ')}`
-        : '')
+  // A re-join captions and re-plans its new inputs alone: say which, or
+  // that there were none, never a count over inputs it did not look at.
+  // A re-join captions and re-plans its new inputs alone: say which, or
+  // that there were none, never a count over inputs it did not look at;
+  // and an input with no recorded steps (a video file) is said as such.
+  const stepCount = (id: string): number =>
+    (doc.media ?? []).find((m) => m.id === id)?.meta.steps?.length ?? 0
+  const newMedia = only ? plan.media.filter((m) => only.has(m.id)) : []
+  const stepped = newMedia.filter((m) => stepCount(m.id) > 0)
+  const bare = newMedia.filter((m) => stepCount(m.id) === 0)
+  const bareWords = bare.length
+    ? `${bare.map((m) => m.label).join(', ')} ${bare.length === 1 ? 'has' : 'have'} no recorded steps`
+    : ''
+  const onNew = only ? ` on ${stepped.map((m) => m.label).join(', ')}` : ''
+  const captionLine = !captions
+    ? ''
+    : only && !newMedia.length
+      ? '\n  --captions: no new input to caption (a re-join captions only the inputs it adds; the kept ones keep their captions as edited)'
+      : only && !stepped.length
+        ? `\n  --captions: ${bareWords}, so there is nothing to caption`
+        : `\n  ${captions.landed.length} step caption${captions.landed.length === 1 ? '' : 's'} landed${onNew}` +
+          (captions.skipped.length
+            ? `; not landed: ${captions.skipped.join('; ')}`
+            : '') +
+          (bareWords ? `; ${bareWords}` : '')
+  const beatLine = !perBeat
+    ? ''
+    : only && !newMedia.length
+      ? '\n  --zooms per-beat: no new input to re-plan (a re-join re-plans only the inputs it adds; the kept ones keep their zooms as edited)'
+      : only && !stepped.length
+        ? `\n  --zooms per-beat: ${bareWords}, so there are no beats to plan`
+        : `\n  ${only ? `${stepped.map((m) => m.label).join(', ')}: ` : ''}${perBeatLine(perBeat, (k) => labelOf.get(k) ?? `media ${k}`)}${bareWords ? `; ${bareWords}` : ''}`
+  const rejoinText = rejoined
+    ? rejoinLines(rejoined.report)
+        .map((l) => `\n  ${l}`)
+        .join('')
     : ''
   r.done(
     {
@@ -675,8 +866,10 @@ export async function cmdJoin(argv: string[]): Promise<number> {
       notes: plan.notes,
       warnings: lint.warnings,
       ...(captions ? { captions } : {}),
+      ...(perBeat ? { perBeat } : {}),
+      ...(rejoined ? { keptEdits: rejoined.report } : {}),
     },
-    `Joined ${parts.length} inputs → ${out} (${length.toFixed(1)}s, ${doc.segments.length} segments)\n  ${positionals[0]} is the primary; ${plan.media.map((m) => `${m.label} → ${m.id}`).join(', ')}${captionLine}\n  Next: vos frames ${outArg} --times 0,25%,50%,75%,100%; vos render ${outArg}`,
+    `${rejoined ? 'Joined again, keeping the edits:' : 'Joined'} ${parts.length} inputs → ${out} (${length.toFixed(1)}s, ${doc.segments.length} segments)\n  ${positionals[0]} is the primary; ${plan.media.map((m) => `${m.label} → ${m.id}`).join(', ')}${rejoinText}${captionLine}${beatLine}\n  Next: vos info ${outArg}; vos frames ${outArg} --times 0,25%,50%,75%,100%; vos render ${outArg}`,
   )
   return EXIT_OK
 }
