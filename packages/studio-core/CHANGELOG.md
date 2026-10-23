@@ -1,5 +1,12 @@
 # @vosjs/studio-core
 
+## 0.45.1
+
+### Patch Changes
+
+- 3857bfa: A text layer's box arrives with its words: under a per-unit entrance (`unit: 'word'`, `'line'` or `'char'`) the box follows the earliest unit's delay, seconds and ease instead of standing empty at full strength until the first word shows. A typewriter's box is still there from its first frame, and a block entrance fades the box with the block as before.
+- 3857bfa: Across a `slide` transition the cursor dot rides the card that holds more of the frame, moved with it, instead of travelling the straight line between the two cards' points, which crossed the bare ground between them. Fade and scale transitions keep the single dot that eases from the outgoing card's point to the incoming's.
+
 ## 0.45.0
 
 ### Minor Changes
