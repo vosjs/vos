@@ -391,6 +391,13 @@ export interface StepSpan {
    */
   text?: string
   /**
+   * What an `expect` or an `await` with a `js` expression last answered,
+   * as JSON (at most 2 KB, else that JSON cut short as a string): the
+   * app's own state at that moment, which the frames cannot say. Absent
+   * when the expression answered nothing JSON can hold.
+   */
+  value?: unknown
+  /**
    * The step carries a guard (`"spend"`): `confirmed` says the recording
    * pressed it because the command named it; a rehearsal only hovers one
    * and leaves `confirmed` absent.

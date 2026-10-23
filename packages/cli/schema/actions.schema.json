@@ -639,7 +639,7 @@
             "type": "object",
             "required": ["do"],
             "additionalProperties": false,
-            "description": "Check the page is as the flow expects, on camera, with no cursor move: exactly one of selector (visible; with enabled, enabled or disabled), text (some visible text contains it) or gone (no longer visible). A condition that never holds is a skip with its reason, which --strict turns into exit 2.",
+            "description": "Check the page is as the flow expects, on camera, with no cursor move: exactly one of selector (visible; with enabled, enabled or disabled), text (some visible text contains it), gone (no longer visible) or js (an expression evaluated in the page: holds when its value is truthy, or with equals when it equals that value; for state an app keeps in script, such as a canvas's shapes). A condition that never holds is a skip with its reason (a js check names the value it last got), which --strict turns into exit 2. A js check's last value is kept on meta.steps[].value. A hosted take refuses js.",
             "oneOf": [
               {
                 "required": ["selector"]
@@ -649,6 +649,9 @@
               },
               {
                 "required": ["gone"]
+              },
+              {
+                "required": ["js"]
               }
             ],
             "properties": {
@@ -670,6 +673,14 @@
               "enabled": {
                 "type": "boolean",
                 "description": "with selector: wait for the element to be enabled (true) or disabled (false)"
+              },
+              "js": {
+                "type": "string",
+                "minLength": 1,
+                "description": "a JavaScript expression evaluated in the page (a promise is awaited): the check holds when its value is truthy, or, with equals, when its value equals that one"
+              },
+              "equals": {
+                "description": "with js: the value the expression must answer, compared as JSON"
               },
               "timeout": {
                 "type": "number",
@@ -706,8 +717,6 @@
               "until": {
                 "type": "object",
                 "additionalProperties": false,
-                "minProperties": 1,
-                "maxProperties": 1,
                 "properties": {
                   "selector": {
                     "type": "string",
@@ -720,8 +729,91 @@
                   "gone": {
                     "type": "string",
                     "minLength": 1
+                  },
+                  "js": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "a JavaScript expression evaluated in the page (a promise is awaited): holds when its value is truthy, or, with equals, when its value equals that one. A hosted take refuses it."
+                  },
+                  "equals": {
+                    "description": "with js: the value the expression must answer, compared as JSON"
                   }
-                }
+                },
+                "oneOf": [
+                  {
+                    "required": ["selector"],
+                    "not": {
+                      "anyOf": [
+                        {
+                          "required": ["text"]
+                        },
+                        {
+                          "required": ["gone"]
+                        },
+                        {
+                          "required": ["js"]
+                        },
+                        {
+                          "required": ["equals"]
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "required": ["text"],
+                    "not": {
+                      "anyOf": [
+                        {
+                          "required": ["selector"]
+                        },
+                        {
+                          "required": ["gone"]
+                        },
+                        {
+                          "required": ["js"]
+                        },
+                        {
+                          "required": ["equals"]
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "required": ["gone"],
+                    "not": {
+                      "anyOf": [
+                        {
+                          "required": ["selector"]
+                        },
+                        {
+                          "required": ["text"]
+                        },
+                        {
+                          "required": ["js"]
+                        },
+                        {
+                          "required": ["equals"]
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "required": ["js"],
+                    "not": {
+                      "anyOf": [
+                        {
+                          "required": ["selector"]
+                        },
+                        {
+                          "required": ["text"]
+                        },
+                        {
+                          "required": ["gone"]
+                        }
+                      ]
+                    }
+                  }
+                ]
               },
               "timeout": {
                 "type": "number",
