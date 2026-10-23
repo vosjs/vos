@@ -1,5 +1,30 @@
 # @vosjs/render-core
 
+## 0.9.0
+
+### Minor Changes
+
+- 1cbfe14: `expect` and `await` check what an app keeps in script rather than in the DOM. `{ "do": "expect", "js": "window.app.count() === 14" }` holds when the expression, evaluated in the page (a promise is awaited), is truthy; with `equals` (`"js": "window.app.count()", "equals": 14`) it holds when the value equals that one, compared as JSON, and a miss says what the app had: ``js `window.app.count()` was 15, not 14, for 5 s``. An expression that throws is read again until the timeout and a miss says what it threw. `await` takes the same in `until`. The value the expression last answered is kept on the step as `meta.steps[].value` (`StepSpan.value`, its JSON at most 2 KB) and printed beside the step in a rehearsal. Timeouts, skips and `--strict` are an `expect`'s and an `await`'s; the CLI refuses an expression that does not parse before a browser opens (`vos validate actions.json` too), and `hostedRefusals` refuses a `js` check, since a hosted browser runs no code a submitted script hands it. `vos actions script` says a `js` check as the console expression to run.
+- e15e211: `actions.json` takes `peers`: other people on the page, off camera. Each peer is a browser context of its own (signed in from its own `storageState`, or signed out) on the take's `url` or its own, driven by its own steps: `wait`, `move`, `hover`, `click`, `type`, `press`, `scroll`, `drag` (an inline `path`) and `expect`, in the take's own step shapes. A peer step starts `with` a take step (as it starts) or `after` one (as it ends), named by id, else right after the peer's previous step. Only the take's page is filmed and only its own steps make the cursor track; what a peer does reaches the footage through the app's own sync. A peer's pointer and typing are paced on the take's clock, every peer step is bounded, and a miss is a skip listed with the take's (`peer` set), which `--strict` fails on. A peer that lands on a sign-in, or a storage state that is not there, refuses the take before anything is captured; a step still waiting when the take's steps end never runs and is said. `meta.peers[]` (`PeerTrack` in studio-core) places each peer step in the take's footage seconds, the done event carries `peers`, a rehearsal lists them, `vos actions script` says them as a second person's beats, a pushed script names a peer's storage state by its file name only, and `hostedRefusals` refuses peers. `RecordOpts.peerStorageState` resolves a peer's sign-in; `SkippedStep.peer` marks a peer's miss.
+- 8602e80: `actions.json` steps take a `zoom` mark. On a gesture (click, drag, type, paste, press, hover), `"zoom": true` marks the step as its beat's payoff, the step `vos plan --zooms per-beat` keeps its zoom on, and `"zoom": false` means never zoom here. `validateActions` checks it, the recorder keeps it on `meta.steps[].zoom`, the pushed script carries it and `vos fetch` writes it back, and `vos actions script` says where the cut zooms in. A plain `vos plan` rejects the planner's proposal on a `false` step for good, and names a `true` step it proposed nothing for: a mark never invents a zoom. A mark is read from actions.json first, so one added after recording takes effect on the next plan without recording again.
+
+### Patch Changes
+
+- 1cbfe14: A pasted file travels with its take. `vos push` sends every file the take's `actions.json` pastes and lists them on the document as `source.scriptFiles` (the name the script pastes it by → where its bytes are): a picture through the same upload door as every other file the document names, a text file inside the document as a `data:` address (at most 256 kB). `vos fetch --media` and `vos pull --media` write each one back beside `actions.json` under that name, never over a file already there, and record a hosted one in `vos.json` like the footage, so a fetched take records again from anywhere. Only a name the document's own script pastes is written, and only from the platform's file door or the document itself. A paste file the take does not hold is said and left out; one that resolves outside the take directory is refused before anything is sent (exit 2). A claimable push carries a pasted text file and a pasted picture the take fetched unchanged, and says what it leaves out. A drag's `path` file needed nothing: the take's script already carries its points inline. The recorder's message for a missing paste file says the fetch now brings it.
+- e15e211: A peer's `expect` keeps what its check last answered on its step (`meta.peers[].steps[].value`), as the take's own steps do: when the check reads the app's state, the value says what the peer saw at that moment, which no frame of the take can, since the peer's page is never filmed. JSON, at most 2 KB, else that JSON cut short as a string.
+- e15e211: A `zoom` mark on a peer step is refused in words, `true` or `false`: a zoom mark picks a moment on the cursor track, and a peer's steps are never on it.
+- Updated dependencies [4d4c17b]
+- Updated dependencies [1cbfe14]
+- Updated dependencies [4d4c17b]
+- Updated dependencies [3465137]
+- Updated dependencies [1cbfe14]
+- Updated dependencies [e15e211]
+- Updated dependencies [e15e211]
+- Updated dependencies [4d4c17b]
+- Updated dependencies [4d4c17b]
+- Updated dependencies [8602e80]
+  - @vosjs/studio-core@0.45.0
+
 ## 0.8.0
 
 ### Minor Changes
