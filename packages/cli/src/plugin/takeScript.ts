@@ -13,7 +13,7 @@
 import { existsSync } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import type { ProjectDoc } from '@vosjs/studio-core'
 
 /** The script as an object, or null for anything that is not one. */
@@ -52,6 +52,8 @@ export function scriptToWrite(
 export function publicScript(
   script: Record<string, unknown>,
 ): Record<string, unknown> {
+  const peers = publicPeers(script.peers)
+  if (peers) script = { ...script, peers }
   const setup = script.setup
   if (!Array.isArray(setup)) return script
   return {
@@ -72,6 +74,21 @@ export function publicScript(
       return s
     }),
   }
+}
+
+/**
+ * A peer's storage state named by its file name only: the path is this
+ * machine's (a home directory, a user name in it), and a re-record
+ * elsewhere names its own.
+ */
+function publicPeers(peers: unknown): unknown[] | null {
+  if (!Array.isArray(peers)) return null
+  return peers.map((p: unknown) => {
+    if (!p || typeof p !== 'object') return p
+    const peer = p as Record<string, unknown>
+    if (typeof peer.storageState !== 'string') return peer
+    return { ...peer, storageState: basename(peer.storageState) }
+  })
 }
 
 /** Embed the take directory's actions.json into the document about to be pushed. */

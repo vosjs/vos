@@ -426,6 +426,13 @@ notices are information, never a --strict failure. A click, press or type with "
 something real: --dry-run hovers it and never presses, and record presses
 it only with --confirm <id> (repeatable), refusing before any capture
 otherwise. --hosted refuses guarded and download steps.
+peers in actions.json add other people OFF camera: each its own browser
+context (storageState, by a path from the actions file) on the same url,
+its steps started with a take step or after one (by id); only the take's
+page is filmed and only its steps make the cursor track, so a peer's work
+reaches the footage through the app's own sync. A peer takes wait, move,
+hover, click, type, press, scroll, drag and expect; its misses are skips
+(--strict fails on them); meta.peers[] places its steps; --hosted refuses it.
 Every step is bounded: a call into a page that stopped answering gives up
 at the step's own timeout (an expect's or an await's, or a gesture's plan
 plus 30 s), the step is a skip with the real time it took, and --strict
@@ -785,7 +792,7 @@ function stepReportNote(
 
 /** A skipped step in words: the reason when it has one, else the selector that never appeared. */
 function skippedLine(s: SkippedStep): string {
-  return `#${s.step}${s.id ? ` ${s.id}` : ''} ${s.do}${s.reason ? `: ${s.reason}` : ` ${s.selector}`}`
+  return `${s.peer ? `peer ${s.peer} ` : ''}#${s.step}${s.id ? ` ${s.id}` : ''} ${s.do}${s.reason ? `: ${s.reason}` : ` ${s.selector}`}`
 }
 
 /**
@@ -1163,6 +1170,17 @@ async function cmdRecord(argv: string[]): Promise<number> {
           lines.push(
             `  – #${i}${step.id ? ` (${step.id})` : ''} ${step.do}  not run`,
           )
+      // Each peer's steps, off camera: what ran, what missed, what never did.
+      for (const pr of rec.peers) {
+        const peer = actions.peers?.find((p) => p.id === pr.id)
+        lines.push(`  peer ${pr.id} (off camera):`)
+        for (const ps of pr.steps)
+          lines.push(
+            `    ${ps.skipped ? '✗' : '✓'} #${ps.step}${ps.id ? ` (${ps.id})` : ''} ${ps.do}${ps.selector ? ` ${ps.selector}` : ''}${ps.with ? `  with ${ps.with}` : ps.after ? `  after ${ps.after}` : ''}${ps.skipped ? `  ${ps.reason ?? 'NOT FOUND'}` : ''}${ps.late ? '  (late)' : ''}`,
+          )
+        for (const i of pr.notRun)
+          lines.push(`    – #${i} ${peer?.steps[i]?.do ?? 'step'}  not run`)
+      }
       const resolved = steps.filter((s) => !s.skipped).length
       // A rehearsal is always strict; a first load that never went
       // network-idle is a note, as in a take.
@@ -1217,6 +1235,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
           exposures: rec.exposures,
           notices: rec.notices,
           masks: rec.masks,
+          ...(rec.peers.length ? { peers: rec.peers } : {}),
         },
         `${failed ? 'REHEARSAL FAILED' : 'Rehearsal passed'}: ${resolved}/${actions.steps.length} steps resolved in ${((Date.now() - started) / 1000).toFixed(1)}s${rec.navTimeout ? ' (the first load never reached networkidle)' : rec.ready.capped ? ' (the first page never stopped changing)' : ''}\n${lines.join('\n')}\n  ${maskMisses(rec).length ? `MASK hid nothing: ${maskMisses(rec).join(', ')} (the selector reached no element). ` : ''}${rec.stopped ? `STOPPED: ${rec.stopped.reason}. ` : ''}${failed ? 'Fix the script, rehearse again, then record.' : `Rects are capture px (the step rects a pin or a callout reads). Next: vos record --actions ${actionsPath} --out ${nextOut}${carried ? ` ${carried}` : ''} --strict${guardNote}`}${exposureNote(rec)}${noticeNote(rec)}`,
       )
@@ -1332,6 +1351,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
         ...(rec.media.length ? { media: rec.media } : {}),
         overruns: rec.overruns,
         pageErrors: rec.pageErrors,
+        ...(rec.peers.length ? { peers: rec.peers } : {}),
         ...(strictFail ? { strictFailed: true } : {}),
       },
       strictFail

@@ -871,6 +871,86 @@
           }
         ]
       }
+    },
+    "peers": {
+      "type": "array",
+      "maxItems": 4,
+      "description": "Other people on the page, OFF CAMERA: each a browser context of its own (its own storage state, so its own user, or signed out) on the same url, driven by its own steps. Only the take's page is filmed and only the take's steps make the cursor track; what a peer does reaches the footage through the app's own sync (its presence, its remote cursors, the shape it drew). A peer step starts with a take step (`with`, as it starts) or after one (`after`, as it ends), named by id, else right after the peer's previous step (the first, as the camera rolls). The take never waits on a peer: wait for what the peer's work shows with the take's own expect or await. A hosted take refuses peers.",
+      "items": {
+        "type": "object",
+        "required": ["id", "steps"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$",
+            "description": "a short word lines and meta.peers name the peer by"
+          },
+          "url": {
+            "type": "string",
+            "description": "the page the peer opens (http or https); absent, the take's url"
+          },
+          "viewport": {
+            "type": "object",
+            "required": ["width", "height"],
+            "properties": {
+              "width": {
+                "type": "number"
+              },
+              "height": {
+                "type": "number"
+              }
+            }
+          },
+          "storageState": {
+            "type": "string",
+            "minLength": 1,
+            "description": "a Playwright storage state file (the second person's sign-in), by a path from the actions file's directory or an absolute one. Opened by the browser only: never copied into the take, never uploaded; a pushed script keeps its file name only. Absent, the peer is signed out. A peer that lands on a sign-in refuses the take."
+          },
+          "steps": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 200,
+            "description": "The peer's steps: the take's own step shapes (see steps), for wait, move, hover, click, type, press, scroll, drag (path inline only) and expect, without guard, read, caption or settle, plus when each starts. Every step is bounded like a take step; a miss is a skip listed with the take's (peer set), which --strict fails on.",
+            "items": {
+              "type": "object",
+              "required": ["do"],
+              "properties": {
+                "do": {
+                  "enum": [
+                    "wait",
+                    "move",
+                    "hover",
+                    "click",
+                    "type",
+                    "press",
+                    "scroll",
+                    "drag",
+                    "expect"
+                  ]
+                },
+                "with": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "start as the take's step with this id starts: the two run together"
+                },
+                "after": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "start once the take's step with this id has ended"
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "not": {
+                "required": ["with", "after"]
+              }
+            }
+          }
+        }
+      }
     }
   },
   "$defs": {

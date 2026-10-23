@@ -61,6 +61,12 @@ export interface ShotList {
   /** the take's asked length, from the script's own pacing */
   aboutS: number
   setup: number
+  /**
+   * What each other person does (the script's `peers`), as beats tied to
+   * the take's own: a second pair of hands, in their own browser, on the
+   * same page.
+   */
+  peers?: { id: string; lines: string[] }[]
 }
 
 /** A selector as a person reads it: the text it names, or the selector itself. */
@@ -194,7 +200,15 @@ export function shotList(actions: ActionsFile): ShotList {
   const beats: ShotBeat[] = []
   let pendingHold = 0
   let total = 0
+  // Which beat a take step is (or, for a wait, the beat it holds), so a
+  // peer's step can say when it happens.
+  const beatOfId = new Map<string, number>()
   for (const step of actions.steps) {
+    if (step.id)
+      beatOfId.set(
+        step.id,
+        Math.max(1, beats.length + (step.do === 'wait' ? 0 : 1)),
+      )
     total += askedMs(step)
     if (step.do === 'wait') {
       // A wait after a beat is that beat's hold; a leading wait is the
@@ -212,6 +226,21 @@ export function shotList(actions: ActionsFile): ShotList {
     beats.push(beat)
   }
   void pendingHold
+  const peers = (actions.peers ?? []).map((peer) => ({
+    id: peer.id,
+    lines: peer.steps
+      .map((step) => {
+        const line = step.do === 'wait' ? `Wait ${s1(step.ms)} s` : beatOf(step)
+        if (!line) return null
+        const when = step.with
+          ? `As beat ${beatOfId.get(step.with) ?? '?'} starts: `
+          : step.after
+            ? `Once beat ${beatOfId.get(step.after) ?? '?'} is done: `
+            : ''
+        return `${when}${line}`
+      })
+      .filter((l): l is string => l !== null),
+  }))
   return {
     url: actions.url,
     viewport: actions.viewport,
@@ -219,6 +248,7 @@ export function shotList(actions: ActionsFile): ShotList {
     // gestures the recorder adds around each ask: about a second a beat
     aboutS: Math.round((total + beats.length * 1000) / 1000),
     setup: actions.setup?.length ?? 0,
+    ...(peers.length ? { peers } : {}),
   }
 }
 
@@ -239,6 +269,13 @@ export function formatShotList(list: ShotList): string {
     const hold =
       b.holdS && b.holdS >= 0.4 ? ` Hold ${s1(b.holdS * 1000)} s.` : ''
     out.push(`${b.n}. ${b.line}.${hold}`)
+  }
+  for (const peer of list.peers ?? []) {
+    out.push('')
+    out.push(
+      `A second person (${peer.id}) does this at the same time, in their own browser on the same page; their screen is not recorded, the app shows what they do:`,
+    )
+    peer.lines.forEach((l, i) => out.push(`  ${peer.id}${i + 1}. ${l}.`))
   }
   out.push('')
   out.push(
