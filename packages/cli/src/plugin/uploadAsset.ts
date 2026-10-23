@@ -103,6 +103,12 @@ export interface UploadOptions {
   /** The take's length, so a refusal for one past the hosted cap arrives
    * before anything is sent. The platform measures the file either way. */
   durationSeconds?: number
+  /**
+   * The bytes are about to be sent: the platform does not hold them yet.
+   * Never called for bytes it already holds, so a caller says "uploading"
+   * here and never before.
+   */
+  onSending?: (parts: number) => void
   /** Parts landed, for a caller that reports a long upload's progress. */
   onPart?: (done: number, total: number) => void
   /** File the asset into one of the caller's folders. */
@@ -197,6 +203,7 @@ export async function uploadAsset(
   }
   const parts = planParts(bytes.length, partBytes)
   const etags: { partNumber: number; etag: string }[] = []
+  opts.onSending?.(parts.length)
 
   try {
     for (const part of parts) {
