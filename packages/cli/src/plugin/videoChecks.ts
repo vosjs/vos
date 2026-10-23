@@ -15,8 +15,11 @@
 /** A full-frame change: the mean absolute difference (0..1) at or above this. */
 export const SCENE_CHANGE_AT = 0.12
 
-/** A 4 px cell of the small frame has changed when its own mean difference reaches this. */
+/** A cell of the small frame has changed when its own mean difference reaches this. */
 export const CELL_CHANGED_AT = 0.03
+
+/** A cell has changed by a lot when its own mean difference reaches this. */
+export const CELL_STRONG_AT = 0.06
 
 /** The window a cut is counted in, seconds. */
 export const SCENE_WINDOW = 5
@@ -57,6 +60,25 @@ export const ISOLATED_CHANGE_AT = 0.03
 export const ISOLATED_SPIKE = 8
 export const ISOLATED_COVERAGE = 0.25
 
+/**
+ * A change that stands alone is a cut too when what changed by a lot is
+ * SCATTERED over the frame: its cells (CELL_STRONG_AT) are at least
+ * SCATTER_SHARE of the frame and the box around them at least SCATTER_BOX.
+ * A light, sparse picture (outlined boxes and notes on white) cut to
+ * another view changes little on average, and over less than a quarter of
+ * the frame, since most of both frames is the same ground; an app's own
+ * change in one frame (a panel opening, an embed appearing, a selection
+ * tint) is one block, or a change too faint to count.
+ */
+export const SCATTER_SHARE = 0.1
+export const SCATTER_BOX = 0.22
+
+/** How the cells that changed by a lot lie: their share of the frame, and the box around them. */
+export interface SceneScatter {
+  share: number
+  box: number
+}
+
 export interface SceneChange {
   /** Output seconds of the first frame after the change. */
   time: number
@@ -72,13 +94,15 @@ export interface SceneChange {
  * that changed). A frame is a cut when it is the peak of its run, so a cut
  * that spreads over two decoded frames counts once, and either a large
  * change that stands out from its neighbours (SCENE_CHANGE_AT,
- * SCENE_SPIKE), or a smaller one that stands alone (ISOLATED_*). A camera
- * move is neither.
+ * SCENE_SPIKE), or a smaller one that stands alone (ISOLATED_*) over a
+ * quarter of the frame or scattered across it (SCATTER_*). A camera move
+ * is neither.
  */
 export function sceneChanges(
   times: readonly number[],
   changes: readonly number[],
   coverage?: readonly number[],
+  scatter?: readonly SceneScatter[],
 ): SceneChange[] {
   const out: SceneChange[] = []
   for (let i = 1; i < changes.length; i++) {
@@ -98,9 +122,12 @@ export function sceneChanges(
     const most = around.length ? around[around.length - 1] : 0
     const share = coverage ? coverage[i] : 1
     const standsOut = c >= SCENE_CHANGE_AT && c >= SCENE_SPIKE * mid
+    const spread = scatter?.[i]
+    const scattered =
+      !!spread && spread.share >= SCATTER_SHARE && spread.box >= SCATTER_BOX
     const standsAlone =
       c >= ISOLATED_CHANGE_AT &&
-      share >= ISOLATED_COVERAGE &&
+      (share >= ISOLATED_COVERAGE || scattered) &&
       c >= ISOLATED_SPIKE * most
     if (!standsOut && !standsAlone) continue
     out.push({
