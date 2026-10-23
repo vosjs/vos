@@ -35,6 +35,7 @@ import {
   readSyncState,
   requireCredential,
   resolveCredential,
+  mintAt,
   serverWarnings,
   writeCredential,
   writeSyncState,
@@ -1014,7 +1015,7 @@ export async function cmdLogin(argv: string[]): Promise<number> {
   // Older origin without the device flow — the pre-device-flow paste prompt.
   if (!process.stdin.isTTY) {
     throw new UsageError(
-      'vos login --key <vos_sk_…> (headless), or run interactively — mint a key at https://vos.so/app/api',
+      `vos login --key <vos_sk_…> (headless), or run interactively — mint a key at ${mintAt(origin)}`,
     )
   }
   const rl = createInterface({ input: process.stdin, output: process.stderr })
@@ -1036,7 +1037,7 @@ async function storeKey(
   if (probe.status === 401 || probe.status === 403) {
     throw new Error(apiError('validate key', probe))
   }
-  const path = writeCredential(key)
+  const path = writeCredential(key, origin)
   r.done(
     { path, origin },
     `Signed in — key stored at ${path} (used by every vos platform verb)`,

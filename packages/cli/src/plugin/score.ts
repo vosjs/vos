@@ -434,6 +434,12 @@ export interface Measured {
   lufs: number | null
   /** Sample peak, dBFS; null for digital silence. */
   peakDb: number | null
+  /**
+   * The gated meter's per-channel K-weighted energies, one per
+   * `SUB_BLOCK_SECONDS`: what a stretch of the file measures is read from
+   * them (`spanLoudness`) without decoding it again.
+   */
+  energies: number[][]
   /** Which decoder read it. */
   via: 'node' | 'browser'
 }
@@ -455,6 +461,7 @@ function meters(sampleRate: number, channels: number) {
         blocks: curve.finish(),
         lufs: l.integrated,
         peakDb: l.samplePeakDb,
+        energies: g.energies,
       }
     },
   }
@@ -563,6 +570,24 @@ async function measureInBrowser(path: string): Promise<Measured> {
 /** Decode and measure a track file. */
 export async function measureTrack(path: string): Promise<Measured> {
   return (await measureInNode(path)) ?? (await measureInBrowser(path))
+}
+
+/**
+ * The integrated loudness of the stretch `[from, to)` of a measured file,
+ * seconds: what a clip that plays only that stretch sounds like. Null for
+ * silence.
+ */
+export function spanLoudness(
+  m: Pick<Measured, 'energies'>,
+  from: number,
+  to: number,
+): number | null {
+  const a = Math.max(0, Math.floor(from / SUB_BLOCK_SECONDS))
+  const b = Math.max(a + 1, Math.ceil(to / SUB_BLOCK_SECONDS))
+  return loudnessFromEnergies(
+    m.energies.map((e) => e.slice(a, b)),
+    0,
+  ).integrated
 }
 
 /** What a measurement stores beside the clip it was taken for. */
@@ -791,9 +816,16 @@ export async function cmdScore(argv: string[]): Promise<number> {
   }
   const label = measured.unit === 'LUFS' ? 'LUFS, K-weighted' : 'dBFS RMS'
   const played = clipGain(clip)
+  // What the film hears is the stretch it plays, not the whole file.
+  const heard = spanLoudness(measured, plan.in, plan.out)
+  /** The loudness the film hears, LUFS: the stretch at the gain it plays at. */
+  const playsAt =
+    heard !== null && played.gain > 0
+      ? Math.round((heard + 20 * Math.log10(played.gain)) * 10) / 10
+      : null
   const levelWords =
     played.basis === 'normalize' && measured.lufs !== null
-      ? `at about ${(measured.lufs + 20 * Math.log10(played.gain)).toFixed(1)} LUFS (target ${normalize}, --gain ${gain} as a trim on it; the track measures ${measured.lufs.toFixed(1)} LUFS, so gain ${played.gain.toFixed(2)}${played.capped === 'peak' ? ', held there so its peak stays under -1 dBFS' : played.capped ? ', the most a target lifts' : ''})`
+      ? `at about ${(playsAt ?? measured.lufs + 20 * Math.log10(played.gain)).toFixed(1)} LUFS over the stretch it plays (target ${normalize}, --gain ${gain} as a trim on it; the whole track measures ${measured.lufs.toFixed(1)} LUFS${heard !== null ? `, that stretch ${heard.toFixed(1)}` : ''}, so gain ${played.gain.toFixed(2)}${played.capped === 'peak' ? ', held there so its peak stays under -1 dBFS' : played.capped ? ', the most a target lifts' : ''})`
       : `at gain ${gain}`
   const swellLine = swell
     ? `swell: +${swell.rise.toFixed(1)} dB from ${swell.from.toFixed(1)}s, arriving ${swell.at.toFixed(1)}s into the track (peak ${swell.peakLevel.toFixed(1)} ${measured.unit} at ${swell.peak.toFixed(1)}s)`
@@ -811,6 +843,7 @@ export async function cmdScore(argv: string[]): Promise<number> {
       swell,
       at: at?.at ?? null,
       clip,
+      playsAt,
       notes: plan.notes,
       envelope,
     },

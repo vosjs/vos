@@ -13,6 +13,8 @@
  * How the recorder APPLIES a cap (reached, clamp, the words) is mechanism
  * and lives in `@vosjs/render-core/record` (AN4); re-exported here.
  */
+import { bearerFor } from './platform'
+
 export {
   capReached,
   cappedLine,
@@ -52,7 +54,7 @@ export async function hostedRecordingCap(
   try {
     const res = await fetchImpl(`${origin.replace(/\/+$/, '')}/api/limits`, {
       signal: ctl.signal,
-      ...(key ? { headers: { authorization: `Bearer ${key}` } } : {}),
+      headers: bearerFor(key, origin),
     })
     if (!res.ok) return null
     return parseHostedCap(await res.json())

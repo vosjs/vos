@@ -15,7 +15,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { writeFileSafeSync } from './safeWrite'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { UsageError } from './args'
 import { detectHostAgent } from './hostAgent'
 import type { Env } from './hostAgent'
@@ -80,40 +80,120 @@ export function deriveSlug(title: string): string {
 
 export const CREDENTIALS_PATH = join(homedir(), '.config', 'vos', 'credentials')
 
+/** The origin a credential stored with none was minted for. */
+export const DEFAULT_ORIGIN = 'https://vos.so'
+
+/** An address's origin (`https://vos.so` for `https://vos.so/api/x`). */
+export function originOf(url: string): string {
+  try {
+    return new URL(url).origin
+  } catch {
+    return url.replace(/\/+$/, '')
+  }
+}
+
 /**
- * The full documented ladder: explicit --key → VOS_API_KEY → the first line
- * of ~/.config/vos/credentials. A vos_rg_ remix grant is just a key here.
- * Returns null when nothing resolves — callers decide whether auth is needed.
+ * The credential `vos login` stored: the key on the first line (every
+ * reader of the file reads that line), then `origin=<the origin it was
+ * minted for>`. A file written before the origin line is the default
+ * origin's.
  */
-export function resolveCredential(explicit?: string): string | null {
+export function readStoredCredential(
+  path = CREDENTIALS_PATH,
+): { key: string; origin: string } | null {
+  let text: string
+  try {
+    text = readFileSync(path, 'utf8')
+  } catch {
+    return null
+  }
+  const [first, ...rest] = text.split('\n')
+  const key = first.trim()
+  if (!key) return null
+  const line = rest.map((l) => l.trim()).find((l) => l.startsWith('origin='))
+  const origin = line ? originOf(line.slice('origin='.length).trim()) : ''
+  return { key, origin: origin || DEFAULT_ORIGIN }
+}
+
+/** Keys read from the credentials file, and the origin each belongs to. */
+const storedFor = new Map<string, string>()
+const warned = new Set<string>()
+
+/**
+ * The full documented ladder: explicit --key → VOS_API_KEY → the
+ * credential `vos login` stored. A vos_rg_ remix grant is just a key here.
+ * Returns null when nothing resolves — callers decide whether auth is needed.
+ * A stored key is remembered with its origin: it is only ever SENT there
+ * (`bearerFor`).
+ */
+export function resolveCredential(
+  explicit?: string,
+  path = CREDENTIALS_PATH,
+): string | null {
   const flag = explicit?.trim()
   if (flag) return flag
   const env = process.env.VOS_API_KEY?.trim()
   if (env) return env
-  try {
-    const first = readFileSync(CREDENTIALS_PATH, 'utf8').split('\n')[0].trim()
-    return first || null
-  } catch {
-    return null
-  }
+  const stored = readStoredCredential(path)
+  if (!stored) return null
+  storedFor.set(stored.key, stored.origin)
+  return stored.key
 }
 
-export function requireCredential(explicit?: string): string {
+/**
+ * The authorization header for a request to `url`, or none. A key the
+ * person handed this command (--key, VOS_API_KEY) goes where the command
+ * goes; the stored key goes only to the origin it was minted for, and a
+ * request anywhere else is sent without it, once said.
+ */
+export function bearerFor(
+  key: string | null | undefined,
+  url: string,
+): Record<string, string> {
+  if (!key) return {}
+  const bound = storedFor.get(key)
+  const to = originOf(url)
+  if (bound && bound !== to) {
+    if (!warned.has(to)) {
+      warned.add(to)
+      process.stderr.write(
+        `note: the credential vos login stored is for ${bound}, so it is not sent to ${to}; for ${to}, run vos login --origin ${to}, or pass --key or VOS_API_KEY\n`,
+      )
+    }
+    return {}
+  }
+  return { authorization: `Bearer ${key}` }
+}
+
+/** Where a key for `origin` is minted. */
+export const mintAt = (origin: string = DEFAULT_ORIGIN): string =>
+  `${originOf(origin)}/app/api`
+
+export function requireCredential(explicit?: string, origin?: string): string {
   const key = resolveCredential(explicit)
   if (!key) {
     throw new Error(
       'no credential found — pass --key, set VOS_API_KEY, or run `vos login` ' +
-        '(mint a content key at https://vos.so/app/api; a vos_rg_ remix grant works too)',
+        `(mint a content key at ${mintAt(origin ?? platformOrigin())}; a vos_rg_ remix grant works too)`,
     )
   }
   return key
 }
 
-/** `vos login` writes here: 0700 dir, 0600 file, first line is the key. */
-export function writeCredential(key: string): string {
-  mkdirSync(join(homedir(), '.config', 'vos'), { recursive: true, mode: 0o700 })
-  writeFileSync(CREDENTIALS_PATH, `${key.trim()}\n`, { mode: 0o600 })
-  return CREDENTIALS_PATH
+/**
+ * `vos login` writes here: 0700 dir, 0600 file, the key on the first line
+ * and the origin it was minted for on the next.
+ */
+export function writeCredential(
+  key: string,
+  origin: string = DEFAULT_ORIGIN,
+  path = CREDENTIALS_PATH,
+): string {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
+  writeFileSync(path, `${key.trim()}\norigin=${originOf(origin)}\n`, {
+    mode: 0o600,
+  })
+  return path
 }
 
 /**
@@ -135,9 +215,18 @@ export function clientId(
   return host ? `${host} vos-cli` : 'vos-cli'
 }
 
+/** A request that never got an answer, in words that name where it went. */
+export function unreachable(origin: string, e: unknown): string {
+  const err = e as { message?: string; cause?: { code?: string } }
+  const why = [err?.message, err?.cause?.code].filter(Boolean).join(': ')
+  return `could not reach ${origin}${why ? ` (${why})` : ''}; is it the origin you meant? (--origin, or VOS_ORIGIN)`
+}
+
 export interface ApiResult {
   status: number
   body: Record<string, unknown>
+  /** The origin that answered. */
+  origin?: string
 }
 
 export async function apiJson(
@@ -156,7 +245,7 @@ export async function apiJson(
     accept: 'application/json',
     ...init.headers,
   }
-  if (init.key) headers.authorization = `Bearer ${init.key}`
+  Object.assign(headers, bearerFor(init.key, origin))
   if (init.body !== undefined) headers['content-type'] = 'application/json'
   const reqBody: BodyInit | undefined =
     init.raw !== undefined
@@ -164,18 +253,23 @@ export async function apiJson(
       : init.body === undefined
         ? undefined
         : JSON.stringify(init.body)
-  const res = await fetch(`${origin}${path}`, {
-    method: init.method ?? 'GET',
-    headers,
-    body: reqBody,
-  })
+  let res: Response
+  try {
+    res = await fetch(`${origin}${path}`, {
+      method: init.method ?? 'GET',
+      headers,
+      body: reqBody,
+    })
+  } catch (e) {
+    throw new Error(unreachable(origin, e))
+  }
   let body: Record<string, unknown> = {}
   try {
     body = (await res.json()) as Record<string, unknown>
   } catch {
     // non-JSON error bodies stay {}
   }
-  return { status: res.status, body }
+  return { status: res.status, body, origin }
 }
 
 /**
@@ -208,7 +302,7 @@ export function apiError(what: string, r: ApiResult): string {
         : ''
   const hint =
     r.status === 401
-      ? ' (run `vos login`, or set VOS_API_KEY — mint a key at https://vos.so/app/api)'
+      ? ` (run \`vos login\`, or set VOS_API_KEY — mint a key at ${mintAt(r.origin)})`
       : ''
   return `${what} → ${r.status}${detail ? `: ${detail}` : ''}${hint}`
 }

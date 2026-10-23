@@ -13,6 +13,7 @@ import {
   DEFAULT_FRAME_STYLE,
 } from '@vosjs/studio-core'
 import { cmdAudio, measureDocAudio } from '../audio'
+import { run } from '../run'
 import { lintDoc } from '../validateDoc'
 import { writeFixtureWav } from './fixtureMedia'
 import type { AudioClip, ProjectDoc } from '@vosjs/studio-core'
@@ -84,6 +85,31 @@ async function writeTake(name: string, audio: AudioClip[]): Promise<string> {
 
 const readDoc = async (dir: string) =>
   JSON.parse(await readFile(join(dir, 'doc.json'), 'utf8')) as ProjectDoc
+
+describe('vos validate <take>', () => {
+  it('refuses a sound that names no file in the take', async () => {
+    const dir = await writeTake('missing', [
+      clip('score', 'music/tone.wav'),
+      clip('sfx', 'music/gone.wav'),
+    ])
+    await writeFile(
+      join(dir, 'recording.webm'),
+      Buffer.from([0x1a, 0x45, 0xdf, 0xa3]),
+    )
+    const out = vi.mocked(process.stdout.write)
+    out.mockClear()
+    expect(await run(['validate', dir, '--json'])).toBe(1)
+    const done = out.mock.calls
+      .map((c) => String(c[0]))
+      .flatMap((l) => l.split('\n'))
+      .filter((l) => l.startsWith('{'))
+      .map((l) => JSON.parse(l) as { event?: string; problems?: string[] })
+      .find((e) => e.event === 'done')
+    expect(done?.problems).toEqual([
+      'doc.json: audio sfx: music/gone.wav is not a file in the take, so a render plays the film without it (put the file there, or fix the key)',
+    ])
+  })
+})
 
 describe('vos audio measure', () => {
   it('measures a tone where BS.1770 puts it, and plays its target', async () => {

@@ -32,6 +32,7 @@ import {
 import { homedir } from 'node:os'
 import { extname, join, resolve, sep } from 'node:path'
 import { extensionFor } from './plugin/container'
+import { bearerFor } from './plugin/platform'
 
 /** Where served files live on a page's own origin. */
 export const ASSET_ROUTE = '/__assets/'
@@ -262,7 +263,7 @@ async function fetchHosted(
     return null
   }
   const res = await fetch(`${opts.origin}/api/assets/${id}/file`, {
-    headers: { authorization: `Bearer ${opts.key}` },
+    headers: bearerFor(opts.key, opts.origin),
   })
   if (!res.ok) {
     opts.log(

@@ -239,6 +239,37 @@ describe('vos push reads the platform’s studio-core first', () => {
     }
   })
 
+  it('asks for consent before it asks the platform or bakes anything', async () => {
+    const seen: Seen[] = []
+    const origin = await serve(seen, {
+      status: 200,
+      body: { studioCore: '0.42.4' },
+    })
+    const { dir } = take()
+    const { r, lines } = reporter()
+    await expect(
+      pushTake(dir, { origin, key: 'vos_sk_test', bake: true }, r),
+    ).rejects.toThrow(/pass --yes to consent headlessly/)
+    expect(lines).toEqual([])
+    expect(seen).toEqual([])
+  })
+
+  it('names the origin it could not reach', async () => {
+    const { dir } = take()
+    const { r, lines } = reporter()
+    const err = await pushTake(
+      dir,
+      { origin: 'http://127.0.0.1:1', key: 'vos_sk_test', yes: true },
+      r,
+    ).catch((e: unknown) => e)
+    expect(lines[0]).toMatch(
+      /^could not read which studio-core 127\.0\.0\.1:1 renders with/,
+    )
+    expect((err as Error).message).toMatch(
+      /^recording upload failed: could not reach http:\/\/127\.0\.0\.1:1 \(/,
+    )
+  })
+
   it('a hosted score keeps its measurement under its new key', async () => {
     const seen: Seen[] = []
     const origin = await serve(seen, {

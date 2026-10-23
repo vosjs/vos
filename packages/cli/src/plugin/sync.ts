@@ -68,7 +68,7 @@ export function apiContext(flags: {
 }): ApiContext {
   return {
     origin: platformOrigin(flags),
-    key: requireCredential(flags.key),
+    key: requireCredential(flags.key, platformOrigin(flags)),
   }
 }
 
@@ -258,6 +258,28 @@ export async function pushTake(
   }
 
   const ctx = apiContext(flags)
+  const tracked = readSyncState(dir)
+  // The first push of this DIRECTORY uploads its recording either way, so
+  // consent is asked of the directory, not of the vos it lands on, and
+  // before anything is asked of the platform or done to the document.
+  const firstPush = tracked === null
+  // Never upload unprompted: explicit consent on the first push.
+  if (firstPush && !flags.yes) {
+    if (!process.stdin.isTTY) {
+      throw new Error(
+        'first push of this take uploads its recording — pass --yes to consent headlessly',
+      )
+    }
+    const rl = createInterface({ input: process.stdin, output: process.stderr })
+    const answer = await rl.question(
+      `Push this take (recording + doc.json) to ${ctx.origin}? [y/N] `,
+    )
+    rl.close()
+    if (!/^y(es)?$/i.test(answer.trim())) {
+      throw new Error('push cancelled')
+    }
+  }
+
   // Before anything uploads: can the platform play every field this take
   // uses? A refusal costs nothing; a platform that cannot say is warned of.
   const plays = await checkPlatformPlays(take.doc, {
@@ -266,10 +288,6 @@ export async function pushTake(
   })
   for (const line of plays.lines) r.log(line)
   const sendDoc = plays.doc as ProjectDoc
-  const tracked = readSyncState(dir)
-  // The first push of this DIRECTORY uploads its recording either way, so
-  // consent is asked of the directory, not of the vos it lands on.
-  const firstPush = tracked === null
 
   // ADOPTION: `--vos <id>` on a directory with no vos.json. It used to be
   // ignored, and a second vos appeared on the shelf every time a take was
@@ -309,23 +327,6 @@ export async function pushTake(
     const target = await resolvePushFolder(ctx.origin, ctx.key, flags.folder)
     folderId = target.id
     if (target.note) r.log(target.note)
-  }
-
-  // Never upload unprompted: explicit consent on the first push.
-  if (firstPush && !flags.yes) {
-    if (!process.stdin.isTTY) {
-      throw new Error(
-        'first push of this take uploads its recording — pass --yes to consent headlessly',
-      )
-    }
-    const rl = createInterface({ input: process.stdin, output: process.stderr })
-    const answer = await rl.question(
-      `Push this take (recording + doc.json) to ${ctx.origin}? [y/N] `,
-    )
-    rl.close()
-    if (!/^y(es)?$/i.test(answer.trim())) {
-      throw new Error('push cancelled')
-    }
   }
 
   // 1. The recording, content-addressed — re-pushes reuse the same asset.

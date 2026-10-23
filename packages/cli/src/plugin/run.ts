@@ -20,7 +20,8 @@ import {
 import { validateActions } from './actions'
 import { lintDoc } from './validateDoc'
 import { containerMismatch } from './container'
-import { readMediaHead } from './media'
+import { docAudioRefs, readMediaHead, takeRelativeFile } from './media'
+import { localFile } from '../programAssets'
 import {
   collectConfigMediaUrls,
   collectDocMediaUrls,
@@ -64,6 +65,7 @@ import {
   readSyncState,
   requireCredential,
   resolveCredential,
+  mintAt,
 } from './platform'
 import { startTakeServer } from './server'
 import {
@@ -917,7 +919,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
     const key = resolveCredential(strFlag(flags, 'key'))
     if (!key)
       throw new UsageError(
-        'recording on vos.so needs a credential: vos login, or VOS_API_KEY (mint a key at https://vos.so/app/api)',
+        `recording on ${origin} needs a credential: vos login, or VOS_API_KEY (mint a key at ${mintAt(origin)})`,
       )
     const { env, missing } = hostedEnv(actions, process.env)
     if (missing.length)
@@ -2402,6 +2404,18 @@ async function cmdValidate(argv: string[]): Promise<number> {
     )
     problems.push(...probe.problems)
     warnings.push(...probe.warnings)
+    // A sound the document names in the take must be there: a render that
+    // cannot read it plays the film without it, and says so only in a log.
+    for (const ref of docAudioRefs(take.doc)) {
+      const rel = takeRelativeFile(ref.key)
+      const found = localFile(rel, target)
+      if (!('refused' in found)) continue
+      problems.push(
+        existsSync(resolve(target, rel))
+          ? `doc.json: ${ref.where}: ${ref.key} ${found.refused}`
+          : `doc.json: ${ref.where}: ${ref.key} is not a file in the take, so a render plays the film without it (put the file there, or fix the key)`,
+      )
+    }
     // --picture: each html layer's ground against the footage it covers, as
     // the camera shows it at the layer's start (one browser session, the
     // footage rendered without layers).

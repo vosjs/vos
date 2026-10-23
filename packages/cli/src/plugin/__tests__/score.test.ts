@@ -15,6 +15,7 @@ import {
   measureTrack,
   planScore,
   resolveAt,
+  spanLoudness,
 } from '../score'
 import { writeFixtureWav } from './fixtureMedia'
 import type { ProjectDoc } from '@vosjs/studio-core'
@@ -86,6 +87,21 @@ describe('the loudness envelope', () => {
     expect(Math.abs(swell.at - 8)).toBeLessThanOrEqual(0.5)
     expect(swell.rise).toBeGreaterThan(20)
     expect(swell.from).toBeLessThan(6.5)
+  })
+})
+
+describe('the loudness of the stretch a clip plays', () => {
+  it('is read from the measured blocks, not the whole file', async () => {
+    const m = await measureTrack(track)
+    // 8..14 s is the swell held at 0.6 of full scale: a 440 Hz sine there (K-weighted a little under 0 dB at 440 Hz)
+    // reads about -3 + 20·log10(0.6) LUFS.
+    const swell = spanLoudness(m, 8, 14)!
+    expect(Math.abs(swell - (-3.01 + 20 * Math.log10(0.6)))).toBeLessThan(1)
+    // The quiet bar, at 0.03: a clip that plays only it is 26 dB under what
+    // the whole file measures (the gate keeps the swell).
+    const bar = spanLoudness(m, 0, 5)!
+    expect(Math.abs(bar - (-3.01 + 20 * Math.log10(0.03)))).toBeLessThan(1)
+    expect(m.lufs! - bar).toBeGreaterThan(20)
   })
 })
 
@@ -192,8 +208,16 @@ describe('vos score', () => {
       .find((e) => e.event === 'done') as {
       clip: { in: number; out: number; key: string }
       film: number
+      playsAt: number
     }
     expect(done.film).toBe(6)
+    // The level it reports is the stretch the film plays, at its gain.
+    const m = await measureTrack(track)
+    const g = Math.pow(10, (-16 - m.lufs!) / 20) * 0.5
+    expect(done.playsAt).toBeCloseTo(
+      spanLoudness(m, done.clip.in, done.clip.out)! + 20 * Math.log10(g),
+      0,
+    )
     expect(Math.abs(done.clip.in - 6)).toBeLessThanOrEqual(0.5)
     expect(done.clip.out - done.clip.in).toBeCloseTo(6, 6)
     expect((await readDoc(dir)).audio).toEqual([])
