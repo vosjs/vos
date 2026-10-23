@@ -110,7 +110,13 @@ import { encodeRecording } from './encode'
 import { planTake } from './plan'
 import { openingBackdrop } from './backdrops'
 import { renderTake } from './renderTake'
-import { pullTake, pushTake, pushTakeClaimable, takePushRefusal } from './sync'
+import {
+  PushRefusedError,
+  pullTake,
+  pushTake,
+  pushTakeClaimable,
+  takePushRefusal,
+} from './sync'
 import {
   cmdDuplicate,
   cmdFetch,
@@ -2742,7 +2748,8 @@ export async function run(argv: string[]): Promise<number> {
     if (
       e instanceof SetupError ||
       e instanceof SetupEnvError ||
-      e instanceof RecordRefusedError
+      e instanceof RecordRefusedError ||
+      e instanceof PushRefusedError
     ) {
       process.stderr.write(`${e.message}\n`)
       return EXIT_USAGE

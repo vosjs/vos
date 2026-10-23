@@ -196,14 +196,27 @@ describe('vos push <take> --claimable, through the command line', () => {
     expect(r.out).toContain('https://vos.so/claim/t')
   })
 
+  it('refuses footage that changed since the fetch as a refusal, exit 2', async () => {
+    const seen: { url: string; body: Record<string, unknown> }[] = []
+    const origin = await serve(seen)
+    const dir = fetchedTake()
+    writeFileSync(join(dir, 'recording.webm'), 'a new recording')
+    const r = await vos(['push', dir, '--claimable', '--origin', origin])
+    expect(r.code).toBe(2)
+    expect(r.err).toMatch(
+      /^the recording \(recording\.webm\) changed since it was fetched/,
+    )
+    expect(seen).toEqual([])
+  })
+
   it('refuses a take that was never fetched, saying why and what to do', async () => {
     const seen: { url: string; body: Record<string, unknown> }[] = []
     const origin = await serve(seen)
     const dir = fetchedTake({ record: false })
     const r = await vos(['push', dir, '--claimable', '--origin', origin])
-    expect(r.code).toBe(1)
+    expect(r.code).toBe(2)
     expect(r.err).toBe(
-      `error: ${dir} was not fetched from a public take with its media (its vos.json records no hosted files), and a claimable push never uploads footage. Push it with an account (vos login, then vos push ${dir}), or remix a public take: vos fetch <url> --media, edit, then vos push <dir> --claimable\n`,
+      `${dir} was not fetched from a public take with its media (its vos.json records no hosted files), and a claimable push never uploads footage. Push it with an account (vos login, then vos push ${dir}), or remix a public take: vos fetch <url> --media, edit, then vos push <dir> --claimable\n`,
     )
     expect(seen).toEqual([])
   })
