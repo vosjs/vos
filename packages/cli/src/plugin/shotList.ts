@@ -33,6 +33,13 @@ export function sayChord(chord: string): string {
   return [...mods, key].map(word).join('+')
 }
 
+/** A viewport point as a person finds it: where it is, and the script's numbers. */
+function sayPoint(p: { x?: number; y?: number }): string {
+  const x = p.x ?? 0
+  const y = p.y ?? 0
+  return `the spot at ${Math.round(x)}, ${Math.round(y)} (${y < 360 ? 'upper' : 'lower'} ${x < 640 ? 'left' : 'right'})`
+}
+
 /** A list in words: `a`, `a then b`, `a, b then c`. */
 const thenList = (xs: string[]): string =>
   xs.length <= 1
@@ -133,7 +140,7 @@ function gestureBeat(step: ActionStep): string | null {
     case 'wait':
       return null
     case 'hover':
-      return `${named}Rest the pointer on ${sayStepTarget(step)}`
+      return `${named}Rest the pointer on ${step.selector !== undefined ? sayStepTarget({ selector: step.selector, id: step.id }) : sayPoint(step)}`
     case 'click': {
       const verb =
         step.count === 3
@@ -147,7 +154,14 @@ function gestureBeat(step: ActionStep): string | null {
           : step.button === 'middle'
             ? ' with the middle button'
             : ''
-      return `${named}${verb} ${sayStepTarget(step)}${button}`
+      const target =
+        step.selector !== undefined
+          ? sayStepTarget({ selector: step.selector, id: step.id })
+          : sayPoint(step)
+      const holding = step.modifiers?.length
+        ? `Hold ${step.modifiers.map(sayChord).join('+')} and ${verb.toLowerCase()}`
+        : verb
+      return `${named}${holding} ${target}${button}`
     }
     case 'type':
       return `${named}${step.replace ? 'Replace what is in' : 'Type'}${step.replace ? ` ${sayStepTarget(step)} with "${step.text}"` : ` "${step.text}" into ${sayStepTarget(step)}`}${step.at === 'end' ? ', at the end' : step.at === 'start' ? ', at the start' : ''}`

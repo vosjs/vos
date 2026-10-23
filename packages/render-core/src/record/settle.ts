@@ -34,6 +34,23 @@ export const SETTLE_VERBS = new Set([
   'paste',
 ])
 
+/**
+ * How long ago the page last changed its DOM, in ms by the page's own clock,
+ * or -1 when this is the first look at this document (the reader is
+ * installed now and knows no history). A string, the one evaluate shape
+ * every driver shares.
+ */
+export const CHANGE_AGE_PROBE = `(() => {
+  const w = window;
+  if (!w.__vosChangeAt) {
+    w.__vosChangeAt = { at: Date.now() };
+    new MutationObserver(() => { w.__vosChangeAt.at = Date.now() })
+      .observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+    return -1;
+  }
+  return Date.now() - w.__vosChangeAt.at;
+})()`
+
 /** Whether a step waits on the app after its gesture: its own `settle`, else the script's. */
 export function settleOn(
   step: { do: string; settle?: boolean },
@@ -55,8 +72,22 @@ export async function appSettled(
     now?: () => number
     quietMs?: number
     capMs?: number
+    /** ms since the last captured frame, or null when none was captured */
+    sinceFrame?: () => number | null
   },
 ): Promise<{ settled: boolean; ms: number }> {
+  const quiet = opts.quietMs ?? APP_QUIET_MS
+  // Already still: the page's last DOM change and the last frame are both
+  // older than the quiet window, so there is nothing to wait for. The
+  // window is counted from the last change, never from the settle's start.
+  const age = await page.evaluate<number>(CHANGE_AGE_PROBE).catch(() => -1)
+  const frameAge = opts.sinceFrame?.() ?? null
+  if (
+    typeof age === 'number' &&
+    age >= quiet &&
+    (frameAge === null || frameAge >= quiet)
+  )
+    return { settled: true, ms: 0 }
   // The DOM reader polls the page's change count; this hands it the count
   // with the frames added, so a paint is a change like a mutation is.
   const counted = {
@@ -68,7 +99,7 @@ export async function appSettled(
   return domSettled(counted, {
     sleep: opts.sleep,
     ...(opts.now ? { now: opts.now } : {}),
-    quietMs: opts.quietMs ?? APP_QUIET_MS,
+    quietMs: quiet,
     capMs: opts.capMs ?? APP_SETTLE_CAP_MS,
     tickMs: 50,
   })

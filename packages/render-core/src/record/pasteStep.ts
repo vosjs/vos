@@ -31,6 +31,7 @@ export function pasteItemOf(
 
 export type PasteOutcome =
   | { via: 'clipboard' }
+  | { via: 'file' }
   | { via: 'page'; why: string }
   | { failed: string }
 
@@ -44,6 +45,18 @@ export async function runPaste(
   item: PasteItem,
   press: (chord: string) => Promise<void>,
 ): Promise<PasteOutcome> {
+  // An image FILE is dispatched in the page with its own bytes: the
+  // browser's clipboard re-encodes a picture and drops what the file
+  // carries (a screenshot's density, so a 2x capture lands at twice its
+  // size). Words keep the trusted path.
+  if (item.b64 !== undefined && item.type?.startsWith('image/')) {
+    const done = await page
+      .evaluate<string>(syntheticPasteScript(item, { original: true }))
+      .catch((e: unknown) => `failed: ${e instanceof Error ? e.message : e}`)
+    return done === 'ok'
+      ? { via: 'file' }
+      : { failed: `the page's paste failed (${done.replace(/^failed: /, '')})` }
+  }
   let origin: string | undefined
   try {
     origin = new URL(page.url()).origin

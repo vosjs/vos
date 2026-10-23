@@ -66,8 +66,10 @@ import {
 } from './actions'
 import type { ActionsFile } from './actions'
 import {
+  DRAG_HOLD_MS,
   KEY_SEQUENCE_GAP_MS,
   MULTI_CLICK_GAP_MS,
+  keySequencePlanMs,
   buttonNumber,
   modifierBits,
   overrunLine,
@@ -79,11 +81,16 @@ import {
   readPath,
   schedulePath,
 } from './gestures'
-import type { ClickButton, PathSample, StepOverrun } from './gestures'
+import type {
+  ClickButton,
+  DragModifier,
+  PathSample,
+  StepOverrun,
+} from './gestures'
 import { inlineScript, loadScriptFiles } from './scriptFiles'
 import type { LoadedFiles } from './scriptFiles'
 import { pasteItemOf, runPaste } from './pasteStep'
-import { appSettled, settleOn } from './settle'
+import { CHANGE_AGE_PROBE, appSettled, settleOn } from './settle'
 import {
   conditionMiss,
   domSettled,
@@ -519,6 +526,10 @@ export async function recordTake(
   }
 
   await scanExposures(-1)
+  // A script that settles gets the page's change clock started now, so the
+  // first settle knows how long the page has been still.
+  if (actions.steps.some((s) => settleOn(s, actions.settle)))
+    await page.evaluate(CHANGE_AGE_PROBE).catch(() => undefined)
 
   const cdp = await context.newCDPSession(page)
   const frames: FrameRec[] = []
@@ -739,38 +750,68 @@ export async function recordTake(
    * carrying its click count, so the page reads one gesture; every press is
    * a down and an up on the cursor track, with its button.
    */
+  /**
+   * Travel to an element's centre (a rect) or to a viewport point, and
+   * press. A double or triple click is that many presses well inside the
+   * platform's double-click interval, each carrying its click count, so the
+   * page reads one gesture; every press is a down and an up on the cursor
+   * track, with its button, and with the element's rect when there is one.
+   * `modifiers` go down after the travel and come up after the last
+   * release, whatever happens in between.
+   */
   const clickAt = async (
-    rect: Rect,
-    how: { count?: number; button?: ClickButton } = {},
+    at: Rect | { x: number; y: number },
+    how: {
+      count?: number
+      button?: ClickButton
+      modifiers?: readonly DragModifier[]
+    } = {},
   ) => {
-    await moveTo(rect.x + rect.w / 2, rect.y + rect.h / 2)
-    await sleep(PRESS_LEAD_MS)
-    const count = how.count ?? 1
-    const button = buttonNumber(how.button)
-    for (let n = 1; n <= count; n++) {
-      if (n > 1) await sleep(MULTI_CLICK_GAP_MS)
-      const press = {
-        ...(how.button && how.button !== 'left' ? { button: how.button } : {}),
-        ...(n > 1 ? { clickCount: n } : {}),
+    const rect = 'w' in at ? at : undefined
+    await moveTo(
+      rect ? rect.x + rect.w / 2 : at.x,
+      rect ? rect.y + rect.h / 2 : at.y,
+    )
+    const held: string[] = []
+    try {
+      for (const m of how.modifiers ?? []) {
+        const key = resolveModifier(m)
+        await page.keyboard.down(key)
+        held.push(key)
       }
-      const hasOpts = Object.keys(press).length > 0
-      emit({
-        x: Math.round(cur.x),
-        y: Math.round(cur.y),
-        type: 'down',
-        button,
-        rect,
-      })
-      await (hasOpts ? page.mouse.down(press) : page.mouse.down())
-      await sleep(n < count ? PRESS_HOLD_MS / 2 : PRESS_HOLD_MS)
-      await (hasOpts ? page.mouse.up(press) : page.mouse.up())
-      emit({
-        x: Math.round(cur.x),
-        y: Math.round(cur.y),
-        type: 'up',
-        button,
-        rect,
-      })
+      await sleep(PRESS_LEAD_MS)
+      const count = how.count ?? 1
+      const button = buttonNumber(how.button)
+      for (let n = 1; n <= count; n++) {
+        if (n > 1) await sleep(MULTI_CLICK_GAP_MS)
+        const press = {
+          ...(how.button && how.button !== 'left'
+            ? { button: how.button }
+            : {}),
+          ...(n > 1 ? { clickCount: n } : {}),
+        }
+        const hasOpts = Object.keys(press).length > 0
+        emit({
+          x: Math.round(cur.x),
+          y: Math.round(cur.y),
+          type: 'down',
+          button,
+          ...(rect ? { rect } : {}),
+        })
+        await (hasOpts ? page.mouse.down(press) : page.mouse.down())
+        await sleep(n < count ? PRESS_HOLD_MS / 2 : PRESS_HOLD_MS)
+        await (hasOpts ? page.mouse.up(press) : page.mouse.up())
+        emit({
+          x: Math.round(cur.x),
+          y: Math.round(cur.y),
+          type: 'up',
+          button,
+          ...(rect ? { rect } : {}),
+        })
+      }
+    } finally {
+      for (const key of held.reverse())
+        await page.keyboard.up(key).catch(() => undefined)
     }
   }
 
@@ -880,7 +921,10 @@ export async function recordTake(
      * target, so the selector is proven, and the press is left out. True
      * when the step was rehearsed that way and its case must stop there.
      */
-    const rehearseGuard = async (sel: string | undefined): Promise<boolean> => {
+    const rehearseGuard = async (
+      sel: string | undefined,
+      point?: { x: number; y: number } | null,
+    ): Promise<boolean> => {
       if (!step.guard || !dry) return false
       const rect = sel ? await boxOf(sel) : null
       stepRect = rect
@@ -888,8 +932,9 @@ export async function recordTake(
       else {
         if (rect)
           await gesture(() => moveTo(rect.x + rect.w / 2, rect.y + rect.h / 2))
+        else if (point) await gesture(() => moveTo(point.x, point.y))
         log(
-          `${tag}: guarded (${step.guard}), ${rect ? 'hovered' : 'left alone'}, not pressed`,
+          `${tag}: guarded (${step.guard}), ${rect || point ? 'hovered' : 'left alone'}, not pressed`,
         )
       }
       unpressedGuard = stepIdx
@@ -916,6 +961,15 @@ export async function recordTake(
         await moveTo(step.x, step.y)
         break
       case 'hover': {
+        // An element's centre, or a viewport point (a spot on a canvas).
+        if (step.selector === undefined) {
+          const px = step.x ?? cur.x
+          const py = step.y ?? cur.y
+          await gesture(() => moveTo(px, py))
+          log(`hover ${Math.round(px)},${Math.round(py)}`)
+          await sleep(step.ms ?? 700)
+          break
+        }
         const rect = await boxOf(step.selector)
         stepRect = rect
         if (rect) {
@@ -927,6 +981,22 @@ export async function recordTake(
         break
       }
       case 'click': {
+        const how = {
+          count: step.count,
+          button: step.button,
+          modifiers: step.modifiers,
+        }
+        const said = `${step.count === 3 ? 'triple-click' : step.count === 2 ? 'double-click' : 'click'}${step.button && step.button !== 'left' ? ` (${step.button})` : ''}${step.modifiers?.length ? ` holding ${step.modifiers.join('+')}` : ''}`
+        // A viewport point: a spot on a canvas no selector names.
+        if (step.selector === undefined) {
+          const point = { x: step.x ?? cur.x, y: step.y ?? cur.y }
+          if (await rehearseGuard(undefined, point)) break
+          await gesture(() => clickAt(point, how))
+          log(`${said} at ${Math.round(point.x)},${Math.round(point.y)}`)
+          const sinceChange = await gesture(() => waitSettled())
+          await sleep(holdLeftMs(settleMs(step), sinceChange))
+          break
+        }
         if (await rehearseGuard(step.selector)) break
         const rect = await boxOf(step.selector)
         stepRect = rect
@@ -949,12 +1019,8 @@ export async function recordTake(
               `   (${tag} click: ${step.selector} is disabled; pressed anyway)`,
             )
           }
-          await gesture(() =>
-            clickAt(rect, { count: step.count, button: step.button }),
-          )
-          log(
-            `${step.count === 3 ? 'triple-click' : step.count === 2 ? 'double-click' : 'click'}${step.button && step.button !== 'left' ? ` (${step.button})` : ''} ${step.selector}`,
-          )
+          await gesture(() => clickAt(rect, how))
+          log(`${said} ${step.selector}`)
           // The settle is the recorder's (watched on the screencast); the
           // hold is the author's, from the page's last change.
           const sinceChange = await gesture(() => waitSettled())
@@ -1041,9 +1107,9 @@ export async function recordTake(
         // person's hand apart. The ping is when and where, never which key.
         const seq = pressSequence(step)
         const chords = step.keys !== undefined ? seq.map(resolveChord) : seq
-        const gaps = (chords.length - 1) * KEY_SEQUENCE_GAP_MS
-        if (chords.length > 1) askedOverride = gaps + settleMs(step)
-        await timed(gaps, async () => {
+        const plan = keySequencePlanMs(chords.length)
+        if (chords.length > 1) askedOverride = plan + settleMs(step)
+        await timed(plan, async () => {
           for (const [i, chord] of chords.entries()) {
             if (i > 0) await sleep(KEY_SEQUENCE_GAP_MS)
             keyPing(rect)
@@ -1245,7 +1311,8 @@ export async function recordTake(
             ? `drag a path of ${path.length} points from ${Math.round(start.x)},${Math.round(start.y)}${holding}`
             : `drag ${step.selector ?? `${start.x},${start.y}`} → ${step.tx},${step.ty}${holding}`,
         )
-        await sleep(400)
+        // The drag's own hold after the release: the recorder's, a gesture.
+        await gesture(() => sleep(DRAG_HOLD_MS))
         break
       }
       case 'paste': {
@@ -1287,9 +1354,11 @@ export async function recordTake(
             : `the file ${step.file}`
         const into = step.selector ? ` into ${step.selector}` : ''
         log(
-          'why' in outcome
-            ? `paste ${what}${into}, dispatched in the page (the browser's clipboard refused it: ${outcome.why}); its events are untrusted`
-            : `paste ${what}${into}`,
+          outcome.via === 'file'
+            ? `paste ${what}${into}, dispatched in the page with the file's own bytes (the browser's clipboard re-encodes an image and drops what it carries, its density among it); its events are untrusted`
+            : outcome.via === 'page'
+              ? `paste ${what}${into}, dispatched in the page (the browser's clipboard refused it: ${outcome.why}); its events are untrusted`
+              : `paste ${what}${into}`,
         )
         const sinceChange = await gesture(() => waitSettled())
         await sleep(holdLeftMs(settleMs(step), sinceChange))
@@ -1486,7 +1555,11 @@ export async function recordTake(
       !stopped
     ) {
       const res = await gesture(() =>
-        appSettled(page, () => frames.length, { sleep: realSleep }),
+        appSettled(page, () => frames.length, {
+          sleep: realSleep,
+          sinceFrame: () =>
+            frames.length ? now() - frames[frames.length - 1].tMs : null,
+        }),
       )
       extra.settleMs = res.ms
       if (!res.settled)

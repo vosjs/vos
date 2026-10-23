@@ -145,14 +145,24 @@
           },
           {
             "type": "object",
-            "required": ["do", "selector"],
+            "required": ["do"],
             "additionalProperties": false,
             "properties": {
               "do": {
                 "const": "hover"
               },
               "selector": {
-                "type": "string"
+                "type": "string",
+                "description": "the element whose centre the pointer goes to; or x and y instead"
+              },
+              "x": {
+                "type": "number",
+                "minimum": 0,
+                "description": "with y: a viewport point in CSS px, for a spot no selector names (a place on a canvas); takes no selector"
+              },
+              "y": {
+                "type": "number",
+                "minimum": 0
               },
               "ms": {
                 "type": "number",
@@ -179,11 +189,33 @@
                 "minLength": 1,
                 "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
               }
-            }
+            },
+            "oneOf": [
+              {
+                "required": ["selector"],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": ["x"]
+                    },
+                    {
+                      "required": ["y"]
+                    }
+                  ]
+                }
+              },
+              {
+                "required": ["x", "y"],
+                "not": {
+                  "required": ["selector"]
+                }
+              }
+            ],
+            "description": "Rest the pointer on an element's centre (selector) or on a viewport point (x, y); ms is the dwell, a zoom signal."
           },
           {
             "type": "object",
-            "required": ["do", "selector"],
+            "required": ["do"],
             "additionalProperties": false,
             "properties": {
               "do": {
@@ -195,7 +227,17 @@
                 "description": "the read after the press, ms (default 150), held from the page's last visual change: the recorder watches the screencast and pays the settle itself (a change within 400 ms says the page is answering, 250 ms of quiet says it settled, 1.2 s bounds a page that never stops), so the same ms reads the same on every run. Size it as a reading beat, about 1000 after a navigation and 600 after a control, never padded for a slow page."
               },
               "selector": {
-                "type": "string"
+                "type": "string",
+                "description": "the element whose centre the pointer goes to; or x and y instead"
+              },
+              "x": {
+                "type": "number",
+                "minimum": 0,
+                "description": "with y: a viewport point in CSS px, for a spot no selector names (a place on a canvas); takes no selector"
+              },
+              "y": {
+                "type": "number",
+                "minimum": 0
               },
               "count": {
                 "type": "integer",
@@ -208,6 +250,15 @@
                 "enum": ["left", "right", "middle"],
                 "default": "left",
                 "description": "the button pressed: right opens a context menu"
+              },
+              "modifiers": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "enum": ["Alt", "Shift", "Meta", "Control", "Mod"]
+                },
+                "description": "held for the press (a Shift-click adds to the selection) and released after it, whatever happens; Mod is Meta on macOS, Control elsewhere"
               },
               "settle": {
                 "type": "boolean",
@@ -233,7 +284,28 @@
                 "enum": ["spend"],
                 "description": "the step costs something real (credits, a purchase, a message sent): `vos record --dry-run` hovers it and never presses it, and `vos record` presses it only with `--confirm <id>`, refusing before any capture otherwise. Needs an id. A hosted take refuses a guarded step"
               }
-            }
+            },
+            "oneOf": [
+              {
+                "required": ["selector"],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": ["x"]
+                    },
+                    {
+                      "required": ["y"]
+                    }
+                  ]
+                }
+              },
+              {
+                "required": ["x", "y"],
+                "not": {
+                  "required": ["selector"]
+                }
+              }
+            ]
           },
           {
             "type": "object",

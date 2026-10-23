@@ -143,6 +143,19 @@ export function pressSequence(step: {
 
 /** The pause between two keys of a sequence, a person's hand: ms. */
 export const KEY_SEQUENCE_GAP_MS = 150
+/**
+ * What one key costs beyond the script's gaps: the browser's round trip for
+ * the press (a keydown and a keyup the page answers). Part of the plan, so a
+ * sequence on an idle page is never "slower than scripted".
+ */
+export const KEY_ROUNDTRIP_MS = 50
+
+/** A key sequence's plan, ms: its gaps, and each key's round trip. */
+export const keySequencePlanMs = (keys: number): number =>
+  Math.max(0, keys - 1) * KEY_SEQUENCE_GAP_MS + keys * KEY_ROUNDTRIP_MS
+
+/** The hold after a drag's release, ms: the recorder's, part of the gesture. */
+export const DRAG_HOLD_MS = 400
 /** The most keys one press step may name. */
 export const MAX_KEYS = 50
 

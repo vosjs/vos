@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { hostedRefusals, scriptFiles, validateActions } from '../actions'
 import {
+  KEY_ROUNDTRIP_MS,
+  KEY_SEQUENCE_GAP_MS,
+  keySequencePlanMs,
   chordProblem,
   modifierBits,
   overrunLine,
@@ -14,7 +17,7 @@ import {
 } from '../gestures'
 import { pasteTypeOf } from '../paste'
 import { inlineScript, loadScriptFiles } from '../scriptFiles'
-import { appSettled, settleOn } from '../settle'
+import { CHANGE_AGE_PROBE, appSettled, settleOn } from '../settle'
 
 /**
  * The canvas gestures, held where both hosts read them: a press takes
@@ -487,5 +490,93 @@ describe('the script a take keeps', () => {
     expect(hostedRefusals(kept)).toEqual([
       'steps[2] is a paste, and a hosted browser has no clipboard to paste from: record it on this machine',
     ])
+  })
+})
+
+describe('click and hover at a viewport point, and a click that holds modifiers', () => {
+  it('accepts a point or a selector, and modifiers on a click', () => {
+    expect(
+      validateActions({
+        steps: [
+          { do: 'click', x: 700, y: 650 },
+          { do: 'click', x: 10, y: 20, count: 2, modifiers: ['Shift'] },
+          { do: 'click', selector: '#a', modifiers: ['Mod', 'Alt'] },
+          { do: 'hover', x: 0, y: 0, ms: 300 },
+          { do: 'hover', selector: '#a' },
+        ],
+      }),
+    ).toEqual([])
+  })
+
+  it('refuses both, neither, half a point, and a bad modifier', () => {
+    expect(one({ do: 'click', selector: '#a', x: 1, y: 2 })).toEqual([
+      'steps[0]: click takes a selector or x and y (a viewport point), not both',
+    ])
+    expect(one({ do: 'click' })).toEqual([
+      'steps[0]: click needs a selector, or x and y (a viewport point)',
+    ])
+    expect(one({ do: 'hover', x: 4 })).toEqual([
+      'steps[0]: hover x and y must both be numbers of CSS px, 0 or more',
+    ])
+    expect(one({ do: 'click', x: -1, y: 2 })).toEqual([
+      'steps[0]: click x and y must both be numbers of CSS px, 0 or more',
+    ])
+    expect(one({ do: 'click', x: 1, y: 2, modifiers: ['Hyper'] })[0]).toMatch(
+      /^steps\[0\]: click modifiers must be a list of/,
+    )
+    expect(
+      one({ do: 'click', x: 1, y: 2, modifiers: ['Shift', 'Shift'] }),
+    ).toEqual(['steps[0]: click modifiers names a modifier twice'])
+    // type keeps its rule: it types into an element.
+    expect(one({ do: 'type', x: 1, y: 2, text: 'a' })[0]).toBe(
+      'steps[0]: type needs a selector',
+    )
+  })
+})
+
+describe('a key sequence plans each key’s round trip', () => {
+  it('is gaps plus a round trip a key, so two keys on an idle page keep to the plan', () => {
+    expect(keySequencePlanMs(1)).toBe(KEY_ROUNDTRIP_MS)
+    expect(keySequencePlanMs(2)).toBe(
+      KEY_SEQUENCE_GAP_MS + 2 * KEY_ROUNDTRIP_MS,
+    )
+    // The idle cost of ['Escape', 'Escape'] measured on a canvas: the
+    // 150 ms gap and two round trips of about 25 ms each.
+    expect(overrunOf(keySequencePlanMs(2), 200)).toBeNull()
+  })
+})
+
+describe('settle on a page that is already still', () => {
+  const ages = (age: number) => ({
+    evaluate: async <T>(s: string) => (s === CHANGE_AGE_PROBE ? age : 0) as T,
+  })
+
+  it('returns at once when the last DOM change and the last frame are older than the quiet window', async () => {
+    let slept = 0
+    const res = await appSettled(ages(5000), () => 0, {
+      sleep: async (ms) => void (slept += ms),
+      sinceFrame: () => 2000,
+    })
+    expect(res).toEqual({ settled: true, ms: 0 })
+    expect(slept).toBe(0)
+  })
+
+  it('waits the window out after a fresh frame, and on the first look at a document', async () => {
+    let t = 0
+    const sleep = async (ms: number) => void (t += ms)
+    const recent = await appSettled(ages(5000), () => 0, {
+      sleep,
+      now: () => t,
+      sinceFrame: () => 40,
+    })
+    expect(recent.settled).toBe(true)
+    expect(recent.ms).toBeGreaterThanOrEqual(300)
+    t = 0
+    const first = await appSettled(ages(-1), () => 0, {
+      sleep,
+      now: () => t,
+      sinceFrame: () => null,
+    })
+    expect(first.ms).toBeGreaterThanOrEqual(300)
   })
 })

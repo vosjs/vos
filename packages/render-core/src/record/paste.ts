@@ -113,16 +113,21 @@ export function stageClipboardScript(item: PasteItem): string {
  * the paste for gets the words inserted, as the browser's own paste does.
  * Answers 'ok', or 'failed: <why>'.
  */
-export function syntheticPasteScript(item: PasteItem): string {
+export function syntheticPasteScript(
+  item: PasteItem,
+  opts: { original?: boolean } = {},
+): string {
   return `(async () => {
   ${BUILD(item)}
   try {
-    const b = await blobs();
+    // With original, an image file is handed over as its own bytes and type
+    // (an SVG also as its markup), never redrawn.
+    const b = ${opts.original ? `item.type === 'image/svg+xml' ? { 'image/svg+xml': new Blob([bytes], { type: item.type }), 'text/plain': new Blob([asText], { type: 'text/plain' }) } : { [item.type]: new Blob([bytes], { type: item.type }) }` : 'await blobs()'};
     const dt = new DataTransfer();
     let file = null;
     for (const [type, blob] of Object.entries(b)) {
       if (type.startsWith('image/')) {
-        file = new File([blob], item.name || 'image.png', { type });
+        file = new File([blob], item.name || 'image.png', { type: blob.type || type });
         dt.items.add(file);
       } else dt.setData(type, await blob.text());
     }

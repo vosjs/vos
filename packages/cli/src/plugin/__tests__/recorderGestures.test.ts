@@ -41,8 +41,10 @@ board.addEventListener('dblclick', () => log.push({ k: 'dblclick' }));
 board.addEventListener('auxclick', (e) => log.push({ k: 'auxclick', button: e.button }));
 board.addEventListener('contextmenu', (e) => { e.preventDefault(); log.push({ k: 'contextmenu' }) });
 document.addEventListener('paste', (e) => {
-  const files = [...e.clipboardData.files].map((f) => ({ type: f.type, size: f.size }));
+  const list = [...e.clipboardData.files];
+  const files = list.map((f) => ({ type: f.type, size: f.size }));
   log.push({ k: 'paste', trusted: e.isTrusted, text: e.clipboardData.getData('text/plain'), files, target: document.activeElement && document.activeElement.id });
+  for (const f of list) f.arrayBuffer().then((b) => log.push({ k: 'pasteBytes', b64: btoa(String.fromCharCode(...new Uint8Array(b))) }));
 });
 </script></body></html>`
 
@@ -69,7 +71,7 @@ board.addEventListener('pointerup', () => {
 </script></body></html>`
 
 /** A real 4x4 red PNG, assembled here: the browser's clipboard decodes what it holds. */
-function tinyPng(): Uint8Array {
+function tinyPng(dpi?: number): Uint8Array {
   const crcTable = Array.from({ length: 256 }, (_, n) => {
     let c = n
     for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
@@ -99,6 +101,7 @@ function tinyPng(): Uint8Array {
     Buffer.concat([
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
       chunk('IHDR', ihdr),
+      ...(dpi ? [chunk('pHYs', density(dpi))] : []),
       chunk('IDAT', deflateSync(raw)),
       chunk('IEND', Buffer.alloc(0)),
     ]),
@@ -117,6 +120,16 @@ const MIRROR = `<div style="position:absolute;left:0;top:470px">${Array.from(
 ).join(
   '',
 )}</div><script>(function(){var l=window.log;if(!l)return;var push=Array.prototype.push;function show(){var b=btoa(unescape(encodeURIComponent(JSON.stringify(l))));for(var i=0;i<${CHUNKS};i++)document.getElementById('m'+i).textContent=b.slice(i*2000,(i+1)*2000)}show();l.push=function(){var r=push.apply(l,arguments);show();return r}})()</script>`
+
+/** A pHYs chunk's body: pixels per metre on both axes, the unit a metre. */
+function density(dpi: number): Buffer {
+  const b = Buffer.alloc(9)
+  const ppm = Math.round(dpi / 0.0254)
+  b.writeUInt32BE(ppm, 0)
+  b.writeUInt32BE(ppm, 4)
+  b[8] = 1
+  return b
+}
 
 let server: Server | undefined
 let base = ''
@@ -150,6 +163,7 @@ beforeAll(async () => {
     }),
   )
   await writeFile(join(dir, 'dot.png'), tinyPng())
+  await writeFile(join(dir, 'retina.png'), tinyPng(144))
   // Not a PNG at all: the browser's clipboard will not hold it.
   await writeFile(join(dir, 'broken.png'), new Uint8Array([1, 2, 3, 4, 5]))
   await writeFile(
@@ -397,12 +411,12 @@ describe('click counts and picks its button', () => {
 })
 
 describe('paste puts it where a person’s ⌘V does', () => {
-  it('pastes words into a field and a file onto the canvas, trusted, as typing pings', async () => {
+  it('pastes words into a field through the clipboard, trusted, and an image file as its own bytes, as typing pings', async () => {
     if (!browser) return
     const { result, logged, lines } = await record([
       { do: 'paste', selector: '#field', text: 'hello canvas' },
       { do: 'click', selector: '#board' },
-      { do: 'paste', file: 'dot.png' },
+      { do: 'paste', file: 'retina.png' },
     ])
     const pastes = logged.filter((l) => l.k === 'paste')
     expect(pastes).toHaveLength(2)
@@ -411,22 +425,29 @@ describe('paste puts it where a person’s ⌘V does', () => {
       text: 'hello canvas',
       target: 'field',
     })
-    expect(pastes[1]).toMatchObject({ trusted: true, target: 'board' })
+    expect(pastes[1]).toMatchObject({ target: 'board' })
     expect(pastes[1].files).toEqual([
       { type: 'image/png', size: expect.any(Number) },
     ])
+    // The page receives the file's own bytes, its 144-dpi pHYs chunk
+    // included, which the browser's clipboard would re-encode away.
+    const original = Buffer.from(tinyPng(144)).toString('base64')
+    expect(logged.find((l) => l.k === 'pasteBytes')?.b64).toBe(original)
     expect(result.skipped).toEqual([])
     expect(lines).toContain('paste 12 chars into #field')
+    expect(lines).toContain(
+      "paste the file retina.png, dispatched in the page with the file's own bytes (the browser's clipboard re-encodes an image and drops what it carries, its density among it); its events are untrusted",
+    )
     // The words never reach the cursor track.
     expect(JSON.stringify(result.events)).not.toContain('hello')
     expect(result.events.filter((e) => e.type === 'key')).toHaveLength(2)
   }, 60_000)
 })
 
-describe('paste when the clipboard refuses', () => {
-  it('dispatches the paste in the page, says so, and an SVG rides as its markup too', async () => {
+describe('paste of a file the clipboard would refuse', () => {
+  it('still arrives as its own bytes, and an SVG rides as its markup too', async () => {
     if (!browser) return
-    const { result, logged, lines } = await record([
+    const { result, logged } = await record([
       { do: 'click', selector: '#board' },
       { do: 'paste', file: 'broken.png' },
       { do: 'paste', file: 'mark.svg' },
@@ -434,15 +455,78 @@ describe('paste when the clipboard refuses', () => {
     const pastes = logged.filter((l) => l.k === 'paste')
     expect(pastes).toHaveLength(2)
     expect(pastes[0]).toMatchObject({ trusted: false, target: 'board' })
-    expect(
-      lines.some((l) =>
-        /^paste the file broken\.png, dispatched in the page \(the browser's clipboard refused it: .+\); its events are untrusted$/.test(
-          l,
-        ),
-      ),
-    ).toBe(true)
+    expect(logged.filter((l) => l.k === 'pasteBytes')[0]?.b64).toBe(
+      Buffer.from([1, 2, 3, 4, 5]).toString('base64'),
+    )
     expect(pastes[1].text as string).toContain('<svg')
+    expect(pastes[1].files).toEqual([
+      { type: 'image/svg+xml', size: expect.any(Number) },
+    ])
     expect(result.skipped).toEqual([])
+  }, 60_000)
+})
+
+describe('click and hover at a viewport point', () => {
+  it('double-clicks a canvas point holding Shift, releases it after, and hovers a point, with no rect on the track', async () => {
+    if (!browser) return
+    const { result, logged } = await record([
+      { do: 'hover', x: 300, y: 200, ms: 100 },
+      { do: 'click', x: 320, y: 210, count: 2, modifiers: ['Shift'] },
+      { do: 'click', x: 400, y: 260 },
+    ])
+    const downs = logged.filter((l) => l.k === 'down')
+    expect(downs.map((d) => [d.x, d.y, d.mods])).toEqual([
+      [320, 210, 'S'],
+      [320, 210, 'S'],
+      [400, 260, ''],
+    ])
+    expect(logged.filter((l) => l.k === 'dblclick')).toHaveLength(1)
+    expect(logged.filter((l) => l.k === 'click').map((l) => l.detail)).toEqual([
+      1, 2, 1,
+    ])
+    // The hover parked the pointer on its point.
+    const hover = result.meta.steps![0]
+    const atHover = result.events.filter(
+      (e) => e.type === 'move' && e.t <= hover.tEnd * 1000,
+    )
+    expect([atHover.at(-1)?.x, atHover.at(-1)?.y]).toEqual([300, 200])
+    // A point names no element: the presses carry no rect, and the steps none.
+    const presses = result.events.filter((e) => e.type === 'down')
+    expect(presses.map((e) => [e.x, e.y])).toEqual([
+      [320, 210],
+      [320, 210],
+      [400, 260],
+    ])
+    expect(presses.every((e) => e.rect === undefined)).toBe(true)
+    expect(result.meta.steps![1].rect).toBeUndefined()
+  }, 60_000)
+})
+
+describe('an idle page keeps the pace quiet', () => {
+  it('settles at once when nothing changed, reports no overrun on a key sequence and lists no short drag as slow', async () => {
+    if (!browser) return
+    const { result } = await record(
+      [
+        { do: 'click', selector: '#board' },
+        { do: 'wait', ms: 600 },
+        { do: 'hover', x: 600, y: 300, settle: true },
+        { do: 'wait', ms: 600 },
+        { do: 'press', keys: ['Escape', 'Escape'], settle: true },
+        {
+          do: 'drag',
+          path: [
+            [200, 200, 0],
+            [200, 200, 60],
+          ],
+        },
+        { do: 'drag', x: 100, y: 100, tx: 140, ty: 120, ms: 100 },
+      ],
+      {},
+    )
+    // the page was still well past the quiet window when each settle began
+    expect(result.meta.steps![2].settleMs).toBeLessThan(100)
+    expect(result.overruns).toEqual([])
+    expect(result.pace.slow.filter((s) => s.do === 'drag')).toEqual([])
   }, 60_000)
 })
 

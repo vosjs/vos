@@ -51,17 +51,26 @@ export interface ActionsFile {
 
 export type ActionStep = (
   | { do: 'wait'; ms: number }
-  | { do: 'hover'; selector: string; ms?: number }
   /**
-   * `ms` is the settle after the press (default 150). `count` 2 or 3 is a
-   * real double or triple click; `button` presses the right or middle one.
+   * Rest the pointer on `selector`'s centre, or on the viewport point
+   * (`x`, `y`) when no selector names the spot (a place on a canvas).
+   */
+  | { do: 'hover'; selector?: string; x?: number; y?: number; ms?: number }
+  /**
+   * Press `selector`'s centre, or the viewport point (`x`, `y`). `ms` is
+   * the settle after the press (default 150). `count` 2 or 3 is a real
+   * double or triple click; `button` presses the right or middle one;
+   * `modifiers` are held for the press (a Shift-click) and released after.
    */
   | {
       do: 'click'
-      selector: string
+      selector?: string
+      x?: number
+      y?: number
       ms?: number
       count?: 1 | 2 | 3
       button?: ClickButton
+      modifiers?: DragModifier[]
     }
   /**
    * Type into `selector`. The recorder clicks the field first, which is what
@@ -350,9 +359,24 @@ export function validateActions(value: unknown): string[] {
         seenIds.add(s.id)
       }
     }
-    const needSelector = s.do === 'hover' || s.do === 'click' || s.do === 'type'
-    if (needSelector && typeof s.selector !== 'string')
-      errors.push(`${at}: ${s.do} needs a selector`)
+    if (s.do === 'type' && typeof s.selector !== 'string')
+      errors.push(`${at}: type needs a selector`)
+    if (s.do === 'hover' || s.do === 'click') {
+      const point = s.x !== undefined || s.y !== undefined
+      if (point && s.selector !== undefined)
+        errors.push(
+          `${at}: ${s.do} takes a selector or x and y (a viewport point), not both`,
+        )
+      else if (point) {
+        if (!isCoord(s.x) || !isCoord(s.y))
+          errors.push(
+            `${at}: ${s.do} x and y must both be numbers of CSS px, 0 or more`,
+          )
+      } else if (typeof s.selector !== 'string')
+        errors.push(
+          `${at}: ${s.do} needs a selector, or x and y (a viewport point)`,
+        )
+    }
     if (s.do === 'wait' && typeof s.ms !== 'number')
       errors.push(`${at}: wait needs ms`)
     if (
@@ -410,6 +434,7 @@ export function validateActions(value: unknown): string[] {
         errors.push(`${at}: press selector must be a string`)
     }
     if (s.do === 'click') {
+      errors.push(...modifiersProblem(at, 'click', s.modifiers))
       if (
         s.count !== undefined &&
         s.count !== 1 &&
@@ -586,22 +611,28 @@ export function validateActions(value: unknown): string[] {
             `${at}: drag needs a selector OR x and y as the start point`,
           )
       }
-      if (s.modifiers !== undefined) {
-        if (
-          !Array.isArray(s.modifiers) ||
-          s.modifiers.some(
-            (m) => !(DRAG_MODIFIERS as readonly unknown[]).includes(m),
-          )
-        )
-          errors.push(
-            `${at}: drag modifiers must be a list of ${DRAG_MODIFIERS.map((m) => `"${m}"`).join(', ')} (Mod is Meta on macOS, Control elsewhere)`,
-          )
-        else if (new Set(s.modifiers).size !== s.modifiers.length)
-          errors.push(`${at}: drag modifiers names a modifier twice`)
-      }
+      errors.push(...modifiersProblem(at, 'drag', s.modifiers))
     }
   })
   return errors
+}
+
+const isCoord = (v: unknown): boolean =>
+  typeof v === 'number' && Number.isFinite(v) && v >= 0
+
+/** The modifiers a click or a drag holds, checked in the same words for both. */
+function modifiersProblem(at: string, verb: string, v: unknown): string[] {
+  if (v === undefined) return []
+  if (
+    !Array.isArray(v) ||
+    v.some((m) => !(DRAG_MODIFIERS as readonly unknown[]).includes(m))
+  )
+    return [
+      `${at}: ${verb} modifiers must be a list of ${DRAG_MODIFIERS.map((m) => `"${m}"`).join(', ')} (Mod is Meta on macOS, Control elsewhere)`,
+    ]
+  if (new Set(v).size !== v.length)
+    return [`${at}: ${verb} modifiers names a modifier twice`]
+  return []
 }
 
 const isFilled = (v: unknown): boolean =>

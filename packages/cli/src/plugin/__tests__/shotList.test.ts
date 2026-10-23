@@ -148,6 +148,9 @@ describe('the canvas gestures in words', () => {
         { do: 'click', selector: 'text=Layer', button: 'right' },
         { do: 'paste', text: 'hello', selector: '[placeholder="Name"]' },
         { do: 'paste', file: 'logo.svg' },
+        { do: 'click', x: 700, y: 650, modifiers: ['Shift'] },
+        { do: 'click', x: 300, y: 200, count: 2 },
+        { do: 'hover', x: 900, y: 100 },
       ],
     })
     expect(list.beats.map((b) => b.line)).toEqual([
@@ -161,6 +164,9 @@ describe('the canvas gestures in words', () => {
       'Click "Layer" with the right button',
       'Copy "hello", then paste it into the "Name" field (⌘/Ctrl+V)',
       'Copy the file logo.svg, then paste it (⌘/Ctrl+V)',
+      'Hold Shift and click the spot at 700, 650 (lower right)',
+      'Double-click the spot at 300, 200 (upper left)',
+      'Rest the pointer on the spot at 900, 100 (upper right)',
     ])
   })
 })
