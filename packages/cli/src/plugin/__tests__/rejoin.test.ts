@@ -16,6 +16,7 @@ import {
   rerecordedInputs,
 } from '../rejoin'
 import { lintDoc } from '../validateDoc'
+import { writeFixtureMp4 } from './fixtureMedia'
 import type { ProjectDoc, StepSpan, TextOverlayClip } from '@vosjs/studio-core'
 import type { JoinRecord, RejoinReport } from '../rejoin'
 
@@ -567,6 +568,18 @@ describe('vos join --keep-edits', () => {
     said = text()
     expect(said).toMatch(new RegExp(`step captions? landed on ${c}`))
     expect(said).toContain(`${c}: one zoom per beat:`)
+    // A video file added: it has no steps, said as such, never a zero count.
+    const clip = join(root, 'words-clip.mp4')
+    await writeFixtureMp4(clip, { seconds: 2 })
+    expect(await cmdJoin([a, b, c, clip, '--out', out, ...flags])).toBe(0)
+    said = text()
+    expect(said).toContain(
+      `--captions: ${clip} has no recorded steps, so there is nothing to caption`,
+    )
+    expect(said).toContain(
+      `--zooms per-beat: ${clip} has no recorded steps, so there are no beats to plan`,
+    )
+    expect(said).not.toMatch(/0 step captions landed|0 beats held zooms/)
   })
 
   it('matches a take joined before join.json by the footage it holds', async () => {

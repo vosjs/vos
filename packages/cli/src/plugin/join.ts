@@ -809,23 +809,36 @@ export async function cmdJoin(argv: string[]): Promise<number> {
   for (const w of lint.warnings) r.log(`warning: ${w}`)
   // A re-join captions and re-plans its new inputs alone: say which, or
   // that there were none, never a count over inputs it did not look at.
-  const newLabels = only
-    ? plan.media.filter((m) => only.has(m.id)).map((m) => m.label)
-    : []
-  const onNew = only ? ` on ${newLabels.join(', ')}` : ''
+  // A re-join captions and re-plans its new inputs alone: say which, or
+  // that there were none, never a count over inputs it did not look at;
+  // and an input with no recorded steps (a video file) is said as such.
+  const stepCount = (id: string): number =>
+    (doc.media ?? []).find((m) => m.id === id)?.meta.steps?.length ?? 0
+  const newMedia = only ? plan.media.filter((m) => only.has(m.id)) : []
+  const stepped = newMedia.filter((m) => stepCount(m.id) > 0)
+  const bare = newMedia.filter((m) => stepCount(m.id) === 0)
+  const bareWords = bare.length
+    ? `${bare.map((m) => m.label).join(', ')} ${bare.length === 1 ? 'has' : 'have'} no recorded steps`
+    : ''
+  const onNew = only ? ` on ${stepped.map((m) => m.label).join(', ')}` : ''
   const captionLine = !captions
     ? ''
-    : only && !newLabels.length
+    : only && !newMedia.length
       ? '\n  --captions: no new input to caption (a re-join captions only the inputs it adds; the kept ones keep their captions as edited)'
-      : `\n  ${captions.landed.length} step caption${captions.landed.length === 1 ? '' : 's'} landed${onNew}` +
-        (captions.skipped.length
-          ? `; not landed: ${captions.skipped.join('; ')}`
-          : '')
+      : only && !stepped.length
+        ? `\n  --captions: ${bareWords}, so there is nothing to caption`
+        : `\n  ${captions.landed.length} step caption${captions.landed.length === 1 ? '' : 's'} landed${onNew}` +
+          (captions.skipped.length
+            ? `; not landed: ${captions.skipped.join('; ')}`
+            : '') +
+          (bareWords ? `; ${bareWords}` : '')
   const beatLine = !perBeat
     ? ''
-    : only && !newLabels.length
+    : only && !newMedia.length
       ? '\n  --zooms per-beat: no new input to re-plan (a re-join re-plans only the inputs it adds; the kept ones keep their zooms as edited)'
-      : `\n  ${only ? `${newLabels.join(', ')}: ` : ''}${perBeatLine(perBeat, (k) => labelOf.get(k) ?? `media ${k}`)}`
+      : only && !stepped.length
+        ? `\n  --zooms per-beat: ${bareWords}, so there are no beats to plan`
+        : `\n  ${only ? `${stepped.map((m) => m.label).join(', ')}: ` : ''}${perBeatLine(perBeat, (k) => labelOf.get(k) ?? `media ${k}`)}${bareWords ? `; ${bareWords}` : ''}`
   const rejoinText = rejoined
     ? rejoinLines(rejoined.report)
         .map((l) => `\n  ${l}`)
