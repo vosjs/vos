@@ -32,7 +32,11 @@ import {
   withBackdrop,
   migrateMotion,
 } from '@vosjs/studio-core'
-import { splitSegmentsAtSkips, withPageSound } from '@vosjs/render-core/record'
+import {
+  splitSegmentsAtSkips,
+  withFittingExport,
+  withPageSound,
+} from '@vosjs/render-core/record'
 import { loadTake, writeJson } from './take'
 import { retimeCut, retimeOverlays } from './reuse'
 import { proposeMotion } from './motionPlan'
@@ -400,6 +404,9 @@ export async function planTake(
       activity,
       steps: doc.source.meta.steps,
     })
+    // The footage decides the export a fresh doc opens on; a --style
+    // reference's export is the series' choice and stays.
+    if (!opts.style) withFittingExport(doc)
     fresh = true
   }
 

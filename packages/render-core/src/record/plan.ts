@@ -12,10 +12,12 @@
  */
 import {
   DEFAULT_FRAME_STYLE,
+  EXPORT_RESOLUTION_OPTIONS,
   planAutoSpeed,
   planAutoZoom,
   projectFromArtifact,
   ratedSegments,
+  recommendedExportResolution,
   withBackdrop,
 } from '@vosjs/studio-core'
 import type {
@@ -55,7 +57,23 @@ export function planFreshTake(
     params: doc.speedParams,
     activity: opts.activity,
   })
-  return withPageSound(doc, artifact.meta.media)
+  return withFittingExport(withPageSound(doc, artifact.meta.media))
+}
+
+/**
+ * The export a FRESH document opens on, sized to what the footage holds:
+ * the ingest's default resolution, or the largest the recording supports
+ * without upscaling when that is less (a 1280×720 take exports 720p, not a
+ * 1080p that `vos validate` then warns upscales). Never raised. In place,
+ * and returned.
+ */
+export function withFittingExport(doc: ProjectDoc): ProjectDoc {
+  if (!doc.export) return doc
+  const fits = recommendedExportResolution(doc)
+  const order = EXPORT_RESOLUTION_OPTIONS as readonly string[]
+  if (order.indexOf(fits) < order.indexOf(doc.export.resolution))
+    doc.export = { ...doc.export, resolution: fits }
+  return doc
 }
 
 /**
