@@ -122,7 +122,9 @@ describe('one zoom per beat', () => {
       ['arrows', 'z4'],
     ])
     // The opening has no captioned step: it keeps no zoom.
-    expect(r.none).toEqual([{ media: '', step: null, ids: ['z0'] }])
+    expect(r.none).toEqual([
+      { media: '', step: null, caption: null, ids: ['z0'] },
+    ])
     expect(r.rejected).toBe(4)
     expect(d.rejected).toEqual([
       { id: 'r0', lane: 'zoom', in: 0.2, out: 1.4, note: PER_BEAT_NOTE },
@@ -140,7 +142,7 @@ describe('one zoom per beat', () => {
     oneZoomPerBeat(d, new Map([['', actions]]))
     expect(JSON.stringify(d)).toBe(before)
     expect(perBeatLine(r)).toMatch(
-      /3 beats held zooms, 2 proposals on a captioned step kept .*; 1 beat kept no zoom, none of its proposals being on its captioned step \(the opening\)/,
+      /3 beats held zooms, 2 proposals on a beat's action kept .*; beat "Draw the flow": action #1 drag, kept z1; beat "Arrows attach": action #3 drag, kept z4; the opening: no zoom/,
     )
   })
 
@@ -155,10 +157,63 @@ describe('one zoom per beat', () => {
       ],
     })
     const r = oneZoomPerBeat(d, new Map([['', actions]]))
-    expect(r.kept).toEqual([{ media: '', step: 'draw', id: 'z2' }])
-    expect(r.none).toEqual([{ media: '', step: 'arrows', ids: ['z5'] }])
+    expect(r.kept.map((b) => [b.step, b.id])).toEqual([['draw', 'z2']])
+    expect(r.none.map((b) => [b.step, b.ids])).toEqual([['arrows', ['z5']]])
     expect(d.zoom.map((z) => z.id)).toEqual(['z2'])
-    expect(perBeatLine(r)).toMatch(/1 beat kept no zoom.*\(arrows\)/)
+    expect(perBeatLine(r)).toMatch(
+      /beat "Arrows attach": action #3 drag, no zoom on it/,
+    )
+  })
+
+  it('takes the first acting step after a caption written on a wait, and keeps none in a beat that never acts', () => {
+    const sceneSteps: StepSpan[] = [
+      { step: 0, id: 'scene1', do: 'wait', tStart: 0, tEnd: 1.5 },
+      { step: 1, do: 'move', tStart: 1.6, tEnd: 2.6 },
+      { step: 2, id: 'box', do: 'drag', tStart: 3, tEnd: 5 },
+      { step: 3, do: 'type', tStart: 6, tEnd: 7 },
+      { step: 4, id: 'scene2', do: 'wait', tStart: 12, tEnd: 13 },
+      { step: 5, do: 'wait', tStart: 13, tEnd: 20 },
+    ]
+    const sceneActions = {
+      steps: [
+        { id: 'scene1', do: 'wait', ms: 1500, caption: 'Draw the flow' },
+        { do: 'move', x: 10, y: 10 },
+        { id: 'box', do: 'drag', x: 10, y: 10, tx: 90, ty: 60 },
+        { do: 'type', text: 'Sign up' },
+        { id: 'scene2', do: 'wait', ms: 1000, caption: 'Wait for it' },
+        { do: 'wait', ms: 7000 },
+      ],
+    } as unknown as ActionsFile
+    const base = doc()
+    const d = doc({
+      source: {
+        ...base.source,
+        meta: { ...base.source.meta, steps: sceneSteps },
+      },
+      zoom: [
+        // The move that prepares it, the drag that draws, the typing after.
+        zoom('zm', 1.5, 2.8),
+        zoom('zd', 3, 5.2),
+        zoom('zt', 5.5, 10),
+        // The second scene only waits.
+        zoom('zw', 13, 15),
+      ],
+    })
+    const beats = mediaBeats('', d.source, sceneActions)
+    expect(beats.map((b) => b.action)).toEqual([
+      { in: 3, out: 5, step: 2, do: 'drag' },
+      undefined,
+    ])
+    const r = oneZoomPerBeat(d, new Map([['', sceneActions]]))
+    expect(d.zoom.map((z) => z.id)).toEqual(['zd'])
+    expect(r.kept.map((b) => b.id)).toEqual(['zd'])
+    expect(r.none.map((b) => [b.step, b.ids])).toEqual([['scene2', ['zw']]])
+    expect(perBeatLine(r)).toContain(
+      'beat "Draw the flow": action #2 drag, kept zd',
+    )
+    expect(perBeatLine(r)).toContain(
+      'beat "Wait for it": no acting step, no zoom',
+    )
   })
 
   it('a beat with a manual zoom keeps only its manual ones', () => {
@@ -200,7 +255,15 @@ describe('one zoom per beat', () => {
     const again = oneZoomPerBeat(d, new Map([['', actions]]), {
       only: new Set(['m1']),
     })
-    expect(again.kept).toEqual([{ media: 'm1', step: 'warm', id: 'm1-z0' }])
+    expect(again.kept).toEqual([
+      {
+        media: 'm1',
+        step: 'warm',
+        caption: 'Warm up',
+        action: { step: 0, do: 'click' },
+        id: 'm1-z0',
+      },
+    ])
     expect(d.rejected?.at(-1)).toMatchObject({ media: 'm1', in: 3, out: 4 })
   })
 

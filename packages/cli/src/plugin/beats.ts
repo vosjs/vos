@@ -10,16 +10,19 @@
  * the same media starts, the last one to the media's end; what plays
  * before the first captioned step is one more beat, the opening.
  *
- * Within a beat, the zoom kept is the one on the beat's ACTION: the
- * captioned step's own span (`tStart`..`tEnd`), the gesture the caption
- * names. Of the proposals that overlap it, the one that overlaps it most
- * stays (ties: the one the cut plays longest, then the longer, then the
- * higher level, then the earlier). When none overlaps it, the beat keeps
- * NO zoom: what the planner framed there was the typing or the drag that
- * prepares the payoff, not the payoff, and a person cutting a canvas
- * often wants no zoom in such a beat at all. The opening has no captioned
- * step, so it keeps none either. A span belongs to the beat its midpoint
- * falls in.
+ * Within a beat, the zoom kept is the one on the beat's ACTION STEP: the
+ * captioned step when it acts (ACTING_VERBS: a click, a drag, typing, a
+ * paste, a key press), else the first step after it in the beat that
+ * acts, since a scene's caption is often written on the wait or the move
+ * that opens it. Of the proposals that overlap the action step's own span
+ * (`tStart`..`tEnd`), the one that overlaps it most stays (ties: the one
+ * the cut plays longest, then the longer, then the higher level, then the
+ * earlier). When none overlaps it, or the beat has no acting step, the
+ * beat keeps NO zoom: what the planner framed there was the typing or the
+ * drag that prepares the payoff, not the payoff, and a person cutting a
+ * canvas often wants no zoom in such a beat at all. The opening has no
+ * captioned step, so it keeps none either. A span belongs to the beat its
+ * midpoint falls in.
  *
  * The others are deleted the way a person deletes a proposal: each
  * becomes a `doc.rejected` entry, so no re-plan proposes it again. The one
@@ -53,6 +56,15 @@ export function zoomModeOf(
   }
 }
 
+/** The verbs that act on the page: a beat's action step is one of these. */
+export const ACTING_VERBS: readonly string[] = [
+  'click',
+  'drag',
+  'type',
+  'paste',
+  'press',
+]
+
 /** One beat of one media, in that media's SOURCE seconds. */
 export interface Beat {
   /** The media key (`''` = the primary). */
@@ -62,8 +74,12 @@ export interface Beat {
   caption: string | null
   in: number
   out: number
-  /** The captioned step's own span, the beat's action; absent for the opening. */
-  action?: { in: number; out: number }
+  /**
+   * The beat's action step (the captioned step when it acts, else the first
+   * acting step after it in the beat) and its own span; absent for the
+   * opening and for a beat with no acting step.
+   */
+  action?: { in: number; out: number; step: number; do: string }
 }
 
 /**
@@ -93,15 +109,37 @@ export function mediaBeats(
       in: 0,
       out: starts[0].step.tStart,
     })
+  const ordered = [...(source.meta.steps ?? [])]
+    .filter((s) => typeof s.tStart === 'number' && !s.skipped)
+    .sort((a, b) => a.tStart - b.tStart || a.step - b.step)
   starts.forEach(({ step, caption }, i) => {
     const next = starts[i + 1]
+    const out = next ? next.step.tStart : Math.max(end, step.tStart)
+    const acting = ACTING_VERBS.includes(step.do)
+      ? step
+      : ordered.find(
+          (s) =>
+            ACTING_VERBS.includes(s.do) &&
+            s.tStart >= step.tStart &&
+            (s.tStart < out || !next) &&
+            s !== step,
+        )
     beats.push({
       media,
       step: step.id ?? step.step,
       caption,
       in: step.tStart,
-      out: next ? next.step.tStart : Math.max(end, step.tStart),
-      action: { in: step.tStart, out: Math.max(step.tStart, step.tEnd) },
+      out,
+      ...(acting
+        ? {
+            action: {
+              in: acting.tStart,
+              out: Math.max(acting.tStart, acting.tEnd),
+              step: acting.step,
+              do: acting.do,
+            },
+          }
+        : {}),
     })
   })
   return beats
@@ -151,11 +189,20 @@ function stronger(doc: ProjectDoc) {
     a.in - b.in
 }
 
+/** A beat as the report names it: its caption and its action step. */
+export interface BeatWords {
+  media: string
+  step: string | number | null
+  caption: string | null
+  /** The action step's index and verb; absent for the opening and a beat with none. */
+  action?: { step: number; do: string }
+}
+
 export interface PerBeatReport {
-  /** Beats that kept one proposal: the media, the beat's step, the span kept. */
-  kept: { media: string; step: string | number | null; id: string }[]
-  /** Beats none of whose proposals is on the captioned step: every one was rejected. */
-  none: { media: string; step: string | number | null; ids: string[] }[]
+  /** Beats that kept one proposal: the beat, the span kept. */
+  kept: (BeatWords & { id: string })[]
+  /** Beats none of whose proposals is on the action step (or with no action step): every one was rejected. */
+  none: (BeatWords & { ids: string[] })[]
   /** Beats that hold a manual zoom already; their proposals were rejected. */
   manual: { media: string; step: string | number | null; ids: string[] }[]
   /** How many proposals went into `doc.rejected`. */
@@ -213,14 +260,18 @@ export function oneZoomPerBeat(
         })
         continue
       }
+      const words: BeatWords = {
+        media,
+        step: beat.step,
+        caption: beat.caption,
+        ...(beat.action
+          ? { action: { step: beat.action.step, do: beat.action.do } }
+          : {}),
+      }
       const onAction = auto.filter((z) => actionOverlap(z, beat.action) > 0)
       if (!onAction.length) {
         for (const z of auto) drop.add(z)
-        report.none.push({
-          media,
-          step: beat.step,
-          ids: auto.map((z) => z.id),
-        })
+        report.none.push({ ...words, ids: auto.map((z) => z.id) })
         continue
       }
       const [best] = [...onAction].sort(
@@ -230,7 +281,7 @@ export function oneZoomPerBeat(
       )
       best.source = 'manual'
       for (const z of auto) if (z !== best) drop.add(z)
-      report.kept.push({ media, step: beat.step, id: best.id })
+      report.kept.push({ ...words, id: best.id })
     }
   }
   if (!drop.size) return report
@@ -253,12 +304,30 @@ export function perBeatLine(
   name: (media: string) => string = (m) => (m ? `media ${m}` : 'the primary'),
 ): string {
   const parts = [
-    `one zoom per beat: ${r.beats} beat${r.beats === 1 ? '' : 's'} held zooms, ${r.kept.length} proposal${r.kept.length === 1 ? '' : 's'} on a captioned step kept (now manual), ${r.rejected} rejected into doc.rejected (no re-plan brings them back)`,
+    `one zoom per beat: ${r.beats} beat${r.beats === 1 ? '' : 's'} held zooms, ${r.kept.length} proposal${r.kept.length === 1 ? '' : 's'} on a beat's action kept (now manual), ${r.rejected} rejected into doc.rejected (no re-plan brings them back)`,
   ]
-  if (r.none.length)
+  // Each beat that held proposals: the ones that kept a zoom, then the rest.
+  const said = [
+    ...r.kept.map((b) => ({ b, end: `kept ${b.id}` })),
+    ...r.none.map((b) => ({
+      b,
+      end:
+        b.step === null
+          ? 'no zoom'
+          : b.action
+            ? 'no zoom on it'
+            : 'no acting step, no zoom',
+    })),
+  ]
+  for (const { b, end } of said) {
+    const beat =
+      b.step === null
+        ? `the opening${b.media ? ` of ${name(b.media)}` : ''}`
+        : `beat ${b.caption ? JSON.stringify(b.caption) : String(b.step)}${b.media ? ` (${name(b.media)})` : ''}`
     parts.push(
-      `${r.none.length} beat${r.none.length === 1 ? '' : 's'} kept no zoom, none of ${r.none.length === 1 ? 'its' : 'their'} proposals being on ${r.none.length === 1 ? 'its' : 'their'} captioned step (${r.none.map((b) => (b.step === null ? 'the opening' : String(b.step))).join(', ')})`,
+      `${beat}: ${b.action ? `action #${b.action.step} ${b.action.do}, ` : ''}${end}`,
     )
+  }
   if (r.manual.length)
     parts.push(
       `${r.manual.length} beat${r.manual.length === 1 ? '' : 's'} kept ${r.manual.length === 1 ? 'its' : 'their'} manual zoom${r.manual.some((m) => m.ids.length > 1) ? 's' : ''}`,
