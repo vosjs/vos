@@ -986,8 +986,20 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
       var rbPY = ol.box.py * olMS * s
       var rbW = rtL.width + rbPX * 2
       var rbH = rtN * rtLH + rbPY * 2
+      // A per-unit entrance leaves the clip at full strength while its
+      // units arrive one by one, so the box follows the EARLIEST unit (the
+      // units' own delay, seconds and ease) or it stands empty until the
+      // first word shows. A typewriter's field is there from its first frame.
+      var rbA = 1
+      if (rtFx && rtFx.k !== 'typewriter') {
+        var rbN = 0
+        for (var rbi = 0; rbi < rtN; rbi++) rbN += rtL.lines[rbi].units.length
+        var rbO = rtFx.d === 2 && rbN % 2 === 0 ? 0.5 : 0
+        var rbU = Math.max(0, Math.min(1, (olT - rbO * rtFx.st) / rtFx.dur))
+        rbA = rtFx.k === 'pop' ? Math.min(1, rbU * 2) : 1 - Math.pow(1 - rbU, 3)
+      }
       ovC.save()
-      ovC.globalAlpha = olA * ol.box.o
+      ovC.globalAlpha = olA * ol.box.o * rbA
       ovC.fillStyle = ol.box.c
       rr(-rbW / 2, -rbH / 2, rbW, rbH, Math.min(ol.box.r * olMS * s, rbH / 2), ovC)
       ovC.fill()
