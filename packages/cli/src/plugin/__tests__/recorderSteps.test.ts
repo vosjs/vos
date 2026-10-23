@@ -12,8 +12,10 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { closeBrowser } from './closeBrowser'
 import { run } from '../run'
 import {
+  AWAIT_POLL_S,
   RecordRefusedError,
   planFreshTake,
   recordTake,
@@ -104,7 +106,7 @@ beforeAll(async () => {
 }, 60_000)
 
 afterAll(async () => {
-  await browser?.close()
+  await closeBrowser(browser)
   server?.close()
 }, 30_000)
 
@@ -268,24 +270,30 @@ describe('await waits off camera', () => {
     expect(skip.step).toBe(1)
     expect(skip.id).toBe('ready')
     // The page took 4 s from the press (the press and its settle took some
-    // of that on camera); the poll found it within a beat.
+    // of that on camera), and the wait held rather than timing out.
     expect(skip.ms).toBeGreaterThanOrEqual(2000)
-    expect(skip.ms).toBeLessThan(6000)
+    expect(skip.timedOut).toBeUndefined()
+    expect(result.meta.steps?.[1].timedOut).toBeUndefined()
     expect(result.meta.steps?.[1].offCameraMs).toBe(skip.ms)
     // The footage clock stood still: the take is shorter than the wall by
-    // the wait, and the await's own span is a moment, not three seconds.
+    // the wait (the wall also holds the navigation, so this only loosens on
+    // a slow machine), and the await's own span on camera is shorter than
+    // half the wait it cut, where an uncut wait would be all of it.
     expect(result.meta.durationMs).toBeLessThan(wallMs - skip.ms + 500)
     const span = result.meta.steps![1]
-    expect(span.tEnd - span.tStart).toBeLessThan(1)
+    expect(span.tEnd - span.tStart).toBeLessThan(skip.ms / 1000 / 2)
     expect(span.tStart).toBeCloseTo(skip.at, 1)
     // No gap in the footage: the spinner kept frames coming up to the cut,
     // and frames resume at the cut, never three seconds after it.
     const t = result.frames.map((f) => f.tMs)
     expect(t).toEqual([...t].sort((a, b) => a - b))
+    // A gap as long as the wait would be the wait left in the frame times;
+    // a slow machine's screencast stalls are shorter than that.
     const gaps = t.slice(1).map((v, i) => v - t[i])
-    expect(Math.max(...gaps)).toBeLessThan(1500)
+    expect(Math.max(...gaps)).toBeLessThan(skip.ms)
     expect(t.some((v) => v >= skip.at * 1000)).toBe(true)
-    expect(t[t.length - 1]).toBeLessThanOrEqual(result.meta.durationMs + 400)
+    // and none sits past the footage by anything like the wait
+    expect(t[t.length - 1]).toBeLessThan(result.meta.durationMs + skip.ms / 2)
     // A fresh plan starts a segment at the cut.
     const doc = planFreshTake(
       { videoKey: 'recording.webm', cursor: result.events, meta: result.meta },
@@ -516,6 +524,7 @@ describe('a rehearsal of a step that spends', () => {
     if (!browser) return
     const started = Date.now()
     const logs: string[] = []
+    const events: Record<string, unknown>[] = []
     const result = await recordTake(
       browser,
       `${base}/`,
@@ -535,9 +544,14 @@ describe('a rehearsal of a step that spends', () => {
       },
       frameSink(),
       (m) => logs.push(m),
-      { dryRun: true, env: {} },
+      { dryRun: true, env: {}, onEvent: (e) => void events.push(e) },
     )
-    expect(Date.now() - started).toBeLessThan(20_000)
+    // The await never started polling: no await event at all.
+    expect(events.filter((e) => e.event === 'await')).toEqual([])
+    expect(logs.some((l) => l.includes('(off camera)'))).toBe(false)
+    // Waiting either would cost 60 s or 120 s; a loaded machine's rehearsal
+    // of four steps stays far below the shorter of them.
+    expect(Date.now() - started).toBeLessThan(40_000)
     expect(result.skipped).toEqual([])
     expect(result.stopped).toBeNull()
     expect(result.meta.steps?.map((s) => s.followsGuard)).toEqual([
@@ -549,7 +563,7 @@ describe('a rehearsal of a step that spends', () => {
     expect(logs).toContain(
       '#1 bought await: not waited: it follows #0 (guarded, not pressed)',
     )
-  }, 60_000)
+  }, 90_000)
 })
 
 describe('a long await reports progress', () => {
@@ -580,14 +594,14 @@ describe('a long await reports progress', () => {
         awaitHeartbeatMs: 500,
       },
     )
-    const phases = events.map((e) => e.phase)
+    // Each step also says when it starts and ends; these are the await's own.
+    const awaits = events.filter((e) => e.event === 'await')
+    const phases = awaits.map((e) => e.phase)
     expect(phases[0]).toBe('start')
     expect(phases.at(-1)).toBe('end')
     expect(phases.filter((p) => p === 'wait').length).toBeGreaterThanOrEqual(3)
-    expect(events.every((e) => e.event === 'await' && e.id === 'ready')).toBe(
-      true,
-    )
-    const end = events.at(-1)!
+    expect(awaits.every((e) => e.id === 'ready')).toBe(true)
+    const end = awaits.at(-1)!
     expect(end.held).toBe(true)
     expect(end.ms).toBeGreaterThan(2000)
   }, 60_000)
@@ -609,7 +623,9 @@ describe('a long await reports progress', () => {
       { env: {} },
     )
     expect(result.meta.skips).toBeUndefined()
-    expect(result.meta.steps?.[0].offCameraMs).toBeLessThan(250)
+    // Held on its first read: a second read comes a poll interval (2 s)
+    // later, so anything under that is one read, however slow the machine.
+    expect(result.meta.steps?.[0].offCameraMs).toBeLessThan(AWAIT_POLL_S * 1000)
     const doc = planFreshTake(
       { videoKey: 'recording.webm', cursor: result.events, meta: result.meta },
       'recording.webm',

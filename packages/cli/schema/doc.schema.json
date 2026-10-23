@@ -1640,6 +1640,11 @@
             "type": "boolean",
             "description": "duck under the mic while speech is detected"
           },
+          "source": {
+            "type": "string",
+            "enum": ["page"],
+            "description": "page: sound the recorded page itself played (a video or audio element heard during the take, meta.media), placed by the plan at the output time it was heard and keyed to the file fetched into page-sound/. A re-plan replaces only these; absent = a clip someone added"
+          },
           "media": {
             "type": "string",
             "description": "the media this belongs to: a `media[].id`; absent = the primary, `source`"
