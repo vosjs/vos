@@ -123,7 +123,13 @@ import { encodeRecording } from './encode'
 import { planTake } from './plan'
 import { openingBackdrop } from './backdrops'
 import { renderTake } from './renderTake'
-import { pullTake, pushTake, pushTakeClaimable, takePushRefusal } from './sync'
+import {
+  PushRefusedError,
+  pullTake,
+  pushTake,
+  pushTakeClaimable,
+  takePushRefusal,
+} from './sync'
 import {
   cmdDuplicate,
   cmdFetch,
@@ -2842,15 +2848,10 @@ export async function run(argv: string[]): Promise<number> {
       case 'push': {
         // Polymorphic by the deterministic sniff: a take DIRECTORY (doc.json)
         // pushes recording + doc; anything else is a program config push.
+        // A claimable take push is cmdPush's to judge (a remix of a fetched
+        // public take, which uploads nothing), never refused here.
         const target = rest.find((a) => !a.startsWith('-'))
-        if (target && isTakeDir(target)) {
-          if (rest.includes('--claimable')) {
-            throw new UsageError(
-              '--claimable pushes are PROGRAMS only (a config.json) — takes carry recordings, which need an account: vos login, then vos push',
-            )
-          }
-          return await cmdPush(rest)
-        }
+        if (target && isTakeDir(target)) return await cmdPush(rest)
         return await cmdPushProgram(rest)
       }
       case 'pull': {
@@ -2908,7 +2909,8 @@ export async function run(argv: string[]): Promise<number> {
       e instanceof SetupError ||
       e instanceof SetupEnvError ||
       e instanceof RecordRefusedError ||
-      e instanceof PlatformBehindError
+      e instanceof PlatformBehindError ||
+      e instanceof PushRefusedError
     ) {
       process.stderr.write(`${e.message}\n`)
       return EXIT_USAGE
