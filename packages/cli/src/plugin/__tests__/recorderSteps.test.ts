@@ -21,6 +21,7 @@ import {
 import type { FrameSink, OutputSink } from '@vosjs/render-core/record'
 import type { Browser } from 'playwright'
 import type { Server } from 'node:http'
+import { closeBrowser } from './browserTeardown'
 
 const FIXTURE = `<!doctype html><html><head><meta charset="utf-8"><title>Steps</title>
 <style>
@@ -104,7 +105,7 @@ beforeAll(async () => {
 }, 60_000)
 
 afterAll(async () => {
-  await browser?.close()
+  await closeBrowser(browser)
   server?.close()
 }, 30_000)
 

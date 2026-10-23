@@ -13,7 +13,7 @@ import {
   splitChord,
 } from '../gestures'
 import { pasteTypeOf } from '../paste'
-import { loadScriptFiles } from '../scriptFiles'
+import { inlineScript, loadScriptFiles } from '../scriptFiles'
 import { appSettled, settleOn } from '../settle'
 
 /**
@@ -445,5 +445,47 @@ describe('the overrun report', () => {
     ).toBe(
       '2 steps ran 2.1× slower than scripted (#2 drag, #5 (loop) drag): the page could not keep up; add settle or raise ms',
     )
+  })
+})
+
+describe('the script a take keeps', () => {
+  it('writes a path a file held inline, with its times and pressure, and leaves the rest alone', async () => {
+    const source = {
+      read: async (name: string) =>
+        new TextEncoder().encode(
+          name === 'timed.json'
+            ? '[[5,5,100],[9,9,160,0.5]]'
+            : '[{"x":1,"y":1},{"x":2,"y":2,"pressure":0.3}]',
+        ),
+    }
+    const actions = {
+      steps: [
+        { do: 'drag' as const, path: 'timed.json' },
+        { do: 'drag' as const, path: 'even.json', ms: 300 },
+        { do: 'paste' as const, text: 'hi' },
+      ],
+    }
+    const files = await loadScriptFiles(actions, source)
+    if ('problem' in files) throw new Error(files.problem)
+    const kept = inlineScript(actions, files)
+    expect(kept.steps).toEqual([
+      {
+        do: 'drag',
+        path: [
+          [5, 5, 0],
+          [9, 9, 60, 0.5],
+        ],
+      },
+      {
+        do: 'drag',
+        path: [[1, 1], { x: 2, y: 2, pressure: 0.3 }],
+        ms: 300,
+      },
+      { do: 'paste', text: 'hi' },
+    ])
+    expect(validateActions(kept)).toEqual([])
+    expect(hostedRefusals(kept)).toEqual([
+      'steps[2] is a paste, and a hosted browser has no clipboard to paste from: record it on this machine',
+    ])
   })
 })

@@ -9,7 +9,7 @@ import type { ActionsFile } from './actions'
 import { fileNameProblem, scriptFiles } from './actions'
 import type { ScriptFiles } from './driver'
 import { readPath } from './gestures'
-import type { PathSample } from './gestures'
+import type { PathPoint, PathSample } from './gestures'
 import { PASTE_MAX_BYTES, pasteTypeOf } from './paste'
 
 export interface LoadedFiles {
@@ -45,8 +45,12 @@ export async function loadScriptFiles(
     try {
       bytes = await source.read(f.name)
     } catch (e) {
+      const why = e instanceof Error ? e.message : String(e)
       return {
-        problem: `${at} names "${f.name}", which could not be read beside the actions file (${e instanceof Error ? e.message : String(e)}). Nothing was recorded.`,
+        problem:
+          f.as === 'paste'
+            ? `${at} pastes the file "${f.name}", which could not be read beside the actions file (${why}): a file paste needs its file beside the script, so put ${f.name} next to it (a take fetched from vos.so carries its paths and its words, never a pasted file). Nothing was recorded.`
+            : `${at} names "${f.name}", which could not be read beside the actions file (${why}). Nothing was recorded.`,
       }
     }
     if (f.as === 'path') {
@@ -77,4 +81,42 @@ export async function loadScriptFiles(
     }
   }
   return loaded
+}
+
+/** A read path as inline points: its own times when it had them, its pressure when it carried one. */
+export function inlinePoints(path: {
+  points: PathSample[]
+  timed: boolean
+}): PathPoint[] {
+  return path.points.map((p): PathPoint => {
+    if (path.timed)
+      return p.pressure !== undefined
+        ? [p.x, p.y, p.at, p.pressure]
+        : [p.x, p.y, p.at]
+    return p.pressure !== undefined
+      ? { x: p.x, y: p.y, pressure: p.pressure }
+      : [p.x, p.y]
+  })
+}
+
+/**
+ * The script as it ran, self-contained: every path a file held is written
+ * inline, so the script a take keeps (and the one a push embeds, a fetch
+ * writes back and a hosted recorder runs) re-records the same strokes with
+ * the file gone. A paste's file stays a name: it is bytes, kept beside the
+ * script by the host.
+ */
+export function inlineScript<T extends Pick<ActionsFile, 'steps'>>(
+  actions: T,
+  files: LoadedFiles,
+): T {
+  if (!files.paths.size) return actions
+  return {
+    ...actions,
+    steps: actions.steps.map((s, i) => {
+      const read = files.paths.get(i)
+      if (s.do !== 'drag' || typeof s.path !== 'string' || !read) return s
+      return { ...s, path: inlinePoints(read) }
+    }),
+  }
 }

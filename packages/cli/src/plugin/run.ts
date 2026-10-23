@@ -78,7 +78,7 @@ import {
 import { deadLine, deadWarns } from './pace'
 import type { TakePaths } from './take'
 import { BrowserUnavailableError, launchBrowser } from '../browser'
-import { recordTake } from './recorder'
+import { recordTake, scriptForHost } from './recorder'
 import type { RecordResult, SkippedStep } from './recorder'
 import {
   RecordRefusedError,
@@ -894,7 +894,14 @@ async function cmdRecord(argv: string[]): Promise<number> {
       )
     // Nobody can confirm a step that spends on the fleet, and a download
     // has no take directory to land in there.
-    const refusals = hostedRefusals(actions)
+    // The script travels alone: a path a file holds goes up inline.
+    const hostedActions = await scriptForHost(
+      actions,
+      dirname(resolve(actionsPath)),
+    ).catch((e: unknown) => {
+      throw new UsageError(e instanceof Error ? e.message : String(e))
+    })
+    const refusals = hostedRefusals(hostedActions)
     if (refusals.length)
       throw new UsageError(
         `a hosted take cannot run this script: ${refusals.join('; ')}`,
@@ -924,7 +931,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
       origin,
       key,
       url,
-      actions: { ...actions, url },
+      actions: { ...hostedActions, url },
       headers,
       title: strFlag(flags, 'title'),
       folderId: strFlag(flags, 'folder'),

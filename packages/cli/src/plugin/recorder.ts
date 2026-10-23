@@ -9,9 +9,11 @@
  */
 import { writeFileSync } from 'node:fs'
 import { lstat, mkdir, readFile, realpath } from 'node:fs/promises'
-import { join, sep } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import {
   fileNameProblem,
+  inlineScript,
+  loadScriptFiles,
   recordTake as recordTakeCore,
 } from '@vosjs/render-core/record'
 import type {
@@ -73,6 +75,56 @@ export function actionsDirFiles(dir: string): ScriptFiles {
   }
 }
 
+/** The name a pasted file is kept under in the take: `paste-<name>`, once. */
+export const pasteCopyName = (name: string): string =>
+  name.startsWith('paste-') ? name : `paste-${name}`
+
+/**
+ * Copy every file a `paste` step names into the take, under
+ * `paste-<name>`, and point the script at the copy: the take's own
+ * actions.json then re-records on this machine with the original gone. A
+ * paste's bytes never travel inside the script itself (a push embeds the
+ * script, not the file).
+ */
+export async function keepPasteFiles(
+  actions: ActionsFile,
+  actionsDir: string,
+  takeDir: string,
+): Promise<ActionsFile> {
+  if (!actions.steps.some((s) => s.do === 'paste' && s.file)) return actions
+  const files = actionsDirFiles(actionsDir)
+  const steps = await Promise.all(
+    actions.steps.map(async (s) => {
+      if (s.do !== 'paste' || !s.file) return s
+      const name = pasteCopyName(s.file)
+      const same = resolve(actionsDir) === resolve(takeDir) && name === s.file
+      if (!same)
+        await writeFileSafe(join(takeDir, name), await files.read(s.file))
+      return { ...s, file: name }
+    }),
+  )
+  return { ...actions, steps }
+}
+
+/**
+ * The script a hosted recorder runs: every path a file held written
+ * inline, since the script travels alone. A paste is left as it is for the
+ * hosted refusal to name.
+ */
+export async function scriptForHost(
+  actions: ActionsFile,
+  actionsDir: string,
+): Promise<ActionsFile> {
+  const pathsOnly = {
+    steps: actions.steps.map((s) =>
+      s.do === 'paste' ? ({ do: 'wait', ms: 0 } as const) : s,
+    ),
+  }
+  const files = await loadScriptFiles(pathsOnly, actionsDirFiles(actionsDir))
+  if ('problem' in files) throw new Error(files.problem)
+  return inlineScript(actions, files)
+}
+
 export type RecordOpts = Omit<
   CoreRecordOpts,
   'context' | 'env' | 'platform' | 'outputs' | 'files'
@@ -124,6 +176,14 @@ export async function recordTake(
   // A rehearsal writes nothing: the take beside it keeps its footage, its
   // cut and its script exactly as they were.
   if (!dry) {
+    // The script as it ran, self-contained: paths are inline (the
+    // recorder's), and a pasted file is kept beside it under its own name.
+    if (opts.actionsDir)
+      result.actions = await keepPasteFiles(
+        result.actions,
+        opts.actionsDir,
+        paths.dir,
+      )
     await writeJson(paths.cursor, result.events)
     await writeJson(paths.meta, result.meta, true)
     await writeJson(paths.framesIndex, result.frames)

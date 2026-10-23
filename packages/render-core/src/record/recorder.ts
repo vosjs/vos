@@ -80,7 +80,7 @@ import {
   schedulePath,
 } from './gestures'
 import type { ClickButton, PathSample, StepOverrun } from './gestures'
-import { loadScriptFiles } from './scriptFiles'
+import { inlineScript, loadScriptFiles } from './scriptFiles'
 import type { LoadedFiles } from './scriptFiles'
 import { pasteItemOf, runPaste } from './pasteStep'
 import { appSettled, settleOn } from './settle'
@@ -1664,7 +1664,9 @@ export async function recordTake(
     stopped,
     pageErrors: pageErrors.entries(),
     overruns,
-    actions: { ...actions, url },
+    // Self-contained: a path a file held is inline, so the take re-records
+    // from its own script with the file gone.
+    actions: { ...inlineScript(actions, files), url },
   }
 }
 

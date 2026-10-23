@@ -20,7 +20,8 @@ import { recordTake } from '@vosjs/render-core/record'
 import type { FrameSink } from '@vosjs/render-core/record'
 import type { Browser } from 'playwright'
 import type { Server } from 'node:http'
-import { actionsDirFiles } from '../recorder'
+import { closeBrowser } from './browserTeardown'
+import { actionsDirFiles, scriptForHost } from '../recorder'
 
 const CANVAS = `<!doctype html><html><head><meta charset="utf-8"><title>Canvas</title>
 <style>body{margin:0;font:16px system-ui}#board{position:absolute;left:0;top:0;width:640px;height:400px;background:#f4f4f4}
@@ -105,8 +106,17 @@ function tinyPng(): Uint8Array {
 }
 
 // The recorder closes its context at the end, so each page mirrors its
-// log into an element the last step's \`read\` keeps.
-const MIRROR = `<pre id="mirror" style="position:absolute;left:0;top:470px;margin:0;font-size:2px;line-height:2px;max-height:4px;overflow:hidden"></pre><script>setInterval(function(){var m=document.getElementById('mirror');if(window.log)m.textContent=JSON.stringify(window.log)},20)</script>`
+// log into elements the last steps' \`read\` keeps, on every entry. A read
+// keeps at most 2 KB of words, so the log rides as base64 (no whitespace to
+// collapse) in CHUNKS chunks of 2000 characters.
+const CHUNKS = 8
+const MIRROR = `<div style="position:absolute;left:0;top:470px">${Array.from(
+  { length: CHUNKS },
+  (_, i) =>
+    `<pre id="m${i}" style="display:inline-block;width:4px;height:2px;margin:0;overflow:hidden;font-size:1px"></pre>`,
+).join(
+  '',
+)}</div><script>(function(){var l=window.log;if(!l)return;var push=Array.prototype.push;function show(){var b=btoa(unescape(encodeURIComponent(JSON.stringify(l))));for(var i=0;i<${CHUNKS};i++)document.getElementById('m'+i).textContent=b.slice(i*2000,(i+1)*2000)}show();l.push=function(){var r=push.apply(l,arguments);show();return r}})()</script>`
 
 let server: Server | undefined
 let base = ''
@@ -155,7 +165,7 @@ beforeAll(async () => {
 }, 60_000)
 
 afterAll(async () => {
-  await browser?.close()
+  await closeBrowser(browser)
   server?.close()
 }, 30_000)
 
@@ -179,13 +189,24 @@ async function record(
     `${base}${page}`,
     {
       viewport: VIEWPORT,
-      steps: [...steps, { do: 'wait', ms: 80, read: '#mirror' }],
+      steps: [
+        ...steps,
+        ...Array.from({ length: CHUNKS }, (_, i) => ({
+          do: 'wait' as const,
+          ms: i === 0 ? 80 : 1,
+          read: `#m${i}`,
+        })),
+      ],
     },
     sink(),
     (m) => lines.push(m),
     { env: {}, files: actionsDirFiles(dir), ...rest },
   )
-  const text = result.meta.steps?.at(-1)?.text ?? '[]'
+  const b64 = (result.meta.steps ?? [])
+    .slice(-CHUNKS)
+    .map((st) => st.text ?? '')
+    .join('')
+  const text = b64 ? Buffer.from(b64, 'base64').toString('utf8') : '[]'
   return { result, logged: JSON.parse(text) as Logged[], lines }
 }
 
@@ -423,6 +444,25 @@ describe('paste when the clipboard refuses', () => {
     expect(pastes[1].text as string).toContain('<svg')
     expect(result.skipped).toEqual([])
   }, 60_000)
+})
+
+describe('the script a hosted take runs', () => {
+  it('goes up with every path inline, the paste left for the refusal to name', async () => {
+    const sent = await scriptForHost(
+      {
+        steps: [
+          { do: 'drag', path: 'loop.json' },
+          { do: 'paste', file: 'not-here.png' },
+        ],
+      },
+      dir,
+    )
+    expect(Array.isArray((sent.steps[0] as { path: unknown }).path)).toBe(true)
+    expect(sent.steps[1]).toEqual({ do: 'paste', file: 'not-here.png' })
+    await expect(
+      scriptForHost({ steps: [{ do: 'drag', path: 'gone.json' }] }, dir),
+    ).rejects.toThrow(/could not be read beside the actions file/)
+  })
 })
 
 describe('a page that cannot keep up', () => {
