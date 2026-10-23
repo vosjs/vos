@@ -7,7 +7,7 @@
  * (`meta.steps[].tStart`/`tEnd`), its caption and where it plays in the
  * cut. Then the OUTPUT timeline as the lowering resolves it, read through
  * studio-core's own functions (`ratedSegments`, `segmentOutputExtents`,
- * `spanOutputExtent`, `resolveOverlayAnchors`, `docOutputDuration`): every
+ * `spanOutputExtents`, `resolveOverlayAnchors`, `docOutputDuration`): every
  * segment, speed span, freeze, zoom and tilt with its output extent (or
  * cut, when the trims leave it out), every layer with its anchor resolved,
  * every sound clip, the still and the end. Read-only.
@@ -25,7 +25,7 @@ import {
   ratedSegments,
   resolveOverlayAnchors,
   segmentOutputExtents,
-  spanOutputExtent,
+  spanOutputExtents,
 } from '@vosjs/studio-core'
 import { totalDuration } from '@vosjs/timeline'
 import { UsageError, parseArgs } from './args'
@@ -46,6 +46,11 @@ type Extent = { start: number; end: number } | null
 const r3 = (v: number): number => Math.round(v * 1000) / 1000
 const ext = (e: Extent): Extent =>
   e ? { start: r3(e.start), end: r3(e.end) } : null
+/**
+ * Every further place a source span plays, after `output` (its first): a
+ * cut that replays seconds (a cold open) plays the span in each pass.
+ */
+type Again = { start: number; end: number }[]
 
 export interface TimelineStep {
   step: number
@@ -58,6 +63,7 @@ export interface TimelineStep {
   skipped?: boolean
   /** Where the step plays in the cut; null when the trims leave it out. */
   output: Extent
+  again?: Again
 }
 
 export interface TimelineMedia {
@@ -87,6 +93,7 @@ export interface TakeTimeline {
     rate: number
     source?: string
     output: Extent
+    again?: Again
   }[]
   freeze: {
     id: string
@@ -103,8 +110,16 @@ export interface TakeTimeline {
     level: number
     source?: string
     output: Extent
+    again?: Again
   }[]
-  tilt: { id: string; media: string; in: number; out: number; output: Extent }[]
+  tilt: {
+    id: string
+    media: string
+    in: number
+    out: number
+    output: Extent
+    again?: Again
+  }[]
   overlays: {
     id: string
     kind: string
@@ -155,8 +170,22 @@ export function takeTimeline(
 ): TakeTimeline {
   const doc = migrateMotion(rawDoc)
   const rated = ratedSegments(doc)
-  const span = (sIn: number, sOut: number, media?: string): Extent =>
-    ext(spanOutputExtent(rated, sIn, sOut, media))
+  // Where a source span plays: its first place (where an anchor or a lane
+  // item lands) and, on a cut that replays it, every place after.
+  const span = (
+    sIn: number,
+    sOut: number,
+    media?: string,
+  ): { output: Extent; again?: Again } => {
+    const all = spanOutputExtents(rated, sIn, sOut, media).map((e) => ({
+      start: r3(e.start),
+      end: r3(e.end),
+    }))
+    return {
+      output: all[0] ?? null,
+      ...(all.length > 1 ? { again: all.slice(1) } : {}),
+    }
+  }
 
   const media: TimelineMedia[] = docMediaList(doc).map(({ id, source }) => ({
     id,
@@ -180,7 +209,7 @@ export function takeTimeline(
         out: r3(s.tEnd),
         ...(caption ? { caption } : {}),
         ...(s.skipped ? { skipped: true } : {}),
-        output: span(s.tStart, out, id || undefined),
+        ...span(s.tStart, out, id || undefined),
       }
     }),
   }))
@@ -252,7 +281,7 @@ export function takeTimeline(
       out: r3(s.out),
       rate: s.rate,
       ...(s.source ? { source: s.source } : {}),
-      output: span(s.in, s.out, s.media),
+      ...span(s.in, s.out, s.media),
     })),
     freeze,
     zoom: doc.zoom.map((z) => ({
@@ -262,14 +291,14 @@ export function takeTimeline(
       out: r3(z.out),
       level: z.level,
       ...(z.source ? { source: z.source } : {}),
-      output: span(z.in, z.out, z.media),
+      ...span(z.in, z.out, z.media),
     })),
     tilt: (doc.tilt ?? []).map((t) => ({
       id: t.id,
       media: mediaKey(t.media),
       in: r3(t.in),
       out: r3(t.out),
-      output: span(t.in, t.out, t.media),
+      ...span(t.in, t.out, t.media),
     })),
     overlays,
     objects: (doc.objects ?? []).map((ob) => ({
@@ -296,7 +325,10 @@ export function takeTimeline(
 
 const f2 = (v: number): string => v.toFixed(2)
 const range = (a: number, b: number): string => `${f2(a)}–${f2(b)}`
-const outText = (e: Extent): string => (e ? range(e.start, e.end) : '(cut)')
+const outText = (e: Extent, again?: Again): string =>
+  e
+    ? `${range(e.start, e.end)}${again?.length ? `, again ${again.map((a) => range(a.start, a.end)).join(', ')}` : ''}`
+    : '(cut)'
 const mediaName = (m: string): string => m || 'primary'
 
 /** The timeline in words, one thing a line. */
@@ -317,7 +349,7 @@ export function formatTimeline(t: TakeTimeline, label: string): string {
       )
     for (const s of m.steps)
       lines.push(
-        `  ${pad(String(s.step), 5)} ${pad(s.id ?? '-', 16)} ${pad(s.do, 8)} ${pad(range(s.in, s.out), 14)} ${pad(s.skipped ? '(skipped)' : outText(s.output), 14)} ${s.caption ? JSON.stringify(s.caption) : ''}`.trimEnd(),
+        `  ${pad(String(s.step), 5)} ${pad(s.id ?? '-', 16)} ${pad(s.do, 8)} ${pad(range(s.in, s.out), 14)} ${pad(s.skipped ? '(skipped)' : outText(s.output), 14)} ${s.caption ? JSON.stringify(s.caption) : ''}${s.again?.length && !s.skipped ? ` (again ${s.again.map((a) => range(a.start, a.end)).join(', ')})` : ''}`.trimEnd(),
       )
   }
   lines.push('')
@@ -331,7 +363,7 @@ export function formatTimeline(t: TakeTimeline, label: string): string {
     lines.push('  speed')
     for (const s of t.speed)
       lines.push(
-        `    ${pad(s.id, 12)} ${pad(mediaName(s.media), 8)} ${pad(range(s.in, s.out), 14)} ×${pad(String(s.rate), 5)} ${pad(s.source ?? '', 6)} → ${outText(s.output)}`,
+        `    ${pad(s.id, 12)} ${pad(mediaName(s.media), 8)} ${pad(range(s.in, s.out), 14)} ×${pad(String(s.rate), 5)} ${pad(s.source ?? '', 6)} → ${outText(s.output, s.again)}`,
       )
   }
   if (t.freeze.length) {
@@ -345,14 +377,14 @@ export function formatTimeline(t: TakeTimeline, label: string): string {
     lines.push('  zoom')
     for (const z of t.zoom)
       lines.push(
-        `    ${pad(z.id, 12)} ${pad(mediaName(z.media), 8)} ${pad(range(z.in, z.out), 14)} L${pad(String(z.level), 5)} ${pad(z.source ?? '', 6)} → ${outText(z.output)}`,
+        `    ${pad(z.id, 12)} ${pad(mediaName(z.media), 8)} ${pad(range(z.in, z.out), 14)} L${pad(String(z.level), 5)} ${pad(z.source ?? '', 6)} → ${outText(z.output, z.again)}`,
       )
   }
   if (t.tilt.length) {
     lines.push('  tilt')
     for (const z of t.tilt)
       lines.push(
-        `    ${pad(z.id, 12)} ${pad(mediaName(z.media), 8)} ${pad(range(z.in, z.out), 14)} → ${outText(z.output)}`,
+        `    ${pad(z.id, 12)} ${pad(mediaName(z.media), 8)} ${pad(range(z.in, z.out), 14)} → ${outText(z.output, z.again)}`,
       )
   }
   if (t.overlays.length) {

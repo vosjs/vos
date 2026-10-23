@@ -186,6 +186,24 @@ describe('vos info <take>', () => {
     expect(text).toMatch(/c1 +text +10\.50–12\.50 anchor m1:share \+0\.5/)
   })
 
+  it('lists every place a span and a step play on a cut that replays them', () => {
+    const doc = cut()
+    // A cold open of the primary's 3.2..4.5 (z1 and step "open" sit in
+    // it), then the cut as before, 1.3 s later.
+    doc.segments = [{ in: 3.2, out: 4.5 }, ...doc.segments]
+    doc.speed = []
+    const t = takeTimeline(doc, new Map([['', actions]]))
+    const z1 = t.zoom.find((z) => z.id === 'z1')!
+    expect(z1.output).toEqual({ start: 0, end: 1.3 })
+    expect(z1.again).toEqual([{ start: 2.3, end: 4.3 }])
+    expect(t.media[0].steps[0].output).toEqual({ start: 0, end: 0.3 })
+    expect(t.media[0].steps[0].again).toEqual([{ start: 2.3, end: 2.8 }])
+    const text = formatTimeline(t, 'take')
+    expect(text).toMatch(
+      /z1 +primary +3\.00–5\.00 .*→ 0\.00–1\.30, again 2\.30–4\.30/,
+    )
+  })
+
   it('pairs each resolved layer with its own anchor when a layer before it is placed nowhere', () => {
     const doc = cut()
     const caption = doc.overlays![0]
