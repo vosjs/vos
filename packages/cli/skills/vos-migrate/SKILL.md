@@ -81,6 +81,10 @@ with `vos render take check.webm --range a..b --draft`.
 
 ## 4. Push — the old demo becomes a living document
 
+Set `still` in `doc.json` (OUTPUT seconds) to the payoff first, the result
+the demo is about, never the opening: without one the cover is derived near
+the start, which on an old demo is usually its title or a navigation click.
+
 ```bash
 vos push take --folder <project> --label "migrated from <source>" \
     --note "<what it shows; that old edits are baked; what you re-cut>"

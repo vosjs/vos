@@ -180,7 +180,10 @@ not re-run `validate` after a push unless the human asks.
 
 ## 6. Push the release
 
-Push the take labelled for the release:
+Set `still` in `doc.json` to the payoff first (OUTPUT seconds): the
+result the release is about, never the opening. Without one the cover is
+derived near the start, usually a zoom on a navigation control under the
+first caption. Then push the take labelled for the release:
 
 ```
 vos push take --folder <project-slug> --label "v2.1 launch" --note "<what shipped, one line>" \
@@ -224,6 +227,8 @@ by data. Never spread before the seed is signed off.
   anything records. Cost a full re-record once.
 - A template's own palette on a deliverable: resolve `BRAND.md` (or witness
   the site) before cutting, and put it beside the take.
+- A push with no `still`: the release's watch page and share card open on
+  a frame near the start, not on what shipped.
 - A cold open (`firstlast`): the first frame is the marketing page's
   headline with the product nowhere; trim to the story or let the entrance
   carry it.

@@ -201,6 +201,11 @@ Per-channel dimensions and byte budgets: `references/destinations.md`.
    serves the take into the studio — your doc.json edits arrive intact and
    every zoom span is draggable.
 
+6c. **Pushing it to vos.so** (`vos push take`)? Set `still` in `doc.json`
+   (OUTPUT seconds) to the payoff first, the result the video is about,
+   never the opening: without one the cover is derived near the start,
+   usually a zoom on a navigation control under the first caption.
+
 7. **Package for the destination**: `references/destinations.md`.
 
 ## Launch kit (one take → every cut of a release)
@@ -251,6 +256,8 @@ when the ask is a release, not one video.
   frame the text, and open the span after the click.
 - Routing the cursor through a hover-triggered menu between beats.
 - A first frame or a last frame that cannot stand alone as a poster.
+- A push with no `still`: the shelf, the watch page and the share card
+  show a frame near the start instead of the result.
 - A frozen opening: a static landing page records as freeze-then-bang;
   trim it or speed it, the story opens near the money shot.
 - A sign-in in `steps`: every step there is in the footage and a typed

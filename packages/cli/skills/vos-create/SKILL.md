@@ -171,6 +171,11 @@ vos push <file>.json --title "…" --desc "one line" --tags a,b \
 
 `--prompt` shows the person's prompt on the watch page by default: their words as they wrote them, never yours, with no file path, key or email they did not mean to publish. Say it is shown, and that they can take it off from the watch page.
 
+Add `--still <t>` (OUTPUT seconds) on the first push, at the payoff: the
+frame the design is about, never the opening. Without it the cover is an
+early frame, before the composition has arrived; every later push keeps
+the one you set.
+
 Pass `--label` and `--note` on EVERY push, the first one included: a
 create stamps them on v1, and the history is the conversation the human
 reads. The push creates a PRIVATE vos on the key owner's shelf, filed
