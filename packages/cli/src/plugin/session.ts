@@ -18,8 +18,15 @@
  * --json does not either; expiry is said in words.
  */
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
-import { homedir } from 'node:os'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  statSync,
+} from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chromium } from 'playwright'
 import type { BrowserContext } from 'playwright'
@@ -31,7 +38,7 @@ import {
   runSessionWindow,
 } from './sessionWindow'
 import type { SessionFinish } from './sessionWindow'
-import { WALL_PROBE, wallVerdict } from './wall'
+import { WALL_PROBE, isIdpHost, isSignInPath, wallVerdict } from './wall'
 import type { WallVerdict } from './wall'
 
 export const SESSIONS_DIR = join(homedir(), '.config', 'vos', 'sessions')
@@ -268,33 +275,117 @@ export async function profileWall(
   dir: string,
   url: string,
 ): Promise<WallVerdict | null> {
-  return withProfile(dir, async (ctx) => {
-    const page = await ctx.newPage()
-    const response = await page
-      .goto(url, { waitUntil: 'networkidle', timeout: 30000 })
-      .catch(() => null)
-    const seen = (await page.evaluate(WALL_PROBE).catch(() => null)) as {
-      passwordFields: number
-      newPasswordField: boolean
-      oneTimeCodeField: boolean
-    } | null
-    return wallVerdict({
-      askedUrl: url,
-      landedUrl: page.url(),
-      ...(response ? { status: response.status() } : {}),
-      passwordFields: seen?.passwordFields ?? 0,
-      newPasswordField: seen?.newPasswordField ?? false,
-      oneTimeCodeField: seen?.oneTimeCodeField ?? false,
-    })
+  return withProfile(dir, (ctx) => arrivalWall(ctx, url))
+}
+
+/** Open `url` in this context and give the wall check's verdict on where it landed. */
+async function arrivalWall(
+  ctx: BrowserContext,
+  url: string,
+): Promise<WallVerdict | null> {
+  const page = await ctx.newPage()
+  const response = await page
+    .goto(url, { waitUntil: 'networkidle', timeout: 30000 })
+    .catch(() => null)
+  const seen = (await page.evaluate(WALL_PROBE).catch(() => null)) as {
+    passwordFields: number
+    newPasswordField: boolean
+    oneTimeCodeField: boolean
+  } | null
+  return wallVerdict({
+    askedUrl: url,
+    landedUrl: page.url(),
+    ...(response ? { status: response.status() } : {}),
+    passwordFields: seen?.passwordFields ?? 0,
+    newPasswordField: seen?.newPasswordField ?? false,
+    oneTimeCodeField: seen?.oneTimeCodeField ?? false,
   })
 }
 
-/** The wall check on a named session. */
-export function sessionWall(
+/**
+ * What a session's check found, against a STRANGER: a page that opens the
+ * same for someone with no session cannot tell a sign-in from none, and a
+ * sign-in page opens for everyone.
+ */
+export type SessionVerdict =
+  | { state: 'signed-in'; stranger: WallVerdict }
+  | { state: 'not-signed-in'; wall: WallVerdict }
+  | { state: 'cant-tell'; reason: 'sign-in-page' | 'same-for-stranger' }
+
+/** Is this URL a sign-in page by the wall's own rules (a sign-in path, an identity provider)? */
+export function isSignInUrl(url: string): boolean {
+  try {
+    const u = new URL(url)
+    return isSignInPath(u.pathname) || isIdpHost(u.hostname)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The verdict from the two arrivals: the saved profile's and a stranger's
+ * (a fresh, empty context). Pure. Walled with the profile is not signed
+ * in; open with the profile and walled for the stranger is signed in;
+ * open for both is a URL that cannot tell.
+ */
+export function sessionVerdictOf(
+  profile: WallVerdict | null,
+  stranger: WallVerdict | null,
+): SessionVerdict {
+  if (profile) return { state: 'not-signed-in', wall: profile }
+  if (stranger) return { state: 'signed-in', stranger }
+  return { state: 'cant-tell', reason: 'same-for-stranger' }
+}
+
+/**
+ * Check a saved profile against a stranger on `url`. A sign-in URL is not
+ * opened at all: a stranger reaches it too, so it proves nothing.
+ */
+export async function profileVerdict(
+  dir: string,
+  url: string,
+): Promise<SessionVerdict> {
+  if (isSignInUrl(url)) return { state: 'cant-tell', reason: 'sign-in-page' }
+  const profile = await profileWall(dir, url)
+  if (profile) return sessionVerdictOf(profile, null)
+  const stranger = await strangerWall(url)
+  return sessionVerdictOf(null, stranger)
+}
+
+/** The wall check for someone with no session: a fresh, empty context on the same Chrome. */
+async function strangerWall(url: string): Promise<WallVerdict | null> {
+  const dir = mkdtempSync(join(tmpdir(), 'vos-stranger-'))
+  try {
+    return await withProfile(dir, (ctx) => arrivalWall(ctx, url))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+/** The check on a named session. */
+export function sessionVerdict(
   name: string,
   url: string,
-): Promise<WallVerdict | null> {
-  return profileWall(sessionDir(name), url)
+): Promise<SessionVerdict> {
+  return profileVerdict(sessionDir(name), url)
+}
+
+/** The sentence for a verdict, said the same way by `open` and `check`. */
+export function verdictLine(
+  v: SessionVerdict,
+  url: string,
+  name: string,
+): string {
+  switch (v.state) {
+    case 'signed-in':
+      return `signed in: ${url} opens as you (a stranger is sent to ${landedWords(v.stranger)})`
+    case 'not-signed-in':
+      return `NOT signed in: ${url} sends a stranger to ${landedWords(v.wall)}, and this session along with them; nothing a take needs was saved`
+    case 'cant-tell':
+      return v.reason === 'sign-in-page'
+        ? `can't tell: ${url} is a sign-in page, which a stranger opens too; check with the app's own page: vos session check ${name} --url <a page only a signed-in person sees, such as its dashboard>`
+        : `can't tell: ${url} opens the same for a stranger; check with --url <a page only a signed-in person sees>: vos session check ${name} --url <that page>`
+  }
 }
 
 /** Where a verdict says a stranger lands, as the person reads it: the path on the same host, else the URL. */
