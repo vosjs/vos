@@ -195,12 +195,34 @@ describe('vos info <take>', () => {
     const t = takeTimeline(doc, new Map([['', actions]]))
     const z1 = t.zoom.find((z) => z.id === 'z1')!
     expect(z1.output).toEqual({ start: 0, end: 1.3 })
-    expect(z1.again).toEqual([{ start: 2.3, end: 4.3 }])
-    expect(t.media[0].steps[0].output).toEqual({ start: 0, end: 0.3 })
-    expect(t.media[0].steps[0].again).toEqual([{ start: 2.3, end: 2.8 }])
+    expect(z1.also).toEqual([{ start: 2.3, end: 4.3 }])
+    // A step is where an anchor on it lands: its longest pass, the main
+    // play here (0.5 s against the cold open's 0.3 s).
+    expect(t.media[0].steps[0].output).toEqual({ start: 2.3, end: 2.8 })
+    expect(t.media[0].steps[0].also).toEqual([{ start: 0, end: 0.3 }])
     const text = formatTimeline(t, 'take')
     expect(text).toMatch(
-      /z1 +primary +3\.00–5\.00 .*→ 0\.00–1\.30, again 2\.30–4\.30/,
+      /z1 +primary +3\.00–5\.00 .*→ 0\.00–1\.30, also 2\.30–4\.30/,
+    )
+    expect(text).toMatch(/2\.30–2\.80 .*\(also 0\.00–0\.30\)/)
+  })
+
+  it('says where a camera span rests instead of moving the camera', () => {
+    const doc = cut()
+    // The same cold open with its camera at rest: z1 moves the camera only
+    // in the main play.
+    doc.segments = [
+      { in: 3.2, out: 4.5, camera: 'rest' },
+      ...doc.segments,
+    ] as ProjectDoc['segments']
+    doc.speed = []
+    const t = takeTimeline(doc, new Map([['', actions]]))
+    const z1 = t.zoom.find((z) => z.id === 'z1')!
+    expect(z1.output).toEqual({ start: 2.3, end: 4.3 })
+    expect(z1.also).toBeUndefined()
+    expect(z1.rests).toEqual([{ start: 0, end: 1.3 }])
+    expect(formatTimeline(t, 'take')).toMatch(
+      /z1 +primary +3\.00–5\.00 .*→ 2\.30–4\.30, at rest in 0\.00–1\.30/,
     )
   })
 
