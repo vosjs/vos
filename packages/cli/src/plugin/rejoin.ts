@@ -929,7 +929,10 @@ export function rejoinDocs(
         return []
       }
       if (redone) redone.entry.layers.push(o.id)
-      return r && r.start !== null && o.start !== undefined && r.start !== o.start
+      return r &&
+        r.start !== null &&
+        o.start !== undefined &&
+        r.start !== o.start
         ? [{ ...o, start: r.start }]
         : [o]
     })
