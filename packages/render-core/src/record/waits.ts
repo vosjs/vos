@@ -16,6 +16,15 @@ export interface WaitCondition {
   gone?: string
   /** with `selector`: the element is enabled (true) or disabled (false) */
   enabled?: boolean
+  /**
+   * A JavaScript expression evaluated in the page (awaited when it answers
+   * a promise): the condition holds when its value is truthy, or, with
+   * `equals`, when its value equals that one. For an app that keeps its
+   * state in script rather than in the DOM (a canvas, a document model).
+   */
+  js?: string
+  /** with `js`: the value the expression must equal (compared as JSON) */
+  equals?: unknown
 }
 
 /** What the condition found the last time it looked: what a miss is said from. */
@@ -23,6 +32,14 @@ export interface ConditionState {
   holds: boolean
   /** with `selector`: whether a match was visible */
   visible?: boolean
+  /**
+   * with `js`: what the expression answered the last time it was read, as
+   * JSON when it has a JSON form (absent for `undefined`), and in words
+   * either way (`said`), or the error it threw (`threw`).
+   */
+  value?: unknown
+  said?: string
+  threw?: string
 }
 
 /**
@@ -33,12 +50,118 @@ export function visibleTextScript(text: string): string {
   return `(() => { const b = document.body; return !!b && (b.innerText || '').includes(${JSON.stringify(text)}) })()`
 }
 
+/** The longest a js value is said in a line, in characters. */
+export const JS_SAID_MAX = 120
+/** The most a js value kept on the step holds, in characters of JSON. */
+export const JS_VALUE_MAX = 2048
+
+/**
+ * The page script that evaluates a step's expression and answers what it
+ * found, as a string (the one evaluate shape every driver shares). The
+ * expression is the script author's own, run on their own page: it is
+ * wrapped, never parsed, and a newline closes it before the paren so a
+ * trailing line comment cannot swallow the wrapper.
+ */
+export function jsConditionScript(expr: string): string {
+  return `(async () => {
+  let v;
+  try { v = await (${expr}
+  ); } catch (e) { return JSON.stringify({ threw: String(e && e.message ? e.message : e) }) }
+  const out = { truthy: !!v };
+  try { const j = JSON.stringify(v); if (j !== undefined) out.json = j } catch (e) {}
+  try { out.said = typeof v === 'string' ? JSON.stringify(v) : String(v) } catch (e) { out.said = typeof v }
+  if (out.json !== undefined && typeof v !== 'string') out.said = out.json
+  return JSON.stringify(out);
+})()`
+}
+
+/** Two JSON values alike: the same keys and values whatever the key order. */
+export function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true
+  if (typeof a !== typeof b || a === null || b === null) return false
+  if (typeof a !== 'object') return false
+  if (Array.isArray(a) !== Array.isArray(b)) return false
+  if (Array.isArray(a)) {
+    const bb = b as unknown[]
+    return a.length === bb.length && a.every((v, i) => sameJson(v, bb[i]))
+  }
+  const ao = a as Record<string, unknown>
+  const bo = b as Record<string, unknown>
+  const keys = Object.keys(ao)
+  if (keys.length !== Object.keys(bo).length) return false
+  return keys.every(
+    (k) =>
+      Object.prototype.hasOwnProperty.call(bo, k) && sameJson(ao[k], bo[k]),
+  )
+}
+
+/** What a js expression answered, read once: the condition and the value. */
+async function readJs(
+  page: RecorderPage,
+  c: { js: string; equals?: unknown },
+): Promise<ConditionState> {
+  let raw: string
+  try {
+    raw = await page.evaluate<string>(jsConditionScript(c.js))
+  } catch (e) {
+    // An expression that does not parse never will: said, not retried as
+    // "not yet". Anything else (a navigation under the read) is.
+    const why = e instanceof Error ? e.message : String(e)
+    if (
+      /SyntaxError/.test(why) ||
+      (e instanceof Error && e.name === 'SyntaxError')
+    )
+      return { holds: false, threw: `it does not parse: ${why.split('\n')[0]}` }
+    throw e
+  }
+  let got: { truthy?: boolean; json?: string; said?: string; threw?: string }
+  try {
+    got = JSON.parse(raw) as typeof got
+  } catch {
+    return { holds: false }
+  }
+  if (got.threw !== undefined) return { holds: false, threw: got.threw }
+  let value: unknown
+  let hasValue = false
+  if (got.json !== undefined) {
+    try {
+      value = JSON.parse(got.json)
+      hasValue = true
+    } catch {
+      // not JSON after all: said in words only
+    }
+  }
+  const holds =
+    c.equals !== undefined
+      ? hasValue && sameJson(value, c.equals)
+      : got.truthy === true
+  return {
+    holds,
+    ...(hasValue ? { value } : {}),
+    said: clip(got.said ?? 'undefined', JS_SAID_MAX),
+  }
+}
+
+const clip = (s: string, max: number): string =>
+  s.length > max ? `${s.slice(0, max - 1)}…` : s
+
+/**
+ * A js value as a step keeps it (`meta.steps[].value`): the value itself
+ * while its JSON fits, else its JSON cut short as a string.
+ */
+export function keptValue(value: unknown): unknown {
+  const json = JSON.stringify(value)
+  if (json === undefined) return undefined
+  return json.length <= JS_VALUE_MAX ? value : clip(json, JS_VALUE_MAX)
+}
+
 /** Read the condition once. A page mid-navigation reads as "not yet". */
 export async function readCondition(
   page: RecorderPage,
   c: WaitCondition,
 ): Promise<ConditionState> {
   try {
+    if (c.js !== undefined) return await readJs(page, { ...c, js: c.js })
     if (c.text !== undefined)
       return { holds: await page.evaluate<boolean>(visibleTextScript(c.text)) }
     if (c.gone !== undefined)
@@ -169,6 +292,10 @@ export function sayDuration(ms: number): string {
 
 /** What the condition waits for, in words: `'#result' to appear`. */
 export function sayCondition(c: WaitCondition): string {
+  if (c.js !== undefined)
+    return c.equals !== undefined
+      ? `${sayJs(c.js)} to equal ${clip(JSON.stringify(c.equals) ?? 'undefined', JS_SAID_MAX)}`
+      : `${sayJs(c.js)} to hold`
   if (c.text !== undefined) return `text "${c.text}" to show`
   if (c.gone !== undefined) return `'${c.gone}' to go`
   if (c.enabled === true) return `'${c.selector}' to be enabled`
@@ -183,6 +310,14 @@ export function conditionMiss(
   ms: number,
 ): string {
   const t = sayDuration(ms)
+  if (c.js !== undefined) {
+    if (last.threw !== undefined)
+      return `${sayJs(c.js)} threw for ${t} (${clip(last.threw, JS_SAID_MAX)})`
+    const was = last.said ?? 'never answered'
+    return c.equals !== undefined
+      ? `${sayJs(c.js)} was ${was}, not ${clip(JSON.stringify(c.equals) ?? 'undefined', JS_SAID_MAX)}, for ${t}`
+      : `${sayJs(c.js)} was ${was} for ${t}`
+  }
   if (c.text !== undefined)
     return `no visible text contained "${c.text}" for ${t}`
   if (c.gone !== undefined) return `'${c.gone}' was still there after ${t}`
@@ -191,4 +326,14 @@ export function conditionMiss(
   if (last.visible && c.enabled === false)
     return `'${c.selector}' stayed enabled for ${t}`
   return `'${c.selector}' never appeared in ${t}`
+}
+
+/** An expression as a line names it: in backticks, cut short. */
+export function sayJs(expr: string): string {
+  return `js \`${clip(expr.replace(/\s+/g, ' ').trim(), 80)}\``
+}
+
+/** A kept value as a line says it: its JSON, cut short. */
+export function sayValue(value: unknown): string {
+  return clip(JSON.stringify(value) ?? 'undefined', JS_SAID_MAX)
 }

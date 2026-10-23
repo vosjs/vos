@@ -17,7 +17,7 @@ import {
   EXIT_WALL,
   createReporter,
 } from './output'
-import { validateActions } from './actions'
+import { jsSyntaxProblems, validateActions } from './actions'
 import { lintDoc } from './validateDoc'
 import { containerMismatch } from './container'
 import { docAudioRefs, readMediaHead, takeRelativeFile } from './media'
@@ -82,6 +82,7 @@ import { deadLine, deadWarns } from './pace'
 import type { TakePaths } from './take'
 import { BrowserUnavailableError, launchBrowser } from '../browser'
 import { recordTake, scriptForHost } from './recorder'
+import { PasteFileRefusal } from './pasteFiles'
 import type { RecordResult, SkippedStep } from './recorder'
 import {
   RecordRefusedError,
@@ -90,6 +91,7 @@ import {
   hostedRefusals,
   readyProblem,
   overrunLine,
+  sayValue,
 } from '@vosjs/render-core/record'
 import type { ReadyMode, ReadyReport } from '@vosjs/render-core/record'
 import { WallError, wallVerdict } from './wall'
@@ -288,7 +290,8 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
             signed-in person's line carries for a key, once, no click
   vos fetch <vosId|watch-url> [--out dir] [--media] [--json]
             writes config.json + vos.json (no auth needed for public programs);
-            a take vos also gets its doc.json, and --media its footage
+            a take vos also gets its doc.json, and --media its footage, its
+            actions.json and every file that script pastes, beside it
   vos push  <config.json|take> [--vos id] [--title t] [--slug s] [--remix-of id]
             [--desc d] [--tags a,b] [--folder <folderId|slug>]
             [--note n] [--label l] [--base versionId] [--override <id>]... [--yes] [--json]
@@ -310,7 +313,9 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
             Without --folder a new vos lands unfiled, at the root of your
             shelf. A document's local files (doc.json: picture and video
             overlays, 3D props, sound; a take's mic and cam too) upload
-            with the push, each once. --wait stays until the version's still has
+            with the push, each once, and so does every file a take's
+            actions.json pastes (a picture through the upload door, a text
+            file inside the document; one outside the take is refused). --wait stays until the version's still has
             rendered and prints absolute still and preview links.
             --still <seconds> sets a PROGRAM's cover (doc.json "still", kept
             by every later push); without it the platform picks an early
@@ -424,9 +429,11 @@ networkidle was asked for and never came; neither is a strict failure. --max-dur
 the hosted recording cap, read live from GET /api/limits (30 min when the
 origin is unreachable): the capture stops there and says so in one line.
 Three steps beyond the gestures: expect checks the page on camera
-(selector, text or gone; enabled; timeout 5 s); await waits OFF camera
-(until {selector|text|gone}, timeout 600 s, poll 2 s, reload, onTimeout
-fail|continue), so the footage has no gap and the cut lands in
+(selector, text or gone; enabled; or js, an expression evaluated in the
+page, truthy or with equals a value, for state an app keeps in script,
+said with the value it got and kept on meta.steps[].value; timeout 5 s);
+await waits OFF camera (until {selector|text|gone|js}, timeout 600 s,
+poll 2 s, reload, onTimeout fail|continue), so the footage has no gap and the cut lands in
 meta.skips[] and becomes a segment boundary; download keeps a file the page
 makes in the take's outputs/ (selector: the download a click starts; src:
 the currentSrc of a video, audio or img; as: the file name), listed in
@@ -440,7 +447,7 @@ name) and a list of its recent items, with the mask that hides it;
 notices are information, never a --strict failure. A click, press or type with "guard": "spend" costs
 something real: --dry-run hovers it and never presses, and record presses
 it only with --confirm <id> (repeatable), refusing before any capture
-otherwise. --hosted refuses guarded and download steps.
+otherwise. --hosted refuses guarded, download, paste and js steps.
 Every step is bounded: a call into a page that stopped answering gives up
 at the step's own timeout (an expect's or an await's, or a gesture's plan
 plus 30 s), the step is a skip with the real time it took, and --strict
@@ -566,6 +573,7 @@ lint-gated, so a bad override fails like a bad doc.json):
 async function loadActions(file: string): Promise<ActionsFile> {
   const raw = JSON.parse(await readFile(file, 'utf8')) as unknown
   const errors = validateActions(raw)
+  if (!errors.length) errors.push(...jsSyntaxProblems(raw as ActionsFile))
   if (errors.length)
     throw new UsageError(`invalid actions file:\n  ${errors.join('\n  ')}`)
   return raw as ActionsFile
@@ -1167,6 +1175,9 @@ async function cmdRecord(argv: string[]): Promise<number> {
             : []),
           ...(out
             ? [`→ ${out.name} (${out.bytes} bytes, not kept in a rehearsal)`]
+            : []),
+          ...(s.value !== undefined && !s.skipped
+            ? [`= ${sayValue(s.value)}`]
             : []),
         ].map((n) => `  ${n}`)
         return `  ${s.skipped ? '✗' : '✓'} #${s.step}${s.id ? ` (${s.id})` : ''} ${s.do}${what}${s.skipped ? `  ${s.reason ?? 'NOT FOUND'}` : rect}${s.navigated ? '  → navigated' : ''}${notes.join('')}`
@@ -2950,7 +2961,8 @@ export async function run(argv: string[]): Promise<number> {
       e instanceof SetupEnvError ||
       e instanceof RecordRefusedError ||
       e instanceof PlatformBehindError ||
-      e instanceof PushRefusedError
+      e instanceof PushRefusedError ||
+      e instanceof PasteFileRefusal
     ) {
       process.stderr.write(`${e.message}\n`)
       return EXIT_USAGE

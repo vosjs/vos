@@ -107,8 +107,16 @@ function sayCondition(c: {
   text?: string
   gone?: string
   enabled?: boolean
+  js?: string
+  equals?: unknown
   id?: string
 }): string {
+  // A state the app keeps in script: a person reads it in the browser's
+  // console, so the beat names the expression to run there.
+  if (c.js !== undefined)
+    return c.equals !== undefined
+      ? `the console's \`${c.js}\` gives ${JSON.stringify(c.equals)}`
+      : `the console's \`${c.js}\` is true`
   if (c.text !== undefined) return `"${c.text}" shows on the page`
   if (c.gone !== undefined) return `${sayTarget(c.gone)} is gone`
   const target = sayStepTarget({ selector: c.selector ?? '', id: c.id })

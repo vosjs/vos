@@ -34,6 +34,7 @@ import {
   resolveMediaType,
 } from './container'
 import { uploadAsset } from './uploadAsset'
+import { pullPasteFiles } from './pasteFiles'
 import { bearerFor, writeSyncState } from './platform'
 import type { UploadTarget, UploadedAsset } from './uploadAsset'
 import type {
@@ -523,6 +524,16 @@ export async function pullMedia(
     result.hosted.push({ file: got.file, url: ref.key })
     ref.set(got.file)
   }
+  // The files the take's script pastes come home beside it, under the
+  // names it pastes them by, so the take records again from here.
+  const pasted = await pullPasteFiles(ctx, dir, doc, log)
+  for (const w of pasted.written) {
+    const assetId = assetIdOf(w.url)
+    if (assetId)
+      result.downloaded.push({ file: w.file, assetId, bytes: w.bytes })
+  }
+  for (const h of pasted.hosted) result.hosted.push(h)
+  result.kept.push(...pasted.kept)
   // The take-dir markers: meta.json and cursor.json live on the doc for a
   // hosted take; write them out so loadTake() recognizes the directory.
   const metaPath = join(dir, 'meta.json')

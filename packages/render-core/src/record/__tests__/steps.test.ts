@@ -6,7 +6,13 @@ import {
   hostedRefusals,
   validateActions,
 } from '../actions'
-import { conditionMiss, sayCondition, sayDuration } from '../waits'
+import {
+  conditionMiss,
+  keptValue,
+  sameJson,
+  sayCondition,
+  sayDuration,
+} from '../waits'
 import { nameFromUrl, outputName, plainName, readAllBytes } from '../outputs'
 import { splitSegmentsAtSkips } from '../plan'
 
@@ -110,7 +116,7 @@ describe('guard', () => {
 })
 
 describe('expect', () => {
-  it('takes exactly one of selector, text or gone', () => {
+  it('takes exactly one of selector, text, gone or js', () => {
     expect(
       validateActions({
         steps: [
@@ -122,10 +128,10 @@ describe('expect', () => {
       }),
     ).toEqual([])
     expect(one({ do: 'expect' })).toEqual([
-      'steps[0]: expect needs exactly one of selector, text or gone',
+      'steps[0]: expect needs exactly one of selector, text, gone or js',
     ])
     expect(one({ do: 'expect', selector: '#a', text: 'b' })).toEqual([
-      'steps[0]: expect needs exactly one of selector, text or gone (it has selector and text)',
+      'steps[0]: expect needs exactly one of selector, text, gone or js (it has selector and text)',
     ])
     expect(one({ do: 'expect', text: '  ' })).toEqual([
       'steps[0]: expect text must be a non-empty string',
@@ -167,6 +173,111 @@ describe('expect', () => {
   })
 })
 
+describe('a js check', () => {
+  it('takes js in an expect and in an await, with equals beside it', () => {
+    expect(
+      validateActions({
+        steps: [
+          { do: 'expect', js: 'window.app.count() === 14' },
+          { do: 'expect', js: 'window.app.count()', equals: 14, timeout: 2 },
+          {
+            do: 'expect',
+            js: 'window.app.selection()',
+            equals: { ids: ['a', 'b'], tool: 'select' },
+          },
+          { do: 'await', until: { js: 'window.app.ready' } },
+          { do: 'await', until: { js: 'window.app.count()', equals: 3 } },
+        ],
+      }),
+    ).toEqual([])
+  })
+
+  it('refuses equals with no js, a value JSON cannot say, and an empty expression', () => {
+    expect(one({ do: 'expect', selector: '#a', equals: 3 })).toEqual([
+      'steps[0]: expect equals is the value a js expression must answer, so it needs js',
+    ])
+    expect(one({ do: 'expect', js: 'x', equals: { n: Number.NaN } })).toEqual([
+      'steps[0]: expect equals must be a JSON value (a number, a string, true, false, null, a list or an object of them)',
+    ])
+    expect(one({ do: 'expect', js: ' ' })).toEqual([
+      'steps[0]: expect js must be a non-empty string',
+    ])
+    expect(one({ do: 'expect', js: 'a', text: 'b' })).toEqual([
+      'steps[0]: expect needs exactly one of selector, text, gone or js (it has text and js)',
+    ])
+    expect(one({ do: 'await', until: { text: 'x', equals: 1 } })).toEqual([
+      'steps[0]: await until equals is the value a js expression must answer, so it needs js',
+    ])
+  })
+
+  it('says what it waited for, and the value it got when it missed', () => {
+    expect(sayCondition({ js: 'window.app.count()', equals: 14 })).toBe(
+      'js `window.app.count()` to equal 14',
+    )
+    expect(sayCondition({ js: 'window.app.ready' })).toBe(
+      'js `window.app.ready` to hold',
+    )
+    expect(
+      conditionMiss(
+        { js: 'window.app.count()', equals: 14 },
+        { holds: false, value: 15, said: '15' },
+        5000,
+      ),
+    ).toBe('js `window.app.count()` was 15, not 14, for 5 s')
+    expect(
+      conditionMiss(
+        { js: 'window.app.count() === 14' },
+        { holds: false, value: false, said: 'false' },
+        1000,
+      ),
+    ).toBe('js `window.app.count() === 14` was false for 1 s')
+    expect(
+      conditionMiss(
+        { js: 'window.app.count()' },
+        {
+          holds: false,
+          threw: "Cannot read properties of undefined (reading 'count')",
+        },
+        5000,
+      ),
+    ).toBe(
+      "js `window.app.count()` threw for 5 s (Cannot read properties of undefined (reading 'count'))",
+    )
+  })
+
+  it('compares as JSON, whatever the key order', () => {
+    expect(
+      sameJson({ a: 1, b: [1, { c: 2 }] }, { b: [1, { c: 2 }], a: 1 }),
+    ).toBe(true)
+    expect(sameJson({ a: 1 }, { a: 1, b: undefined })).toBe(false)
+    expect(sameJson([1, 2], [2, 1])).toBe(false)
+    expect(sameJson(null, {})).toBe(false)
+  })
+
+  it('keeps a value on the step while it fits, its JSON cut short when it does not', () => {
+    expect(keptValue({ shapes: 3 })).toEqual({ shapes: 3 })
+    expect(keptValue(undefined)).toBeUndefined()
+    const long = keptValue('x'.repeat(5000))
+    expect(typeof long).toBe('string')
+    expect((long as string).length).toBe(2048)
+  })
+
+  it('is refused on a hosted take, in an expect and in an await', () => {
+    expect(
+      hostedRefusals({
+        steps: [
+          { do: 'expect', js: 'window.app.count() === 1' },
+          { do: 'await', until: { js: 'window.app.ready' } },
+          { do: 'expect', text: 'Saved' },
+        ],
+      }),
+    ).toEqual([
+      'steps[0] checks a js expression, which runs as code in the page, and a hosted browser runs no script it was handed: record it on this machine, or check what the page shows (selector, text or gone)',
+      'steps[1] waits on a js expression, which runs as code in the page, and a hosted browser runs no script it was handed: record it on this machine, or check what the page shows (selector, text or gone)',
+    ])
+  })
+})
+
 describe('await', () => {
   it('takes until with exactly one condition, and its timings', () => {
     expect(
@@ -187,19 +298,19 @@ describe('await', () => {
       }),
     ).toEqual([])
     expect(one({ do: 'await' })).toEqual([
-      'steps[0]: await needs until, one of { "selector" }, { "text" } or { "gone" }',
+      'steps[0]: await needs until, one of { "selector" }, { "text" }, { "gone" } or { "js" }',
     ])
     expect(one({ do: 'await', until: {} })).toEqual([
-      'steps[0]: await until needs exactly one of selector, text or gone',
+      'steps[0]: await until needs exactly one of selector, text, gone or js',
     ])
     expect(one({ do: 'await', until: { selector: '#a', gone: '#b' } })).toEqual(
       [
-        'steps[0]: await until needs exactly one of selector, text or gone (it has selector and gone)',
+        'steps[0]: await until needs exactly one of selector, text, gone or js (it has selector and gone)',
       ],
     )
     expect(one({ do: 'await', until: { element: '#a' } })).toEqual([
-      'steps[0]: await until takes selector, text or gone, not element',
-      'steps[0]: await until needs exactly one of selector, text or gone',
+      'steps[0]: await until takes selector, text, gone or js (with equals), not element',
+      'steps[0]: await until needs exactly one of selector, text, gone or js',
     ])
   })
 

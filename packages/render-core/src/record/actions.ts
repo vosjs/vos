@@ -162,9 +162,12 @@ export type ActionStep = (
   /**
    * Check that the page is as the flow expects, with no cursor move: an
    * element visible (`selector`; with `enabled`, enabled or disabled), some
-   * visible text containing `text`, or `gone` no longer visible. Exactly
-   * one of the three. Waits up to `timeout` seconds (default 5); a
-   * condition that never holds is a skip with its reason.
+   * visible text containing `text`, `gone` no longer visible, or `js`, an
+   * expression evaluated in the page that holds when its value is truthy
+   * (with `equals`, when its value equals that one): the state a canvas
+   * app keeps in script, never in the DOM. Exactly one of the four. Waits
+   * up to `timeout` seconds (default 5); a condition that never holds is a
+   * skip with its reason, which names the value a `js` last answered.
    */
   | {
       do: 'expect'
@@ -172,6 +175,8 @@ export type ActionStep = (
       text?: string
       gone?: string
       enabled?: boolean
+      js?: string
+      equals?: unknown
       timeout?: number
     }
   /**
@@ -247,11 +252,13 @@ export type ActionStep = (
   settle?: boolean
 }
 
-/** What an `await` waits for: exactly one of the three. */
+/** What an `await` waits for: exactly one of the four (`equals` rides with `js`). */
 export interface AwaitUntil {
   selector?: string
   text?: string
   gone?: string
+  js?: string
+  equals?: unknown
 }
 
 /** The guards a step may carry: one today, a step that spends. */
@@ -542,16 +549,17 @@ export function validateActions(value: unknown): string[] {
         )
     }
     if (s.do === 'expect') {
-      const given = (['selector', 'text', 'gone'] as const).filter(
+      const given = (['selector', 'text', 'gone', 'js'] as const).filter(
         (k) => s[k] !== undefined,
       )
       if (given.length !== 1)
         errors.push(
-          `${at}: expect needs exactly one of selector, text or gone${given.length ? ` (it has ${given.join(' and ')})` : ''}`,
+          `${at}: expect needs exactly one of selector, text, gone or js${given.length ? ` (it has ${given.join(' and ')})` : ''}`,
         )
       for (const k of given)
         if (!isFilled(s[k]))
           errors.push(`${at}: expect ${k} must be a non-empty string`)
+      errors.push(...equalsProblem(`${at}: expect`, s))
       if (s.enabled !== undefined) {
         if (typeof s.enabled !== 'boolean')
           errors.push(`${at}: expect enabled must be true or false`)
@@ -566,28 +574,29 @@ export function validateActions(value: unknown): string[] {
       const u = s.until
       if (typeof u !== 'object' || u === null || Array.isArray(u)) {
         errors.push(
-          `${at}: await needs until, one of { "selector" }, { "text" } or { "gone" }`,
+          `${at}: await needs until, one of { "selector" }, { "text" }, { "gone" } or { "js" }`,
         )
       } else {
         const until = u as Record<string, unknown>
         const keys = Object.keys(until)
         const known: string[] = keys.filter(
-          (k) => k === 'selector' || k === 'text' || k === 'gone',
+          (k) => k === 'selector' || k === 'text' || k === 'gone' || k === 'js',
         )
-        const unknown = keys.filter((k) => !known.includes(k))
+        const unknown = keys.filter((k) => !known.includes(k) && k !== 'equals')
         if (unknown.length)
           errors.push(
-            `${at}: await until takes selector, text or gone, not ${unknown.join(', ')}`,
+            `${at}: await until takes selector, text, gone or js (with equals), not ${unknown.join(', ')}`,
           )
         if (known.length !== 1)
           errors.push(
-            `${at}: await until needs exactly one of selector, text or gone${known.length ? ` (it has ${known.join(' and ')})` : ''}`,
+            `${at}: await until needs exactly one of selector, text, gone or js${known.length ? ` (it has ${known.join(' and ')})` : ''}`,
           )
         for (const k of known) {
           const v = until[k]
           if (typeof v !== 'string' || !v.trim())
             errors.push(`${at}: await until.${k} must be a non-empty string`)
         }
+        errors.push(...equalsProblem(`${at}: await until`, until))
       }
       errors.push(...secondsProblem(at, 'await timeout', s.timeout))
       errors.push(...secondsProblem(at, 'await poll', s.poll))
@@ -671,6 +680,35 @@ function modifiersProblem(at: string, verb: string, v: unknown): string[] {
   if (new Set(v).size !== v.length)
     return [`${at}: ${verb} modifiers names a modifier twice`]
   return []
+}
+
+/**
+ * `equals` sits beside a `js` only, and holds a value JSON can say: what
+ * the expression's own value is compared against.
+ */
+function equalsProblem(at: string, s: Record<string, unknown>): string[] {
+  if (s.equals === undefined) return []
+  if (s.js === undefined)
+    return [
+      `${at} equals is the value a js expression must answer, so it needs js`,
+    ]
+  if (!isJsonValue(s.equals, 0))
+    return [
+      `${at} equals must be a JSON value (a number, a string, true, false, null, a list or an object of them)`,
+    ]
+  return []
+}
+
+function isJsonValue(v: unknown, depth: number): boolean {
+  if (depth > 32) return false
+  if (v === null || typeof v === 'string' || typeof v === 'boolean') return true
+  if (typeof v === 'number') return Number.isFinite(v)
+  if (Array.isArray(v)) return v.every((x) => isJsonValue(x, depth + 1))
+  if (typeof v === 'object')
+    return Object.values(v as Record<string, unknown>).every((x) =>
+      isJsonValue(x, depth + 1),
+    )
+  return false
 }
 
 const isFilled = (v: unknown): boolean =>
@@ -759,8 +797,9 @@ export function guardVerdict(
 
 /**
  * What a hosted recorder cannot do with a script, in words, or []: a
- * guarded step has nobody to confirm it on a fleet, and a download has no
- * take directory to land in there.
+ * guarded step has nobody to confirm it on a fleet, a download has no
+ * take directory to land in there, and a `js` check is code a stranger's
+ * script would run in the fleet's browser.
  */
 export function hostedRefusals(actions: Pick<ActionsFile, 'steps'>): string[] {
   const out: string[] = []
@@ -776,6 +815,13 @@ export function hostedRefusals(actions: Pick<ActionsFile, 'steps'>): string[] {
     if (s.do === 'paste')
       out.push(
         `steps[${i}] is a paste, and a hosted browser has no clipboard to paste from: record it on this machine`,
+      )
+    if (
+      (s.do === 'expect' && s.js !== undefined) ||
+      (s.do === 'await' && s.until.js !== undefined)
+    )
+      out.push(
+        `steps[${i}] ${s.do === 'expect' ? 'checks' : 'waits on'} a js expression, which runs as code in the page, and a hosted browser runs no script it was handed: record it on this machine, or check what the page shows (selector, text or gone)`,
       )
     if (s.do === 'drag' && typeof s.path === 'string')
       out.push(
