@@ -25,7 +25,12 @@ import { basename, join } from 'node:path'
 import { lowerToComposition, migrateHostedDoc } from '@vosjs/studio-core'
 import { RECORDING_NAME, loadTake, takeMediaFile, writeJson } from './take'
 import { lintDoc } from './validateDoc'
-import { embedScript, writeScriptBeside } from './takeScript'
+import { embedScript, readScript, writeScriptBeside } from './takeScript'
+import {
+  claimablePasteFiles,
+  readPasteFiles,
+  sendPasteFiles,
+} from './pasteFiles'
 import {
   docMediaRefs,
   fileSha256,
@@ -256,6 +261,12 @@ export async function pushTake(
       'no recording in this take — record it, or `vos pull --media` to bring it home',
     )
   }
+  // The files its script pastes travel with the take: read (and a file
+  // from outside the take refused) before anything is asked or sent.
+  const pasteFiles = await readPasteFiles(
+    (await readScript(dir)) ?? take.doc.source.script,
+    dir,
+  )
 
   const ctx = apiContext(flags)
   const tracked = readSyncState(dir)
@@ -377,6 +388,7 @@ export async function pushTake(
   const docForPush: ProjectDoc = structuredClone(sendDoc)
   docForPush.source.videoKey = assetUrl
   embedScript(docForPush, dir)
+  await sendPasteFiles(docForPush, pasteFiles, ctx, (l) => r.log(l))
   // The voice and the webcam ride the same content-addressed door as the
   // recording. They used to be dropped here as "local-only", which made
   // fetch-then-push lose them from the hosted take without a word a person
@@ -731,6 +743,10 @@ export async function pushTakeClaimable(
       `doc.json fails lint:\n  ${lint.problems.join('\n  ')}`,
     )
   }
+  const pasteFiles = await readPasteFiles(
+    (await readScript(dir)) ?? take.doc.source.script,
+    dir,
+  )
   const state = readSyncState(dir)
   const hosted = state?.hostedMedia ?? {}
   // A claimable take is a remix of a public take brought home with its
@@ -782,6 +798,7 @@ export async function pushTakeClaimable(
   for (const line of plays.lines) r.log(line)
   const docForPush: ProjectDoc = structuredClone(plays.doc as ProjectDoc)
   embedScript(docForPush, dir)
+  await claimablePasteFiles(docForPush, pasteFiles, hosted, (l) => r.log(l))
   // The document pushed names the hosted originals, checked above.
   for (const ref of claimRefs(docForPush)) {
     const origin = hosted[takeRelativeFile(ref.key)]

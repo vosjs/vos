@@ -81,6 +81,7 @@ import { deadLine, deadWarns } from './pace'
 import type { TakePaths } from './take'
 import { BrowserUnavailableError, launchBrowser } from '../browser'
 import { recordTake, scriptForHost } from './recorder'
+import { PasteFileRefusal } from './pasteFiles'
 import type { RecordResult, SkippedStep } from './recorder'
 import {
   RecordRefusedError,
@@ -274,7 +275,8 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
             signed-in person's line carries for a key, once, no click
   vos fetch <vosId|watch-url> [--out dir] [--media] [--json]
             writes config.json + vos.json (no auth needed for public programs);
-            a take vos also gets its doc.json, and --media its footage
+            a take vos also gets its doc.json, and --media its footage, its
+            actions.json and every file that script pastes, beside it
   vos push  <config.json|take> [--vos id] [--title t] [--slug s] [--remix-of id]
             [--desc d] [--tags a,b] [--folder <folderId|slug>]
             [--note n] [--label l] [--base versionId] [--override <id>]... [--yes] [--json]
@@ -296,7 +298,9 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
             Without --folder a new vos lands unfiled, at the root of your
             shelf. A document's local files (doc.json: picture and video
             overlays, 3D props, sound; a take's mic and cam too) upload
-            with the push, each once. --wait stays until the version's still has
+            with the push, each once, and so does every file a take's
+            actions.json pastes (a picture through the upload door, a text
+            file inside the document; one outside the take is refused). --wait stays until the version's still has
             rendered and prints absolute still and preview links.
             --still <seconds> sets a PROGRAM's cover (doc.json "still", kept
             by every later push); without it the platform picks an early
@@ -2917,7 +2921,8 @@ export async function run(argv: string[]): Promise<number> {
       e instanceof SetupEnvError ||
       e instanceof RecordRefusedError ||
       e instanceof PlatformBehindError ||
-      e instanceof PushRefusedError
+      e instanceof PushRefusedError ||
+      e instanceof PasteFileRefusal
     ) {
       process.stderr.write(`${e.message}\n`)
       return EXIT_USAGE

@@ -1888,6 +1888,16 @@ export interface ProjectDoc {
      * travels as the cut does. Absent on a human recording.
      */
     script?: Record<string, unknown>
+    /**
+     * The files the script pastes, by the plain name it pastes them by,
+     * and where their bytes are: a hosted file (`/api/assets/<id>/file`,
+     * for a picture) or a `data:` address (a text file, carried in the
+     * document). `vos push` writes it from the take's own files and
+     * `vos fetch --media` writes each one back beside `actions.json`, so a
+     * fetched take records again with every file it pastes. Absent when
+     * the script pastes no file.
+     */
+    scriptFiles?: Record<string, string>
   }
   /**
    * Kept SOURCE-time spans (@vosjs/timeline `Segment`s); the output timeline is
