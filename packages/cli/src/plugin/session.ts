@@ -31,6 +31,8 @@ import {
   runSessionWindow,
 } from './sessionWindow'
 import type { SessionFinish } from './sessionWindow'
+import { WALL_PROBE, wallVerdict } from './wall'
+import type { WallVerdict } from './wall'
 
 export const SESSIONS_DIR = join(homedir(), '.config', 'vos', 'sessions')
 
@@ -227,6 +229,18 @@ export async function withSession<T>(
   const dir = sessionDir(name)
   if (!existsSync(dir))
     throw new Error(`no session "${name}" (vos session list)`)
+  return withProfile(dir, fn, opts)
+}
+
+/** `withSession` on any profile directory (the test of the wall check makes its own). */
+export async function withProfile<T>(
+  dir: string,
+  fn: (ctx: BrowserContext) => Promise<T>,
+  opts: {
+    headless?: boolean
+    viewport?: { width: number; height: number }
+  } = {},
+): Promise<T> {
   const explicit = process.env.VOS_BROWSER_PATH
   const ctx = await chromium.launchPersistentContext(dir, {
     headless: opts.headless ?? true,
@@ -239,6 +253,58 @@ export async function withSession<T>(
     return await fn(ctx)
   } finally {
     await ctx.close().catch(() => {})
+  }
+}
+
+/**
+ * Does this profile open `url` as the person who signed in? The wall
+ * check's own verdict, headless, on the saved profile: null when the page
+ * opens where it was asked, else where a stranger is sent and why. Cookies
+ * prove nothing on their own (a site sets analytics cookies on every
+ * visit), so this is the one test of a sign-in that `open` and `check`
+ * both say.
+ */
+export async function profileWall(
+  dir: string,
+  url: string,
+): Promise<WallVerdict | null> {
+  return withProfile(dir, async (ctx) => {
+    const page = await ctx.newPage()
+    const response = await page
+      .goto(url, { waitUntil: 'networkidle', timeout: 30000 })
+      .catch(() => null)
+    const seen = (await page.evaluate(WALL_PROBE).catch(() => null)) as {
+      passwordFields: number
+      newPasswordField: boolean
+      oneTimeCodeField: boolean
+    } | null
+    return wallVerdict({
+      askedUrl: url,
+      landedUrl: page.url(),
+      ...(response ? { status: response.status() } : {}),
+      passwordFields: seen?.passwordFields ?? 0,
+      newPasswordField: seen?.newPasswordField ?? false,
+      oneTimeCodeField: seen?.oneTimeCodeField ?? false,
+    })
+  })
+}
+
+/** The wall check on a named session. */
+export function sessionWall(
+  name: string,
+  url: string,
+): Promise<WallVerdict | null> {
+  return profileWall(sessionDir(name), url)
+}
+
+/** Where a verdict says a stranger lands, as the person reads it: the path on the same host, else the URL. */
+export function landedWords(v: WallVerdict): string {
+  try {
+    const asked = new URL(v.asked)
+    const landed = new URL(v.landed)
+    return landed.host === asked.host ? landed.pathname : v.landed
+  } catch {
+    return v.landed
   }
 }
 

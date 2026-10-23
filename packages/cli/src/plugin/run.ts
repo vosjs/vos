@@ -86,13 +86,15 @@ import {
   guardedSteps,
   hostedRefusals,
 } from '@vosjs/render-core/record'
-import { WALL_PROBE, WallError, wallVerdict } from './wall'
+import { WallError, wallVerdict } from './wall'
 import { EXPOSURE_ADVICE, exposureLine } from './exposure'
 import { SetupEnvError, SetupError, parseHeaders } from './setup'
 import {
+  landedWords,
   listSessions,
   openSession,
   removeSession,
+  sessionWall,
   sessionDir,
   sessionNameVerdict,
   summarizeSession,
@@ -2793,19 +2795,35 @@ async function cmdSession(argv: string[]): Promise<number> {
         throw new UsageError('vos session open wants an http(s) URL')
       const opened = await openSession(name!, url.href, { log: r.log })
       const summary = await summarizeSession(name!)
+      // Cookies prove nothing (analytics land on a stranger's visit too):
+      // the session passed only if the page it was opened on opens as the
+      // person, the same check `vos session check --url` runs.
+      const wall = summary.origins.length
+        ? await sessionWall(name!, url.href)
+        : null
+      const signedIn = summary.origins.length > 0 && !wall
+      const again = `Try again: vos session open ${url.href} --name ${name}, sign in, and close the window once the app shows you signed in`
       r.done(
         {
           name: summary.name,
           finish: opened.finish,
+          signedIn,
+          ...(wall ? { wall } : {}),
           origins: summary.origins,
           newestExpires: summary.newestExpires,
           sessionOnly: summary.sessionOnly,
         },
-        summary.origins.length
-          ? `${summaryLine(summary)}\n  Record on it: vos record --actions actions.json --out take --session ${name} --strict`
-          : `${summaryLine(summary)}\n  ${opened.finish === 'quit' ? `Chrome exited${opened.code ? ` (code ${opened.code})` : ''} before anything was saved. If you did not quit it (⌘Q), it exited on its own: the likely cause is a HOME with no login keychain to keep the cookies' key in (a sandbox, a fresh user, a CI runner), or a profile another Chrome already holds. ` : ''}Nothing was saved. Try again: vos session open ${url.href} --name ${name}, sign in, and close the window once the app shows you signed in (a cookie can take half a minute to be written; closing the window writes it at once)`,
+        signedIn
+          ? `signed in: ${url.href} opens as you. ${summaryLine(summary)}\n  Record on it: vos record --actions actions.json --out take --session ${name} --strict`
+          : wall
+            ? `NOT signed in: ${url.href} sends a stranger to ${landedWords(wall)}; nothing a take needs was saved. ${summaryLine(summary)}\n  ${again}`
+            : `${summaryLine(summary)}\n  ${opened.finish === 'quit' ? `Chrome exited${opened.code ? ` (code ${opened.code})` : ''} before anything was saved. If you did not quit it (⌘Q), it exited on its own: the likely cause is a HOME with no login keychain to keep the cookies' key in (a sandbox, a fresh user, a CI runner), or a profile another Chrome already holds. ` : ''}Nothing was saved. ${again}`,
       )
-      return summary.origins.length ? EXIT_OK : EXIT_ERROR
+      return signedIn
+        ? EXIT_OK
+        : summary.origins.length
+          ? EXIT_WALL
+          : EXIT_ERROR
     }
     case 'check': {
       if (!arg) throw new UsageError(usage)
@@ -2829,25 +2847,7 @@ async function cmdSession(argv: string[]): Promise<number> {
       }
       // Does the session still open the page it was made for? The wall
       // check's own verdict, on this profile.
-      const verdict = await withSession(arg, async (ctx) => {
-        const page = await ctx.newPage()
-        const response = await page
-          .goto(url, { waitUntil: 'networkidle', timeout: 30000 })
-          .catch(() => null)
-        const seen = (await page.evaluate(WALL_PROBE).catch(() => null)) as {
-          passwordFields: number
-          newPasswordField: boolean
-          oneTimeCodeField: boolean
-        } | null
-        return wallVerdict({
-          askedUrl: url,
-          landedUrl: page.url(),
-          ...(response ? { status: response.status() } : {}),
-          passwordFields: seen?.passwordFields ?? 0,
-          newPasswordField: seen?.newPasswordField ?? false,
-          oneTimeCodeField: seen?.oneTimeCodeField ?? false,
-        })
-      })
+      const verdict = await sessionWall(arg, url)
       if (verdict) {
         r.done(
           {
@@ -2857,7 +2857,7 @@ async function cmdSession(argv: string[]): Promise<number> {
             origins: summary.origins,
             newestExpires: summary.newestExpires,
           },
-          `session "${arg}" no longer opens ${url}: ${verdict.message.split('. ')[0]}. It expired, or the sign-in never landed. Sign in again: vos session open ${url} --name ${arg}`,
+          `NOT signed in: session "${arg}" sends a stranger to ${landedWords(verdict)} for ${url} (${verdict.message.split('. ')[0]}). It expired, or the sign-in never landed. Sign in again: vos session open ${url} --name ${arg}`,
         )
         return EXIT_WALL
       }
@@ -2868,7 +2868,7 @@ async function cmdSession(argv: string[]): Promise<number> {
           origins: summary.origins,
           newestExpires: summary.newestExpires,
         },
-        `session "${arg}" opens ${url} signed in. ${summaryLine(summary)}`,
+        `signed in: ${url} opens as you on session "${arg}". ${summaryLine(summary)}`,
       )
       return EXIT_OK
     }

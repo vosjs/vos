@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   cookieAppliesTo,
   cookieReport,
+  isAnalyticsCookie,
   cookieWatch,
   readCookieRows,
   chromeTree,
@@ -277,7 +278,7 @@ describe('the cookie report says counts, never a value', () => {
       { host: 'accounts.google.com', name: 'SID', expires: '3' },
     ]
     const line = cookieReport(state, after, host)
-    expect(line).toContain('app.example.com saved 2 cookies')
+    expect(line).toContain('app.example.com set 2 cookies')
     expect(line).toContain('close it')
     expect(cookieReport(state, after, host)).toBeNull()
     expect(
@@ -287,6 +288,36 @@ describe('the cookie report says counts, never a value', () => {
         host,
       ),
     ).toBe('app.example.com: 3 cookies now')
+  })
+
+  it('never counts analytics, and never calls a cookie a sign-in', () => {
+    const state = { last: null as string | null, said: false }
+    const host = 'vos.so'
+    expect(cookieReport(state, [], host)).toBeNull()
+    // What a stranger's first visit leaves: measurement only.
+    const visit = [
+      '_ga',
+      '_ga_ABC123',
+      '_gid',
+      'ph_phc_x_posthog',
+      'g_state',
+      '_fbp',
+      '_hjSession_1',
+      '__stripe_mid',
+      'ajs_anonymous_id',
+    ].map((name) => ({ host: '.vos.so', name, expires: '9' }))
+    expect(cookieReport(state, visit, host)).toBeNull()
+    for (const n of ['_ga', 'ph_x_posthog', 'g_state', '__stripe_sid'])
+      expect(isAnalyticsCookie(n)).toBe(true)
+    for (const n of ['session', '__Secure-better-auth.session_token', 'sid'])
+      expect(isAnalyticsCookie(n)).toBe(false)
+    const line = cookieReport(
+      state,
+      [...visit, { host: 'vos.so', name: 'session_token', expires: '9' }],
+      host,
+    )
+    expect(line).toMatch(/^vos\.so set 1 cookie \(analytics not counted\)/)
+    expect(line).not.toMatch(/sign/i)
   })
 })
 
@@ -332,7 +363,7 @@ describe('the cookie store, as Chrome writes it, for a URL with a port', () => {
     db.close()
     await tick()
     expect(log).toHaveLength(1)
-    expect(log[0]).toMatch(/^localhost:5301 saved 1 cookie:/)
+    expect(log[0]).toMatch(/^localhost:5301 set 1 cookie /)
   })
 })
 
@@ -373,6 +404,6 @@ describe('the cookie store, as Chrome writes it', () => {
     db.close()
     await tick()
     expect(log).toHaveLength(1)
-    expect(log[0]).toMatch(/^app\.example\.com saved 2 cookies/)
+    expect(log[0]).toMatch(/^app\.example\.com set 2 cookies/)
   })
 })

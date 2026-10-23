@@ -285,6 +285,27 @@ export function enterPressed(): { pressed: Promise<void>; close: () => void } {
   return { pressed, close: () => rl.close() }
 }
 
+/**
+ * Cookie names that are measurement, never a sign-in: a site sets them on
+ * a stranger's first visit, so counting them reads as progress that is
+ * not there. Matched by the whole name, or by prefix where a vendor
+ * numbers or suffixes its cookies: Google Analytics and Ads (`_ga`,
+ * `_ga_*`, `_gid`, `_gat*`, `_gcl_*`), Google sign-in's one-tap state
+ * (`g_state`, which holds no session), PostHog (`ph_*`, `*_posthog`),
+ * Segment (`ajs_*`), Meta (`_fbp`, `_fbc`), Hotjar (`_hj*`), Stripe's
+ * fraud signals (`__stripe_*`), Microsoft Clarity and Ads (`_clck`,
+ * `_clsk`, `_uet*`), Mixpanel (`mp_*`), Amplitude (`amp_*`), HubSpot
+ * (`__hs*`, `hubspotutk`) and Cloudflare's bot checks (`__cf_bm`,
+ * `cf_clearance`, `_cfuvid`).
+ */
+const ANALYTICS_COOKIE =
+  /^(?:_ga|_ga_.*|_gid|_gat.*|_gcl_.*|g_state|ph_.*|.*_posthog|ajs_.*|_fbp|_fbc|_hj.*|__stripe_.*|_clck|_clsk|_uet.*|mp_.*|amp_.*|__hs.*|hubspotutk|__cf_bm|cf_clearance|_cfuvid)$/
+
+/** Is this cookie measurement rather than anything a sign-in could have set? */
+export function isAnalyticsCookie(name: string): boolean {
+  return ANALYTICS_COOKIE.test(name)
+}
+
 /** One cookie row as the store keeps it, minus the value, which is never read. */
 export interface CookieRow {
   host: string
@@ -317,7 +338,9 @@ export function cookieReport(
   rows: CookieRow[],
   host: string,
 ): string | null {
-  const mine = rows.filter((r) => cookieAppliesTo(r.host, host))
+  const mine = rows.filter(
+    (r) => cookieAppliesTo(r.host, host) && !isAnalyticsCookie(r.name),
+  )
   const sig = mine
     .map((r) => `${r.host}\t${r.name}\t${r.expires}`)
     .sort()
@@ -328,11 +351,11 @@ export function cookieReport(
   }
   if (sig === state.last) return null
   state.last = sig
-  if (!mine.length) return `${host} holds no saved cookies now`
+  if (!mine.length) return `${host} holds none now (analytics not counted)`
   const n = `${mine.length} cookie${mine.length === 1 ? '' : 's'}`
   if (state.said) return `${host}: ${n} now`
   state.said = true
-  return `${host} saved ${n}: a sign-in has landed if you finished one. Finish what the takes need in the window (a workspace, demo data), then close it`
+  return `${host} set ${n} (analytics not counted). When you are done in the window, close it: the session is then checked by opening ${host} again`
 }
 
 /** The profile's cookie store: `Default/Network/Cookies` on newer builds, `Default/Cookies` before. */
