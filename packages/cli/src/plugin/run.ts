@@ -91,8 +91,8 @@ import type { ReadyMode, ReadyReport } from '@vosjs/render-core/record'
 import { WALL_PROBE, WallError, wallVerdict } from './wall'
 import {
   EXPOSURE_ADVICE,
-  NOTICE_ADVICE,
   exposureLine,
+  noticeAdvice,
   noticeLine,
 } from './exposure'
 import { SetupEnvError, SetupError, parseHeaders } from './setup'
@@ -645,6 +645,11 @@ function noticeLines(notices: string[]): string {
   return notices.length ? `\n  noticed:\n  ${notices.join('\n  ')}` : ''
 }
 
+/** A value as a shell word: bare when it is plain, else single-quoted. */
+function shellWord(v: string): string {
+  return /^[\w@%+=:,./-]+$/.test(v) ? v : `'${v.replace(/'/g, `'\\''`)}'`
+}
+
 /** The sound the page played, as the take-ready line says it. */
 function pageSoundNote(rec: Pick<RecordResult, 'media'>): string {
   const heard = rec.media.filter((m) => m.intervals.length)
@@ -668,7 +673,7 @@ function noticeNote(rec: {
   if (!rec.notices.length) return ''
   return `\n  NOTICED in the frame (${rec.notices.length}):\n${rec.notices
     .map((n) => `    - ${noticeLine(n)}`)
-    .join('\n')}\n  ${NOTICE_ADVICE}`
+    .join('\n')}\n  ${noticeAdvice(rec.notices)}`
 }
 
 /** What the frame shows, in words, for the end of a record or a rehearsal. */
@@ -1124,6 +1129,15 @@ async function cmdRecord(argv: string[]): Promise<number> {
       // dropped --storage-state sent a signed-in rehearsal on to record
       // the sign-in page.
       const carried = [
+        // Every flag that shapes the take, as given, so the next command
+        // records what was rehearsed.
+        ...(['url', 'ready', 'max-duration', 'background'] as const).flatMap(
+          (k) =>
+            strFlag(flags, k)
+              ? [`--${k} ${shellWord(strFlag(flags, k)!)}`]
+              : [],
+        ),
+        ...(flags['keep-frames'] === true ? ['--keep-frames'] : []),
         ...(strFlag(flags, 'storage-state')
           ? [`--storage-state ${strFlag(flags, 'storage-state')}`]
           : []),
@@ -2450,7 +2464,7 @@ async function cmdValidate(argv: string[]): Promise<number> {
   const notices = (take.meta.notices ?? []).map(
     (n) => `the recording shows ${noticeLine(n)}`,
   )
-  if (notices.length) notices.push(NOTICE_ADVICE)
+  if (notices.length) notices.push(noticeAdvice(take.meta.notices ?? []))
   for (const m of take.meta.masks ?? [])
     if (m.hits === 0)
       warnings.push(

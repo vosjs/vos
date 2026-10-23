@@ -6,7 +6,11 @@
  * browser launches.
  */
 import { createServer } from 'node:http'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { mkdtemp, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { run } from '../run'
 import { READY_SETTLE_CAP_MS, recordTake } from '@vosjs/render-core/record'
 import type { FrameSink } from '@vosjs/render-core/record'
 import type { Browser } from 'playwright'
@@ -41,6 +45,11 @@ let skipReason = ''
 beforeAll(async () => {
   server = createServer((req, res) => {
     if (req.url === '/hang') return // never answered
+    if (req.url === '/still') {
+      res.writeHead(200, { 'content-type': 'text/html' })
+      res.end('<!doctype html><html><body><p>still</p></body></html>')
+      return
+    }
     res.writeHead(200, { 'content-type': 'text/html' })
     res.end(req.url === '/busy' ? BUSY : HELD)
   })
@@ -113,4 +122,43 @@ describe('the first load', () => {
     expect(result.navTimeout).toBe(false)
     expect(logs.some((l) => l.includes('still changing'))).toBe(true)
   }, 30_000)
+})
+
+describe('vos record --dry-run --ready networkidle', () => {
+  it('waits for network idle, and the next command keeps the flag', async () => {
+    if (!browser) return
+    const dir = await mkdtemp(join(tmpdir(), 'vos-ready-'))
+    const file = join(dir, 'actions.json')
+    await writeFile(file, JSON.stringify({ url: `${base}/still`, ...script }))
+    const out: string[] = []
+    const spy = vi
+      .spyOn(process.stdout, 'write')
+      .mockImplementation((s) => out.push(String(s)) > 0)
+    const errSpy = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation(() => true)
+    let code: number
+    try {
+      code = await run([
+        'record',
+        '--actions',
+        file,
+        '--dry-run',
+        '--ready',
+        'networkidle',
+        '--background',
+        'none',
+        '--max-duration',
+        '60',
+      ])
+    } finally {
+      spy.mockRestore()
+      errSpy.mockRestore()
+    }
+    const text = out.join('')
+    expect(code).toBe(0)
+    expect(text).toMatch(
+      /Next: vos record --actions \S+ --out take --ready networkidle --max-duration 60 --background none --strict/,
+    )
+  }, 60_000)
 })

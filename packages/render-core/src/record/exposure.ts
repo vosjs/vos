@@ -103,17 +103,20 @@ export const EXPOSURE_MATCHERS_SRC = `(() => {
  * The name is read conservatively, from where apps say whose account it
  * is: a line that greets or names the account ("Signed in as …",
  * "Welcome back, …"), the label of an account menu ("Account menu for …"),
- * which are SURE; or a name-like label on an avatar (an image's alt, a
+ * or the words on the account menu's own trigger (the button that opens
+ * a menu and holds the avatar), which are SURE; or a name-like label on an avatar (an image's alt, a
  * button holding the picture), which MAY be the name.
  */
 export const NOTICE_SRC = String.raw`const notices = () => {
-    const NOT_NAME = /^(account|accounts|profile|menu|user|users|settings|avatar|open|me|you|home|guest|admin|team|workspace|dashboard|sign in|log in|logout|log out|help|search|notifications?|more|options)$/i
+    // A label made only of these words is the control's, never a person's:
+    // "Account menu", "Open user menu", "Profile settings".
+    const UI_WORDS = new Set(['account', 'accounts', 'profile', 'profiles', 'menu', 'user', 'users', 'settings', 'setting', 'avatar', 'open', 'close', 'toggle', 'show', 'hide', 'the', 'my', 'your', 'me', 'you', 'home', 'guest', 'admin', 'team', 'workspace', 'dashboard', 'sign', 'signed', 'in', 'out', 'log', 'logged', 'logout', 'login', 'help', 'search', 'notification', 'notifications', 'more', 'options', 'option', 'button', 'dropdown', 'picture', 'image', 'photo', 'main', 'navigation', 'nav', 'preferences', 'switch', 'manage'])
     const nameLike = (v) => {
       if (!v) return null
       const t = v.replace(/\s+/g, ' ').trim().replace(/[!.,:]+$/, '')
       if (t.length < 2 || t.length > 40 || /[@\d<>/|]/.test(t)) return null
       if (!/^\p{Lu}[\p{L}'’.-]*(?: \p{L}[\p{L}'’.-]*){0,3}$/u.test(t)) return null
-      if (NOT_NAME.test(t)) return null
+      if (t.toLowerCase().split(' ').every((w) => UI_WORDS.has(w))) return null
       return t
     }
     const GREETING = /^(?:signed in as|logged in as|welcome back,?|welcome,|hi,|hello,|hey,)\s+(.+)$/i
@@ -134,8 +137,8 @@ export const NOTICE_SRC = String.raw`const notices = () => {
       const who = m && nameLike(m[1])
       if (who && seen(el)) { acct = who; sure = true }
     }
+    let maybe = null
     if (!acct) {
-      let maybe = null
       for (const el of document.querySelectorAll('[aria-label], img[alt], [title]')) {
         const label = el.getAttribute('aria-label') || el.getAttribute('alt') || el.getAttribute('title') || ''
         const box = el.closest('button, a, [role="button"], [aria-haspopup]') || el
@@ -145,8 +148,26 @@ export const NOTICE_SRC = String.raw`const notices = () => {
         if (hit) { acct = hit; sure = true; break }
         if (!maybe && (avatarish(el) || avatarish(box)) && box !== el.ownerDocument.body) maybe = nameLike(label)
       }
-      if (!acct && maybe) acct = maybe
     }
+    // The account menu's TRIGGER, whose own words are the name: a control
+    // that opens a menu and holds the avatar, or one labelled as the
+    // account's. The name-like line among its words (an address there is
+    // an exposure already, and never a name).
+    if (!acct) {
+      const TRIGGER_LABEL = /(account|user|profile|avatar)/i
+      for (const el of document.querySelectorAll('button, a, [role="button"], [aria-haspopup]')) {
+        const label = (el.getAttribute('aria-label') || '') + ' ' + (el.getAttribute('title') || '')
+        const trigger = (el.hasAttribute('aria-haspopup') && avatarish(el)) || TRIGGER_LABEL.test(label)
+        if (!trigger || !seen(el)) continue
+        const words = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+        for (let n; !acct && (n = words.nextNode()); ) {
+          const who = nameLike(n.nodeValue)
+          if (who && n.parentElement && seen(n.parentElement)) { acct = who; sure = true }
+        }
+        if (acct) break
+      }
+    }
+    if (!acct && maybe) acct = maybe
     const found = []
     if (acct) {
       const places = [], at = new Set()
@@ -446,5 +467,11 @@ export function noticeLine(n: Notice): string {
   return `a "${n.heading}" list of the account's own items (${n.items} items, ${when}) in ${n.selector}; to hide it, add to "mask": ${mask}`
 }
 
-export const NOTICE_ADVICE =
-  'These are the signed-in account\'s own: fine for a demo account, worth a mask on a real one. The name reads better swapped than blurred: { "selector": "…", "as": "text", "text": "Jane Doe" }.'
+/**
+ * What to do about the notices, in one line: the swap hint is about the
+ * account's name, so it is said only when the name was noticed.
+ */
+export function noticeAdvice(notices: readonly Pick<Notice, 'kind'>[]): string {
+  const name = notices.some((n) => n.kind === 'account-name')
+  return `These are the signed-in account's own: fine for a demo account, worth a mask on a real one.${name ? ' The name reads better swapped than blurred: { "selector": "…", "as": "text", "text": "Jane Doe" }.' : ''}`
+}

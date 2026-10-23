@@ -11,7 +11,12 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { EXPOSURE_PROBE, NoticeLog, noticeLine } from '../exposure'
+import {
+  EXPOSURE_PROBE,
+  NoticeLog,
+  noticeAdvice,
+  noticeLine,
+} from '../exposure'
 import { recordTake } from '@vosjs/render-core/record'
 import type { Notice, ScannedNotice } from '@vosjs/render-core/record'
 import { run, strictFails } from '../run'
@@ -141,6 +146,47 @@ describe('the scan notices', () => {
     if (!browser) return
     expect(await scan(NOTHING_PERSONAL)).toEqual([])
   }, 30_000)
+})
+
+// The account menu as apps draw it: a trigger whose own words are the name.
+const MENU_TRIGGER = `<!doctype html><html><head><meta charset="utf-8"><title>App</title></head><body>
+<header><button aria-label="Account menu" aria-haspopup="menu"><span><img alt="" width="24" height="24" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></span><span>Robin Vale</span><span>robin@example.com</span></button></header>
+<main><h1>Projects</h1></main>
+</body></html>`
+
+// A trigger with no name in it: its generic label is never a name.
+const GENERIC_TRIGGER = `<!doctype html><html><head><meta charset="utf-8"><title>App</title></head><body>
+<header><button aria-label="Account menu" aria-haspopup="menu"><img alt="User menu" width="24" height="24" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></button>
+<button aria-label="Profile settings"><img alt="Profile" width="24" height="24" src="data:image/gif;base64,R0lGODlhAQABAAAAACw="></button></header>
+<main><p>Account menu</p><p>Profile settings</p></main>
+</body></html>`
+
+describe('the account menu trigger', () => {
+  it('reads the name from its own words, sure, without printing it', async () => {
+    if (!browser) return
+    const notices = await scan(MENU_TRIGGER)
+    const name = notices.find((n) => n.kind === 'account-name')
+    expect(name?.sure).toBe(true)
+    expect(name?.places?.length).toBeGreaterThanOrEqual(1)
+    expect(JSON.stringify(notices)).not.toMatch(/Robin|Vale/)
+    expect(noticeLine({ step: -1, seen: 1, ...name! } as Notice)).not.toMatch(
+      /Robin/,
+    )
+  }, 30_000)
+
+  it('takes a generic label (account menu, user menu, profile settings) for no name', async () => {
+    if (!browser) return
+    expect(await scan(GENERIC_TRIGGER)).toEqual([])
+  }, 30_000)
+})
+
+describe('the advice', () => {
+  it('says the swap hint only when the name was noticed', () => {
+    expect(noticeAdvice([{ kind: 'personal-list' }])).not.toMatch(/name/)
+    expect(noticeAdvice([{ kind: 'account-name' }])).toMatch(
+      /The name reads better swapped than blurred/,
+    )
+  })
 })
 
 describe('a take that shows them', () => {
