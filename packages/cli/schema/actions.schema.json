@@ -110,6 +110,11 @@
         }
       }
     },
+    "settle": {
+      "type": "boolean",
+      "default": false,
+      "description": "every gesture step waits on the app after it (a step's own settle overrides): a canvas that falls behind under load finishes the last stroke before the next one starts"
+    },
     "steps": {
       "type": "array",
       "minItems": 1,
@@ -146,20 +151,34 @@
           },
           {
             "type": "object",
-            "required": ["do", "selector"],
+            "required": ["do"],
             "additionalProperties": false,
             "properties": {
               "do": {
                 "const": "hover"
               },
               "selector": {
-                "type": "string"
+                "type": "string",
+                "description": "the element whose centre the pointer goes to; or x and y instead"
+              },
+              "x": {
+                "type": "number",
+                "minimum": 0,
+                "description": "with y: a viewport point in CSS px, for a spot no selector names (a place on a canvas); takes no selector"
+              },
+              "y": {
+                "type": "number",
+                "minimum": 0
               },
               "ms": {
                 "type": "number",
                 "minimum": 0,
                 "default": 700,
                 "description": "Dwell — parked cursor becomes a zoom signal."
+              },
+              "settle": {
+                "type": "boolean",
+                "description": "after the gesture, wait until the page has made no DOM change and painted no new frame for 300 ms (at most 4 s), so an app that fell behind catches up before the next step; meta.steps[].settleMs says how long it waited. Absent: the script's top-level settle"
               },
               "id": {
                 "type": "string",
@@ -176,11 +195,33 @@
                 "minLength": 1,
                 "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
               }
-            }
+            },
+            "oneOf": [
+              {
+                "required": ["selector"],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": ["x"]
+                    },
+                    {
+                      "required": ["y"]
+                    }
+                  ]
+                }
+              },
+              {
+                "required": ["x", "y"],
+                "not": {
+                  "required": ["selector"]
+                }
+              }
+            ],
+            "description": "Rest the pointer on an element's centre (selector) or on a viewport point (x, y); ms is the dwell, a zoom signal."
           },
           {
             "type": "object",
-            "required": ["do", "selector"],
+            "required": ["do"],
             "additionalProperties": false,
             "properties": {
               "do": {
@@ -192,7 +233,42 @@
                 "description": "the read after the press, ms (default 150), held from the page's last visual change: the recorder watches the screencast and pays the settle itself (a change within 400 ms says the page is answering, 250 ms of quiet says it settled, 1.2 s bounds a page that never stops), so the same ms reads the same on every run. Size it as a reading beat, about 1000 after a navigation and 600 after a control, never padded for a slow page."
               },
               "selector": {
-                "type": "string"
+                "type": "string",
+                "description": "the element whose centre the pointer goes to; or x and y instead"
+              },
+              "x": {
+                "type": "number",
+                "minimum": 0,
+                "description": "with y: a viewport point in CSS px, for a spot no selector names (a place on a canvas); takes no selector"
+              },
+              "y": {
+                "type": "number",
+                "minimum": 0
+              },
+              "count": {
+                "type": "integer",
+                "enum": [1, 2, 3],
+                "default": 1,
+                "description": "2 is a real double click, 3 a triple click: that many presses inside the platform's double-click interval, each carrying its click count; every press is a down and an up on the cursor track"
+              },
+              "button": {
+                "type": "string",
+                "enum": ["left", "right", "middle"],
+                "default": "left",
+                "description": "the button pressed: right opens a context menu"
+              },
+              "modifiers": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "enum": ["Alt", "Shift", "Meta", "Control", "Mod"]
+                },
+                "description": "held for the press (a Shift-click adds to the selection) and released after it, whatever happens; Mod is Meta on macOS, Control elsewhere"
+              },
+              "settle": {
+                "type": "boolean",
+                "description": "after the gesture, wait until the page has made no DOM change and painted no new frame for 300 ms (at most 4 s), so an app that fell behind catches up before the next step; meta.steps[].settleMs says how long it waited. Absent: the script's top-level settle"
               },
               "id": {
                 "type": "string",
@@ -214,7 +290,28 @@
                 "enum": ["spend"],
                 "description": "the step costs something real (credits, a purchase, a message sent): `vos record --dry-run` hovers it and never presses it, and `vos record` presses it only with `--confirm <id>`, refusing before any capture otherwise. Needs an id. A hosted take refuses a guarded step"
               }
-            }
+            },
+            "oneOf": [
+              {
+                "required": ["selector"],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": ["x"]
+                    },
+                    {
+                      "required": ["y"]
+                    }
+                  ]
+                }
+              },
+              {
+                "required": ["x", "y"],
+                "not": {
+                  "required": ["selector"]
+                }
+              }
+            ]
           },
           {
             "type": "object",
@@ -245,6 +342,10 @@
                 "type": "boolean",
                 "default": true,
                 "description": "The recorder clicks the field before typing, and that click is what opens the typing zoom on it. false types into the field as it is already focused: for a keystroke that finishes earlier typing (a submitting Enter) rather than starting it, where a second click rings a click effect on empty space beside the text."
+              },
+              "settle": {
+                "type": "boolean",
+                "description": "after the gesture, wait until the page has made no DOM change and painted no new frame for 300 ms (at most 4 s), so an app that fell behind catches up before the next step; meta.steps[].settleMs says how long it waited. Absent: the script's top-level settle"
               },
               "id": {
                 "type": "string",
@@ -280,9 +381,9 @@
           },
           {
             "type": "object",
-            "required": ["do", "key"],
+            "required": ["do"],
             "additionalProperties": false,
-            "description": "One named key, recorded as a typing ping where the pointer is (or on selector when given, with no click): Escape closes what a click opened, Enter submits what was typed, Tab moves on, an arrow nudges. Never a character: words are typed with type.",
+            "description": "A key, a chord or a sequence, each recorded as a typing ping where the pointer is (or on selector when given, with no click), never as the key itself. key names one control key (Escape closes what a click opened, Enter submits what was typed); keys names a chord (\"Shift+D\", \"Mod+Z\", Mod being Meta on macOS and Control elsewhere), a plain key (\"r\", a tool's shortcut) or a sequence ([\"v\", \"Escape\"]), 150 ms apart. Words are typed with type.",
             "properties": {
               "do": {
                 "const": "press"
@@ -306,6 +407,24 @@
                   "Space"
                 ]
               },
+              "keys": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 50,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  }
+                ],
+                "description": "a key name or chord (modifiers Shift, Control, Alt, Meta, Mod, ControlOrMeta joined with + before the key; a key is a single character, a named key like Escape or ArrowLeft, F1 to F24, or a code like KeyA or Digit1), or a list of them pressed in order"
+              },
               "selector": {
                 "type": "string",
                 "description": "the element the key is about: the ping and the step's rect are its, with no click"
@@ -314,6 +433,10 @@
                 "type": "number",
                 "minimum": 0,
                 "description": "the read after the key, ms (default 150), held from the page's last visual change like a click's"
+              },
+              "settle": {
+                "type": "boolean",
+                "description": "after the gesture, wait until the page has made no DOM change and painted no new frame for 300 ms (at most 4 s), so an app that fell behind catches up before the next step; meta.steps[].settleMs says how long it waited. Absent: the script's top-level settle"
               },
               "id": {
                 "type": "string",
@@ -335,7 +458,15 @@
                 "enum": ["spend"],
                 "description": "the step costs something real (credits, a purchase, a message sent): `vos record --dry-run` hovers it and never presses it, and `vos record` presses it only with `--confirm <id>`, refusing before any capture otherwise. Needs an id. A hosted take refuses a guarded step"
               }
-            }
+            },
+            "oneOf": [
+              {
+                "required": ["key"]
+              },
+              {
+                "required": ["keys"]
+              }
+            ]
           },
           {
             "type": "object",
@@ -352,6 +483,10 @@
               },
               "dy": {
                 "type": "number"
+              },
+              "settle": {
+                "type": "boolean",
+                "description": "after the gesture, wait until the page has made no DOM change and painted no new frame for 300 ms (at most 4 s), so an app that fell behind catches up before the next step; meta.steps[].settleMs says how long it waited. Absent: the script's top-level settle"
               },
               "id": {
                 "type": "string",
@@ -386,6 +521,10 @@
                 "type": "number",
                 "minimum": 0
               },
+              "settle": {
+                "type": "boolean",
+                "description": "after the gesture, wait until the page has made no DOM change and painted no new frame for 300 ms (at most 4 s), so an app that fell behind catches up before the next step; meta.steps[].settleMs says how long it waited. Absent: the script's top-level settle"
+              },
               "id": {
                 "type": "string",
                 "minLength": 1,
@@ -405,9 +544,9 @@
           },
           {
             "type": "object",
-            "required": ["do", "tx", "ty"],
+            "required": ["do"],
             "additionalProperties": false,
-            "description": "Press-move-release: drag an element, slide a range input, move a clip. Start = selector center when given, else (x, y); end = (tx, ty), eased over ms.",
+            "description": "Press-move-release: drag an element, slide a range input, move a clip. Start = selector center when given, else (x, y); end = (tx, ty), eased over ms. With path, the drag DRAWS: the press at the path's first point, a move at every later point in order (never dropped, so a page that answers slowly makes the stroke late, reported as meta.steps[].overrunMs, never a different stroke), the release at its last. modifiers are held from the press to the release.",
             "properties": {
               "do": {
                 "const": "drag"
@@ -431,10 +570,42 @@
                 "type": "number",
                 "minimum": 0
               },
+              "path": {
+                "oneOf": [
+                  {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 20000,
+                    "items": {
+                      "$ref": "#/$defs/pathPoint"
+                    }
+                  },
+                  {
+                    "type": "string",
+                    "pattern": "^(?!\\.)(?!.*\\.\\.)[^/\\\\]+$",
+                    "description": "a JSON file beside the actions file (a plain name) holding the points, or { \"points\": [...] }"
+                  }
+                ],
+                "description": "viewport points to draw through, replayed by their own times (tMs from the first point) or, untimed, evenly over ms. A point that carries pressure draws the whole path with a pen (pointer events with that pressure); without, the mouse draws it. A path takes no selector, x, y, tx or ty"
+              },
+              "modifiers": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "enum": ["Alt", "Shift", "Meta", "Control", "Mod"]
+                },
+                "description": "held from the press to the release (Alt-drag to duplicate, Shift to constrain); Mod is Meta on macOS, Control elsewhere"
+              },
               "ms": {
                 "type": "number",
                 "minimum": 0,
-                "default": 700
+                "default": 700,
+                "description": "the travel of a straight drag, or of an untimed path (default 700)"
+              },
+              "settle": {
+                "type": "boolean",
+                "description": "after the gesture, wait until the page has made no DOM change and painted no new frame for 300 ms (at most 4 s), so an app that fell behind catches up before the next step; meta.steps[].settleMs says how long it waited. Absent: the script's top-level settle"
               },
               "id": {
                 "type": "string",
@@ -451,7 +622,18 @@
                 "minLength": 1,
                 "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
               }
-            }
+            },
+            "oneOf": [
+              {
+                "required": ["tx", "ty"],
+                "not": {
+                  "required": ["path"]
+                }
+              },
+              {
+                "required": ["path"]
+              }
+            ]
           },
           {
             "type": "object",
@@ -629,9 +811,106 @@
                 "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
               }
             }
+          },
+          {
+            "type": "object",
+            "required": ["do"],
+            "additionalProperties": false,
+            "description": "Put words or a file on the clipboard and paste it the way a person's ⌘V does: the browser's own clipboard and a trusted paste chord, so the page gets a trusted keydown and paste event and navigator.clipboard.read() sees the item; when the browser refuses the item, a paste event dispatched in the page (untrusted, said in the log). Into selector (clicked first) or where the focus is. Recorded as a typing ping, never its contents. A hosted take refuses a paste.",
+            "oneOf": [
+              {
+                "required": ["text"]
+              },
+              {
+                "required": ["file"]
+              }
+            ],
+            "properties": {
+              "do": {
+                "const": "paste"
+              },
+              "selector": {
+                "type": "string",
+                "minLength": 1,
+                "description": "the element to paste into, clicked first"
+              },
+              "text": {
+                "type": "string",
+                "description": "the words to paste"
+              },
+              "file": {
+                "type": "string",
+                "pattern": "^(?!\\.)(?!.*\\.\\.)[^/\\\\]+\\.(png|jpe?g|webp|gif|svg|txt|md|html?|json|csv)$",
+                "description": "a file beside the actions file, by a plain name, at most 10 MB: an image (a picture other than PNG is pasted as PNG), an SVG (also as its markup), or text"
+              },
+              "ms": {
+                "type": "number",
+                "minimum": 0,
+                "description": "the read after the paste, ms (default 150), held from the page's last visual change like a click's"
+              },
+              "settle": {
+                "type": "boolean",
+                "description": "after the gesture, wait until the page has made no DOM change and painted no new frame for 300 ms (at most 4 s), so an app that fell behind catches up before the next step; meta.steps[].settleMs says how long it waited. Absent: the script's top-level settle"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
+              },
+              "caption": {
+                "type": "string",
+                "maxLength": 80,
+                "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
+              },
+              "read": {
+                "type": "string",
+                "minLength": 1,
+                "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
+              }
+            }
           }
         ]
       }
+    }
+  },
+  "$defs": {
+    "pathPoint": {
+      "oneOf": [
+        {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 4,
+          "items": {
+            "type": "number"
+          },
+          "description": "[x, y], [x, y, tMs] or [x, y, tMs, pressure]: every point timed or none"
+        },
+        {
+          "type": "object",
+          "required": ["x", "y"],
+          "additionalProperties": false,
+          "properties": {
+            "x": {
+              "type": "number",
+              "minimum": 0
+            },
+            "y": {
+              "type": "number",
+              "minimum": 0
+            },
+            "t": {
+              "type": "number",
+              "minimum": 0,
+              "description": "ms"
+            },
+            "pressure": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            }
+          }
+        }
+      ]
     }
   }
 }

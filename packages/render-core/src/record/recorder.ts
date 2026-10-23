@@ -20,6 +20,7 @@ import type {
   RecorderBrowser,
   RecorderClock,
   RecorderContext,
+  ScriptFiles,
 } from './driver'
 import { realSleep } from './driver'
 import { capReached, cappedLine, clampWait } from './cap'
@@ -81,6 +82,32 @@ import {
 import type { ActionsFile } from './actions'
 import { DEFAULT_READY, readyLine, reloadUntilReady, untilReady } from './ready'
 import type { ReadyReport } from './ready'
+import {
+  DRAG_HOLD_MS,
+  KEY_SEQUENCE_GAP_MS,
+  MULTI_CLICK_GAP_MS,
+  keySequencePlanMs,
+  buttonNumber,
+  modifierBits,
+  overrunLine,
+  overrunOf,
+  pathDurationMs,
+  pressSequence,
+  resolveChord,
+  resolveModifier,
+  readPath,
+  schedulePath,
+} from './gestures'
+import type {
+  ClickButton,
+  DragModifier,
+  PathSample,
+  StepOverrun,
+} from './gestures'
+import { inlineScript, loadScriptFiles } from './scriptFiles'
+import type { LoadedFiles } from './scriptFiles'
+import { pasteItemOf, runPaste } from './pasteStep'
+import { CHANGE_AGE_PROBE, appSettled, settleOn } from './settle'
 import {
   conditionMiss,
   pollCondition,
@@ -261,6 +288,12 @@ export interface RecordResult {
   stopped: StoppedTake | null
   /** The page's own console errors, each distinct one with its full text and how often it came. */
   pageErrors: PageError[]
+  /**
+   * Paced gestures that ran more than a fifth past their script (a drag's
+   * travel, a path's timing, typing, a key sequence): the page could not
+   * keep up with what it was sent. Also on `meta.steps[].overrunMs`.
+   */
+  overruns: StepOverrun[]
   /** The actions as recorded, `url` resolved: what a take directory writes back. */
   actions: ActionsFile
 }
@@ -329,6 +362,12 @@ export interface RecordOpts {
    * records `meta.media`, with no file; a rehearsal fetches nothing.
    */
   sounds?: SoundSink
+  /**
+   * The files the script names beside itself (a drag's path file, a
+   * paste's file). A host that hands in none cannot run such a step: the
+   * script is refused before anything is captured.
+   */
+  files?: ScriptFiles
   /** Print every page error whole, each time it comes; by default one cut line per distinct error. */
   verbose?: boolean
   /**
@@ -427,6 +466,12 @@ export async function recordTake(
         `steps[${download}] is a download, and this recorder has nowhere to keep a file. Nothing was recorded.`,
       )
   }
+  // The files a script names (a path to draw, a file to paste) are read
+  // and checked before a browser context exists, in a rehearsal too: a
+  // missing or malformed one refuses the take in words.
+  const read = await loadScriptFiles(actions, opts.files)
+  if ('problem' in read) throw new RecordRefusedError(read.problem)
+  const files: LoadedFiles = read
   const vw = actions.viewport?.width ?? 1280
   const vh = actions.viewport?.height ?? 720
   const context =
@@ -533,6 +578,10 @@ export async function recordTake(
   await scanExposures(-1)
   // What the page played while it was being prepared is not the take's.
   await page.evaluate(MEDIA_DRAIN_PROBE).catch(() => null)
+  // A script that settles gets the page's change clock started now, so the
+  // first settle knows how long the page has been still.
+  if (actions.steps.some((s) => settleOn(s, actions.settle)))
+    await page.evaluate(CHANGE_AGE_PROBE).catch(() => undefined)
 
   const cdp = await context.newCDPSession(rawPage)
   // The surface the screencast reads is the viewport, or the take is short
@@ -757,27 +806,85 @@ export async function recordTake(
     }
   }
 
-  const clickAt = async (rect: Rect) => {
-    await moveTo(rect.x + rect.w / 2, rect.y + rect.h / 2)
-    await sleep(PRESS_LEAD_MS)
-    emit({
-      x: Math.round(cur.x),
-      y: Math.round(cur.y),
-      type: 'down',
-      button: 0,
-      rect,
-    })
-    await page.mouse.down()
-    await sleep(PRESS_HOLD_MS)
-    await page.mouse.up()
-    emit({
-      x: Math.round(cur.x),
-      y: Math.round(cur.y),
-      type: 'up',
-      button: 0,
-      rect,
-    })
+  /**
+   * Travel to the rect's centre and press. A double or triple click is that
+   * many presses well inside the platform's double-click interval, each
+   * carrying its click count, so the page reads one gesture; every press is
+   * a down and an up on the cursor track, with its button.
+   */
+  /**
+   * Travel to an element's centre (a rect) or to a viewport point, and
+   * press. A double or triple click is that many presses well inside the
+   * platform's double-click interval, each carrying its click count, so the
+   * page reads one gesture; every press is a down and an up on the cursor
+   * track, with its button, and with the element's rect when there is one.
+   * `modifiers` go down after the travel and come up after the last
+   * release, whatever happens in between.
+   */
+  const clickAt = async (
+    at: Rect | { x: number; y: number },
+    how: {
+      count?: number
+      button?: ClickButton
+      modifiers?: readonly DragModifier[]
+    } = {},
+  ) => {
+    const rect = 'w' in at ? at : undefined
+    await moveTo(
+      rect ? rect.x + rect.w / 2 : at.x,
+      rect ? rect.y + rect.h / 2 : at.y,
+    )
+    const held: string[] = []
+    try {
+      for (const m of how.modifiers ?? []) {
+        const key = resolveModifier(m)
+        await page.keyboard.down(key)
+        held.push(key)
+      }
+      await sleep(PRESS_LEAD_MS)
+      const count = how.count ?? 1
+      const button = buttonNumber(how.button)
+      for (let n = 1; n <= count; n++) {
+        if (n > 1) await sleep(MULTI_CLICK_GAP_MS)
+        const press = {
+          ...(how.button && how.button !== 'left'
+            ? { button: how.button }
+            : {}),
+          ...(n > 1 ? { clickCount: n } : {}),
+        }
+        const hasOpts = Object.keys(press).length > 0
+        emit({
+          x: Math.round(cur.x),
+          y: Math.round(cur.y),
+          type: 'down',
+          button,
+          ...(rect ? { rect } : {}),
+        })
+        await (hasOpts ? page.mouse.down(press) : page.mouse.down())
+        await sleep(n < count ? PRESS_HOLD_MS / 2 : PRESS_HOLD_MS)
+        await (hasOpts ? page.mouse.up(press) : page.mouse.up())
+        emit({
+          x: Math.round(cur.x),
+          y: Math.round(cur.y),
+          type: 'up',
+          button,
+          ...(rect ? { rect } : {}),
+        })
+      }
+    } finally {
+      for (const key of held.reverse())
+        await page.keyboard.up(key).catch(() => undefined)
+    }
   }
+
+  /** A key's typing ping: where the key is about, never which key. */
+  const keyPing = (rect: Rect | null) =>
+    emit({
+      x: Math.round(rect ? rect.x + rect.w / 2 : cur.x),
+      y: Math.round(rect ? rect.y + rect.h / 2 : cur.y),
+      type: 'key',
+      ...(rect ? { rect } : {}),
+    })
 
   /**
    * Wait for the page to settle after a press, reading the screencast:
@@ -810,6 +917,7 @@ export async function recordTake(
   const skips: RecordingSkip[] = []
   const outputs: RecordingOutput[] = []
   const outputNames = new Set<string>()
+  const overruns: StepOverrun[] = []
   let stopped: StoppedTake | null = null
   // The last guarded step a rehearsal left unpressed: what follows it and
   // waits for its result (an expect, an await) cannot see that result.
@@ -835,6 +943,20 @@ export async function recordTake(
       return out
     }
     const skippedBefore = skipped.length
+    // A paced gesture's plan against its wall time (the overrun report):
+    // set by the cases whose tempo the script sets.
+    const paced: { v: { plannedMs: number; tookMs: number } | null } = {
+      v: null,
+    }
+    const timed = async <T>(plannedMs: number, fn: () => Promise<T>) => {
+      const t = Date.now()
+      const out = await fn()
+      paced.v = { plannedMs, tookMs: Date.now() - t }
+      return out
+    }
+    // A step's own ask when the script's numbers do not say it (a path
+    // read from a file, a key sequence): what the pace report compares.
+    let askedOverride: number | null = null
     // A step that changes the page's URL (a click that navigates, the
     // wait that lets the load land) is marked: the planner proposes a
     // transition at the page change.
@@ -861,7 +983,10 @@ export async function recordTake(
      * target, so the selector is proven, and the press is left out. True
      * when the step was rehearsed that way and its case must stop there.
      */
-    const rehearseGuard = async (sel: string | undefined): Promise<boolean> => {
+    const rehearseGuard = async (
+      sel: string | undefined,
+      point?: { x: number; y: number } | null,
+    ): Promise<boolean> => {
       if (!step.guard || !dry) return false
       const rect = sel ? await boxOf(sel) : null
       stepRect = rect
@@ -869,8 +994,9 @@ export async function recordTake(
       else {
         if (rect)
           await gesture(() => moveTo(rect.x + rect.w / 2, rect.y + rect.h / 2))
+        else if (point) await gesture(() => moveTo(point.x, point.y))
         log(
-          `${tag}: guarded (${step.guard}), ${rect ? 'hovered' : 'left alone'}, not pressed`,
+          `${tag}: guarded (${step.guard}), ${rect || point ? 'hovered' : 'left alone'}, not pressed`,
         )
       }
       unpressedGuard = stepIdx
@@ -912,9 +1038,19 @@ export async function recordTake(
         await sleep(clampWait(step.ms, now(), maxSeconds))
         break
       case 'move':
-        await moveTo(step.x, step.y)
+        // The pointer's travel is the recorder's, a gesture.
+        await gesture(() => moveTo(step.x, step.y))
         break
       case 'hover': {
+        // An element's centre, or a viewport point (a spot on a canvas).
+        if (step.selector === undefined) {
+          const px = step.x ?? cur.x
+          const py = step.y ?? cur.y
+          await gesture(() => moveTo(px, py))
+          log(`hover ${Math.round(px)},${Math.round(py)}`)
+          await sleep(step.ms ?? 700)
+          break
+        }
         const rect = await boxOf(step.selector)
         stepRect = rect
         if (rect) {
@@ -926,6 +1062,22 @@ export async function recordTake(
         break
       }
       case 'click': {
+        const how = {
+          count: step.count,
+          button: step.button,
+          modifiers: step.modifiers,
+        }
+        const said = `${step.count === 3 ? 'triple-click' : step.count === 2 ? 'double-click' : 'click'}${step.button && step.button !== 'left' ? ` (${step.button})` : ''}${step.modifiers?.length ? ` holding ${step.modifiers.join('+')}` : ''}`
+        // A viewport point: a spot on a canvas no selector names.
+        if (step.selector === undefined) {
+          const point = { x: step.x ?? cur.x, y: step.y ?? cur.y }
+          if (await rehearseGuard(undefined, point)) break
+          await gesture(() => clickAt(point, how))
+          log(`${said} at ${Math.round(point.x)},${Math.round(point.y)}`)
+          const sinceChange = await gesture(() => waitSettled())
+          await sleep(holdLeftMs(settleMs(step), sinceChange))
+          break
+        }
         if (await rehearseGuard(step.selector)) break
         const rect = await boxOf(step.selector)
         stepRect = rect
@@ -948,8 +1100,8 @@ export async function recordTake(
               `   (${tag} click: ${step.selector} is disabled; pressed anyway)`,
             )
           }
-          await gesture(() => clickAt(rect))
-          log(`click ${step.selector}`)
+          await gesture(() => clickAt(rect, how))
+          log(`${said} ${step.selector}`)
           // The settle is the recorder's (watched on the screencast); the
           // hold is the author's, from the page's last change.
           const sinceChange = await gesture(() => waitSettled())
@@ -989,17 +1141,20 @@ export async function recordTake(
               rect,
             })
           let lastPing = -Infinity
-          await clockTyping(
-            [...step.text],
-            delay,
-            async (ch) => {
-              if (now() - lastPing >= 350) {
-                lastPing = now()
-                ping()
-              }
-              await page.keyboard.type(ch)
-            },
-            clock,
+          const chars = [...step.text]
+          await timed(Math.max(0, chars.length - 1) * delay, () =>
+            clockTyping(
+              chars,
+              delay,
+              async (ch) => {
+                if (now() - lastPing >= 350) {
+                  lastPing = now()
+                  ping()
+                }
+                await page.keyboard.type(ch)
+              },
+              clock,
+            ),
           )
           ping()
           log(`type ${step.text.length} chars into ${step.selector}`)
@@ -1029,14 +1184,20 @@ export async function recordTake(
             break
           }
         }
-        emit({
-          x: Math.round(rect ? rect.x + rect.w / 2 : cur.x),
-          y: Math.round(rect ? rect.y + rect.h / 2 : cur.y),
-          type: 'key',
-          ...(rect ? { rect } : {}),
+        // A chord, a plain key or a sequence: each key is its own ping, a
+        // person's hand apart. The ping is when and where, never which key.
+        const seq = pressSequence(step)
+        const chords = step.keys !== undefined ? seq.map(resolveChord) : seq
+        const plan = keySequencePlanMs(chords.length)
+        if (chords.length > 1) askedOverride = plan + settleMs(step)
+        await timed(plan, async () => {
+          for (const [i, chord] of chords.entries()) {
+            if (i > 0) await sleep(KEY_SEQUENCE_GAP_MS)
+            keyPing(rect)
+            await page.keyboard.press(chord)
+          }
         })
-        await page.keyboard.press(step.key)
-        log(`press ${step.key}`)
+        log(`press ${seq.join(', ')}`)
         const sinceChange = await gesture(() => waitSettled())
         await sleep(holdLeftMs(settleMs(step), sinceChange))
         break
@@ -1079,10 +1240,21 @@ export async function recordTake(
         break
       }
       case 'drag': {
-        // Start point: selector center when given, else explicit coords.
+        // A drawn path starts at its first point; a straight drag at the
+        // selector's centre, else (x, y).
+        let path: PathSample[] | null = null
+        if (typeof step.path === 'string') {
+          const read = files.paths.get(stepIdx)
+          if (read) path = schedulePath(read, step.ms)
+        } else if (step.path !== undefined) {
+          const read = readPath(step.path)
+          if (!('problems' in read)) path = schedulePath(read, step.ms)
+        }
         let start: { x: number; y: number } | null = null
         let rect: Rect | undefined
-        if (step.selector) {
+        if (path) {
+          start = { x: path[0].x, y: path[0].y }
+        } else if (step.selector) {
           const box = await boxOf(step.selector)
           stepRect = box
           if (box) {
@@ -1100,44 +1272,177 @@ export async function recordTake(
           start = { x: step.x, y: step.y }
         }
         if (!start) break
-        await gesture(() => moveTo(start.x, start.y))
-        await gesture(() => sleep(PRESS_LEAD_MS))
-        emit({
-          x: Math.round(cur.x),
-          y: Math.round(cur.y),
-          type: 'down',
-          button: 0,
-          rect,
-        })
-        await page.mouse.down()
-        await gesture(() => sleep(PRESS_HOLD_MS))
-        // The drag is the ask: `ms` of travel by the clock, however slowly
-        // the page answers each move (a slider re-rendering per sample).
-        const dur = step.ms ?? 700
-        const from = { ...cur }
-        await clockMotion(
-          dur,
-          async (u) => {
-            cur.x = from.x + (step.tx - from.x) * u
-            cur.y = from.y + (step.ty - from.y) * u
-            await page.mouse.move(cur.x, cur.y)
-            emit({ x: Math.round(cur.x), y: Math.round(cur.y), type: 'move' })
-          },
-          clock,
-        )
-        await gesture(() => sleep(settleMs({ do: 'drag' })))
-        await page.mouse.up()
-        emit({
-          x: Math.round(cur.x),
-          y: Math.round(cur.y),
-          type: 'up',
-          button: 0,
-          rect,
-        })
+        const from0 = start
+        await gesture(() => moveTo(from0.x, from0.y))
+        // The modifiers go down after the travel and before the press, and
+        // come up after the release, so the page sees them for the whole
+        // drag and the pointer's approach is a plain move.
+        const mods = step.modifiers ?? []
+        const held: string[] = []
+        try {
+          for (const m of mods) {
+            const key = resolveModifier(m)
+            await page.keyboard.down(key)
+            held.push(key)
+          }
+          await gesture(() => sleep(PRESS_LEAD_MS))
+          // A path that carries pressure is drawn with a PEN through the
+          // browser's own input (the mouse has no pressure); a driver that
+          // will not take one draws it with the mouse and says so.
+          const bits = modifierBits(mods, opts.platform)
+          const penAt = (
+            type: 'mousePressed' | 'mouseMoved' | 'mouseReleased',
+            p: { x: number; y: number; pressure?: number },
+          ) =>
+            cdp.send('Input.dispatchMouseEvent', {
+              type,
+              x: p.x,
+              y: p.y,
+              button: 'left',
+              buttons: type === 'mouseReleased' ? 0 : 1,
+              ...(type === 'mouseMoved' ? {} : { clickCount: 1 }),
+              pointerType: 'pen',
+              force: type === 'mouseReleased' ? 0 : (p.pressure ?? 0.5),
+              modifiers: bits,
+            })
+          let pen = path?.some((p) => p.pressure !== undefined) ?? false
+          if (pen && path) {
+            try {
+              await penAt('mousePressed', path[0])
+            } catch {
+              pen = false
+              log(
+                `   (${tag} drag: this browser takes no pen input; the path is drawn with the mouse and its pressure dropped)`,
+              )
+            }
+          }
+          emit({
+            x: Math.round(cur.x),
+            y: Math.round(cur.y),
+            type: 'down',
+            button: 0,
+            rect,
+          })
+          if (!pen) await page.mouse.down()
+          await gesture(() => sleep(PRESS_HOLD_MS))
+          if (path) {
+            // Every point is sent, in order, at its time: a drawing's shape
+            // is its points, so a page that answers slowly makes the stroke
+            // late (an overrun, reported), never a different stroke.
+            const pts = path
+            const total = pathDurationMs(pts)
+            askedOverride = total
+            await timed(total, async () => {
+              const from = Date.now()
+              for (let i = 1; i < pts.length; i++) {
+                const p = pts[i]
+                if (!dry) {
+                  const wait = from + p.at - Date.now()
+                  if (wait > 0) await realSleep(wait)
+                }
+                if (pen) await penAt('mouseMoved', p)
+                else await page.mouse.move(p.x, p.y)
+                cur.x = p.x
+                cur.y = p.y
+                emit({ x: Math.round(p.x), y: Math.round(p.y), type: 'move' })
+              }
+            })
+          } else {
+            // The drag is the ask: `ms` of travel by the clock, however
+            // slowly the page answers each move (a slider re-rendering per
+            // sample).
+            const dur = step.ms ?? 700
+            const from = { ...cur }
+            const tx = step.tx ?? from.x
+            const ty = step.ty ?? from.y
+            await timed(dur, () =>
+              clockMotion(
+                dur,
+                async (u) => {
+                  cur.x = from.x + (tx - from.x) * u
+                  cur.y = from.y + (ty - from.y) * u
+                  await page.mouse.move(cur.x, cur.y)
+                  emit({
+                    x: Math.round(cur.x),
+                    y: Math.round(cur.y),
+                    type: 'move',
+                  })
+                },
+                clock,
+              ),
+            )
+          }
+          await gesture(() => sleep(settleMs({ do: 'drag' })))
+          if (pen) await penAt('mouseReleased', { x: cur.x, y: cur.y })
+          else await page.mouse.up()
+          emit({
+            x: Math.round(cur.x),
+            y: Math.round(cur.y),
+            type: 'up',
+            button: 0,
+            rect,
+          })
+        } finally {
+          for (const key of held.reverse())
+            await page.keyboard.up(key).catch(() => undefined)
+        }
+        const holding = mods.length ? ` holding ${mods.join('+')}` : ''
         log(
-          `drag ${step.selector ?? `${start.x},${start.y}`} → ${step.tx},${step.ty}`,
+          path
+            ? `drag a path of ${path.length} points from ${Math.round(start.x)},${Math.round(start.y)}${holding}`
+            : `drag ${step.selector ?? `${start.x},${start.y}`} → ${step.tx},${step.ty}${holding}`,
         )
-        await sleep(400)
+        // The drag's own hold after the release: the recorder's, a gesture.
+        await gesture(() => sleep(DRAG_HOLD_MS))
+        break
+      }
+      case 'paste': {
+        // Words or a file on the clipboard, pasted as a person's ⌘V does:
+        // into the selector (clicked first, as a person puts the caret
+        // there) or where the focus already is. The keystroke is a typing
+        // ping; what was pasted never reaches the cursor track.
+        const item = pasteItemOf(step, stepIdx, files)
+        if (!item) {
+          skip(step.file ?? '', `"${step.file}" was not read`)
+          break
+        }
+        let rect: Rect | null = null
+        if (step.selector) {
+          rect = await boxOf(step.selector)
+          stepRect = rect
+          if (!rect) {
+            skip(step.selector)
+            break
+          }
+          const at = rect
+          await gesture(() => clickAt(at))
+        }
+        const ping = { done: false }
+        const outcome = await runPaste(page, context, item, async (chord) => {
+          keyPing(rect)
+          ping.done = true
+          await page.keyboard.press(chord)
+        })
+        if ('failed' in outcome) {
+          skip(step.selector ?? step.file ?? 'paste', outcome.failed)
+          log(`   (${tag} paste: ${outcome.failed})`)
+          break
+        }
+        if (!ping.done) keyPing(rect)
+        const what =
+          step.text !== undefined
+            ? `${[...step.text].length} chars`
+            : `the file ${step.file}`
+        const into = step.selector ? ` into ${step.selector}` : ''
+        log(
+          outcome.via === 'file'
+            ? `paste ${what}${into}, dispatched in the page with the file's own bytes (the browser's clipboard re-encodes an image and drops what it carries, its density among it); its events are untrusted`
+            : outcome.via === 'page'
+              ? `paste ${what}${into}, dispatched in the page (the browser's clipboard refused it: ${outcome.why}); its events are untrusted`
+              : `paste ${what}${into}`,
+        )
+        const sinceChange = await gesture(() => waitSettled())
+        await sleep(holdLeftMs(settleMs(step), sinceChange))
         break
       }
       case 'expect': {
@@ -1312,6 +1617,41 @@ export async function recordTake(
         break
       }
     }
+    // A gesture that waits on the app: no DOM change and no new frame for a
+    // beat before the next step, so a canvas that fell behind catches up.
+    if (
+      settleOn(step, actions.settle) &&
+      skipped.length === skippedBefore &&
+      !stopped
+    ) {
+      const res = await gesture(() =>
+        appSettled(page, () => frames.length, {
+          sleep: realSleep,
+          sinceFrame: () =>
+            frames.length ? now() - frames[frames.length - 1].tMs : null,
+        }),
+      )
+      extra.settleMs = res.ms
+      if (!res.settled)
+        log(
+          `   (${tag} settle: the page was still changing after ${sayDuration(res.ms)}; going on)`,
+        )
+    }
+    // A paced gesture that ran past its script: the page could not keep up.
+    if (paced.v && !dry) {
+      const over = overrunOf(paced.v.plannedMs, paced.v.tookMs)
+      if (over !== null) {
+        overruns.push({
+          step: stepIdx,
+          ...(step.id ? { id: step.id } : {}),
+          do: step.do,
+          plannedMs: Math.round(paced.v.plannedMs),
+          tookMs: Math.round(paced.v.tookMs),
+          overrunMs: over,
+        })
+        extra.overrunMs = over
+      }
+    }
     const hang = pageBound.end()
     if (hang.hung) {
       const reason = hangReason(step.do, hang.ms, hang.boundMs)
@@ -1387,7 +1727,7 @@ export async function recordTake(
     paces.push({
       step: stepIdx,
       do: step.do,
-      askedMs: askedMs(step as Parameters<typeof askedMs>[0]),
+      askedMs: askedOverride ?? askedMs(step as Parameters<typeof askedMs>[0]),
       gestureMs,
       wallMs: now() - stepStart,
     })
@@ -1497,6 +1837,8 @@ export async function recordTake(
 
   const pace = paceReport(paces)
   if (!dry) log(`   ${paceLine(pace)}`)
+  const overrun = overrunLine(overruns)
+  if (overrun) log(`   WARNING: ${overrun}`)
   return {
     events,
     frames,
@@ -1520,7 +1862,10 @@ export async function recordTake(
     media,
     stopped,
     pageErrors: pageErrors.entries(),
-    actions: { ...actions, url },
+    overruns,
+    // Self-contained: a path a file held is inline, so the take re-records
+    // from its own script with the file gone.
+    actions: { ...inlineScript(actions, files), url },
   }
 }
 

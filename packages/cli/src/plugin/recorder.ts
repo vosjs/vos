@@ -9,16 +9,19 @@
  * page was heard playing.
  */
 import { writeFileSync } from 'node:fs'
-import { mkdir } from 'node:fs/promises'
-import { join } from 'node:path'
+import { lstat, mkdir, readFile, realpath } from 'node:fs/promises'
+import { join, resolve, sep } from 'node:path'
 import {
   fileNameProblem,
+  inlineScript,
+  loadScriptFiles,
   recordTake as recordTakeCore,
 } from '@vosjs/render-core/record'
 import type {
   OutputSink,
   RecordOpts as CoreRecordOpts,
   SoundSink,
+  ScriptFiles,
 } from '@vosjs/render-core/record'
 import type { Browser, BrowserContext } from 'playwright'
 import { writeJson } from './take'
@@ -68,10 +71,88 @@ export function pageSoundSink(dir: string): SoundSink {
   }
 }
 
+/**
+ * The files a script names beside itself (a drag's path, a paste's file):
+ * a plain name in the actions file's own directory, never a link, never a
+ * path that resolves outside it, whoever wrote the name.
+ */
+export function actionsDirFiles(dir: string): ScriptFiles {
+  return {
+    read: async (name) => {
+      const problem = fileNameProblem(name)
+      if (problem) throw new Error(problem)
+      const file = join(dir, name)
+      if ((await lstat(file)).isSymbolicLink())
+        throw new Error(
+          `${name} is a symbolic link, which a script never follows`,
+        )
+      const [real, root] = await Promise.all([realpath(file), realpath(dir)])
+      if (!real.startsWith(root + sep))
+        throw new Error(`${name} resolves outside the actions file's directory`)
+      return new Uint8Array(await readFile(real))
+    },
+  }
+}
+
+/** The name a pasted file is kept under in the take: `paste-<name>`, once. */
+export const pasteCopyName = (name: string): string =>
+  name.startsWith('paste-') ? name : `paste-${name}`
+
+/**
+ * Copy every file a `paste` step names into the take, under
+ * `paste-<name>`, and point the script at the copy: the take's own
+ * actions.json then re-records on this machine with the original gone. A
+ * paste's bytes never travel inside the script itself (a push embeds the
+ * script, not the file).
+ */
+export async function keepPasteFiles(
+  actions: ActionsFile,
+  actionsDir: string,
+  takeDir: string,
+): Promise<ActionsFile> {
+  if (!actions.steps.some((s) => s.do === 'paste' && s.file)) return actions
+  const files = actionsDirFiles(actionsDir)
+  const steps = await Promise.all(
+    actions.steps.map(async (s) => {
+      if (s.do !== 'paste' || !s.file) return s
+      const name = pasteCopyName(s.file)
+      const same = resolve(actionsDir) === resolve(takeDir) && name === s.file
+      if (!same)
+        await writeFileSafe(join(takeDir, name), await files.read(s.file))
+      return { ...s, file: name }
+    }),
+  )
+  return { ...actions, steps }
+}
+
+/**
+ * The script a hosted recorder runs: every path a file held written
+ * inline, since the script travels alone. A paste is left as it is for the
+ * hosted refusal to name.
+ */
+export async function scriptForHost(
+  actions: ActionsFile,
+  actionsDir: string,
+): Promise<ActionsFile> {
+  const pathsOnly = {
+    steps: actions.steps.map((s) =>
+      s.do === 'paste' ? ({ do: 'wait', ms: 0 } as const) : s,
+    ),
+  }
+  const files = await loadScriptFiles(pathsOnly, actionsDirFiles(actionsDir))
+  if ('problem' in files) throw new Error(files.problem)
+  return inlineScript(actions, files)
+}
+
 export type RecordOpts = Omit<
   CoreRecordOpts,
-  'context' | 'env' | 'platform' | 'outputs' | 'sounds'
+  'context' | 'env' | 'platform' | 'outputs' | 'sounds' | 'files'
 > & {
+  /**
+   * The actions file's directory: where a drag's path file and a paste's
+   * file are read from. Absent, a script that names one is refused.
+   */
+  actionsDir?: string
   /**
    * A ready-made context to record IN, instead of one made from `browser`:
    * `--session <name>`, a persistent profile the person signed in to.
@@ -102,6 +183,7 @@ export async function recordTake(
       ...opts,
       outputs: outputsSink(paths.dir),
       sounds: pageSoundSink(paths.dir),
+      ...(opts.actionsDir ? { files: actionsDirFiles(opts.actionsDir) } : {}),
       env: process.env,
       platform:
         process.platform === 'darwin'
@@ -114,6 +196,14 @@ export async function recordTake(
   // A rehearsal writes nothing: the take beside it keeps its footage, its
   // cut and its script exactly as they were.
   if (!dry) {
+    // The script as it ran, self-contained: paths are inline (the
+    // recorder's), and a pasted file is kept beside it under its own name.
+    if (opts.actionsDir)
+      result.actions = await keepPasteFiles(
+        result.actions,
+        opts.actionsDir,
+        paths.dir,
+      )
     await writeJson(paths.cursor, result.events)
     await writeJson(paths.meta, result.meta, true)
     await writeJson(paths.framesIndex, result.frames)

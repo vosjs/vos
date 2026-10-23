@@ -2,7 +2,7 @@ import { videoFormat } from '../outputs'
 import { landedLines, waitForLanded } from './landed'
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import {
   END_CARD_FROM,
   docOutputDuration,
@@ -78,7 +78,7 @@ import {
 import { deadLine, deadWarns } from './pace'
 import type { TakePaths } from './take'
 import { BrowserUnavailableError, launchBrowser } from '../browser'
-import { recordTake } from './recorder'
+import { recordTake, scriptForHost } from './recorder'
 import type { RecordResult, SkippedStep } from './recorder'
 import {
   RecordRefusedError,
@@ -86,6 +86,7 @@ import {
   guardedSteps,
   hostedRefusals,
   readyProblem,
+  overrunLine,
 } from '@vosjs/render-core/record'
 import type { ReadyMode, ReadyReport } from '@vosjs/render-core/record'
 import { WallError, wallVerdict } from './wall'
@@ -737,9 +738,12 @@ function stepReportNote(
   rec: Pick<
     RecordResult,
     'disabled' | 'skips' | 'outputs' | 'confirmed' | 'stopped'
-  >,
+  > &
+    Partial<Pick<RecordResult, 'overruns'>>,
 ): string {
   const lines: string[] = []
+  const overrun = overrunLine(rec.overruns ?? [])
+  if (overrun) lines.push(`OVERRUN: ${overrun}`)
   if (rec.disabled.length)
     lines.push(
       `DISABLED when clicked: ${rec.disabled.map((d) => `#${d.step}${d.id ? ` ${d.id}` : ''} ${d.selector}`).join(', ')} (the press likely did nothing; an expect with enabled: true before it waits for the control)`,
@@ -969,7 +973,14 @@ async function cmdRecord(argv: string[]): Promise<number> {
       )
     // Nobody can confirm a step that spends on the fleet, and a download
     // has no take directory to land in there.
-    const refusals = hostedRefusals(actions)
+    // The script travels alone: a path a file holds goes up inline.
+    const hostedActions = await scriptForHost(
+      actions,
+      dirname(resolve(actionsPath)),
+    ).catch((e: unknown) => {
+      throw new UsageError(e instanceof Error ? e.message : String(e))
+    })
+    const refusals = hostedRefusals(hostedActions)
     if (refusals.length)
       throw new UsageError(
         `a hosted take cannot run this script: ${refusals.join('; ')}`,
@@ -999,7 +1010,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
       origin,
       key,
       url,
-      actions: { ...actions, url },
+      actions: { ...hostedActions, url },
       headers,
       title: strFlag(flags, 'title'),
       folderId: strFlag(flags, 'folder'),
@@ -1081,6 +1092,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
       const started = Date.now()
       const rec = await inSession(sessionName, actions, (context) =>
         recordTake(browser, url, actions, takePaths(outDir), r.log, {
+          actionsDir: dirname(resolve(actionsPath)),
           storageState,
           headers,
           context,
@@ -1221,6 +1233,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
     r.event({ event: 'phase', phase: 'record' })
     const rec = await inSession(sessionName, actions, (context) =>
       recordTake(browser, url, actions, paths, r.log, {
+        actionsDir: dirname(resolve(actionsPath)),
         maxDurationSeconds: maxDurationSeconds,
         storageState: storageState,
         headers,
@@ -1296,6 +1309,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
         skips: rec.skips,
         outputs: rec.outputs,
         ...(rec.media.length ? { media: rec.media } : {}),
+        overruns: rec.overruns,
         pageErrors: rec.pageErrors,
         ...(strictFail ? { strictFailed: true } : {}),
       },
@@ -1379,6 +1393,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
     r.event({ event: 'phase', phase: 'record' })
     const rec = await inSession(sessionName, actions, (context) =>
       recordTake(browser, url, actions, paths, r.log, {
+        actionsDir: dirname(resolve(actionsPath)),
         maxDurationSeconds: maxDurationSeconds,
         storageState: storageState,
         headers,
@@ -1477,6 +1492,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
         skips: rec.skips,
         outputs: rec.outputs,
         ...(rec.media.length ? { media: rec.media } : {}),
+        overruns: rec.overruns,
         pageErrors: rec.pageErrors,
         ...(flags.draft === true ? { draft: true } : {}),
       },

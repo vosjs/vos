@@ -98,7 +98,12 @@ function fakeBrowser(offsetsMs: number[]): RecorderBrowser {
       up: async () => {},
       wheel: async () => {},
     },
-    keyboard: { type: async () => {}, press: async () => {} },
+    keyboard: {
+      type: async () => {},
+      press: async () => {},
+      down: async () => {},
+      up: async () => {},
+    },
   }
   return {
     newContext: async () => ({

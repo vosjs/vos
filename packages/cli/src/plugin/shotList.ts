@@ -13,6 +13,38 @@
  */
 import type { ActionStep, ActionsFile } from './actions'
 import { askedMs } from './pace'
+import { pressSequence, splitChord } from '@vosjs/render-core/record'
+
+/** A key or a chord as a person reads it: `Mod` is ⌘ on a Mac, Ctrl elsewhere. */
+export function sayChord(chord: string): string {
+  const { mods, key } = splitChord(chord)
+  const word = (k: string) =>
+    k === 'Mod' || k === 'ControlOrMeta'
+      ? '⌘/Ctrl'
+      : k === 'Control'
+        ? 'Ctrl'
+        : k === 'Meta'
+          ? '⌘'
+          : k === 'Alt'
+            ? 'Alt/Option'
+            : k === ' '
+              ? 'Space'
+              : k
+  return [...mods, key].map(word).join('+')
+}
+
+/** A viewport point as a person finds it: where it is, and the script's numbers. */
+function sayPoint(p: { x?: number; y?: number }): string {
+  const x = p.x ?? 0
+  const y = p.y ?? 0
+  return `the spot at ${Math.round(x)}, ${Math.round(y)} (${y < 360 ? 'upper' : 'lower'} ${x < 640 ? 'left' : 'right'})`
+}
+
+/** A list in words: `a`, `a then b`, `a, b then c`. */
+const thenList = (xs: string[]): string =>
+  xs.length <= 1
+    ? (xs[0] ?? '')
+    : `${xs.slice(0, -1).join(', ')} then ${xs[xs.length - 1]}`
 
 export interface ShotBeat {
   n: number
@@ -108,19 +140,53 @@ function gestureBeat(step: ActionStep): string | null {
     case 'wait':
       return null
     case 'hover':
-      return `${named}Rest the pointer on ${sayStepTarget(step)}`
-    case 'click':
-      return `${named}Click ${sayStepTarget(step)}`
+      return `${named}Rest the pointer on ${step.selector !== undefined ? sayStepTarget({ selector: step.selector, id: step.id }) : sayPoint(step)}`
+    case 'click': {
+      const verb =
+        step.count === 3
+          ? 'Triple-click'
+          : step.count === 2
+            ? 'Double-click'
+            : 'Click'
+      const button =
+        step.button === 'right'
+          ? ' with the right button'
+          : step.button === 'middle'
+            ? ' with the middle button'
+            : ''
+      const target =
+        step.selector !== undefined
+          ? sayStepTarget({ selector: step.selector, id: step.id })
+          : sayPoint(step)
+      const holding = step.modifiers?.length
+        ? `Hold ${step.modifiers.map(sayChord).join('+')} and ${verb.toLowerCase()}`
+        : verb
+      return `${named}${holding} ${target}${button}`
+    }
     case 'type':
       return `${named}${step.replace ? 'Replace what is in' : 'Type'}${step.replace ? ` ${sayStepTarget(step)} with "${step.text}"` : ` "${step.text}" into ${sayStepTarget(step)}`}${step.at === 'end' ? ', at the end' : step.at === 'start' ? ', at the start' : ''}`
     case 'press':
-      return `${named}Press ${step.key}${step.selector ? ` in ${sayStepTarget(step as { selector: string; id?: string })}` : ''}`
+      return `${named}Press ${thenList(pressSequence(step).map(sayChord))}${step.selector ? ` in ${sayStepTarget(step as { selector: string; id?: string })}` : ''}`
+    case 'paste': {
+      const what =
+        step.text !== undefined
+          ? `"${step.text.length > 60 ? `${step.text.slice(0, 57)}...` : step.text}"`
+          : `the file ${step.file}`
+      return `${named}Copy ${what}, then paste it${step.selector ? ` into ${sayStepTarget({ selector: step.selector, id: step.id })}` : ''} (⌘/Ctrl+V)`
+    }
     case 'scroll':
       return `${named}Scroll ${step.dy < 0 ? 'up' : 'down'} ${step.dy < 0 ? 'a little' : 'a little'}`
     case 'move':
       return `${named}Move the pointer to the ${step.y < 360 ? 'upper' : 'lower'} ${step.x < 640 ? 'left' : 'right'}`
-    case 'drag':
-      return `${named}Drag ${step.selector ? sayStepTarget(step as { selector: string; id?: string }) : 'from the start point'} across`
+    case 'drag': {
+      const holding = step.modifiers?.length
+        ? `Hold ${step.modifiers.map(sayChord).join('+')} and `
+        : ''
+      const verb = holding ? 'drag' : 'Drag'
+      if (step.path !== undefined)
+        return `${named}${holding}${holding ? 'draw' : 'Draw'} the stroke ${typeof step.path === 'string' ? `in ${step.path}` : `of ${step.path.length} points`}, in one press`
+      return `${named}${holding}${verb} ${step.selector ? sayStepTarget(step as { selector: string; id?: string }) : 'from the start point'} across`
+    }
   }
 }
 
