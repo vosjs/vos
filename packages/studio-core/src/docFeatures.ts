@@ -26,6 +26,7 @@ import {
 import { clipGain } from './lower/loudness'
 import { ratedSegments } from './lower/lowerToComposition'
 import { migrateMotion } from './lower/motion'
+import { replayedSeconds } from './lower/occurrences'
 import { isRecordingDoc } from './doc/studioDoc'
 import type { StudioDoc } from './doc/studioDoc'
 import type { AudioClip, OverlayClip } from './types'
@@ -64,7 +65,9 @@ function bakeAnchors(doc: StudioDoc): { doc: StudioDoc; notes: string[] } {
   const notes: string[] = []
   // Resolved as the lowering resolves them: against the rated pieces of
   // the document as the lowering reads it. A program has no steps, so its
-  // anchors play at their fallback start in every release.
+  // anchors play at their fallback start in every release; a layer whose
+  // anchor resolves nowhere and that has no start plays in none, and is
+  // left out.
   let resolved = doc
   if (isRecordingDoc(doc)) {
     const rated = ratedSegments(migrateMotion(doc))
@@ -74,9 +77,17 @@ function bakeAnchors(doc: StudioDoc): { doc: StudioDoc; notes: string[] } {
       const r = resolveAnchor(doc, o.anchor, rated)
       if (r.start === null)
         notes.push(
-          `overlay ${o.id}: its step ${r.miss === 'cut' ? 'is cut out of the film' : r.miss === 'skipped' ? 'was skipped by the recorder' : 'is not in the take'}, so it plays at its fallback start (${o.start.toFixed(2)}s)`,
+          `overlay ${o.id}: its step ${r.miss === 'cut' ? 'is cut out of the film' : r.miss === 'skipped' ? 'was skipped by the recorder' : 'is not in the take'}, so it ${o.start !== undefined ? `plays at its fallback start (${o.start.toFixed(2)}s)` : 'has no time to play at and is left out'}`,
         )
     }
+  } else {
+    const placed = layers.filter((o) => !anchored(o) || o.start !== undefined)
+    for (const o of layers)
+      if (!placed.includes(o))
+        notes.push(
+          `overlay ${o.id}: anchored to a recorder step, which a program has none of, and with no start, so it is left out`,
+        )
+    resolved = { ...doc, overlays: placed }
   }
   const overlays = overlaysOf(resolved).map((o) => {
     if (!anchored(o)) return o
@@ -102,6 +113,17 @@ export const DOC_FEATURES: readonly DocFeature[] = [
     name: 'caption anchors',
     before: 'would show them at their fallback start',
     uses: (doc) => overlaysOf(doc).filter(anchored).length,
+    bake: bakeAnchors,
+  },
+  {
+    id: 'anchor-without-start',
+    since: '0.45.0',
+    name: 'anchored layers with no start',
+    before: 'would place them at no time and draw them wrong',
+    uses: (doc) =>
+      overlaysOf(doc).filter((o) => anchored(o) && o.start === undefined)
+        .length,
+    // The anchors' bake writes the start each resolves to.
     bake: bakeAnchors,
   },
   {
@@ -143,6 +165,28 @@ export const DOC_FEATURES: readonly DocFeature[] = [
       })
       return { doc: { ...doc, audio } as StudioDoc, notes }
     },
+  },
+  {
+    id: 'segment-replay',
+    since: '0.45.0',
+    name: 'replayed footage',
+    before:
+      'would play the zooms, tilts, clicks and freezes over replayed seconds once, stretched across the replay',
+    uses: (doc) =>
+      isRecordingDoc(doc)
+        ? new Set(replayedSeconds(doc.segments).map((r) => r.piece)).size
+        : 0,
+  },
+  {
+    id: 'segment-camera-rest',
+    since: '0.45.0',
+    name: 'clips whose camera rests',
+    before:
+      'would play the zooms, tilts and cam moves over those clips as if the camera were not resting',
+    uses: (doc) =>
+      isRecordingDoc(doc)
+        ? doc.segments.filter((s) => s && s.camera === 'rest').length
+        : 0,
   },
 ]
 

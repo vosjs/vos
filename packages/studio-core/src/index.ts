@@ -258,6 +258,19 @@ export {
   zoomTrackFromDoc,
 } from './lower/lowerToComposition'
 export type { LoweredComposition } from './lower/lowerToComposition'
+export {
+  REPLAY_EPS,
+  cameraRestWindows,
+  cameraRests,
+  cameraSpanExtents,
+  hasReplay,
+  longestOutputExtent,
+  momentOutputs,
+  replayFlags,
+  replayedSeconds,
+  spanOutputExtents,
+} from './lower/occurrences'
+export type { OutputExtent, ReplayedSpan } from './lower/occurrences'
 export { studioLayerData } from './lower/lowerToComposition'
 export {
   PROGRAM_RETIME,
@@ -428,7 +441,9 @@ export {
   elapsedFor,
   formatElapsed,
   hasElapsed,
+  layerStart,
   resolveAnchor,
+  stepMomentToOutput,
   resolveOverlayAnchors,
   sourceMomentToOutput,
   stepElapsedMs,

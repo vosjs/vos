@@ -456,7 +456,10 @@ export function applyTemplate(
   const skipped: string[] = []
   for (const clip of template.overlays ?? []) {
     const next = structuredClone(clip) as OverlayClip
-    next.start = Math.max(0, round3(clip.start + shift))
+    // An anchored clip with no start is placed by its anchor wherever it
+    // lands: nothing to shift.
+    if (clip.start !== undefined)
+      next.start = Math.max(0, round3(clip.start + shift))
     next.from = from
     const mine = own.get(clip.id)
     if (next.kind === 'text') {

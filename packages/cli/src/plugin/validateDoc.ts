@@ -48,7 +48,9 @@ import {
   formatElapsed,
   hasElapsed,
   outputEnd,
+  layerStart,
   resolveAnchor,
+  resolveOverlayAnchors,
   pinBox,
   pinCandidates,
   pinRectOnScreen,
@@ -60,6 +62,9 @@ import {
   snapRunWeight,
   RUN_STYLE_KEYS,
   ratedSegments,
+  replayedSeconds,
+  cameraSpanExtents,
+  spanOutputExtents,
   clipGain,
   recommendedExportResolution,
   resolvePins,
@@ -78,6 +83,7 @@ import type {
   OverlayAnchor,
   OverlayClip,
   OverlayPin,
+  ReplayedSpan,
 } from '@vosjs/studio-core'
 
 /** How close (a fraction of the frame's height) a layer's box may sit to a
@@ -427,6 +433,7 @@ function checkSpanList(
   label: string,
   duration: number,
   problems: string[],
+  opts: { overlap?: boolean } = {},
 ): void {
   const sorted = [...list].sort(
     (a, b) => (isNum(a.in) ? a.in : 0) - (isNum(b.in) ? b.in : 0),
@@ -451,6 +458,9 @@ function checkSpanList(
       )
     }
   }
+  // Footage clips may play the same seconds more than once (a cold open,
+  // a replay); every other span list is one span per second.
+  if (opts.overlap) return
   for (let i = 1; i < sorted.length; i++) {
     const prev = sorted[i - 1]
     const curr = sorted[i]
@@ -525,7 +535,11 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
     }
   }
   /** Check a span list media by media: each against its own footage. */
-  const checkByMedia = (list: Json[], label: string): void => {
+  const checkByMedia = (
+    list: Json[],
+    label: string,
+    opts: { overlap?: boolean } = {},
+  ): void => {
     const groups = new Map<string, Json[]>()
     for (const s of list) {
       const m = typeof s.media === 'string' ? s.media : ''
@@ -543,6 +557,7 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
         label,
         m ? (mediaLen.get(m) ?? 0) : duration,
         problems,
+        opts,
       )
   }
   if (!recording) {
@@ -646,8 +661,9 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
         problems.push('still must be a number ≥ 0 (OUTPUT seconds)')
       } else {
         const rated = ratedSegments(doc as unknown as ProjectDoc)
+        // The layers where they play: an anchored one at its step.
         const end = outputEnd(
-          doc as unknown as ProjectDoc,
+          resolveOverlayAnchors(doc as unknown as ProjectDoc, rated),
           rated.reduce((a, s) => a + (s.out - s.in) / (s.rate ?? 1), 0),
         )
         if (st > end + 1e-6)
@@ -753,7 +769,90 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
     if (doc.segments !== undefined && !Array.isArray(doc.segments)) {
       problems.push('segments must be an array of {in, out} spans')
     }
-    checkByMedia(entries(doc.segments), 'segment')
+    checkByMedia(entries(doc.segments), 'segment', { overlap: true })
+    // A segment that plays seconds an earlier one already played is a
+    // replay: said once, because every source-anchored span over those
+    // seconds (a zoom, a tilt, a click, a freeze, a speed span) plays in
+    // each occurrence.
+    {
+      // Only the seconds a segment plays AGAIN: a cold open followed by
+      // the trimmed recording replays the cold open's seconds once, in the
+      // one segment that holds them, never every trim after it.
+      const index: number[] = []
+      const pieces: { in: number; out: number; media?: string }[] = []
+      for (const [i, seg] of entries(doc.segments).entries()) {
+        if (!isNum(seg.in) || !isNum(seg.out)) continue
+        index.push(i)
+        pieces.push({
+          in: seg.in,
+          out: seg.out,
+          ...(typeof seg.media === 'string' ? { media: seg.media } : {}),
+        })
+      }
+      const bySegment = new Map<number, ReplayedSpan[]>()
+      for (const r of replayedSeconds(pieces)) {
+        const list = bySegment.get(r.piece) ?? []
+        list.push(r)
+        bySegment.set(r.piece, list)
+      }
+      for (const [p, spans] of bySegment) {
+        const m = spans[0].media
+        const which = spans
+          .map((r) => `${r.in.toFixed(2)}–${r.out.toFixed(2)}s`)
+          .join(', ')
+        const segs = entries(doc.segments)
+        const rests = segs[index[p]]?.camera === 'rest'
+        // The earlier passes over the same seconds that rest the camera: a
+        // cold open at rest, replayed by the trimmed recording after it.
+        const restedBefore = pieces
+          .map((q, k) => ({ q, k }))
+          .filter(
+            ({ q, k }) =>
+              k < p &&
+              (q.media ?? '') === m &&
+              segs[index[k]]?.camera === 'rest' &&
+              spans.some((r) => Math.min(q.out, r.out) > Math.max(q.in, r.in)),
+          )
+          .map(({ k }) => `segments[${index[k]}]`)
+        const what = `segments[${index[p]}] replays ${which} of ${m ? `media "${m}"` : 'the recording'}`
+        notes.push(
+          rests
+            ? `${what} with its camera at rest: clicks, freezes and speed spans over those seconds play again, zooms, tilts and cam moves do not`
+            : restedBefore.length
+              ? `${what}, which ${restedBefore.join(' and ')} played with the camera at rest: clicks, freezes and speed spans over those seconds play in every occurrence, zooms, tilts and cam moves only in segments[${index[p]}]`
+              : `${what}: zooms, tilts, clicks, freezes and speed spans over those seconds play in every occurrence`,
+        )
+      }
+    }
+    // A clip may keep the camera at rest through its pass, and a camera
+    // span that plays only in such passes moves nothing.
+    const segList = entries(doc.segments)
+    segList.forEach((seg, i) => {
+      if (seg.camera !== undefined && seg.camera !== 'rest')
+        problems.push(
+          `segments[${i}].camera must be "rest" (the camera rests through this clip's pass); absent = the camera plays here`,
+        )
+    })
+    if (segList.some((s) => s.camera === 'rest')) {
+      const rated = ratedSegments(doc as unknown as ProjectDoc)
+      for (const [label, list] of [
+        ['zoom', zoom],
+        ['tilt', entries(doc.tilt)],
+        ['camMotion', entries(doc.camMotion)],
+      ] as const) {
+        for (const s of list) {
+          if (!isNum(s.in) || !isNum(s.out)) continue
+          const media = typeof s.media === 'string' ? s.media : undefined
+          if (
+            spanOutputExtents(rated, s.in, s.out, media).length &&
+            !cameraSpanExtents(rated, s.in, s.out, media).length
+          )
+            warnings.push(
+              `${spanName(label, s)}: it plays only in segments whose camera rests (segments[].camera: "rest"), so it never moves the camera`,
+            )
+        }
+      }
+    }
     // A clip's transitions: the vocabulary a footage clip accepts, never
     // longer than half the shorter clip at its boundary (the clip must be
     // seen still before it moves), and the outer edges are the card's.
@@ -1303,8 +1402,13 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
         `${name}.kind must be "text" | "image" | "video" | "html" (got ${String(o.kind)})`,
       )
     }
-    if (!isNum(o.start) || o.start < 0)
-      problems.push(`${name}.start must be ≥ 0 (OUTPUT seconds)`)
+    // An anchored layer is placed by its step; its start, when it has one,
+    // is only the fallback (checkOverlayAnchor refuses one that resolves
+    // nowhere and has none).
+    if (o.anchor === undefined || o.start !== undefined) {
+      if (!isNum(o.start) || o.start < 0)
+        problems.push(`${name}.start must be ≥ 0 (OUTPUT seconds)`)
+    }
     if (!isNum(o.duration) || o.duration <= 0) {
       problems.push(`${name}.duration must be > 0 (seconds)`)
     }
@@ -2064,6 +2168,43 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
 }
 
 /**
+ * Where a layer anchored to a step of one media starts over ANOTHER
+ * media's footage: the segment it lands in and where its own media's
+ * footage ended just before, or null when it starts over its own media
+ * (or past the footage, an ending on the ground). A step-anchored caption
+ * lands after its gesture; trim the footage after that step and the
+ * caption runs into the next scene with nothing saying so.
+ */
+function otherSceneAt(
+  doc: ProjectDoc,
+  start: number,
+  anchorMedia: unknown,
+): { index: number; media: string; ownEnd: number | null } | null {
+  const segs = Array.isArray(doc.segments) ? doc.segments : []
+  if (!segs.length) return null
+  const own = typeof anchorMedia === 'string' ? anchorMedia : ''
+  const mediaOf = (i: number): string =>
+    (segs[i] as { media?: unknown })?.media === undefined
+      ? ''
+      : String((segs[i] as { media?: unknown }).media)
+  const ext = segmentOutputExtents(doc)
+  const EPS = 1e-3
+  const at = (i: number) =>
+    start >= ext[i].start - EPS && start < ext[i].end - EPS
+  if (ext.some((_, i) => mediaOf(i) === own && at(i))) return null
+  const index = ext.findIndex((_, i) => mediaOf(i) !== own && at(i))
+  if (index < 0) return null
+  const before = ext
+    .filter((e, i) => mediaOf(i) === own && e.end <= start + EPS)
+    .map((e) => e.end)
+  return {
+    index,
+    media: mediaOf(index),
+    ownEnd: before.length ? Math.max(...before) : null,
+  }
+}
+
+/**
  * A layer's `anchor`: when it starts, as a recorder step. Checked for its
  * shape, then resolved against the steps and the cut the way the lowering
  * resolves it; one that cannot resolve plays at its `start`, which is said.
@@ -2117,7 +2258,16 @@ function checkOverlayAnchor(
     problems.push(`${name}.anchor.offset must be a number (OUTPUT seconds)`)
     shaped = false
   }
-  if (!shaped || !recording || !pieces) return fallback
+  if (!shaped) return fallback
+  if (!recording || !pieces) {
+    if (fallback === null)
+      problems.push(
+        recording
+          ? `${name}.anchor: the cut could not be read to place step ${JSON.stringify(a.step)}, and the layer has no start to fall back to`
+          : `${name}.anchor: names step ${JSON.stringify(a.step)}, but a program document has no recorder steps, and the layer has no start to fall back to; give it a start`,
+      )
+    return fallback
+  }
   const r = resolveAnchor(
     docIn as ProjectDoc,
     a as unknown as OverlayAnchor,
@@ -2134,9 +2284,21 @@ function checkOverlayAnchor(
           : r.miss === 'skipped'
             ? `${step} was skipped by the recorder`
             : `the cut leaves ${step} out`
-    warnings.push(
-      `${name}.anchor: ${why}, so it plays at its fallback start (${at}); re-anchor it, or keep the footage that step plays in`,
-    )
+    if (fallback === null)
+      problems.push(
+        `${name}.anchor: ${why}, and the layer has no start to fall back to, so it would play nowhere; re-anchor it, keep the footage that step plays in, or give it a start`,
+      )
+    else
+      warnings.push(
+        `${name}.anchor: ${why}, so it plays at its fallback start (${at}); re-anchor it, or keep the footage that step plays in`,
+      )
+  }
+  if (r.start !== null) {
+    const over = otherSceneAt(docIn as ProjectDoc, r.start, a.media)
+    if (over)
+      warnings.push(
+        `${name}${typeof o.id === 'string' ? ` (${o.id})` : ''}: anchored to ${step}, it starts at ${r.start.toFixed(2)}s, ${over.ownEnd === null ? 'where' : `after that media's footage there ends (${over.ownEnd.toFixed(2)}s), where`} segments[${over.index}] plays ${over.media ? `media "${over.media}"` : 'the recording'}: it speaks over another scene. Anchor it to the step's start (anchor.at: "start"), lower anchor.offset, or keep more of the footage it is about`,
+      )
   }
   if (elapsed && r.elapsedFrom && r.elapsedMs !== undefined)
     notes.push(
@@ -2422,7 +2584,15 @@ function framingWarnings(
     const zoomTrack = docZoomTrack(docIn)
     const pins = resolvePins(docIn, layout, camera, zoomTrack)
     overlays.forEach((o, i) => {
-      if (!isObj(o) || !isNum(o.start) || !isNum(o.duration)) return
+      if (!isObj(o) || !isNum(o.duration)) return
+      // Where the layer PLAYS: an anchored one at its step (its `start` is
+      // only the fallback, stale after a trim, or absent), else its start.
+      const start = o.anchor
+        ? layerStart(o as unknown as OverlayClip, docIn, rated)
+        : isNum(o.start)
+          ? o.start
+          : null
+      if (start === null) return
       const tf = isObj(o.transform) ? o.transform : null
       if (!tf || !isNum(tf.x) || !isNum(tf.y)) return
       const pinned = pins.get(String(o.id))
@@ -2451,7 +2621,7 @@ function framingWarnings(
         }
         const about: { step: string; why: string }[] = []
         for (const c of pinCandidates(docIn, {
-          start: o.start,
+          start,
           duration: o.duration,
         })) {
           const named = c.selector
@@ -2524,7 +2694,7 @@ function framingWarnings(
       )
       for (const { c, key, ev } of presses) {
         const out = spanOutputExtent(rated, c.t, c.t + 0.001, key || undefined)
-        if (!out || out.start < o.start || out.start > o.start + o.duration)
+        if (!out || out.start < start || out.start > start + o.duration)
           continue
         const target = pinRectOnScreen(
           {

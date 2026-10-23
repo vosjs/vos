@@ -42,6 +42,7 @@ import {
   migrateMotion,
   projectFromArtifact,
   ratedSegments,
+  layerStart,
   resolveAnchor,
   segmentOutputExtents,
 } from '@vosjs/studio-core'
@@ -196,10 +197,10 @@ export function endingLayers(doc: ProjectDoc): OverlayClip[] {
   const end = totalDuration(pieces)
   if (!(end > 0)) return []
   return (doc.overlays ?? []).filter((o) => {
-    const start = o.anchor
-      ? (resolveAnchor(doc, o.anchor, pieces).start ?? o.start)
-      : o.start
-    return start >= end - 1e-3
+    // A layer placed nowhere (an anchor that resolves to no step, and no
+    // start) plays nowhere, so it ends nothing.
+    const start = layerStart(o, doc, pieces)
+    return start !== null && start >= end - 1e-3
   })
 }
 
@@ -442,6 +443,8 @@ export function joinDocs(
       }
       if (o.anchor) {
         next.anchor = { ...o.anchor, media: mapMedia(o.anchor.media) }
+      } else if (o.start === undefined) {
+        // Neither a time nor a step: validate refuses the joined take.
       } else if (o.pin?.step !== undefined) {
         // A pin reads the PRIMARY's steps and card, so on another media it
         // would point at the wrong thing; its time survives as an anchor.
@@ -526,10 +529,11 @@ export function joinDocs(
     notes.push(
       `${first.label}: --mute leaves nothing out (the first input's sound is the film's own)`,
     )
-  // Every anchored layer's fallback start is where it plays now.
+  // Every anchored layer's fallback start is where it plays now; a layer
+  // that carries none keeps none, its anchor is its time.
   const pieces = ratedSegments(doc)
   for (const o of doc.overlays ?? []) {
-    if (!o.anchor) continue
+    if (!o.anchor || o.start === undefined) continue
     const r = resolveAnchor(doc, o.anchor, pieces)
     if (r.start !== null) o.start = r.start
   }

@@ -74,6 +74,29 @@ describe('zoomApexes', () => {
     ])
   })
 
+  it('stills a span once per time a replayed cut plays it', () => {
+    const doc = takeDoc()
+    // A cold open of the primary's 1..2.5, then the cut as before.
+    doc.segments = [{ in: 1, out: 2.5 }, ...doc.segments]
+    const { apexes } = zoomApexes(doc)
+    expect(
+      apexes.filter((a) => a.id === 'z1').map((a) => [a.start, a.end]),
+    ).toEqual([
+      [0, 1],
+      [2.5, 3.5],
+    ])
+  })
+
+  it('stills no apex in a clip whose camera rests, and says why when that is every pass', () => {
+    const doc = takeDoc()
+    doc.segments = [{ in: 1, out: 2.5, camera: 'rest' }, ...doc.segments]
+    doc.zoom.push({ id: 'z6', in: 1.2, out: 1.4, level: 2, cx: 0.5, cy: 0.5 })
+    doc.segments[1] = { in: 2.5, out: 6 }
+    const { apexes, skipped } = zoomApexes(doc)
+    expect(apexes.some((a) => a.id === 'z1' || a.id === 'z6')).toBe(false)
+    expect(skipped.find((s) => s.id === 'z6')!.reason).toMatch(/camera rests/)
+  })
+
   it('skips a span the cut keeps nothing of, and one naming a media the take lacks, saying why', () => {
     const doc = takeDoc()
     doc.zoom.push({

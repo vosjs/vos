@@ -30,6 +30,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { chromium } from 'playwright'
 import type { BrowserContext } from 'playwright'
+import { BROWSER_SWITCHES } from '../browser'
 import {
   cookieWatch,
   enterPressed,
@@ -254,6 +255,7 @@ export async function withProfile<T>(
     ...(explicit ? { executablePath: explicit } : { channel: 'chrome' }),
     // The real keychain: the whole reason a profile Chrome wrote can be read.
     ignoreDefaultArgs: ['--use-mock-keychain'],
+    args: [...BROWSER_SWITCHES],
     ...(opts.viewport ? { viewport: opts.viewport, deviceScaleFactor: 1 } : {}),
   })
   try {

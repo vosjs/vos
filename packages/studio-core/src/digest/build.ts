@@ -7,7 +7,8 @@
  * a frameless digest.
  */
 import { docOutputDuration } from '../audioBeds'
-import { ratedSegments, spanOutputExtent } from '../lower/lowerToComposition'
+import { ratedSegments } from '../lower/lowerToComposition'
+import { longestOutputExtent } from '../lower/occurrences'
 import { pickStyle } from './style'
 import type { ProjectDoc, RecordingMeta } from '../types'
 import type { DigestPlan, Moment, TranscriptSegment } from './moments'
@@ -202,7 +203,8 @@ export function digestSteps(doc: ProjectDoc): DigestStep[] {
   if (!steps.length) return []
   const rated = ratedSegments(doc)
   return steps.map((s) => {
-    const out = spanOutputExtent(rated, s.tStart, s.tEnd)
+    // A step replayed by the cut is read in the pass it plays longest.
+    const out = longestOutputExtent(rated, s.tStart, s.tEnd)
     return {
       step: s.step,
       id: s.id ?? null,

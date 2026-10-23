@@ -37,7 +37,6 @@ import {
   EASINGS,
   lerpArray,
   sample,
-  segmentRate,
   sortKeyframes,
   sourceToTimeline,
   splitBySpeed,
@@ -115,8 +114,15 @@ import { clipEnvelope } from './audioEnvelope'
 import { clipGain } from './loudness'
 import { followFocusEvents } from './cursorFollow'
 import { pinPlacement, pinReferent } from './pin'
-import { resolveOverlayAnchors } from './anchor'
+import { layerStart, placedOverlays, resolveOverlayAnchors } from './anchor'
 import { cursorIdleFade } from './cursorIdle'
+import {
+  cameraRestWindows,
+  cameraSpanExtents,
+  hasReplay,
+  momentOutputs,
+  spanOutputExtents,
+} from './occurrences'
 import { STUDIO_ENTRY_ID, studioEntry } from './studioEntry'
 import {
   cardEnter,
@@ -139,7 +145,13 @@ import {
   extractClicks,
   hexToRgbTriplet,
 } from './extractClicks'
-import { cardFields, layerMedia, mediaFrame, sameMedia } from '../media'
+import {
+  cardFields,
+  layerMedia,
+  mediaFrame,
+  mediaSource,
+  sameMedia,
+} from '../media'
 import { htmlLayerPayload } from '../htmlLayer'
 import type { StudioDoc } from '../doc/studioDoc'
 import type { TimelineEdit } from '@vosjs/shared/timelineEdits'
@@ -285,7 +297,9 @@ function durationSec(doc: ProjectDoc, rated: Segment[]): number {
  * list: the output extent of its KEPT footage (a partially-cut span snaps its
  * edges into kept footage; a fully-cut span returns null — it follows its
  * footage, like every source-anchored feature). Rate-aware: output positions
- * accumulate each piece's (out − in) / rate.
+ * accumulate each piece's (out − in) / rate. When the cut plays the span's
+ * seconds more than once this is the FIRST occurrence (what a lane draws, a
+ * digest names); `spanOutputExtents` returns every one.
  */
 export function spanOutputExtent(
   segments: readonly (Segment & { media?: string })[],
@@ -293,27 +307,7 @@ export function spanOutputExtent(
   sOut: number,
   media?: string,
 ): { start: number; end: number } | null {
-  let acc = 0
-  let start: number | null = null
-  let end: number | null = null
-  for (const p of segments) {
-    const rate = segmentRate(p)
-    const len = Math.max(0, p.out - p.in) / rate
-    // Source seconds are one media's: a piece of another media is output
-    // time this span never covers, however its numbers overlap.
-    if (!sameMedia(p.media, media)) {
-      acc += len
-      continue
-    }
-    const ovIn = Math.max(sIn, p.in)
-    const ovOut = Math.min(sOut, p.out)
-    if (ovOut > ovIn) {
-      if (start === null) start = acc + (ovIn - p.in) / rate
-      end = acc + (ovOut - p.in) / rate
-    }
-    acc += len
-  }
-  return start !== null && end !== null && end > start ? { start, end } : null
+  return spanOutputExtents(segments, sIn, sOut, media)[0] ?? null
 }
 
 /** A span's arrival ease, validated against the shared ease set. */
@@ -475,6 +469,19 @@ function restsBetween(
   )
 }
 
+/**
+ * The windows no connected camera move crosses: the transitions' and the
+ * passes of every segment whose camera rests. The transitions' own list
+ * when no segment rests.
+ */
+function cameraRestsOf(
+  rests: TrackOptions['rests'],
+  segments: readonly Segment[],
+): TrackOptions['rests'] {
+  const resting = cameraRestWindows(segments)
+  return resting.length ? [...(rests ?? []), ...resting] : rests
+}
+
 /** How far a connected transition may spill into the next span: half of it. */
 const spillLimit = (tIn: number, tOut: number) => tIn + (tOut - tIn) / 2
 
@@ -488,7 +495,10 @@ const spillLimit = (tIn: number, tOut: number) => tIn + (tOut - tIn) / 2
  * the first vanished. A fully-cut span is dropped; two spans starting at
  * the same output time keep the one that ends first ahead. With one media
  * and the footage in order, output order IS source order, so a single-media
- * document lowers as it always did.
+ * document lowers as it always did. A span over seconds the cut plays more
+ * than once is an entry per occurrence, so the camera moves the same way
+ * each time those seconds play, except in the pass of a segment whose
+ * camera rests (`camera: 'rest'`), which holds no entry.
  */
 function spansInOutputOrder<
   S extends { in: number; out: number; media?: string },
@@ -497,10 +507,13 @@ function spansInOutputOrder<
   segments: Segment[],
 ): { z: S; tIn: number; tOut: number }[] {
   return spans
-    .flatMap((z) => {
-      const ext = spanOutputExtent(segments, z.in, z.out, z.media)
-      return ext ? [{ z, tIn: ext.start, tOut: ext.end }] : []
-    })
+    .flatMap((z) =>
+      cameraSpanExtents(segments, z.in, z.out, z.media).map((ext) => ({
+        z,
+        tIn: ext.start,
+        tOut: ext.end,
+      })),
+    )
     .sort((a, b) => a.tIn - b.tIn || a.tOut - b.tOut)
 }
 
@@ -529,6 +542,7 @@ export function zoomTrackFromDoc(
   opts: TrackOptions = {},
 ): KeyframeTrack<number[]> {
   const notBefore = opts.notBefore ?? -Infinity
+  const rests = cameraRestsOf(opts.rests, segments)
   const panEase = style.panEase as NonNullable<Keyframe['ease']>
   const mapped = spansInOutputOrder(zoom, segments)
 
@@ -593,7 +607,7 @@ export function zoomTrackFromDoc(
     const pan =
       next &&
       next.tIn - tOut <= style.chainGap &&
-      !restsBetween(opts.rests, tOut, next.tIn)
+      !restsBetween(rests, tOut, next.tIn)
         ? connectedWindow({
             arrived,
             tOut,
@@ -612,7 +626,13 @@ export function zoomTrackFromDoc(
     // recenter duration.
     let inPath = false
     for (const e of z.followEvents ?? []) {
-      const eOut = sourceToTimeline(segments, e.t)
+      // A recenter's time is a moment of the span's OWN media, in THIS
+      // occurrence of the span's seconds: a span on another media maps
+      // through that media's pieces (the media-blind lookup found the
+      // primary's piece at the same source second, an output time outside
+      // the span, and dropped every recenter), and on a cut that replays
+      // those seconds each pass times its own recenters.
+      const eOut = followEventOutput(segments, e.t, z.media, tIn, holdEnd)
       if (eOut === null || eOut <= tIn || eOut >= holdEnd) continue
       // A recenter with less than RAMP_FLOOR of room after the arrival or
       // before the exit would compress into a jump (the focus freezes for
@@ -699,6 +719,31 @@ export function zoomTrackFromDoc(
   return { keyframes: sortKeyframes(keyframes) }
 }
 
+/**
+ * Where a follow recenter (a SOURCE moment) plays inside one occurrence of
+ * its span (output seconds tIn..tEnd): its first occurrence when that lies
+ * inside, the way the track always read it; on a cut that replays seconds,
+ * else the later occurrence that does.
+ */
+function followEventOutput(
+  segments: Segment[],
+  t: number,
+  media: string | undefined,
+  tIn: number,
+  tEnd: number,
+): number | null {
+  // A recenter is a moment of the span's OWN media. The primary's on a cut
+  // with no replay reads as it always did; any other media's (and every
+  // moment on a replaying cut) is mapped through that media's pieces only,
+  // never the first piece of any media that holds the same second.
+  if (sameMedia(media, undefined) && !hasReplay(segments)) {
+    const first = sourceToTimeline(segments, t)
+    return first
+  }
+  const outs = momentOutputs(segments, t, media)
+  return outs.find((o) => o > tIn && o < tEnd) ?? outs[0] ?? null
+}
+
 function sameVec(a: number[], b: number[]): boolean {
   return a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) < 1e-6)
 }
@@ -741,6 +786,7 @@ export function tiltTrackFromDoc(
   const panDur = motion.pan ?? TILT_PAN
   const panEase = TILT_PAN_EASE as NonNullable<Keyframe['ease']>
   const rest = [0, 0]
+  const rests = cameraRestsOf(opts.rests, segments)
   const mapped = spansInOutputOrder(tilt, segments)
 
   const { keyframes, push } = trackEmitter()
@@ -774,7 +820,7 @@ export function tiltTrackFromDoc(
     const swing =
       next &&
       next.tIn - tOut <= chainGap &&
-      !restsBetween(opts.rests, tOut, next.tIn)
+      !restsBetween(rests, tOut, next.tIn)
         ? connectedWindow({
             arrived,
             tOut,
@@ -843,6 +889,7 @@ export function camTrackFromDoc(
     z.size != null ? clampCamSize(z.size) : rest[2],
   ]
   const panEase = CAM_PAN_EASE as NonNullable<Keyframe['ease']>
+  const rests = cameraRestWindows(segments)
   const mapped = spansInOutputOrder(spans, segments)
 
   const { keyframes, push } = trackEmitter()
@@ -868,7 +915,9 @@ export function camTrackFromDoc(
     // arrival, so its transition speed governs.
     const next = mapped.at(i + 1)
     const morph =
-      next && next.tIn - tOut <= CAM_CHAIN_GAP
+      next &&
+      next.tIn - tOut <= CAM_CHAIN_GAP &&
+      !restsBetween(rests, tOut, next.tIn)
         ? connectedWindow({
             arrived,
             tOut,
@@ -2306,8 +2355,12 @@ const ON_FRAME = `(ctx, content, dt) => {
   // ceZs = the zoom transform's device scale, for the two values below that
   // are sized in DEVICE pixels inside a scaled user space.
   var ceZs = 1
-  // The camera model (cfr.camera; MIRRORS layout.ts zoomView — change them
-  // together). The magnifier scales the card about the focus, which stays
+  // The camera model (frame.camera; MIRRORS layout.ts zoomView — change them
+  // together). The camera is a FRAME-wide field, never a card's: a media's
+  // card (cfr) carries only the card-owned keys, so reading it there drew
+  // every media but the primary under the magnifier while the lowering
+  // clamped its focus, and every host placed its pins, for the stage. The
+  // magnifier scales the card about the focus, which stays
   // where it is on screen; the stage camera also slides the card so the
   // focus lands at the frame's centre, blended in over CAMERA_CENTRE_RAMP
   // of level (a smoothstep, 0 at level 1) so a ramp through the band slides
@@ -2315,7 +2368,7 @@ const ON_FRAME = `(ctx, content, dt) => {
   // the content point at the frame's centre under either model; the two
   // branches are the same map, the magnifier's kept in its old float order
   // so every existing document renders byte-identically.
-  var camStage = cfr.camera === 'stage'
+  var camStage = frame.camera === 'stage'
   var fx = dx + zx * dw, fy = dy + zy * dh
   var wcx = fx, wcy = fy
   // The point the stage camera lands its focus on: the span's place on
@@ -2984,7 +3037,10 @@ export function studioLayerData(
   // Both anchors bake their layers here, so this is where the retired text
   // spelling is read: a layer that still carries `emphasis` paints as runs
   // whichever kind of document holds it.
-  const layers = migrateText(input)
+  // A layer reaches here placed (resolveOverlayAnchors gave an anchored
+  // one its start); one still without a start resolved nowhere and has
+  // no time to play at, so it is left out (validate refuses it).
+  const layers = placedOverlays(migrateText(input))
   // A media layer resolves against the RECORDING it rides (a program
   // document has no media to show).
   const rec = 'source' in layers ? (layers as unknown as ProjectDoc) : null
@@ -3070,7 +3126,7 @@ export function studioLayerData(
             const base = {
               id: o.id,
               kind: o.kind,
-              start: round(o.start),
+              start: round(o.start!),
               dur: round(Math.max(OVERLAY_MIN_DURATION, o.duration)),
               x: round(o.transform.x),
               y: round(o.transform.y),
@@ -3533,19 +3589,37 @@ function loweredZoomSpans(
   camera: CameraModel,
   zoomStyle: ZoomStyleParams,
 ): LoweredZoomSpan[] {
-  const meta = doc.source.meta
+  // A span on another media is clamped against THAT media's card and
+  // follows THAT media's cursor: its cx/cy are fractions of its own footage,
+  // which ON_FRAME lays out in its own card (and the framing lint reads the
+  // same card). The primary's layout is the one the caller handed in.
+  const cards = new Map<string, CardLayout>([['', layout]])
+  const cardOf = (id: string | undefined): CardLayout => {
+    const key = id ?? ''
+    let l = cards.get(key)
+    if (!l) {
+      l = mediaSource(doc, key) ? docCardLayout(doc, key) : layout
+      cards.set(key, l)
+    }
+    return l
+  }
   return restSpansThroughTransitions(
     doc.zoom,
     rated,
     transitions,
     ZOOM_SPAN_MIN,
   ).map((z) => {
+    const src = mediaSource(doc, z.media) ?? doc.source
+    const card = cardOf(z.media)
     if (z.focusMode === 'auto') {
+      // The pointer the camera follows is the one recorded with the span's
+      // own media (another media's cursor is another recording's hand),
+      // laid out in that media's card.
       const f = followFocusEvents(
         z,
-        doc.source.cursor,
-        { w: meta.width, h: meta.height },
-        layout,
+        src.cursor,
+        { w: src.meta.width, h: src.meta.height },
+        card,
         {
           safeRatio: zoomStyle.followSafeRatio,
           recenter: zoomStyle.followRecenter,
@@ -3563,7 +3637,7 @@ function loweredZoomSpans(
         z.cx,
         z.cy,
         clampZoomLevel(z.level),
-        layout,
+        card,
         camera,
         z.focusMode !== 'auto' ? z.screen : undefined,
       ),
@@ -3619,6 +3693,10 @@ export function resolvePins(
   const space = { w: doc.source.meta.width, h: doc.source.meta.height }
   for (const o of doc.overlays ?? []) {
     if (!o.pin) continue
+    // A host hands in the document as it stands: an anchored layer with no
+    // start is placed by its anchor, and one placed nowhere has no life.
+    const start = o.start ?? layerStart(o, doc, rated)
+    if (start === null) continue
     const ref = pinReferent(doc, o.pin)
     if (!ref) continue
     const base = overlayMotionBase(o)
@@ -3633,7 +3711,7 @@ export function resolvePins(
     out.set(
       o.id,
       pinPlacement({
-        clip: o,
+        clip: { ...o, start },
         referent: ref.rect,
         layout,
         camera,
@@ -3668,10 +3746,18 @@ export function pinCandidates(
     if (s.skipped) continue
     const ref = pinReferent(doc, { step: s.id ?? s.step })
     if (!ref) continue
-    const ext = spanOutputExtent(rated, s.tStart, s.tEnd)
-    if (!ext) continue
-    const overlap = Math.min(a1, ext.end) - Math.max(a0, ext.start)
-    if (overlap <= 0) continue
+    // The occurrence of the step's seconds the layer overlaps most (a cut
+    // may play them more than once).
+    let ext: { start: number; end: number } | null = null
+    let overlap = 0
+    for (const e of spanOutputExtents(rated, s.tStart, s.tEnd)) {
+      const o = Math.min(a1, e.end) - Math.max(a0, e.start)
+      if (o > overlap) {
+        ext = e
+        overlap = o
+      }
+    }
+    if (!ext || overlap <= 0) continue
     out.push({
       step: s.id ?? s.step,
       do: s.do,
@@ -3717,7 +3803,7 @@ function pinsDataOf(
   for (const o of doc.overlays ?? []) {
     const p = o.pin
     const placed = p ? pins.get(o.id) : undefined
-    if (!p || !placed) continue
+    if (!p || !placed || o.start === undefined) continue
     const mark = p.mark ?? 'none'
     if (mark === 'none' && !p.leader) continue
     const ref = pinReferent(doc, p)
