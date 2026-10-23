@@ -201,7 +201,11 @@ describe('vos push reads the platform’s studio-core first', () => {
     expect(sent.start).toBe(3)
     expect(sent.text).toBe('Saved 3 minutes later')
     expect(readFileSync(join(dir, 'doc.json'), 'utf8')).toBe(before)
-    expect(lines.some((l) => /^baked caption anchors/.test(l))).toBe(true)
+    expect(lines).toContainEqual(
+      expect.stringMatching(
+        /^baked: caption anchors and {elapsed} in text \(127\.0\.0\.1:\d+ renders with 0\.42\.4; the copy sent, doc\.json untouched\)$/,
+      ),
+    )
   })
 
   it('a platform that reads the field takes the take as it is', async () => {
@@ -217,6 +221,60 @@ describe('vos push reads the platform’s studio-core first', () => {
     expect(sent.anchor).toEqual({ step: 'save' })
     expect(sent.start).toBe(0.5)
     expect(lines.filter((l) => /studio-core/.test(l))).toEqual([])
+  })
+
+  it('--bake bakes whatever the check found: a platform with no answer, or a current one', async () => {
+    for (const engine of [
+      { status: 404, body: { error: 'not found' } },
+      { status: 200, body: { studioCore: '0.44.0' } },
+    ]) {
+      const seen: Seen[] = []
+      const origin = await serve(seen, engine)
+      const { dir, doc } = take()
+      doc.audio = [
+        {
+          id: 'score',
+          key: 'https://assets.example/score.mp3',
+          name: 'score',
+          start: 0,
+          in: 0,
+          out: 4,
+          duration: 4,
+          gain: 0.5,
+          fadeIn: 0,
+          fadeOut: 0,
+          normalize: -16,
+          loudness: {
+            lufs: -10,
+            peakDb: -1,
+            at: '2026-10-22T00:00:00.000Z',
+            src: 'https://assets.example/score.mp3',
+          },
+        },
+      ]
+      writeFileSync(join(dir, 'doc.json'), JSON.stringify(doc))
+      const before = readFileSync(join(dir, 'doc.json'), 'utf8')
+      const { r, lines } = reporter()
+      await pushTake(
+        dir,
+        { origin, key: 'vos_sk_test', yes: true, bake: true },
+        r,
+      )
+      const sent = created(seen)!.doc
+      const caption = sent.overlays![0] as TextOverlayClip
+      expect(caption).not.toHaveProperty('anchor')
+      expect(caption.start).toBe(3)
+      expect(caption.text).toBe('Saved 3 minutes later')
+      expect(sent.audio[0]).not.toHaveProperty('normalize')
+      expect(sent.audio[0].gain).toBe(0.251)
+      expect(readFileSync(join(dir, 'doc.json'), 'utf8')).toBe(before)
+      expect(lines).toContainEqual(
+        expect.stringMatching(
+          /^baked: caption anchors, {elapsed} in text and loudness targets on sound \(/,
+        ),
+      )
+      await stop()
+    }
   })
 
   it('warns and pushes when the platform cannot say', async () => {

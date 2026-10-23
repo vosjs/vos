@@ -286,9 +286,11 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
             A take push first reads which studio-core the platform renders
             with (GET /api/engine) and refuses (exit 2) a take using a field
             newer than it, which its studio would draw wrong and save that
-            way; --bake sends a copy with those fields resolved (an anchored
-            caption at the start it plays at, a loudness target as its gain),
-            doc.json untouched. An unreadable answer warns and pushes.
+            way; --bake sends a copy any renderer plays, every such field
+            resolved (an anchored caption at the start it plays at, a
+            loudness target as its gain) whatever the platform answered,
+            doc.json untouched. Without --bake an unreadable answer warns
+            and pushes.
   vos delete <vosId|watch-url|dir> [--yes] [--dry-run] [--json]
             move a vos to Trash on vos.so. Nothing is erased: it stays
             restorable until the date the delete prints (vos restore <id>).

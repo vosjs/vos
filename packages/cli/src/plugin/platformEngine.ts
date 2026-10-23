@@ -110,42 +110,53 @@ export interface PushCheck {
  * The check a take push makes before anything is sent. Throws
  * PlatformBehindError on a take the platform cannot play yet (unless
  * `bake` can say every such feature); never on a network failure.
+ *
+ * `bake` is the person's choice to send a copy ANY renderer plays, so it
+ * bakes every feature the take uses that can be baked, whatever the check
+ * found: a platform behind, current, or one that could not say.
  */
 export async function checkPlatformPlays(
   doc: StudioDoc,
   opts: { origin: string; bake?: boolean; fetchImpl?: typeof fetch },
 ): Promise<PushCheck> {
+  const host = hostOf(opts.origin)
   const read = await readPlatformEngine(opts.origin, opts.fetchImpl)
-  if ('unknown' in read)
+  const platform = 'engine' in read ? read.engine.studioCore : null
+  const newer = platform ? featuresNewerThan(doc, platform) : []
+  if (
+    platform &&
+    newer.length &&
+    (!opts.bake || newer.some((u) => !u.feature.bake))
+  )
+    throw new PlatformBehindError(
+      behindMessage(newer, platform, host, !!opts.bake),
+    )
+  const unread =
+    'unknown' in read
+      ? `could not read which studio-core ${host} renders with (${read.unknown}); `
+      : ''
+  if (!opts.bake)
     return {
       doc,
-      lines: [
-        `could not read which studio-core ${hostOf(opts.origin)} renders with (${read.unknown}); pushing without checking that it plays every field this take uses`,
-      ],
-      baked: [],
-    }
-  const platform = read.engine.studioCore
-  const newer = featuresNewerThan(doc, platform)
-  if (!newer.length)
-    return {
-      doc,
-      lines: opts.bake
+      lines: unread
         ? [
-            `nothing to bake: ${hostOf(opts.origin)} renders with ${platform}, which reads every field this take uses`,
+            `${unread}pushing without checking that it plays every field this take uses`,
           ]
         : [],
       baked: [],
     }
-  const host = hostOf(opts.origin)
-  if (!opts.bake || newer.some((u) => !u.feature.bake))
-    throw new PlatformBehindError(
-      behindMessage(newer, platform, host, !!opts.bake),
-    )
-  const r = bakeDocFeatures(doc, platform)
+  // Every bakeable feature, against the oldest release there is.
+  const r = bakeDocFeatures(doc, '0.0.0')
+  const against = platform
+    ? `${host} renders with ${platform}`
+    : `${host} could not say what it renders with`
   return {
     doc: r.doc,
     lines: [
-      `baked ${listOf(r.baked.map((f) => f.name))} for ${host}'s ${platform} (the copy sent; doc.json is untouched)`,
+      ...(unread ? [`${unread}baking every field --bake can say`] : []),
+      r.baked.length
+        ? `baked: ${listOf(r.baked.map((f) => f.name))} (${against}; the copy sent, doc.json untouched)`
+        : `baked: nothing, this take uses no field --bake says (${against})`,
       ...r.notes.map((n) => `  ${n}`),
     ],
     baked: r.baked.map((f) => f.id),
