@@ -11,9 +11,9 @@ import { realSleep } from './driver'
 import { DOM_QUIET_MS, domSettled } from './waits'
 
 /** How a page counts as ready: its DOM settled (default), or its network went idle. */
-export type ReadyMode = 'networkidle' | 'settle'
-export const READY_MODES: readonly ReadyMode[] = ['settle', 'networkidle']
-export const DEFAULT_READY: ReadyMode = 'settle'
+export type ReadyMode = 'networkidle' | 'dom'
+export const READY_MODES: readonly ReadyMode[] = ['dom', 'networkidle']
+export const DEFAULT_READY: ReadyMode = 'dom'
 
 /** The longest a navigation waits for `load` or network idle. */
 export const NAV_TIMEOUT_MS = 45_000
@@ -29,7 +29,7 @@ export interface ReadyReport {
   ms: number
   /**
    * The wait gave up instead of the page settling: the DOM never stopped
-   * changing within the cap (settle), or network idle never came within
+   * changing within the cap (dom), or network idle never came within
    * the navigation timeout (networkidle). Recorded anyway either way.
    */
   capped: boolean
@@ -55,7 +55,7 @@ export interface ReadyOpts {
 /**
  * Wait for a page that is navigating (or has just navigated) to be ready:
  * `navigate` starts the navigation with the `waitUntil` the mode asks for;
- * in `settle` mode the DOM settle follows `load`. A navigation that times
+ * in `dom` mode the DOM settle follows `load`. A navigation that times
  * out is not fatal: the take goes on from whatever the page shows, and the
  * report says it was capped.
  */
@@ -103,7 +103,7 @@ export async function untilReady(
 
 /**
  * An `await`'s reload between polls, under the take's ready mode: the
- * reload waits for `load` (settle) or network idle (networkidle), at most
+ * reload waits for `load` (dom) or network idle (networkidle), at most
  * the await's own timeout, and then the DOM settles either way, because
  * network quiet is not a drawn page (a list rendered from its data lands
  * after it). A page that never goes network-idle no longer costs a whole

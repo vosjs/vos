@@ -32,7 +32,7 @@ describe('untilReady', () => {
     const asked: string[] = []
     const { ready } = await untilReady(
       pageCounting(() => Math.min(clock.now(), 1000)),
-      'settle',
+      'dom',
       async (o) => {
         asked.push(o.waitUntil)
         return null
@@ -40,7 +40,7 @@ describe('untilReady', () => {
       clock,
     )
     expect(asked).toEqual(['load'])
-    expect(ready.mode).toBe('settle')
+    expect(ready.mode).toBe('dom')
     expect(ready.capped).toBe(false)
     expect(ready.ms).toBeGreaterThanOrEqual(1800)
     expect(ready.ms).toBeLessThan(2000)
@@ -51,7 +51,7 @@ describe('untilReady', () => {
     const clock = fakeClock()
     const { ready } = await untilReady(
       pageCounting(() => clock.now()),
-      'settle',
+      'dom',
       async () => null,
       clock,
     )
@@ -64,7 +64,7 @@ describe('untilReady', () => {
     const clock = fakeClock()
     const { ready, response } = await untilReady(
       pageCounting(() => 0),
-      'settle',
+      'dom',
       async () => {
         throw new Error('Timeout 45000ms exceeded')
       },
@@ -95,10 +95,10 @@ describe('untilReady', () => {
 describe('actions.json ready', () => {
   const steps = [{ do: 'wait', ms: 10 }]
   it('takes settle or networkidle, and says what else is wrong', () => {
-    expect(validateActions({ ready: 'settle', steps })).toEqual([])
+    expect(validateActions({ ready: 'dom', steps })).toEqual([])
     expect(validateActions({ ready: 'networkidle', steps })).toEqual([])
     expect(validateActions({ ready: 'load', steps })).toEqual([
-      'ready must be "settle" or "networkidle"',
+      'ready must be "dom" or "networkidle"',
     ])
   })
 })

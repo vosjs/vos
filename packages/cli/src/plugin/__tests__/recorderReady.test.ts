@@ -93,7 +93,7 @@ describe('the first load', () => {
       { dryRun: true, env: {} },
     )
     const wall = Date.now() - started
-    expect(result.ready.mode).toBe('settle')
+    expect(result.ready.mode).toBe('dom')
     expect(result.ready.capped).toBe(false)
     // A second of drawing, then the quiet beat: about two seconds, never
     // the network timeout.
@@ -116,7 +116,7 @@ describe('the first load', () => {
       (m) => logs.push(m),
       { dryRun: true, env: {} },
     )
-    expect(result.ready).toMatchObject({ mode: 'settle', capped: true })
+    expect(result.ready).toMatchObject({ mode: 'dom', capped: true })
     expect(result.ready.ms).toBeGreaterThanOrEqual(READY_SETTLE_CAP_MS - 100)
     expect(result.ready.ms).toBeLessThan(READY_SETTLE_CAP_MS + 3000)
     expect(result.navTimeout).toBe(false)

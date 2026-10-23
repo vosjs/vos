@@ -191,8 +191,8 @@ export const MULTI_FLAGS = new Set([
 export const HELP = `vos — record a browser flow, plan effects, render a product video; sync with vos.so
 
 Take pipeline
-  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--allow-wall] [--keep-frames] [--max-duration <s>] [--ready settle|networkidle] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
-  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--allow-wall] [--keep-frames] [--max-duration <s>] [--ready settle|networkidle] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [--verbose] [--json]
+  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--allow-wall] [--keep-frames] [--max-duration <s>] [--ready dom|networkidle] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
+  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--allow-wall] [--keep-frames] [--max-duration <s>] [--ready dom|networkidle] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [--verbose] [--json]
   vos record --hosted --actions actions.json [--url <url>] [--out take] [--title "…"] [--folder <id>] [--header name=value]... [--json]
             the take recorded on vos.so's fleet (no browser here): lands as a private vos with its doc and digest, then fetched into --out with its media
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions|--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
@@ -609,7 +609,7 @@ export function strictFails(rec: RecordResult): boolean {
 }
 
 /**
- * `--ready settle|networkidle`: when the first page counts as ready, over
+ * `--ready dom|networkidle`: when the first page counts as ready, over
  * the script's own `ready`. Folded into the actions, so the take's
  * actions.json says how it was recorded and a hosted take carries it.
  */
@@ -634,8 +634,8 @@ function navTimeoutNote(rec: {
   ready?: ReadyReport
 }): string {
   if (rec.navTimeout)
-    return '\n  note: the first load never reached networkidle (a page holding a socket open never does); recorded anyway. The default, ready "settle", waits for the page to stop changing instead'
-  if (rec.ready?.mode === 'settle' && rec.ready.capped)
+    return '\n  note: the first load never reached networkidle (a page holding a socket open never does); recorded anyway. The default, ready "dom", waits for the page to stop changing instead'
+  if (rec.ready?.mode === 'dom' && rec.ready.capped)
     return `\n  note: the first page was still changing after ${(rec.ready.ms / 1000).toFixed(1)} s (an animation, a ticker); the take started anyway. Give step 1 a wait if the page needs longer`
   return ''
 }

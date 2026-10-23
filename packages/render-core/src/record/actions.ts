@@ -33,7 +33,7 @@ export interface ActionsFile {
    */
   setup?: SetupStep[]
   /**
-   * When the first page counts as ready for step 1: `settle` (default),
+   * When the first page counts as ready for step 1: `dom` (default),
    * once its DOM has made no change for a beat after `load`, at most 8 s;
    * `networkidle`, once the network has gone quiet, at most 45 s, which a
    * page holding a socket open never does. `--ready` overrides.
