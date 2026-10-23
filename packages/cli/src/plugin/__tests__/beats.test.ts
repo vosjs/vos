@@ -10,9 +10,13 @@ import {
 } from '@vosjs/studio-core'
 import {
   PER_BEAT_NOTE,
+  ZOOM_FALSE_NOTE,
+  applyZoomMarks,
   mediaBeats,
   oneZoomPerBeat,
   perBeatLine,
+  zoomMarkLine,
+  zoomMarkOf,
   zoomModeOf,
 } from '../beats'
 import { planTake } from '../plan'
@@ -110,69 +114,101 @@ describe('one zoom per beat', () => {
     ])
   })
 
-  it('keeps the one on the captioned step, and rejects the rest like a person', () => {
+  /** The fixture's script with `zoom` marks on the steps named. */
+  const marked = (marks: Record<string, boolean>): ActionsFile =>
+    ({
+      steps: (actions.steps as unknown as Record<string, unknown>[]).map((s) =>
+        typeof s.id === 'string' && s.id in marks
+          ? { ...s, zoom: marks[s.id] }
+          : s,
+      ),
+    }) as unknown as ActionsFile
+
+  it('keeps the zoom on each beat’s marked step, and none in a beat with no mark', () => {
+    // `label` (typing, 4..5) pays off the draw beat, `tidy` (14..15) the arrows one.
     const d = doc()
-    const r = oneZoomPerBeat(d, new Map([['', actions]]))
+    const script = marked({ label: true, tidy: true })
+    const r = oneZoomPerBeat(d, new Map([['', script]]))
+    expect(r.fallback).toBe(false)
     expect(d.zoom.map((z) => [z.id, z.source])).toEqual([
-      ['z1', 'manual'],
-      ['z4', 'manual'],
+      ['z2', 'manual'],
+      ['z5', 'manual'],
     ])
-    expect(r.kept.map((k) => [k.step, k.id])).toEqual([
-      ['draw', 'z1'],
-      ['arrows', 'z4'],
+    expect(r.kept.map((k) => [k.step, k.action, k.id])).toEqual([
+      ['draw', { step: 2, do: 'type' }, 'z2'],
+      ['arrows', { step: 4, do: 'click' }, 'z5'],
     ])
-    // The opening has no captioned step: it keeps no zoom.
     expect(r.none).toEqual([
-      { media: '', step: null, caption: null, ids: ['z0'] },
+      { media: '', step: null, caption: null, why: 'unmarked', ids: ['z0'] },
     ])
     expect(r.rejected).toBe(4)
-    expect(d.rejected).toEqual([
-      { id: 'r0', lane: 'zoom', in: 0.2, out: 1.4, note: PER_BEAT_NOTE },
-      { id: 'r1', lane: 'zoom', in: 4, out: 7, note: PER_BEAT_NOTE },
-      { id: 'r2', lane: 'zoom', in: 7.5, out: 9.5, note: PER_BEAT_NOTE },
-      { id: 'r3', lane: 'zoom', in: 13, out: 18, note: PER_BEAT_NOTE },
+    expect(d.rejected?.map((x) => [x.in, x.out, x.note])).toEqual([
+      [0.2, 1.4, PER_BEAT_NOTE],
+      [2, 3.5, PER_BEAT_NOTE],
+      [7.5, 9.5, PER_BEAT_NOTE],
+      [10, 12, PER_BEAT_NOTE],
     ])
     // A re-plan proposing them again drops them, and keeps the ones kept.
     for (const z of doc().zoom)
       expect(isRejected('zoom', z, d.rejected)).toBe(
-        ['z0', 'z2', 'z3', 'z5'].includes(z.id),
+        ['z0', 'z1', 'z3', 'z4'].includes(z.id),
       )
     // Running it again changes nothing.
     const before = JSON.stringify(d)
-    oneZoomPerBeat(d, new Map([['', actions]]))
+    oneZoomPerBeat(d, new Map([['', script]]))
     expect(JSON.stringify(d)).toBe(before)
-    expect(perBeatLine(r)).toMatch(
-      /3 beats held zooms, 2 proposals on a beat's action kept .*; beat "Draw the flow": action #1 drag, kept z1; beat "Arrows attach": action #3 drag, kept z4; the opening: no zoom/,
-    )
+    const line = perBeatLine(r)
+    expect(line).toContain('beat "Draw the flow": marked #2 type, kept z2')
+    expect(line).toContain('beat "Arrows attach": marked #4 click, kept z5')
+    expect(line).toContain('the opening: no step marked "zoom", no zoom')
+    expect(line).not.toContain('falling back')
   })
 
-  it('of several on the captioned step keeps the one most on it, and keeps none when none is', () => {
+  it('keeps one zoom per marked step, never two that overlap, and says when a mark has none', () => {
     const d = doc({
       zoom: [
-        // On `draw` (2..3): z1 covers 0.3 s of it, z2 0.8 s; z1 is higher.
-        zoom('z1', 1.9, 2.3, { level: 2 }),
-        zoom('z2', 2.2, 6),
-        // The `arrows` beat holds only the tidy-up after its step.
-        zoom('z5', 13, 18),
+        zoom('z1', 2, 3.5),
+        zoom('z2', 4, 7),
+        // One long proposal under both marked steps of the arrows beat.
+        zoom('z4', 10, 15.5),
       ],
     })
-    const r = oneZoomPerBeat(d, new Map([['', actions]]))
-    expect(r.kept.map((b) => [b.step, b.id])).toEqual([['draw', 'z2']])
-    expect(r.none.map((b) => [b.step, b.ids])).toEqual([['arrows', ['z5']]])
-    expect(d.zoom.map((z) => z.id)).toEqual(['z2'])
-    expect(perBeatLine(r)).toMatch(
-      /beat "Arrows attach": action #3 drag, no zoom on it/,
+    const r = oneZoomPerBeat(
+      d,
+      new Map([
+        ['', marked({ draw: true, label: true, arrows: true, tidy: true })],
+      ]),
+    )
+    expect(d.zoom.map((z) => z.id)).toEqual(['z1', 'z2', 'z4'])
+    expect(r.kept.map((k) => [k.action.step, k.id])).toEqual([
+      [1, 'z1'],
+      [2, 'z2'],
+      [3, 'z4'],
+    ])
+    expect(r.none).toEqual([
+      {
+        media: '',
+        step: 'arrows',
+        caption: 'Arrows attach',
+        why: 'no-proposal',
+        action: { step: 4, do: 'click' },
+        ids: [],
+      },
+    ])
+    expect(perBeatLine(r)).toContain(
+      'beat "Arrows attach": marked #4 click, but no proposal on it',
     )
   })
 
-  it('takes the first acting step after a caption written on a wait, and keeps none in a beat that never acts', () => {
+  it('falls back to each beat’s last gesture when no step is marked, never a key press, and says so', () => {
     const sceneSteps: StepSpan[] = [
       { step: 0, id: 'scene1', do: 'wait', tStart: 0, tEnd: 1.5 },
       { step: 1, do: 'move', tStart: 1.6, tEnd: 2.6 },
       { step: 2, id: 'box', do: 'drag', tStart: 3, tEnd: 5 },
       { step: 3, do: 'type', tStart: 6, tEnd: 7 },
-      { step: 4, id: 'scene2', do: 'wait', tStart: 12, tEnd: 13 },
-      { step: 5, do: 'wait', tStart: 13, tEnd: 20 },
+      { step: 4, do: 'press', tStart: 7.1, tEnd: 7.4 },
+      { step: 5, id: 'scene2', do: 'wait', tStart: 12, tEnd: 13 },
+      { step: 6, do: 'wait', tStart: 13, tEnd: 20 },
     ]
     const sceneActions = {
       steps: [
@@ -180,6 +216,7 @@ describe('one zoom per beat', () => {
         { do: 'move', x: 10, y: 10 },
         { id: 'box', do: 'drag', x: 10, y: 10, tx: 90, ty: 60 },
         { do: 'type', text: 'Sign up' },
+        { do: 'press', key: 'Escape' },
         { id: 'scene2', do: 'wait', ms: 1000, caption: 'Wait for it' },
         { do: 'wait', ms: 7000 },
       ],
@@ -191,38 +228,94 @@ describe('one zoom per beat', () => {
         meta: { ...base.source.meta, steps: sceneSteps },
       },
       zoom: [
-        // The move that prepares it, the drag that draws, the typing after.
-        zoom('zm', 1.5, 2.8),
         zoom('zd', 3, 5.2),
-        zoom('zt', 5.5, 10),
+        // The typing, then the Escape that closes the beat.
+        zoom('zt', 5.5, 7.05),
+        zoom('ze', 7.06, 9),
         // The second scene only waits.
         zoom('zw', 13, 15),
       ],
     })
     const beats = mediaBeats('', d.source, sceneActions)
-    expect(beats.map((b) => b.action)).toEqual([
-      { in: 3, out: 5, step: 2, do: 'drag' },
-      undefined,
-    ])
+    expect(beats.map((b) => b.lastGesture?.step)).toEqual([3, undefined])
     const r = oneZoomPerBeat(d, new Map([['', sceneActions]]))
-    expect(d.zoom.map((z) => z.id)).toEqual(['zd'])
-    expect(r.kept.map((b) => b.id)).toEqual(['zd'])
-    expect(r.none.map((b) => [b.step, b.ids])).toEqual([['scene2', ['zw']]])
-    expect(perBeatLine(r)).toContain(
-      'beat "Draw the flow": action #2 drag, kept zd',
+    expect(r.fallback).toBe(true)
+    expect(d.zoom.map((z) => z.id)).toEqual(['zt'])
+    expect(r.none.map((b) => [b.step, b.why, b.ids])).toEqual([
+      ['scene2', 'no-gesture', ['zw']],
+    ])
+    const line = perBeatLine(r)
+    expect(line).toContain(
+      'no step is marked "zoom": falling back to each beat\'s last gesture',
     )
-    expect(perBeatLine(r)).toContain(
-      'beat "Wait for it": no acting step, no zoom',
+    expect(line).toContain(
+      'beat "Draw the flow": last gesture #3 type, kept zt',
     )
+    expect(line).toContain(
+      'beat "Wait for it": no gesture to stand in, no zoom',
+    )
+  })
+
+  it('never zooms on a step marked "zoom": false, per beat and in a plain plan', () => {
+    // Per beat, no step marked true: the last gesture skips the false one.
+    const d = doc()
+    const never = marked({ label: false })
+    const r = oneZoomPerBeat(d, new Map([['', never]]))
+    expect(r.fallback).toBe(true)
+    expect(r.kept.map((k) => [k.step, k.action.step, k.id])).toEqual([
+      ['draw', 1, 'z1'],
+      ['arrows', 4, 'z5'],
+    ])
+    // A plain plan: the proposal on the false step is rejected for good,
+    // and a true step with nothing proposed on it is said.
+    const plain = doc()
+    const report = applyZoomMarks(
+      plain,
+      new Map([['', marked({ label: false, warm: true })]]),
+    )
+    expect(plain.zoom.map((z) => z.id)).toEqual(['z0', 'z1', 'z3', 'z4', 'z5'])
+    expect(plain.rejected).toEqual([
+      { id: 'r0', lane: 'zoom', in: 4, out: 7, note: ZOOM_FALSE_NOTE },
+    ])
+    expect(report.rejected).toEqual([{ media: '', step: 2, ids: ['z2'] }])
+    expect(report.unproposed).toEqual([])
+    const bare = doc({ zoom: [zoom('z2', 4, 7)] })
+    const said = applyZoomMarks(bare, new Map([['', marked({ tidy: true })]]))
+    expect(said.unproposed).toEqual([
+      { media: '', step: 4, id: 'tidy', do: 'click' },
+    ])
+    expect(zoomMarkLine(said)).toBe(
+      'zoom: true on step #4 tidy click, but the planner proposed no zoom there (none is invented)',
+    )
+    // A manual zoom on a false step is the person's: never touched.
+    const mine = doc()
+    mine.zoom[2] = { ...mine.zoom[2], source: 'manual' }
+    applyZoomMarks(mine, new Map([['', never]]))
+    expect(mine.zoom.some((z) => z.id === 'z2')).toBe(true)
+  })
+
+  it('reads a mark from actions.json first, then the recorded step, then the carried script', () => {
+    const step: StepSpan = { ...steps[2], zoom: true }
+    expect(zoomMarkOf(step, marked({ label: false }), undefined)).toBe(false)
+    expect(zoomMarkOf(step, actions, undefined)).toBe(true)
+    expect(
+      zoomMarkOf(steps[2], null, {
+        steps: [{}, {}, { id: 'label', zoom: true }],
+      }),
+    ).toBe(true)
+    expect(zoomMarkOf(steps[2], actions, undefined)).toBeUndefined()
   })
 
   it('a beat with a manual zoom keeps only its manual ones', () => {
     const d = doc()
-    // A manual zoom off the step still wins its beat.
-    d.zoom[2] = { ...d.zoom[2], source: 'manual' }
-    const r = oneZoomPerBeat(d, new Map([['', actions]]))
-    expect(r.manual).toEqual([{ media: '', step: 'draw', ids: ['z2'] }])
-    expect(d.zoom.map((z) => z.id)).toEqual(['z2', 'z4'])
+    // A manual zoom off the mark still wins its beat.
+    d.zoom[1] = { ...d.zoom[1], source: 'manual' }
+    const r = oneZoomPerBeat(
+      d,
+      new Map([['', marked({ label: true, arrows: true })]]),
+    )
+    expect(r.manual).toEqual([{ media: '', step: 'draw', ids: ['z1'] }])
+    expect(d.zoom.map((z) => z.id)).toEqual(['z1', 'z4'])
   })
 
   it('leaves a media with no captioned step as planned, and names it', () => {

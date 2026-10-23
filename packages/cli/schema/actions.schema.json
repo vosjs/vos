@@ -190,6 +190,10 @@
                 "maxLength": 80,
                 "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
               },
+              "zoom": {
+                "type": "boolean",
+                "description": "the cut's camera on this step: true marks it as its beat's payoff (vos plan --zooms per-beat keeps the zoom on it and only it), false means never zoom here (the planner's proposal on it is rejected); the planner still decides level and focus"
+              },
               "read": {
                 "type": "string",
                 "minLength": 1,
@@ -280,6 +284,10 @@
                 "maxLength": 80,
                 "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
               },
+              "zoom": {
+                "type": "boolean",
+                "description": "the cut's camera on this step: true marks it as its beat's payoff (vos plan --zooms per-beat keeps the zoom on it and only it), false means never zoom here (the planner's proposal on it is rejected); the planner still decides level and focus"
+              },
               "read": {
                 "type": "string",
                 "minLength": 1,
@@ -356,6 +364,10 @@
                 "type": "string",
                 "maxLength": 80,
                 "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
+              },
+              "zoom": {
+                "type": "boolean",
+                "description": "the cut's camera on this step: true marks it as its beat's payoff (vos plan --zooms per-beat keeps the zoom on it and only it), false means never zoom here (the planner's proposal on it is rejected); the planner still decides level and focus"
               },
               "read": {
                 "type": "string",
@@ -447,6 +459,10 @@
                 "type": "string",
                 "maxLength": 80,
                 "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
+              },
+              "zoom": {
+                "type": "boolean",
+                "description": "the cut's camera on this step: true marks it as its beat's payoff (vos plan --zooms per-beat keeps the zoom on it and only it), false means never zoom here (the planner's proposal on it is rejected); the planner still decides level and focus"
               },
               "read": {
                 "type": "string",
@@ -616,6 +632,10 @@
                 "type": "string",
                 "maxLength": 80,
                 "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
+              },
+              "zoom": {
+                "type": "boolean",
+                "description": "the cut's camera on this step: true marks it as its beat's payoff (vos plan --zooms per-beat keeps the zoom on it and only it), false means never zoom here (the planner's proposal on it is rejected); the planner still decides level and focus"
               },
               "read": {
                 "type": "string",
@@ -861,6 +881,10 @@
                 "type": "string",
                 "maxLength": 80,
                 "description": "a beat's caption: vos deliver lands it as a lower-third at this step's moment on cuts that take words (feed cuts, the demo), never on a loop"
+              },
+              "zoom": {
+                "type": "boolean",
+                "description": "the cut's camera on this step: true marks it as its beat's payoff (vos plan --zooms per-beat keeps the zoom on it and only it), false means never zoom here (the planner's proposal on it is rejected); the planner still decides level and focus"
               },
               "read": {
                 "type": "string",

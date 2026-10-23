@@ -31,6 +31,26 @@ describe('a pushed script carries no setup value', () => {
   })
 })
 
+describe('the zoom marks travel with the script', () => {
+  it('are kept in the pushed script and written back by a fetch', () => {
+    const script = {
+      url: 'https://x.test',
+      setup: [{ do: 'type', selector: '#pw', text: 'secret' }],
+      steps: [
+        { id: 'loop', do: 'drag', x: 1, y: 1, tx: 9, ty: 9, zoom: true },
+        { do: 'click', selector: '#a', zoom: false },
+      ],
+    }
+    const pushed = publicScript(script)
+    expect(pushed.steps).toEqual(script.steps)
+    const written = scriptToWrite(
+      { source: { script: pushed } } as never,
+      false,
+    )
+    expect(scriptFromText(written!)?.steps).toEqual(script.steps)
+  })
+})
+
 describe('the script travels with the take', () => {
   it('reads an object and refuses anything else', () => {
     expect(scriptFromText('{"url":"https://x.test","steps":[]}')).toEqual({

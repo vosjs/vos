@@ -978,6 +978,7 @@ export async function recordTake(
       if (reason) extra.reason = reason
     }
     if (step.guard) extra.guard = step.guard
+    if (typeof step.zoom === 'boolean') extra.zoom = step.zoom
     /**
      * A rehearsal never presses a step that spends: the pointer goes to its
      * target, so the selector is proven, and the press is left out. True

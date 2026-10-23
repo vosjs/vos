@@ -20,6 +20,32 @@ import { splitSegmentsAtSkips } from '../plan'
 const one = (step: Record<string, unknown>) =>
   validateActions({ steps: [step] })
 
+describe('zoom', () => {
+  it('takes a true or false mark on a gesture', () => {
+    expect(
+      validateActions({
+        steps: [
+          { do: 'drag', x: 1, y: 1, tx: 9, ty: 9, zoom: true },
+          { do: 'type', selector: '#a', text: 'x', zoom: true },
+          { do: 'hover', selector: '#a', zoom: false },
+          { do: 'press', key: 'Escape', zoom: false },
+          { do: 'paste', text: 'hi', zoom: true },
+          { do: 'click', selector: '#a', zoom: true },
+        ],
+      }),
+    ).toEqual([])
+  })
+
+  it('refuses another value, and a mark on a step that shows nothing', () => {
+    expect(one({ do: 'click', selector: '#a', zoom: 'yes' })).toEqual([
+      'steps[0]: zoom must be true or false',
+    ])
+    expect(one({ do: 'wait', ms: 500, zoom: true })).toEqual([
+      'steps[0]: zoom marks a gesture (click, drag, type, paste, press, hover); a wait shows nothing to zoom on',
+    ])
+  })
+})
+
 describe('guard', () => {
   it('takes "spend" on a click, a press or a type with an id', () => {
     expect(
