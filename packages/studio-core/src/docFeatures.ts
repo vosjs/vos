@@ -26,7 +26,7 @@ import {
 import { clipGain } from './lower/loudness'
 import { ratedSegments } from './lower/lowerToComposition'
 import { migrateMotion } from './lower/motion'
-import { replayFlags } from './lower/occurrences'
+import { replayedSeconds } from './lower/occurrences'
 import { isRecordingDoc } from './doc/studioDoc'
 import type { StudioDoc } from './doc/studioDoc'
 import type { AudioClip, OverlayClip } from './types'
@@ -174,7 +174,7 @@ export const DOC_FEATURES: readonly DocFeature[] = [
       'would play the zooms, tilts, clicks and freezes over replayed seconds once, stretched across the replay',
     uses: (doc) =>
       isRecordingDoc(doc)
-        ? replayFlags(doc.segments).filter(Boolean).length
+        ? new Set(replayedSeconds(doc.segments).map((r) => r.piece)).size
         : 0,
   },
 ]

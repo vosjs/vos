@@ -12,6 +12,7 @@ import {
   hasReplay,
   momentOutputs,
   replayFlags,
+  replayedSeconds,
   spanOutputExtents,
 } from '../lower/occurrences'
 import { segmentOutputExtents } from '../lower/segmentStarts'
@@ -140,6 +141,72 @@ describe('occurrences', () => {
     expect(at).toHaveLength(2)
     expect(at[0]).toBeCloseTo(0.7, 9)
     expect(at[1]).toBeCloseTo(PASS2 + 11, 9)
+  })
+
+  it('a cold open before a trimmed recording is two passes, not one per trim', () => {
+    const pieces: Segment[] = [
+      { in: 10.3, out: 12 },
+      { in: 0, out: 3 },
+      { in: 4, out: 8 },
+      { in: 9, out: 12 },
+    ]
+    expect(replayFlags(pieces)).toEqual([false, true, false, false])
+    // Only the last trim plays the cold open's seconds again.
+    expect(replayedSeconds(pieces)).toEqual([
+      { piece: 3, media: '', in: 10.3, out: 12 },
+    ])
+    // A span across the 3 | 4 trim cut is one occurrence, as without the
+    // cold open, only 1.7 s later.
+    const ext = spanOutputExtents(pieces, 2, 5)
+    expect(ext).toHaveLength(1)
+    expect(ext[0].start).toBeCloseTo(1.7 + 2, 9)
+    expect(ext[0].end).toBeCloseTo(1.7 + 4, 9)
+    expect(spanOutputExtents(pieces.slice(1), 2, 5)).toEqual([
+      { start: expect.closeTo(2, 9), end: expect.closeTo(4, 9) },
+    ])
+    // A moment of the cold open plays twice; one the cold open leaves out once.
+    expect(momentOutputs(pieces, 11)).toHaveLength(2)
+    expect(momentOutputs(pieces, 6)).toEqual([expect.closeTo(1.7 + 5, 9)])
+  })
+
+  it('a reordered cut starts a pass and replays nothing', () => {
+    const pieces: Segment[] = [
+      { in: 10, out: 20 },
+      { in: 0, out: 10 },
+    ]
+    expect(replayFlags(pieces)).toEqual([false, true])
+    expect(replayedSeconds(pieces)).toEqual([])
+  })
+
+  it('a zoom across a trim cut after a cold open lowers as it does without the cold open', () => {
+    const zoom = [
+      {
+        id: 'z0',
+        in: 2,
+        out: 5,
+        level: 1.8,
+        cx: 0.4,
+        cy: 0.4,
+        source: 'manual' as const,
+      },
+    ]
+    const trims = [
+      { in: 0, out: 3 },
+      { in: 4, out: 8 },
+      { in: 9, out: 12 },
+    ]
+    const plain = lowerToComposition(doc({ segments: trims, zoom })).data
+      .zoomTrack as KeyframeTrack<number[]>
+    const opened = lowerToComposition(
+      doc({ segments: [{ in: 10.3, out: 12 }, ...trims], zoom }),
+    ).data.zoomTrack as KeyframeTrack<number[]>
+    // The cold open's seconds hold no zoom, so the opened film's camera is
+    // the plain film's, 1.7 s later, held across the cut, never twice.
+    for (const t of [2.1, 2.9, 3.05, 3.5]) {
+      const a = sample(plain, t, lerpArray)
+      const b = sample(opened, t + 1.7, lerpArray)
+      expect(b[0]).toBeCloseTo(a[0], 6)
+    }
   })
 
   it('a span split by a segment boundary inside a replay is one occurrence', () => {

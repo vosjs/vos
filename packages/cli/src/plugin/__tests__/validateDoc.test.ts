@@ -83,11 +83,40 @@ describe('lintDoc', () => {
       }),
     )
     expect(r.problems).toEqual([])
+    // The seconds played again are the cold open's, in the one segment
+    // that holds them; 0..10 plays for the first time.
     expect(r.notes).toEqual([
       expect.stringContaining(
-        'segments[1] replays 0.00–10.00s of the recording',
+        'segments[2] replays 18.00–20.00s of the recording',
       ),
     ])
+  })
+
+  it('names no replay for the trims after a cold open, nor for a reordered cut', () => {
+    const coldOpen = lintDoc(
+      makeDoc({
+        segments: [
+          { in: 18, out: 19.5 },
+          { in: 1, out: 4 },
+          { in: 6, out: 9 },
+          { in: 11, out: 20 },
+        ],
+      }),
+    )
+    expect(coldOpen.notes).toEqual([
+      expect.stringContaining(
+        'segments[3] replays 18.00–19.50s of the recording',
+      ),
+    ])
+    const reordered = lintDoc(
+      makeDoc({
+        segments: [
+          { in: 10, out: 20 },
+          { in: 0, out: 10 },
+        ],
+      }),
+    )
+    expect((reordered.notes ?? []).filter((n) => /replays/.test(n))).toEqual([])
   })
 
   it('still holds a replayed segment to its footage, and other spans to one per second', () => {

@@ -42,7 +42,6 @@ import {
   ZOOM_LEVEL_MAX,
   ZOOM_LEVEL_MIN,
   ZOOM_SPAN_MIN,
-  REPLAY_EPS,
   docCardLayout,
   docZoomTrack,
   findStep,
@@ -62,6 +61,7 @@ import {
   snapRunWeight,
   RUN_STYLE_KEYS,
   ratedSegments,
+  replayedSeconds,
   clipGain,
   recommendedExportResolution,
   resolvePins,
@@ -80,6 +80,7 @@ import type {
   OverlayAnchor,
   OverlayClip,
   OverlayPin,
+  ReplayedSpan,
 } from '@vosjs/studio-core'
 
 /** How close (a fraction of the frame's height) a layer's box may sit to a
@@ -771,29 +772,34 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
     // seconds (a zoom, a tilt, a click, a freeze, a speed span) plays in
     // each occurrence.
     {
-      const seen = new Map<string, number>()
-      const list = entries(doc.segments)
-      for (const [i, seg] of list.entries()) {
+      // Only the seconds a segment plays AGAIN: a cold open followed by
+      // the trimmed recording replays the cold open's seconds once, in the
+      // one segment that holds them, never every trim after it.
+      const index: number[] = []
+      const pieces: { in: number; out: number; media?: string }[] = []
+      for (const [i, seg] of entries(doc.segments).entries()) {
         if (!isNum(seg.in) || !isNum(seg.out)) continue
-        const m = typeof seg.media === 'string' ? seg.media : ''
-        const prevSeg = i > 0 ? list[i - 1] : null
-        const continues =
-          !!prevSeg &&
-          (typeof prevSeg.media === 'string' ? prevSeg.media : '') === m &&
-          isNum(prevSeg.out) &&
-          Math.abs(seg.in - prevSeg.out) < REPLAY_EPS
-        const furthest = seen.get(m)
-        if (
-          furthest !== undefined &&
-          !continues &&
-          seg.in < furthest - REPLAY_EPS
-        ) {
-          const to = Math.min(seg.out, furthest)
-          notes.push(
-            `segments[${i}] replays ${seg.in.toFixed(2)}–${to.toFixed(2)}s of ${m ? `media "${m}"` : 'the recording'}: zooms, tilts, clicks, freezes and speed spans over those seconds play in every occurrence`,
-          )
-        }
-        seen.set(m, Math.max(furthest ?? -Infinity, seg.out))
+        index.push(i)
+        pieces.push({
+          in: seg.in,
+          out: seg.out,
+          ...(typeof seg.media === 'string' ? { media: seg.media } : {}),
+        })
+      }
+      const bySegment = new Map<number, ReplayedSpan[]>()
+      for (const r of replayedSeconds(pieces)) {
+        const list = bySegment.get(r.piece) ?? []
+        list.push(r)
+        bySegment.set(r.piece, list)
+      }
+      for (const [p, spans] of bySegment) {
+        const m = spans[0].media
+        const which = spans
+          .map((r) => `${r.in.toFixed(2)}–${r.out.toFixed(2)}s`)
+          .join(', ')
+        notes.push(
+          `segments[${index[p]}] replays ${which} of ${m ? `media "${m}"` : 'the recording'}: zooms, tilts, clicks, freezes and speed spans over those seconds play in every occurrence`,
+        )
       }
     }
     // A clip's transitions: the vocabulary a footage clip accepts, never

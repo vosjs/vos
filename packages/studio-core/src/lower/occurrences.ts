@@ -7,11 +7,16 @@
  * EVERY occurrence, the same way each time.
  *
  * An OCCURRENCE is one forward pass of the playhead over a media's seconds.
- * A piece of the rated list REPLAYS when it starts before the furthest
- * second its media has already reached, unless it continues the piece just
- * before it (a split, a speed edge, a freeze). A cut that keeps each media's
- * seconds in forward order has no replay at all, so every reader below
- * answers exactly what the single-pass mappings always did.
+ * A piece of the rated list starts a new pass (REPLAYS) when it starts
+ * before the second where the previous piece of its media ended: the
+ * playhead went back. A piece that goes forward from there, across a trim
+ * cut or not, continues the pass it is in, so a cold open followed by the
+ * trimmed recording is two passes, never one per trim. A cut that keeps
+ * each media's seconds in forward order has no replay at all, so every
+ * reader below answers exactly what the single-pass mappings always did.
+ * What a new pass plays again is only its overlap with seconds already
+ * played (`replayedSeconds`); a reordered cut starts passes and replays
+ * nothing.
  *
  * The inverse maps (source → output) come in two forms, and each caller
  * says which it takes: every occurrence (the camera tracks, the clicks,
@@ -24,34 +29,73 @@ import type { Segment } from '@vosjs/timeline'
 type Piece = Segment & { media?: string }
 
 /**
- * How far before its media's furthest second a piece may start and still
- * count as continuing it. A freeze piece holds a hair of source time just
- * before its moment (2 ms), and is never a replay.
+ * How far before the end of its media's previous piece a piece may start
+ * and still count as continuing it. A freeze piece holds a hair of source
+ * time just before its moment (2 ms), and is never a replay.
  */
 export const REPLAY_EPS = 0.01
 
 /**
- * For each piece, whether it replays seconds of its media an earlier piece
- * already played (see the module note). All false for a forward cut.
+ * For each piece, whether it starts a new pass over its media's seconds
+ * (see the module note): it starts before the previous piece of its media
+ * ended. All false for a forward cut.
  */
 export function replayFlags(pieces: readonly Piece[]): boolean[] {
-  const reached = new Map<string, number>()
-  return pieces.map((p, i) => {
+  const lastOut = new Map<string, number>()
+  return pieces.map((p) => {
     const key = mediaKey(p.media)
-    const furthest = reached.get(key)
-    const prev = i > 0 ? pieces[i - 1] : null
-    const continues =
-      !!prev &&
-      sameMedia(prev.media, p.media) &&
-      Math.abs(p.in - prev.out) < REPLAY_EPS
-    reached.set(key, Math.max(furthest ?? -Infinity, p.out))
-    return furthest !== undefined && !continues && p.in < furthest - REPLAY_EPS
+    const prev = lastOut.get(key)
+    lastOut.set(key, p.out)
+    return prev !== undefined && p.in < prev - REPLAY_EPS
   })
 }
 
-/** Does the rated list play any media's seconds twice? */
+/** Does the rated list go back over any media's seconds? */
 export function hasReplay(pieces: readonly Piece[]): boolean {
   return replayFlags(pieces).some(Boolean)
+}
+
+/** Seconds of one media a piece plays that an earlier piece already played. */
+export interface ReplayedSpan {
+  /** The piece's index. */
+  piece: number
+  /** The media's key (`''` = the primary). */
+  media: string
+  in: number
+  out: number
+}
+
+/**
+ * The seconds each piece plays that an earlier piece of its media already
+ * played, in piece order (a piece may replay more than one stretch). Empty
+ * for a cut that plays every second at most once, in any order.
+ */
+export function replayedSeconds(pieces: readonly Piece[]): ReplayedSpan[] {
+  const played = new Map<string, { in: number; out: number }[]>()
+  const out: ReplayedSpan[] = []
+  pieces.forEach((p, i) => {
+    if (!(p.out > p.in)) return
+    const key = mediaKey(p.media)
+    const list = played.get(key) ?? []
+    for (const q of list) {
+      const a = Math.max(p.in, q.in)
+      const b = Math.min(p.out, q.out)
+      if (b - a > REPLAY_EPS) out.push({ piece: i, media: key, in: a, out: b })
+    }
+    // The played stretches stay sorted and disjoint: fold this piece in.
+    const merged: { in: number; out: number }[] = []
+    let cur = { in: p.in, out: p.out }
+    for (const q of list) {
+      if (q.out < cur.in) merged.push(q)
+      else if (q.in > cur.out) {
+        merged.push(cur)
+        cur = q
+      } else cur = { in: Math.min(cur.in, q.in), out: Math.max(cur.out, q.out) }
+    }
+    merged.push(cur)
+    played.set(key, merged)
+  })
+  return out
 }
 
 /** One occurrence of a source span on the output timeline. */

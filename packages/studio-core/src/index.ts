@@ -263,9 +263,10 @@ export {
   hasReplay,
   momentOutputs,
   replayFlags,
+  replayedSeconds,
   spanOutputExtents,
 } from './lower/occurrences'
-export type { OutputExtent } from './lower/occurrences'
+export type { OutputExtent, ReplayedSpan } from './lower/occurrences'
 export { studioLayerData } from './lower/lowerToComposition'
 export {
   PROGRAM_RETIME,
