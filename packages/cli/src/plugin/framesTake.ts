@@ -20,7 +20,7 @@ import {
   planForDigest,
   ratedSegments,
   resolveExportSize,
-  spanOutputExtent,
+  spanOutputExtents,
 } from '@vosjs/studio-core'
 import { loadTake } from './take'
 import { startTakeServer, waitForPageDone } from './server'
@@ -150,8 +150,8 @@ export function zoomApexes(doc: ProjectDoc): {
       })
       continue
     }
-    const ext = spanOutputExtent(rated, z.in, z.out, z.media)
-    if (!ext) {
+    const exts = spanOutputExtents(rated, z.in, z.out, z.media)
+    if (!exts.length) {
       skipped.push({
         id: z.id,
         ...of,
@@ -161,13 +161,16 @@ export function zoomApexes(doc: ProjectDoc): {
       })
       continue
     }
-    apexes.push({
-      id: z.id,
-      ...of,
-      time: (ext.start + ext.end) / 2,
-      start: ext.start,
-      end: ext.end,
-    })
+    // A cut that replays the span's seconds plays its zoom each time: one
+    // apex per occurrence.
+    for (const ext of exts)
+      apexes.push({
+        id: z.id,
+        ...of,
+        time: (ext.start + ext.end) / 2,
+        start: ext.start,
+        end: ext.end,
+      })
   }
   return { apexes, skipped }
 }

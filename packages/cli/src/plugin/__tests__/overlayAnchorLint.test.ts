@@ -127,4 +127,38 @@ describe('validate: anchored captions', () => {
       'overlays[0].anchor.offset must be a number (OUTPUT seconds)',
     ])
   })
+
+  it('needs no start on an anchored layer, and refuses one placed nowhere, naming its step', () => {
+    const doc = takeA()
+    const { start: _a, ...placed } = text('a', 0, {
+      preset: 'caption',
+      anchor: { step: 'save', offset: 0.2 },
+    })
+    const { start: _b, ...lost } = text('b', 0, {
+      preset: 'caption',
+      anchor: { step: 'nope' },
+    })
+    const { start: _c, ...bare } = text('c', 0)
+    doc.overlays = [placed, lost, bare] as never
+    const { problems, warnings } = lintDoc(doc)
+    expect(problems).toEqual([
+      'overlays[1].anchor: step "nope" is not in its meta.steps, and the layer has no start to fall back to, so it would play nowhere; re-anchor it, keep the footage that step plays in, or give it a start',
+      'overlays[2].start must be ≥ 0 (OUTPUT seconds)',
+    ])
+    expect(warnings.some((w) => w.includes('overlays[0]'))).toBe(false)
+  })
+
+  it('refuses an anchored layer with no start on a program, which has no steps', () => {
+    const { start: _s, ...clip } = text('a', 0, { anchor: { step: 'open' } })
+    const doc = {
+      program: { config: { version: 2, duration: 4 } },
+      overlays: [clip],
+      audio: [],
+    }
+    expect(
+      lintDoc(doc as never).problems.filter((p) => p.includes('overlays[0]')),
+    ).toEqual([
+      'overlays[0].anchor: names step "open", but a program document has no recorder steps, and the layer has no start to fall back to; give it a start',
+    ])
+  })
 })

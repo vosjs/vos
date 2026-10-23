@@ -30,6 +30,7 @@ import {
   docCardLayout,
   docZoomTrack,
   hexToRgb,
+  layerStart,
   parseCssColour,
   pinBox,
   ratedSegments,
@@ -260,6 +261,23 @@ export interface GroundFinding {
   message: string
 }
 
+/** The output second a card's ground is read at: its start (where its anchor places it) plus its entrance. */
+function groundTime(start: number, duration: number): number {
+  return +(start + Math.min(0.35, duration / 2)).toFixed(3)
+}
+
+/** Every output second `groundFindings` reads a frame at, once each. */
+export function groundCheckTimes(doc: ProjectDoc): number[] {
+  const rated = ratedSegments(doc)
+  const times = new Set<number>()
+  for (const o of doc.overlays ?? []) {
+    if (o.kind !== 'html') continue
+    const start = layerStart(o, doc, rated)
+    if (start !== null) times.add(groundTime(start, o.duration))
+  }
+  return [...times]
+}
+
 /**
  * ΔE between a card's declared ground and the footage under its box, as
  * the camera shows it at the layer's start plus its entrance. `frameAt`
@@ -276,9 +294,13 @@ export async function groundFindings(
   const camera = cameraModel(doc.frame)
   const track = docZoomTrack(doc)
   const pins = resolvePins(doc, layout, camera, track)
+  const rated = ratedSegments(doc)
   for (let i = 0; i < overlays.length; i++) {
     const o = overlays[i]
     if (o.kind !== 'html') continue
+    // Where the layer plays (an anchor places it); nowhere is not checked.
+    const start = layerStart(o, doc, rated)
+    if (start === null) continue
     const card = calloutGroundOf(o.css ?? '')
     if (!card) {
       out.push({
@@ -292,7 +314,7 @@ export async function groundFindings(
       })
       continue
     }
-    const t = o.start + Math.min(0.35, o.duration / 2)
+    const t = groundTime(start, o.duration)
     const img = await frameAt(t)
     if (!img) {
       out.push({
@@ -311,7 +333,7 @@ export async function groundFindings(
     let cx = o.transform.x * layout.W
     let cy = o.transform.y * layout.H
     if (pinned) {
-      const v = sample(pinned.track, t - o.start, lerpArray)
+      const v = sample(pinned.track, t - start, lerpArray)
       cx = v[0] * layout.W
       cy = v[1] * layout.H
     }

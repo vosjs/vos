@@ -1414,8 +1414,8 @@ export interface OverlayPin {
  * and `offset` OUTPUT seconds are added. So a trim, a speed change or a
  * re-record moves the caption with its step, and nobody recomputes a
  * `start`. `start` stays the clip's fallback when the step cannot be
- * found or the cut leaves it out (validate says which); `duration` is the
- * clip's own either way.
+ * found or the cut leaves it out (validate says which), and may be left
+ * out; `duration` is the clip's own either way.
  */
 export interface OverlayAnchor {
   /** The step: its `id` (`meta.steps[].id`) when it has one, else its index. */
@@ -1431,8 +1431,13 @@ export interface OverlayAnchor {
 interface OverlayClipBase {
   /** Stable identity for selection/editing in the timeline UI. */
   id: string
-  /** OUTPUT-time span (seconds). */
-  start: number
+  /**
+   * OUTPUT seconds the layer starts at. Required unless the layer carries
+   * an `anchor`, which places it; with one, `start` is only the fallback
+   * for an anchor that does not resolve, and a layer with neither plays
+   * nowhere (validate refuses it, naming the step).
+   */
+  start?: number
   duration: number
   transform: OverlayTransform
   /**
@@ -1886,6 +1891,9 @@ export interface ProjectDoc {
    * Kept SOURCE-time spans (@vosjs/timeline `Segment`s); the output timeline is
    * their concatenation — trim/split/cut are all segment edits. Canonical form
    * is one full-source segment; an empty list is tolerated and means "untrimmed".
+   * A segment may play seconds an earlier one already played (a cold open,
+   * a replay): every source-anchored span over them plays in each
+   * occurrence (see `lower/occurrences.ts`).
    */
   segments: DocSegment[]
   /**

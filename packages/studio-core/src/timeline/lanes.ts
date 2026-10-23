@@ -17,7 +17,13 @@ import {
   trimSegment,
 } from '@vosjs/timeline'
 import { ratedSegments, spanOutputExtent } from '../lower/lowerToComposition'
-import { docFreezes, freezeOutputExtents, withFreezes } from '../lower/motion'
+import { replayFlags } from '../lower/occurrences'
+import {
+  docFreezes,
+  freezeOutputExtents,
+  placeFreezes,
+  withFreezes,
+} from '../lower/motion'
 import {
   contiguous,
   effectiveSegments,
@@ -29,7 +35,8 @@ import { mediaAtOutput, mediaDuration, mediaSource } from '../media'
 import { docOutputDuration, voiceKey } from '../audioBeds'
 import { htmlLayerLabel } from '../htmlLayer'
 import { plainText } from '@vosjs/elements/text'
-import { anchorSourceDuration } from '../doc/studioDoc'
+import { anchorSourceDuration, isRecordingDoc } from '../doc/studioDoc'
+import { layerStart } from '../lower/anchor'
 import {
   CAM_SPAN_MIN,
   DEFAULT_CAM_POSE,
@@ -45,7 +52,7 @@ import {
   clipLength,
 } from '../types'
 import type { Segment } from '@vosjs/timeline'
-import type { FreezeSpan, ProjectDoc } from '../types'
+import type { FreezeSpan, OverlayClip, ProjectDoc } from '../types'
 import type { LaneAdapter, LaneItem } from '@vosjs/editor'
 
 export { effectiveSegments }
@@ -292,11 +299,10 @@ export const freezeLane: LaneAdapter<ProjectDoc> = {
 
     if (g.type === 'create') {
       const rated = ratedSegments(doc)
-      // A press inside a freeze band is on that freeze, not on footage.
-      for (const m of freezeOutputExtents(
-        splitBySpeed(segs, speeds),
-        freezes,
-      ).values()) {
+      // A press inside a freeze band is on that freeze, not on footage
+      // (in any pass of a cut that replays the frozen moment).
+      for (const m of placeFreezes(splitBySpeed(segs, speeds), freezes)
+        .placements) {
         if (g.t >= m.t - 1e-9 && g.t <= m.t + m.duration + 1e-9) return null
       }
       // Past the footage's end there is no frame to freeze.
@@ -410,7 +416,9 @@ function trimZeros(n: number): string {
  * Zoom lane — zoom regions as clips ("1.80×"). Spans are SOURCE-anchored
  * (footage-anchored like speed spans and the cam window); the lane displays
  * the output extent of each span's KEPT footage (spanOutputExtent — partial
- * cuts snap the clip's edges, full cuts hide it until the trim is undone).
+ * cuts snap the clip's edges, full cuts hide it until the trim is undone;
+ * on a cut that replays the span's seconds it is drawn where they FIRST
+ * play, though the camera moves in every occurrence).
  * Move/resize are pointer-true through the FULL rated map — zoom never alters
  * rates, so no exclusion trick is needed (unlike speedLane). Spans never
  * overlap: create no-ops inside an existing span, move pushes out of
@@ -1068,15 +1076,20 @@ export const speedLane: LaneAdapter<ProjectDoc> = {
 
   items(doc): LaneItem[] {
     const rated = ratedSegments(doc)
+    const replays = replayFlags(rated)
     return (doc.speed ?? []).flatMap((sp) => {
       // Output extent: accumulate the rated pieces this span produced
       // (containment match — spans don't overlap and pieces never cross span
       // boundaries). A span whose footage is fully cut away has no pieces and
-      // renders nothing — it follows its footage, like zoom keyframes.
+      // renders nothing — it follows its footage, like zoom keyframes. A
+      // cut that replays the span's seconds rates them in every pass; the
+      // band is drawn on the first, like every lane's span.
       let acc = 0
       let start: number | null = null
       let end = 0
-      for (const p of rated) {
+      for (let i = 0; i < rated.length; i++) {
+        const p = rated[i]
+        if (start !== null && replays[i]) break
         const len = Math.max(0, p.out - p.in) / segmentRate(p)
         if (
           p.rate === sp.rate &&
@@ -1350,6 +1363,15 @@ function poseItems(
 }
 
 /**
+ * Where an overlay sits on the lane: its `start`, or for an anchored layer
+ * with none, where its step plays; null when it plays nowhere.
+ */
+function overlayAt(doc: ProjectDoc, o: OverlayClip): number | null {
+  if (o.start !== undefined) return o.start
+  return isRecordingDoc(doc) ? layerStart(o, doc, ratedSegments(doc)) : null
+}
+
+/**
  * Text-overlay lane (compositor v2) — clips are OUTPUT-anchored like audio
  * (`start` is final-cut seconds; a title never retimes with trims/speed).
  * Overlaps are allowed (two titles can coexist — z-order is array order).
@@ -1360,24 +1382,28 @@ export const overlaysLane: LaneAdapter<ProjectDoc> = {
   label: 'Text',
 
   items(doc): LaneItem[] {
-    return (doc.overlays ?? []).flatMap((o) => [
-      {
-        id: o.id,
-        kind: 'clip' as const,
-        t: round(o.start),
-        duration: round(o.duration),
-        label:
-          o.kind === 'text'
-            ? plainText(o.text).split('\n')[0].slice(0, 24) || 'Text'
-            : o.kind === 'html'
-              ? htmlLayerLabel(o)
-              : o.kind === 'image'
-                ? 'Image'
-                : 'Video',
-      },
-      // Pose diamonds render after the clips, so they sit on top.
-      ...poseItems(o.id, o.start, o.duration, o.motion),
-    ])
+    return (doc.overlays ?? []).flatMap((o) => {
+      const start = overlayAt(doc, o)
+      if (start === null) return []
+      return [
+        {
+          id: o.id,
+          kind: 'clip' as const,
+          t: round(start),
+          duration: round(o.duration),
+          label:
+            o.kind === 'text'
+              ? plainText(o.text).split('\n')[0].slice(0, 24) || 'Text'
+              : o.kind === 'html'
+                ? htmlLayerLabel(o)
+                : o.kind === 'image'
+                  ? 'Image'
+                  : 'Video',
+        },
+        // Pose diamonds render after the clips, so they sit on top.
+        ...poseItems(o.id, start, o.duration, o.motion),
+      ]
+    })
   },
 
   gesture(doc, g) {
@@ -1390,9 +1416,10 @@ export const overlaysLane: LaneAdapter<ProjectDoc> = {
       if (kf) {
         const clip = overlays.find((o) => o.id === kf.clipId)
         const pose = clip?.motion?.[kf.index]
-        if (!clip || !pose) return null
+        const clipStart = clip ? overlayAt(doc, clip) : null
+        if (!clip || !pose || clipStart === null) return null
         if (g.type === 'move') {
-          const at = Math.min(Math.max(0, g.t - clip.start), clip.duration)
+          const at = Math.min(Math.max(0, g.t - clipStart), clip.duration)
           return (d) => {
             const o = (d.overlays ?? []).find((x) => x.id === kf.clipId)
             const p = o?.motion?.[kf.index]
@@ -1440,7 +1467,8 @@ export const overlaysLane: LaneAdapter<ProjectDoc> = {
     }
 
     const clip = overlays.find((o) => o.id === g.id)
-    if (!clip) return null
+    const clipStart = clip ? overlayAt(doc, clip) : null
+    if (!clip || clipStart === null) return null
 
     if (g.type === 'move') {
       const start = Math.max(0, g.t)
@@ -1452,7 +1480,7 @@ export const overlaysLane: LaneAdapter<ProjectDoc> = {
     if (g.type === 'resize') {
       if (g.edge === 'start') {
         // Keep the END fixed; the head drags start + duration together.
-        const end = clip.start + clip.duration
+        const end = clipStart + clip.duration
         const newStart = Math.min(Math.max(0, g.t), end - OVERLAY_MIN_DURATION)
         return (d) => {
           const o = (d.overlays ?? []).find((x) => x.id === g.id)
@@ -1461,7 +1489,7 @@ export const overlaysLane: LaneAdapter<ProjectDoc> = {
           o.duration = round(end - newStart)
         }
       }
-      const newLen = Math.max(OVERLAY_MIN_DURATION, g.t - clip.start)
+      const newLen = Math.max(OVERLAY_MIN_DURATION, g.t - clipStart)
       return (d) => {
         const o = (d.overlays ?? []).find((x) => x.id === g.id)
         if (o) o.duration = round(newLen)
@@ -1474,10 +1502,10 @@ export const overlaysLane: LaneAdapter<ProjectDoc> = {
   },
 
   magnets(doc): number[] {
-    return (doc.overlays ?? []).flatMap((o) => [
-      round(o.start),
-      round(o.start + o.duration),
-    ])
+    return (doc.overlays ?? []).flatMap((o) => {
+      const start = overlayAt(doc, o)
+      return start === null ? [] : [round(start), round(start + o.duration)]
+    })
   },
 }
 

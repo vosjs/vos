@@ -74,6 +74,19 @@ describe('zoomApexes', () => {
     ])
   })
 
+  it('stills a span once per time a replayed cut plays it', () => {
+    const doc = takeDoc()
+    // A cold open of the primary's 1..2.5, then the cut as before.
+    doc.segments = [{ in: 1, out: 2.5 }, ...doc.segments]
+    const { apexes } = zoomApexes(doc)
+    expect(
+      apexes.filter((a) => a.id === 'z1').map((a) => [a.start, a.end]),
+    ).toEqual([
+      [0, 1],
+      [2.5, 3.5],
+    ])
+  })
+
   it('skips a span the cut keeps nothing of, and one naming a media the take lacks, saying why', () => {
     const doc = takeDoc()
     doc.zoom.push({

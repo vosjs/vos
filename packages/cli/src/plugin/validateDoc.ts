@@ -42,6 +42,7 @@ import {
   ZOOM_LEVEL_MAX,
   ZOOM_LEVEL_MIN,
   ZOOM_SPAN_MIN,
+  REPLAY_EPS,
   docCardLayout,
   docZoomTrack,
   findStep,
@@ -49,6 +50,7 @@ import {
   hasElapsed,
   outputEnd,
   resolveAnchor,
+  resolveOverlayAnchors,
   pinBox,
   pinCandidates,
   pinRectOnScreen,
@@ -427,6 +429,7 @@ function checkSpanList(
   label: string,
   duration: number,
   problems: string[],
+  opts: { overlap?: boolean } = {},
 ): void {
   const sorted = [...list].sort(
     (a, b) => (isNum(a.in) ? a.in : 0) - (isNum(b.in) ? b.in : 0),
@@ -451,6 +454,9 @@ function checkSpanList(
       )
     }
   }
+  // Footage clips may play the same seconds more than once (a cold open,
+  // a replay); every other span list is one span per second.
+  if (opts.overlap) return
   for (let i = 1; i < sorted.length; i++) {
     const prev = sorted[i - 1]
     const curr = sorted[i]
@@ -525,7 +531,11 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
     }
   }
   /** Check a span list media by media: each against its own footage. */
-  const checkByMedia = (list: Json[], label: string): void => {
+  const checkByMedia = (
+    list: Json[],
+    label: string,
+    opts: { overlap?: boolean } = {},
+  ): void => {
     const groups = new Map<string, Json[]>()
     for (const s of list) {
       const m = typeof s.media === 'string' ? s.media : ''
@@ -543,6 +553,7 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
         label,
         m ? (mediaLen.get(m) ?? 0) : duration,
         problems,
+        opts,
       )
   }
   if (!recording) {
@@ -646,8 +657,9 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
         problems.push('still must be a number ≥ 0 (OUTPUT seconds)')
       } else {
         const rated = ratedSegments(doc as unknown as ProjectDoc)
+        // The layers where they play: an anchored one at its step.
         const end = outputEnd(
-          doc as unknown as ProjectDoc,
+          resolveOverlayAnchors(doc as unknown as ProjectDoc, rated),
           rated.reduce((a, s) => a + (s.out - s.in) / (s.rate ?? 1), 0),
         )
         if (st > end + 1e-6)
@@ -753,7 +765,37 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
     if (doc.segments !== undefined && !Array.isArray(doc.segments)) {
       problems.push('segments must be an array of {in, out} spans')
     }
-    checkByMedia(entries(doc.segments), 'segment')
+    checkByMedia(entries(doc.segments), 'segment', { overlap: true })
+    // A segment that plays seconds an earlier one already played is a
+    // replay: said once, because every source-anchored span over those
+    // seconds (a zoom, a tilt, a click, a freeze, a speed span) plays in
+    // each occurrence.
+    {
+      const seen = new Map<string, number>()
+      const list = entries(doc.segments)
+      for (const [i, seg] of list.entries()) {
+        if (!isNum(seg.in) || !isNum(seg.out)) continue
+        const m = typeof seg.media === 'string' ? seg.media : ''
+        const prevSeg = i > 0 ? list[i - 1] : null
+        const continues =
+          !!prevSeg &&
+          (typeof prevSeg.media === 'string' ? prevSeg.media : '') === m &&
+          isNum(prevSeg.out) &&
+          Math.abs(seg.in - prevSeg.out) < REPLAY_EPS
+        const furthest = seen.get(m)
+        if (
+          furthest !== undefined &&
+          !continues &&
+          seg.in < furthest - REPLAY_EPS
+        ) {
+          const to = Math.min(seg.out, furthest)
+          notes.push(
+            `segments[${i}] replays ${seg.in.toFixed(2)}–${to.toFixed(2)}s of ${m ? `media "${m}"` : 'the recording'}: zooms, tilts, clicks, freezes and speed spans over those seconds play in every occurrence`,
+          )
+        }
+        seen.set(m, Math.max(furthest ?? -Infinity, seg.out))
+      }
+    }
     // A clip's transitions: the vocabulary a footage clip accepts, never
     // longer than half the shorter clip at its boundary (the clip must be
     // seen still before it moves), and the outer edges are the card's.
@@ -1303,8 +1345,13 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
         `${name}.kind must be "text" | "image" | "video" | "html" (got ${String(o.kind)})`,
       )
     }
-    if (!isNum(o.start) || o.start < 0)
-      problems.push(`${name}.start must be ≥ 0 (OUTPUT seconds)`)
+    // An anchored layer is placed by its step; its start, when it has one,
+    // is only the fallback (checkOverlayAnchor refuses one that resolves
+    // nowhere and has none).
+    if (o.anchor === undefined || o.start !== undefined) {
+      if (!isNum(o.start) || o.start < 0)
+        problems.push(`${name}.start must be ≥ 0 (OUTPUT seconds)`)
+    }
     if (!isNum(o.duration) || o.duration <= 0) {
       problems.push(`${name}.duration must be > 0 (seconds)`)
     }
@@ -2117,7 +2164,16 @@ function checkOverlayAnchor(
     problems.push(`${name}.anchor.offset must be a number (OUTPUT seconds)`)
     shaped = false
   }
-  if (!shaped || !recording || !pieces) return fallback
+  if (!shaped) return fallback
+  if (!recording || !pieces) {
+    if (fallback === null)
+      problems.push(
+        recording
+          ? `${name}.anchor: the cut could not be read to place step ${JSON.stringify(a.step)}, and the layer has no start to fall back to`
+          : `${name}.anchor: names step ${JSON.stringify(a.step)}, but a program document has no recorder steps, and the layer has no start to fall back to; give it a start`,
+      )
+    return fallback
+  }
   const r = resolveAnchor(
     docIn as ProjectDoc,
     a as unknown as OverlayAnchor,
@@ -2134,9 +2190,14 @@ function checkOverlayAnchor(
           : r.miss === 'skipped'
             ? `${step} was skipped by the recorder`
             : `the cut leaves ${step} out`
-    warnings.push(
-      `${name}.anchor: ${why}, so it plays at its fallback start (${at}); re-anchor it, or keep the footage that step plays in`,
-    )
+    if (fallback === null)
+      problems.push(
+        `${name}.anchor: ${why}, and the layer has no start to fall back to, so it would play nowhere; re-anchor it, keep the footage that step plays in, or give it a start`,
+      )
+    else
+      warnings.push(
+        `${name}.anchor: ${why}, so it plays at its fallback start (${at}); re-anchor it, or keep the footage that step plays in`,
+      )
   }
   if (elapsed && r.elapsedFrom && r.elapsedMs !== undefined)
     notes.push(

@@ -31,6 +31,8 @@ import { resolveExportSize } from '../types'
 import { animStep, enterOf, exitOf, lastLayerEnd } from '../anim'
 import { splitBySpeed, totalDuration } from '@vosjs/timeline'
 import { sameMedia } from '../media'
+import { replayFlags } from './occurrences'
+import { layerStart } from './anchor'
 
 /**
  * THE REST of a take: the one output time its still is taken at, where
@@ -72,7 +74,8 @@ const r3 = (v: number) => Math.round(v * 1000) / 1000
  *    footage. Read from `anim` seconds, so it is the same everywhere.
  * 4. The old default, for a document with none of the above.
  */
-export function docStillTime(doc: ProjectDoc): number {
+export function docStillTime(input: ProjectDoc): number {
+  const doc = withAnchoredStarts(input)
   const segs = docSegmentsOf(doc)
   const rated = withFreezes(
     splitBySpeed(segs, doc.speed ?? []),
@@ -86,20 +89,21 @@ export function docStillTime(doc: ProjectDoc): number {
   if (!doc.endCard) {
     const own = ownFreezes(doc)
     if (own.length) {
-      const marks = freezeOutputExtents(
+      // Every landing: a cut that replays the frozen moment rests on the
+      // last time it plays.
+      const { placements } = placeFreezes(
         splitBySpeed(segs, doc.speed ?? []),
         own,
       )
       let rest: number | null = null
-      for (const m of marks.values())
-        if (rest === null || m.t > rest) rest = m.t
+      for (const m of placements) if (rest === null || m.t > rest) rest = m.t
       if (rest !== null && rest >= 0) return r3(clampOut(rest))
     }
   }
   if (!(footage > 0)) return r3(clampOut(STILL_DEFAULT))
   let hero = entranceEnd(cardEnter(doc.frame))
   for (const clip of doc.overlays ?? []) {
-    if (clip.start > OPENING_WINDOW) continue
+    if (clip.start === undefined || clip.start > OPENING_WINDOW) continue
     const step = enterOf(clip.anim)
     const seconds =
       !step || step.kind === 'none'
@@ -123,14 +127,44 @@ export function docRestTime(doc: ProjectDoc): number | null {
   const freezes = docFreezes(doc)
   if (!freezes.length) return null
   const segs = docSegmentsOf(doc)
-  const marks = freezeOutputExtents(
+  const { placements } = placeFreezes(
     splitBySpeed(segs, doc.speed ?? []),
     freezes,
   )
   let rest: number | null = null
-  for (const m of marks.values()) if (rest === null || m.t > rest) rest = m.t
+  for (const m of placements) if (rest === null || m.t > rest) rest = m.t
   if (rest === null || !(rest >= 0)) return null
   return Math.round(rest * 1000) / 1000
+}
+
+/**
+ * The document with each anchored layer that carries no `start` given the
+ * start its step resolves to (one that resolves nowhere keeps none): the
+ * same object when every layer has a start.
+ */
+function withAnchoredStarts(doc: ProjectDoc): ProjectDoc {
+  const overlays = Array.isArray(doc.overlays) ? doc.overlays : []
+  if (overlays.every((o) => !o || o.start !== undefined)) return doc
+  // The rated pieces as the lowering maps a step through them: each
+  // segment rated by its own media's speed spans, the freezes placed.
+  const speeds = doc.speed ?? []
+  const rated = withFreezes(
+    docSegmentsOf(doc).flatMap((seg) =>
+      splitBySpeed(
+        [seg],
+        speeds.filter((sp) => sameMedia(sp.media, seg.media)),
+      ),
+    ),
+    docFreezes(doc),
+  )
+  return {
+    ...doc,
+    overlays: overlays.map((o) => {
+      if (!o || o.start !== undefined) return o
+      const start = layerStart(o, doc, rated)
+      return start === null ? o : { ...o, start }
+    }),
+  }
 }
 
 /** The doc's kept spans in explicit form; a raw payload with none is untrimmed. */
@@ -247,20 +281,30 @@ export interface FreezeExtent {
  * before it. A freeze whose moment is on no kept footage is not placed
  * (it follows its frame, like a span). Every consumer of the rated list
  * (mapTime, the zoom remap, the audio splice, the duration) inherits the
- * freezes from this one seam. `marks` is where each placed freeze landed
- * in OUTPUT time, for the lane and the rest.
+ * freezes from this one seam. A cut that plays a freeze's moment more than
+ * once (a piece that replays seconds, see `replayFlags`) freezes it in
+ * every occurrence. `marks` is where each placed freeze FIRST landed in
+ * OUTPUT time, for the lane; `placements` is every landing, in output
+ * order, for the rest.
  */
 export function placeFreezes(
   rated: readonly (Segment & { media?: string })[],
   freezes: readonly FreezeSpan[],
-): { pieces: Segment[]; marks: Map<string, FreezeExtent> } {
+): {
+  pieces: Segment[]
+  marks: Map<string, FreezeExtent>
+  placements: (FreezeExtent & { id: string })[]
+} {
   const marks = new Map<string, FreezeExtent>()
+  const placements: (FreezeExtent & { id: string })[] = []
   const placed = new Set<string>()
+  const replays = replayFlags(rated)
   const pieces: Segment[] = []
   let acc = 0
   const freezePiece = (f: FreezeSpan, media: string | undefined): void => {
     const at = Math.max(HOLD_SOURCE_SPAN, f.at)
-    marks.set(f.id, { t: acc, duration: f.seconds })
+    if (!marks.has(f.id)) marks.set(f.id, { t: acc, duration: f.seconds })
+    placements.push({ id: f.id, t: acc, duration: f.seconds })
     pieces.push({
       in: at - HOLD_SOURCE_SPAN,
       out: at,
@@ -277,6 +321,12 @@ export function placeFreezes(
   for (let i = 0; i < rated.length; i++) {
     const piece = rated[i]
     const next = rated[i + 1]
+    // A piece that replays its media's seconds plays again every freeze
+    // from its start on: each may be placed once more.
+    if (replays[i])
+      for (const f of freezes)
+        if (sameMedia(f.media, piece.media) && f.at >= piece.in - 1e-9)
+          placed.delete(f.id)
     // The freezes on THIS piece's media whose moment it holds, in order: a
     // freeze inside it splits it; one at its very start goes before it (the
     // first frame, or a boundary the previous piece deferred); one exactly
@@ -319,7 +369,7 @@ export function placeFreezes(
     }
     if (rest) push(rest)
   }
-  return { pieces, marks }
+  return { pieces, marks, placements }
 }
 
 /** The rated segments with every freeze placed (see `placeFreezes`). */

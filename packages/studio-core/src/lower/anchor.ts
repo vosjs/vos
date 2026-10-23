@@ -10,7 +10,9 @@
  * its media's SOURCE seconds) is mapped through the rated pieces, the same
  * list every source-anchored span is mapped through, and the anchor's
  * `offset` (OUTPUT seconds) is added. The clip's own `start` is the
- * fallback when the step cannot be found or the cut leaves it out.
+ * fallback when the step cannot be found or the cut leaves it out; an
+ * anchored layer may carry none, and then one whose step does not resolve
+ * plays nowhere (the lowering drops it, validate refuses it).
  *
  * A text layer's `{elapsed}` fills with the anchored step's off-camera
  * wait, when the recorder kept one (the entry of `meta.skips` that names
@@ -43,7 +45,9 @@ const EPS = 1e-9
  * Where a SOURCE moment of one media plays in the cut: the output second of
  * the first rated piece of that media that holds it, null when the cut
  * leaves it out. A moment on a piece's closing edge counts as held there
- * (the last frame of a clip is still that clip).
+ * (the last frame of a clip is still that clip). On a cut that plays the
+ * moment more than once this is its FIRST occurrence, so a layer anchored
+ * to a step starts the first time that step plays.
  */
 export function sourceMomentToOutput(
   rated: readonly (Segment & { media?: string })[],
@@ -228,9 +232,38 @@ export function anchoredClip<C extends OverlayClip>(
 }
 
 /**
+ * Where a layer starts as the document stands (OUTPUT seconds): where its
+ * anchor's step plays when it resolves, else its own `start`; null for an
+ * anchored layer that resolves nowhere and carries no `start`.
+ */
+export function layerStart(
+  clip: OverlayClip,
+  doc: Pick<ProjectDoc, 'source' | 'media'>,
+  rated: readonly (Segment & { media?: string })[],
+): number | null {
+  const own = isNum(clip.start) ? clip.start : null
+  if (!clip.anchor || typeof clip.anchor !== 'object' || !doc.source) return own
+  return resolveAnchor(doc, clip.anchor, rated).start ?? own
+}
+
+/**
+ * The document without the layers that have no `start` (an anchored layer
+ * whose step resolved nowhere): the same object when every layer has one.
+ */
+export function placedOverlays<D extends { overlays?: OverlayClip[] }>(
+  doc: D,
+): D {
+  const overlays = Array.isArray(doc.overlays) ? doc.overlays : []
+  if (overlays.every((o) => !o || isNum(o.start))) return doc
+  return { ...doc, overlays: overlays.filter((o) => !o || isNum(o.start)) }
+}
+
+/**
  * The document with every anchored layer resolved (its `start` where its
- * step plays, its `{elapsed}` filled). A document with no anchored layer is
- * returned as it is, the same object, so its lowering is byte-identical.
+ * step plays, its `{elapsed}` filled), and every anchored layer that has
+ * no `start` and whose step does not resolve left out: it has no time to
+ * play at. A document with no anchored layer is returned as it is, the
+ * same object, so its lowering is byte-identical.
  */
 export function resolveOverlayAnchors<
   D extends Pick<ProjectDoc, 'source' | 'media' | 'overlays'>,
@@ -239,8 +272,10 @@ export function resolveOverlayAnchors<
   if (!overlays.some((o) => o && o.anchor)) return doc
   return {
     ...doc,
-    overlays: overlays.map((o) =>
-      o && o.anchor ? anchoredClip(o, doc, rated) : o,
-    ),
+    overlays: overlays.flatMap((o) => {
+      if (!o || !o.anchor) return [o]
+      const next = doc.source ? anchoredClip(o, doc, rated) : o
+      return isNum(next.start) ? [next] : []
+    }),
   }
 }

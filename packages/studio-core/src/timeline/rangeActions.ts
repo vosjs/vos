@@ -12,7 +12,12 @@ import type { Segment } from '@vosjs/timeline'
 import type { StudioDoc } from '../doc/studioDoc'
 import type { SpeedSpan, ZoomSpan } from '../types'
 
-/** Map an OUTPUT-time range to SOURCE seconds through the doc's rate map. */
+/**
+ * Map an OUTPUT-time range to SOURCE seconds through the doc's rate map. On
+ * a cut that replays seconds a range may run across the seam where the
+ * playhead jumps back; then `srcOut` falls before `srcIn` and every chip
+ * below reads the range as empty.
+ */
 export function outputRangeToSource(
   doc: StudioDoc,
   t0: number,
@@ -84,7 +89,8 @@ export function removeSpeedInRange(
  * The Cut chip: subtract a SOURCE range from the kept segments. Segment
  * order (and any reorder) is preserved; a remainder below MIN_SEGMENT is
  * dropped with its parent. Never empties the take: cutting everything
- * returns the original list unchanged.
+ * returns the original list unchanged. Source seconds are cut wherever
+ * they play: a segment that repeats them loses them too.
  */
 export function removeSourceRange(
   segments: readonly Segment[],

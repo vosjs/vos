@@ -139,7 +139,9 @@ const REST_LEAD = 0.1
  * head, starting where the window ends instead, and a span too short to
  * survive the cut is dropped. Spans that start before the window keep
  * their own end. The open's record (t = 0) is the entrance's business
- * (`prependEntrance`) and is skipped here.
+ * (`prependEntrance`) and is skipped here. A span is a SOURCE span, so on
+ * a cut that plays its seconds more than once it is read by its first
+ * occurrence: the window that occurrence starts in rests every one.
  */
 export function restSpansThroughTransitions<
   T extends { in: number; out: number; media?: string },

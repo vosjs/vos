@@ -422,7 +422,7 @@ describe('vos join: a file’s own sound, captions per clip', () => {
     expect(wrap.duration).toBe(1.5)
     // Nothing of A's outlives A's clip, which ends at 10 s.
     for (const o of joined.overlays!.filter((o) => o.from === 'steps'))
-      expect(o.start + o.duration).toBeLessThanOrEqual(10 + 1e-9)
+      expect(o.start! + o.duration).toBeLessThanOrEqual(10 + 1e-9)
   })
 })
 

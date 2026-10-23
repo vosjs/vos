@@ -37,7 +37,6 @@ import {
   EASINGS,
   lerpArray,
   sample,
-  segmentRate,
   sortKeyframes,
   sourceToTimeline,
   splitBySpeed,
@@ -115,8 +114,9 @@ import { clipEnvelope } from './audioEnvelope'
 import { clipGain } from './loudness'
 import { followFocusEvents } from './cursorFollow'
 import { pinPlacement, pinReferent } from './pin'
-import { resolveOverlayAnchors } from './anchor'
+import { layerStart, placedOverlays, resolveOverlayAnchors } from './anchor'
 import { cursorIdleFade } from './cursorIdle'
+import { hasReplay, momentOutputs, spanOutputExtents } from './occurrences'
 import { STUDIO_ENTRY_ID, studioEntry } from './studioEntry'
 import {
   cardEnter,
@@ -285,7 +285,9 @@ function durationSec(doc: ProjectDoc, rated: Segment[]): number {
  * list: the output extent of its KEPT footage (a partially-cut span snaps its
  * edges into kept footage; a fully-cut span returns null — it follows its
  * footage, like every source-anchored feature). Rate-aware: output positions
- * accumulate each piece's (out − in) / rate.
+ * accumulate each piece's (out − in) / rate. When the cut plays the span's
+ * seconds more than once this is the FIRST occurrence (what a lane draws, a
+ * digest names); `spanOutputExtents` returns every one.
  */
 export function spanOutputExtent(
   segments: readonly (Segment & { media?: string })[],
@@ -293,27 +295,7 @@ export function spanOutputExtent(
   sOut: number,
   media?: string,
 ): { start: number; end: number } | null {
-  let acc = 0
-  let start: number | null = null
-  let end: number | null = null
-  for (const p of segments) {
-    const rate = segmentRate(p)
-    const len = Math.max(0, p.out - p.in) / rate
-    // Source seconds are one media's: a piece of another media is output
-    // time this span never covers, however its numbers overlap.
-    if (!sameMedia(p.media, media)) {
-      acc += len
-      continue
-    }
-    const ovIn = Math.max(sIn, p.in)
-    const ovOut = Math.min(sOut, p.out)
-    if (ovOut > ovIn) {
-      if (start === null) start = acc + (ovIn - p.in) / rate
-      end = acc + (ovOut - p.in) / rate
-    }
-    acc += len
-  }
-  return start !== null && end !== null && end > start ? { start, end } : null
+  return spanOutputExtents(segments, sIn, sOut, media)[0] ?? null
 }
 
 /** A span's arrival ease, validated against the shared ease set. */
@@ -488,7 +470,9 @@ const spillLimit = (tIn: number, tOut: number) => tIn + (tOut - tIn) / 2
  * the first vanished. A fully-cut span is dropped; two spans starting at
  * the same output time keep the one that ends first ahead. With one media
  * and the footage in order, output order IS source order, so a single-media
- * document lowers as it always did.
+ * document lowers as it always did. A span over seconds the cut plays more
+ * than once is an entry per occurrence, so the camera moves the same way
+ * each time those seconds play.
  */
 function spansInOutputOrder<
   S extends { in: number; out: number; media?: string },
@@ -497,10 +481,13 @@ function spansInOutputOrder<
   segments: Segment[],
 ): { z: S; tIn: number; tOut: number }[] {
   return spans
-    .flatMap((z) => {
-      const ext = spanOutputExtent(segments, z.in, z.out, z.media)
-      return ext ? [{ z, tIn: ext.start, tOut: ext.end }] : []
-    })
+    .flatMap((z) =>
+      spanOutputExtents(segments, z.in, z.out, z.media).map((ext) => ({
+        z,
+        tIn: ext.start,
+        tOut: ext.end,
+      })),
+    )
     .sort((a, b) => a.tIn - b.tIn || a.tOut - b.tOut)
 }
 
@@ -612,7 +599,8 @@ export function zoomTrackFromDoc(
     // recenter duration.
     let inPath = false
     for (const e of z.followEvents ?? []) {
-      const eOut = sourceToTimeline(segments, e.t)
+      // The recenter's moment in THIS occurrence of the span's seconds.
+      const eOut = followEventOutput(segments, e.t, z.media, tIn, holdEnd)
       if (eOut === null || eOut <= tIn || eOut >= holdEnd) continue
       // A recenter with less than RAMP_FLOOR of room after the arrival or
       // before the exit would compress into a jump (the focus freezes for
@@ -697,6 +685,27 @@ export function zoomTrackFromDoc(
     }
   }
   return { keyframes: sortKeyframes(keyframes) }
+}
+
+/**
+ * Where a follow recenter (a SOURCE moment) plays inside one occurrence of
+ * its span (output seconds tIn..tEnd): its first occurrence when that lies
+ * inside, the way the track always read it; on a cut that replays seconds,
+ * else the later occurrence that does.
+ */
+function followEventOutput(
+  segments: Segment[],
+  t: number,
+  media: string | undefined,
+  tIn: number,
+  tEnd: number,
+): number | null {
+  const first = sourceToTimeline(segments, t)
+  if (first !== null && first > tIn && first < tEnd) return first
+  if (!hasReplay(segments)) return first
+  return (
+    momentOutputs(segments, t, media).find((o) => o > tIn && o < tEnd) ?? first
+  )
 }
 
 function sameVec(a: number[], b: number[]): boolean {
@@ -2984,7 +2993,10 @@ export function studioLayerData(
   // Both anchors bake their layers here, so this is where the retired text
   // spelling is read: a layer that still carries `emphasis` paints as runs
   // whichever kind of document holds it.
-  const layers = migrateText(input)
+  // A layer reaches here placed (resolveOverlayAnchors gave an anchored
+  // one its start); one still without a start resolved nowhere and has
+  // no time to play at, so it is left out (validate refuses it).
+  const layers = placedOverlays(migrateText(input))
   // A media layer resolves against the RECORDING it rides (a program
   // document has no media to show).
   const rec = 'source' in layers ? (layers as unknown as ProjectDoc) : null
@@ -3070,7 +3082,7 @@ export function studioLayerData(
             const base = {
               id: o.id,
               kind: o.kind,
-              start: round(o.start),
+              start: round(o.start!),
               dur: round(Math.max(OVERLAY_MIN_DURATION, o.duration)),
               x: round(o.transform.x),
               y: round(o.transform.y),
@@ -3619,6 +3631,10 @@ export function resolvePins(
   const space = { w: doc.source.meta.width, h: doc.source.meta.height }
   for (const o of doc.overlays ?? []) {
     if (!o.pin) continue
+    // A host hands in the document as it stands: an anchored layer with no
+    // start is placed by its anchor, and one placed nowhere has no life.
+    const start = o.start ?? layerStart(o, doc, rated)
+    if (start === null) continue
     const ref = pinReferent(doc, o.pin)
     if (!ref) continue
     const base = overlayMotionBase(o)
@@ -3633,7 +3649,7 @@ export function resolvePins(
     out.set(
       o.id,
       pinPlacement({
-        clip: o,
+        clip: { ...o, start },
         referent: ref.rect,
         layout,
         camera,
@@ -3668,10 +3684,18 @@ export function pinCandidates(
     if (s.skipped) continue
     const ref = pinReferent(doc, { step: s.id ?? s.step })
     if (!ref) continue
-    const ext = spanOutputExtent(rated, s.tStart, s.tEnd)
-    if (!ext) continue
-    const overlap = Math.min(a1, ext.end) - Math.max(a0, ext.start)
-    if (overlap <= 0) continue
+    // The occurrence of the step's seconds the layer overlaps most (a cut
+    // may play them more than once).
+    let ext: { start: number; end: number } | null = null
+    let overlap = 0
+    for (const e of spanOutputExtents(rated, s.tStart, s.tEnd)) {
+      const o = Math.min(a1, e.end) - Math.max(a0, e.start)
+      if (o > overlap) {
+        ext = e
+        overlap = o
+      }
+    }
+    if (!ext || overlap <= 0) continue
     out.push({
       step: s.id ?? s.step,
       do: s.do,
@@ -3717,7 +3741,7 @@ function pinsDataOf(
   for (const o of doc.overlays ?? []) {
     const p = o.pin
     const placed = p ? pins.get(o.id) : undefined
-    if (!p || !placed) continue
+    if (!p || !placed || o.start === undefined) continue
     const mark = p.mark ?? 'none'
     if (mark === 'none' && !p.leader) continue
     const ref = pinReferent(doc, p)

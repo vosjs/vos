@@ -70,6 +70,45 @@ describe('lintDoc', () => {
     expect(r.warnings).toEqual([])
   })
 
+  it('lets a segment replay seconds an earlier one played, and says so once', () => {
+    const r = lintDoc(
+      makeDoc({
+        // A cold open of the last two seconds, then the whole take.
+        segments: [
+          { in: 18, out: 20 },
+          { in: 0, out: 10 },
+          { in: 10, out: 20 },
+        ],
+        zoom: [{ id: 'z1', in: 18.5, out: 19.5, level: 2, cx: 0.5, cy: 0.5 }],
+      }),
+    )
+    expect(r.problems).toEqual([])
+    expect(r.notes).toEqual([
+      expect.stringContaining(
+        'segments[1] replays 0.00–10.00s of the recording',
+      ),
+    ])
+  })
+
+  it('still holds a replayed segment to its footage, and other spans to one per second', () => {
+    const r = lintDoc(
+      makeDoc({
+        segments: [
+          { in: 5, out: 8 },
+          { in: 0, out: 22 },
+        ],
+        zoom: [
+          { id: 'z1', in: 1, out: 3, level: 2, cx: 0.5, cy: 0.5 },
+          { id: 'z2', in: 2, out: 4, level: 2, cx: 0.5, cy: 0.5 },
+        ],
+      }),
+    )
+    expect(r.problems.some((p) => p.includes('exceeds the footage'))).toBe(true)
+    expect(r.problems.some((p) => p.includes('z2 overlaps zoom z1'))).toBe(true)
+    expect(r.problems.some((p) => p.includes('segment'))).toBe(true)
+    expect(r.problems.some((p) => /segment .* overlaps/.test(p))).toBe(false)
+  })
+
   it('catches the pixel-coords trap (cx/cy must be normalized [0..1])', () => {
     const r = lintDoc(
       makeDoc({
