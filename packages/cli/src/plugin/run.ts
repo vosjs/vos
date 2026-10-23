@@ -401,6 +401,11 @@ notices are information, never a --strict failure. A click, press or type with "
 something real: --dry-run hovers it and never presses, and record presses
 it only with --confirm <id> (repeatable), refusing before any capture
 otherwise. --hosted refuses guarded and download steps.
+Every step is bounded: a call into a page that stopped answering gives up
+at the step's own timeout (an expect's or an await's, or a gesture's plan
+plus 30 s), the step is a skip with the real time it took, and --strict
+stops the take there. --json reports { event: "step", phase, i, id, do,
+ms } as each step starts and ends.
 frames captures PNG stills at OUTPUT times (seconds or % of duration);
 --at-zooms adds every zoom span's apex, --at-moments every digest moment —
 the agent's eyes (--size WxH for an exact size). render
@@ -1077,6 +1082,8 @@ async function cmdRecord(argv: string[]): Promise<number> {
           headers,
           context,
           dryRun: true,
+          // A rehearsal is always strict: a page that stops answering stops it.
+          stopOnHang: true,
           verbose: flags.verbose === true,
           onEvent: (e) => r.event(e),
           // A rehearsal is always strict, and it touches no directory.
@@ -1216,6 +1223,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
         headers,
         context,
         confirm,
+        stopOnHang: flags.strict === true,
         verbose: flags.verbose === true,
         onEvent: (e) => r.event(e),
         onArrival: wallGate(flags, r, {
@@ -1373,6 +1381,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
         headers,
         context,
         confirm,
+        stopOnHang: flags.strict === true,
         verbose: flags.verbose === true,
         onEvent: (e) => r.event(e),
         onArrival: wallGate(flags, r, {

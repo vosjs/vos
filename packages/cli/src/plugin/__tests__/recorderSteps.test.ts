@@ -580,14 +580,14 @@ describe('a long await reports progress', () => {
         awaitHeartbeatMs: 500,
       },
     )
-    const phases = events.map((e) => e.phase)
+    // Each step also says when it starts and ends; these are the await's own.
+    const awaits = events.filter((e) => e.event === 'await')
+    const phases = awaits.map((e) => e.phase)
     expect(phases[0]).toBe('start')
     expect(phases.at(-1)).toBe('end')
     expect(phases.filter((p) => p === 'wait').length).toBeGreaterThanOrEqual(3)
-    expect(events.every((e) => e.event === 'await' && e.id === 'ready')).toBe(
-      true,
-    )
-    const end = events.at(-1)!
+    expect(awaits.every((e) => e.id === 'ready')).toBe(true)
+    const end = awaits.at(-1)!
     expect(end.held).toBe(true)
     expect(end.ms).toBeGreaterThan(2000)
   }, 60_000)

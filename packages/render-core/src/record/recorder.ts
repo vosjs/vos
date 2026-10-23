@@ -60,6 +60,7 @@ import {
 } from './exposure'
 import type { ScannedNotice } from './exposure'
 import { SetupError, runSetup } from './setup'
+import { StepBound, bounded, stepBoundMs } from './stepBound'
 import {
   MEDIA_DRAIN_PROBE,
   MEDIA_WATCH_SCRIPT,
@@ -334,6 +335,12 @@ export interface RecordOpts {
    * an `await`'s start, a heartbeat while it waits, and its end.
    */
   onEvent?: (event: Record<string, unknown>) => void
+  /**
+   * A step the page stopped answering in (it ran into its bound) stops the
+   * take there, as an `await` that timed out does (`--strict`). Without
+   * it the step is a skip and the take goes on.
+   */
+  stopOnHang?: boolean
   /** How often a long `await` reports it is still waiting (default 30 s). */
   awaitHeartbeatMs?: number
 }
@@ -440,7 +447,11 @@ export async function recordTake(
   const soundLog = new PageSoundLog()
   const exposureLog = new ExposureLog(masks)
   const noticeLog = new NoticeLog()
-  const page = await context.newPage()
+  const rawPage = await context.newPage()
+  // Every call into the page is bounded (stepBound.ts): a page that stops
+  // answering ends the step it hung, never the take's clock.
+  const pageBound = new StepBound()
+  const page = bounded(rawPage, pageBound)
   // What the frame shows, read after each step. A few ms in the page; a scan
   // that fails (mid-navigation) is skipped, never fatal.
   const scanExposures = async (step: number) => {
@@ -522,7 +533,7 @@ export async function recordTake(
   // What the page played while it was being prepared is not the take's.
   await page.evaluate(MEDIA_DRAIN_PROBE).catch(() => null)
 
-  const cdp = await context.newCDPSession(page)
+  const cdp = await context.newCDPSession(rawPage)
   const frames: FrameRec[] = []
   let frameIdx = 0
   let t0 = 0
@@ -874,6 +885,24 @@ export async function recordTake(
       )
       return true
     }
+    const boundMs = stepBoundMs(
+      step as Parameters<typeof stepBoundMs>[0],
+      askedMs(step as Parameters<typeof askedMs>[0]),
+      {
+        expectS: EXPECT_TIMEOUT_S,
+        awaitS: AWAIT_TIMEOUT_S,
+        downloadS: DOWNLOAD_TIMEOUT_S,
+      },
+    )
+    opts.onEvent?.({
+      event: 'step',
+      phase: 'start',
+      i: stepIdx,
+      ...(step.id ? { id: step.id } : {}),
+      do: step.do,
+    })
+    const stepWall = Date.now()
+    pageBound.start(boundMs)
     switch (step.do) {
       case 'wait':
         await sleep(clampWait(step.ms, now(), maxSeconds))
@@ -1279,6 +1308,26 @@ export async function recordTake(
         break
       }
     }
+    const hang = pageBound.end()
+    if (hang.hung) {
+      const reason = hangReason(step.do, hang.ms, hang.boundMs)
+      // One skip per step: a miss the step said already gives way to why.
+      const said = skipped.length > skippedBefore ? skipped.at(-1) : undefined
+      if (said) {
+        said.reason = reason
+        extra.reason = reason
+      } else skip((step as { selector?: string }).selector ?? '', reason)
+      log(`   (${tag} ${step.do}: ${reason})`)
+      // --strict: a page that stopped answering stops the take here.
+      if (opts.stopOnHang && !stopped)
+        stopped = {
+          step: stepIdx,
+          ...(step.id ? { id: step.id } : {}),
+          reason: `${tag} ${step.do}: ${reason}, so the take stopped there`,
+        }
+    }
+    // The step's own reads after it (its words, the scans) get a beat each.
+    pageBound.start(POST_STEP_READ_MS)
     // A guarded step that ran in a recording ran because the command named it.
     if (step.guard && !dry && skipped.length === skippedBefore) {
       confirmed.push(step.id ?? String(stepIdx))
@@ -1341,6 +1390,18 @@ export async function recordTake(
     // After the pace is taken: the scan's few ms are not the step's.
     await scanExposures(stepIdx)
     await drainSound(stepIdx)
+    pageBound.end()
+    const stepSpan = stepSpans[stepSpans.length - 1]
+    opts.onEvent?.({
+      event: 'step',
+      phase: 'end',
+      i: stepIdx,
+      ...(step.id ? { id: step.id } : {}),
+      do: step.do,
+      ms: Date.now() - stepWall,
+      ...(stepSpan?.skipped ? { skipped: true } : {}),
+      ...(hang.hung ? { hung: true } : {}),
+    })
     // An await that timed out with onTimeout "fail": the take ends here.
     if (stopped) break
   }
@@ -1350,6 +1411,8 @@ export async function recordTake(
     log(`   ${cappedLine(maxSeconds)}`)
   }
 
+  // The take's own finish reads the page too, and is bounded like a step.
+  pageBound.start(POST_STEP_READ_MS * 2)
   await drainSound()
   const endWall = Date.now()
   const durationMs = capped ? Math.min(now(), maxSeconds * 1000) : now()
@@ -1363,9 +1426,14 @@ export async function recordTake(
     log,
   )
   await sleep(200)
-  const pageTitle = await page.title().catch(() => '')
+  const pageTitle = (await page.title().catch(() => '')) ?? ''
   for (const line of pageErrors.repeats()) log(line)
-  await context.close()
+  // A context whose page stopped answering may not close either: the take
+  // is done whether it does or not.
+  pageBound.end()
+  pageBound.start(CLOSE_BOUND_MS)
+  await pageBound.race(context.close().catch(() => {}))
+  pageBound.end()
   // Every frame the screencast delivered has reached the sink.
   await sinkChain
 
@@ -1420,7 +1488,8 @@ export async function recordTake(
   // The freeze share is a FACT (a workspace tour is mostly still and fine);
   // the warning is dead time: a hold nobody is reading, named per step.
   const dead = deadTime(stepSpans, frames, events, durationMs)
-  if (deadWarns(dead)) log(`   WARNING: ${deadLine(dead)}`)
+  // A rehearsal captures no frames: it has no dead time to warn about.
+  if (!dry && deadWarns(dead)) log(`   WARNING: ${deadLine(dead)}`)
 
   const pace = paceReport(paces)
   if (!dry) log(`   ${paceLine(pace)}`)
@@ -1494,6 +1563,16 @@ async function keepPageSound(
     }
   }
   return heard.map((h) => ({ ...h.meta, ...(kept.get(h.src) ?? {}) }))
+}
+
+/** How long a step's own reads after it (its words, the scans) may take on a page that has stopped answering. */
+const POST_STEP_READ_MS = 5000
+/** How long the take waits for its browser context to close. */
+const CLOSE_BOUND_MS = 10_000
+
+/** Why a step ended at its bound, with the real time it took. */
+export function hangReason(verb: string, ms: number, boundMs: number): string {
+  return `the page stopped answering: this ${verb} ran ${sayDuration(ms)}, past its bound of ${sayDuration(boundMs)}`
 }
 
 /** A download's extension from its type, for a name the page did not give. */
