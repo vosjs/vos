@@ -51,7 +51,7 @@ export interface StepCaptionReport {
 }
 
 /** A step's caption: on the step itself, else its actions.json step, else the document's embedded script. */
-function captionOf(
+export function captionOf(
   step: StepSpan,
   actions: ActionsFile | null | undefined,
   script: Record<string, unknown> | undefined,
@@ -87,9 +87,16 @@ const safeId = (v: string | number): string =>
 export function landStepCaptions(
   doc: ProjectDoc,
   actions: ReadonlyMap<string, ActionsFile | null>,
+  opts: { only?: ReadonlySet<string> } = {},
 ): StepCaptionReport {
   const report: StepCaptionReport = { landed: [], skipped: [], uncaptioned: [] }
-  const kept = (doc.overlays ?? []).filter((o) => o.from !== STEP_CAPTIONS_FROM)
+  // `only` (a re-join): land the captions of these media alone, and keep
+  // every other media's step captions as they were edited.
+  const mine = (o: OverlayClip) =>
+    !opts.only || opts.only.has(mediaKey(o.anchor?.media))
+  const kept = (doc.overlays ?? []).filter(
+    (o) => o.from !== STEP_CAPTIONS_FROM || !mine(o),
+  )
   const rated = ratedSegments(doc)
   const footageEnd = totalDuration(rated)
   // Where each clip of the cut ends, and whose it is: a caption is about
@@ -126,6 +133,7 @@ export function landStepCaptions(
   const fresh: OverlayClip[] = []
   const taken = new Set(kept.map((o) => o.id))
   for (const { id: media, source } of docMediaList(doc)) {
+    if (opts.only && !opts.only.has(media)) continue
     const steps = source.meta.steps ?? []
     let captioned = 0
     for (const step of steps) {
