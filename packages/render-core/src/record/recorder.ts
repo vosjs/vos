@@ -69,6 +69,7 @@ import {
 import type { MediaDrain } from './pageSound'
 import { TakeClock } from './takeClock'
 import { PageErrorLog } from './pageErrors'
+import { fitSurfaceToViewport } from './surfaceFit'
 import type { PageError } from './pageErrors'
 import {
   AWAIT_POLL_S,
@@ -534,6 +535,9 @@ export async function recordTake(
   await page.evaluate(MEDIA_DRAIN_PROBE).catch(() => null)
 
   const cdp = await context.newCDPSession(rawPage)
+  // The surface the screencast reads is the viewport, or the take is short
+  // (surfaceFit.ts). Before the camera rolls; a rehearsal captures nothing.
+  if (!dry) await fitSurfaceToViewport(cdp, vw, vh)
   const frames: FrameRec[] = []
   let frameIdx = 0
   let t0 = 0

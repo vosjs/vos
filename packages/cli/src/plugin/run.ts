@@ -88,7 +88,7 @@ import {
   readyProblem,
 } from '@vosjs/render-core/record'
 import type { ReadyMode, ReadyReport } from '@vosjs/render-core/record'
-import { WALL_PROBE, WallError, wallVerdict } from './wall'
+import { WallError, wallVerdict } from './wall'
 import {
   EXPOSURE_ADVICE,
   exposureLine,
@@ -100,12 +100,15 @@ import {
   listSessions,
   openSession,
   removeSession,
+  sessionVerdict,
   sessionDir,
   sessionNameVerdict,
   summarizeSession,
   summaryLine,
   withSession,
+  verdictLine,
 } from './session'
+import type { SessionVerdict } from './session'
 import type { Arrival, WallVerdict } from './wall'
 import type { Reporter } from './output'
 import {
@@ -224,8 +227,8 @@ Take pipeline
             per-frame SSIM and source | vos | difference sheets; exit 1 when ANY frame is under the threshold (needs ffmpeg)
   vos look <url> [--session <name>|--storage-state <file>] [--viewport WxH] [--headed] [--click <selector>]... [--type <selector>=<text>]... [--wait <ms>] [--header name=value]... [--browser-arg=<switch>]... [--out look] [--json]
             see a page before scripting it, signed in the way vos record would be: <out>/look.png and every control in view with ONE proposed selector (test id, aria-label, role + name, then words in its dialog or landmark), UNIQUE or AMBIGUOUS as the recorder's own engine counts it, plus what the frame exposes. --click/--type run first, in order; a click on a spend or delete word is refused. Exit 4 at a sign-in wall
-  vos session open <url> --name <app>   a plain Chrome window on a vos-owned profile; sign in, close it
-  vos session check <name> [--url <url>]   headless: does the session still open the page? exit 0/4
+  vos session open <url> --name <app>   a plain Chrome window on a vos-owned profile; sign in, set the account up, close the window (or Enter)
+  vos session check <name> [--url <url>] [--strict]   headless, against a stranger: does the page open as you? exit 0/4
   vos session list | rm <name>          what exists and how old; delete one
   vos actions script <actions.json> [--json]
             the flow as numbered beats in words, for a person recording it by hand
@@ -2878,6 +2881,22 @@ export async function run(argv: string[]): Promise<number> {
 }
 
 /**
+ * A session check's exit: 0 signed in, 4 not signed in, and a URL that
+ * cannot tell is a warning (0), or 4 under --strict. No verdict at all (no
+ * cookies) is `none`.
+ */
+function verdictExit(
+  v: SessionVerdict | null,
+  strict: boolean,
+  none: number,
+): number {
+  if (!v) return none
+  if (v.state === 'signed-in') return EXIT_OK
+  if (v.state === 'not-signed-in') return EXIT_WALL
+  return strict ? EXIT_WALL : EXIT_OK
+}
+
+/**
  * `vos session`: takeover mode, local. open / check / list / rm. Counts,
  * origins and expiry only; no verb prints a cookie value, --json included.
  */
@@ -2901,18 +2920,31 @@ async function cmdSession(argv: string[]): Promise<number> {
       }
       if (!/^https?:$/.test(url.protocol))
         throw new UsageError('vos session open wants an http(s) URL')
-      await openSession(name!, url.href, { log: r.log })
+      const opened = await openSession(name!, url.href, { log: r.log })
       const summary = await summarizeSession(name!)
+      // Cookies prove nothing (analytics land on a stranger's visit too):
+      // the session passed only if the page it was opened on opens as the
+      // person, the same check `vos session check --url` runs.
+      const verdict = summary.origins.length
+        ? await sessionVerdict(name!, url.href)
+        : null
+      const signedIn = verdict?.state === 'signed-in'
+      const again = `Try again: vos session open ${url.href} --name ${name}, sign in, and close the window once the app shows you signed in`
       r.done(
         {
           name: summary.name,
+          finish: opened.finish,
+          signedIn,
+          ...(verdict ? { verdict } : {}),
           origins: summary.origins,
           newestExpires: summary.newestExpires,
           sessionOnly: summary.sessionOnly,
         },
-        `${summaryLine(summary)}\n  Record on it: vos record --actions actions.json --out take --session ${name} --strict`,
+        verdict
+          ? `${verdictLine(verdict, url.href, name!)}. ${summaryLine(summary)}${signedIn ? `\n  Record on it: vos record --actions actions.json --out take --session ${name} --strict` : verdict.state === 'not-signed-in' ? `\n  ${again}` : ''}`
+          : `${summaryLine(summary)}\n  ${opened.finish === 'quit' ? `Chrome exited${opened.code ? ` (code ${opened.code})` : ''} before anything was saved. If you did not quit it (⌘Q), it exited on its own: the likely cause is a HOME with no login keychain to keep the cookies' key in (a sandbox, a fresh user, a CI runner), or a profile another Chrome already holds. ` : ''}Nothing was saved. ${again}`,
       )
-      return summary.origins.length ? EXIT_OK : EXIT_ERROR
+      return verdictExit(verdict, flags.strict === true, EXIT_ERROR)
     }
     case 'check': {
       if (!arg) throw new UsageError(usage)
@@ -2936,48 +2968,18 @@ async function cmdSession(argv: string[]): Promise<number> {
       }
       // Does the session still open the page it was made for? The wall
       // check's own verdict, on this profile.
-      const verdict = await withSession(arg, async (ctx) => {
-        const page = await ctx.newPage()
-        const response = await page
-          .goto(url, { waitUntil: 'networkidle', timeout: 30000 })
-          .catch(() => null)
-        const seen = (await page.evaluate(WALL_PROBE).catch(() => null)) as {
-          passwordFields: number
-          newPasswordField: boolean
-          oneTimeCodeField: boolean
-        } | null
-        return wallVerdict({
-          askedUrl: url,
-          landedUrl: page.url(),
-          ...(response ? { status: response.status() } : {}),
-          passwordFields: seen?.passwordFields ?? 0,
-          newPasswordField: seen?.newPasswordField ?? false,
-          oneTimeCodeField: seen?.oneTimeCodeField ?? false,
-        })
-      })
-      if (verdict) {
-        r.done(
-          {
-            name: arg,
-            ok: false,
-            wall: verdict,
-            origins: summary.origins,
-            newestExpires: summary.newestExpires,
-          },
-          `session "${arg}" no longer opens ${url}: ${verdict.message.split('. ')[0]}. It expired, or the sign-in never landed. Sign in again: vos session open ${url} --name ${arg}`,
-        )
-        return EXIT_WALL
-      }
+      const verdict = await sessionVerdict(arg, url)
       r.done(
         {
           name: arg,
-          ok: true,
+          ok: verdict.state === 'signed-in',
+          verdict,
           origins: summary.origins,
           newestExpires: summary.newestExpires,
         },
-        `session "${arg}" opens ${url} signed in. ${summaryLine(summary)}`,
+        `session "${arg}": ${verdictLine(verdict, url, arg)}${verdict.state === 'not-signed-in' ? `. It expired, or the sign-in never landed. Sign in again: vos session open ${url} --name ${arg}` : `. ${summaryLine(summary)}`}`,
       )
-      return EXIT_OK
+      return verdictExit(verdict, flags.strict === true, EXIT_WALL)
     }
     case 'list': {
       const rows = listSessions()

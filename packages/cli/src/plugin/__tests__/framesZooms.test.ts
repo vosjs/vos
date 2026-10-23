@@ -13,6 +13,7 @@ import { existsSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { closeBrowser } from './closeBrowser'
 import {
   DEFAULT_CAM_STYLE,
   DEFAULT_CURSOR_STYLE,
@@ -130,9 +131,9 @@ beforeAll(async () => {
 }, 120_000)
 
 afterAll(async () => {
-  await browser?.close()
+  await closeBrowser(browser)
   if (dir) await rm(dir, { recursive: true, force: true })
-})
+}, 30_000)
 
 describe('vos frames --at-zooms over a real render', () => {
   it('stills both media’s zooms, flags the one that does not render, and keeps only its twin', async () => {

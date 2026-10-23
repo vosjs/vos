@@ -12,6 +12,7 @@ import { recordTake } from '@vosjs/render-core/record'
 import type { FrameSink } from '@vosjs/render-core/record'
 import type { Browser } from 'playwright'
 import type { Server } from 'node:http'
+import { closeBrowser } from './closeBrowser'
 
 const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Freeze</title>
 <style>body{margin:0;font:16px system-ui}button{margin:24px;padding:12px 18px}</style>
@@ -48,7 +49,7 @@ beforeAll(async () => {
 afterAll(async () => {
   // Answer nothing, but let the blocked page go before the browser closes.
   server?.closeAllConnections()
-  await browser?.close()
+  await closeBrowser(browser)
   server?.close()
 }, 30_000)
 

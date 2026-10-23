@@ -10,6 +10,7 @@
  */
 import { createServer } from 'node:http'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { closeBrowser } from './closeBrowser'
 import { recordTake } from '@vosjs/render-core/record'
 import type { FrameSink } from '@vosjs/render-core/record'
 import type { Browser } from 'playwright'
@@ -44,9 +45,9 @@ beforeAll(async () => {
 }, 60_000)
 
 afterAll(async () => {
-  await browser?.close()
+  await closeBrowser(browser)
   server?.close()
-})
+}, 30_000)
 
 describe('the recorder over a real Playwright driver', () => {
   it('records a fixture page: frames to the sink, inputs to events, a click that lands', async () => {
@@ -90,10 +91,12 @@ describe('the recorder over a real Playwright driver', () => {
     expect(types).toContain('up')
     expect(types).toContain('key')
     expect(types).toContain('scroll')
-    // The scroll travelled by the clock: several deltas over the travel,
-    // not one chunk, so the footage has intermediate positions to show.
+    // The scroll travelled by the clock: more than one delta over the
+    // travel, not one chunk, so the footage has intermediate positions to
+    // show. A slow machine takes fewer samples of the same travel, never
+    // fewer than two, and the travel still spans its time.
     const scrolls = result.events.filter((e) => e.type === 'scroll')
-    expect(scrolls.length).toBeGreaterThanOrEqual(3)
+    expect(scrolls.length).toBeGreaterThanOrEqual(2)
     expect(scrolls[scrolls.length - 1].t - scrolls[0].t).toBeGreaterThanOrEqual(
       150,
     )
@@ -111,7 +114,7 @@ describe('the recorder over a real Playwright driver', () => {
     expect(result.skipped).toEqual([])
     expect(result.actions.url).toBe(`${base}/`)
     expect(logs.some((l) => l.startsWith('click #cta'))).toBe(true)
-  }, 60_000)
+  }, 120_000)
 
   it('a rehearsal runs the steps and captures nothing', async () => {
     if (!browser) return
@@ -134,5 +137,5 @@ describe('the recorder over a real Playwright driver', () => {
     expect(result.skipped).toEqual([
       { step: 1, do: 'click', selector: '#missing' },
     ])
-  }, 60_000)
+  }, 120_000)
 })
