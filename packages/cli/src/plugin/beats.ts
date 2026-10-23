@@ -10,12 +10,16 @@
  * the same media starts, the last one to the media's end; what plays
  * before the first captioned step is one more beat, the opening.
  *
- * Within a beat, the zoom kept is the one the cut plays longest (its
- * source seconds inside the kept footage; on an untrimmed take, its whole
- * length), ties going to the higher level and then the earlier span. The
- * planner hands back no score of its own, and the time it held the camera
- * on one thing is the closest measure of how much that thing mattered. A
- * span belongs to the beat its midpoint falls in.
+ * Within a beat, the zoom kept is the one on the beat's ACTION: the
+ * captioned step's own span (`tStart`..`tEnd`), the gesture the caption
+ * names. Of the proposals that overlap it, the one that overlaps it most
+ * stays (ties: the one the cut plays longest, then the longer, then the
+ * higher level, then the earlier). When none overlaps it, the beat keeps
+ * NO zoom: what the planner framed there was the typing or the drag that
+ * prepares the payoff, not the payoff, and a person cutting a canvas
+ * often wants no zoom in such a beat at all. The opening has no captioned
+ * step, so it keeps none either. A span belongs to the beat its midpoint
+ * falls in.
  *
  * The others are deleted the way a person deletes a proposal: each
  * becomes a `doc.rejected` entry, so no re-plan proposes it again. The one
@@ -58,6 +62,8 @@ export interface Beat {
   caption: string | null
   in: number
   out: number
+  /** The captioned step's own span, the beat's action; absent for the opening. */
+  action?: { in: number; out: number }
 }
 
 /**
@@ -95,6 +101,7 @@ export function mediaBeats(
       caption,
       in: step.tStart,
       out: next ? next.step.tStart : Math.max(end, step.tStart),
+      action: { in: step.tStart, out: Math.max(step.tStart, step.tEnd) },
     })
   })
   return beats
@@ -117,7 +124,25 @@ export function playedSeconds(doc: ProjectDoc, z: ZoomSpan): number {
 /** Milliseconds, so two spans of one length never part on float noise. */
 const ms = (v: number): number => Math.round(v * 1000)
 
-/** The kept zoom first: played longest, then longest, then higher, then earlier. */
+/**
+ * How much of a beat's action a span covers, seconds; an instant action
+ * (an `expect`) inside the span counts as covered, by a hair.
+ */
+export function actionOverlap(
+  z: ZoomSpan,
+  action: { in: number; out: number } | undefined,
+): number {
+  if (!action) return 0
+  const shared = Math.min(z.out, action.out) - Math.max(z.in, action.in)
+  if (shared > 0) return shared
+  return action.out - action.in < 1e-3 &&
+    z.in <= action.in &&
+    action.in <= z.out
+    ? 1e-6
+    : 0
+}
+
+/** Among the proposals on the action: played longest, then longest, then higher, then earlier. */
 function stronger(doc: ProjectDoc) {
   return (a: ZoomSpan, b: ZoomSpan): number =>
     ms(playedSeconds(doc, b)) - ms(playedSeconds(doc, a)) ||
@@ -129,6 +154,8 @@ function stronger(doc: ProjectDoc) {
 export interface PerBeatReport {
   /** Beats that kept one proposal: the media, the beat's step, the span kept. */
   kept: { media: string; step: string | number | null; id: string }[]
+  /** Beats none of whose proposals is on the captioned step: every one was rejected. */
+  none: { media: string; step: string | number | null; ids: string[] }[]
   /** Beats that hold a manual zoom already; their proposals were rejected. */
   manual: { media: string; step: string | number | null; ids: string[] }[]
   /** How many proposals went into `doc.rejected`. */
@@ -152,6 +179,7 @@ export function oneZoomPerBeat(
 ): PerBeatReport {
   const report: PerBeatReport = {
     kept: [],
+    none: [],
     manual: [],
     rejected: 0,
     uncaptioned: [],
@@ -185,9 +213,23 @@ export function oneZoomPerBeat(
         })
         continue
       }
-      const [best, ...rest] = [...auto].sort(order)
+      const onAction = auto.filter((z) => actionOverlap(z, beat.action) > 0)
+      if (!onAction.length) {
+        for (const z of auto) drop.add(z)
+        report.none.push({
+          media,
+          step: beat.step,
+          ids: auto.map((z) => z.id),
+        })
+        continue
+      }
+      const [best] = [...onAction].sort(
+        (a, b) =>
+          ms(actionOverlap(b, beat.action)) -
+            ms(actionOverlap(a, beat.action)) || order(a, b),
+      )
       best.source = 'manual'
-      for (const z of rest) drop.add(z)
+      for (const z of auto) if (z !== best) drop.add(z)
       report.kept.push({ media, step: beat.step, id: best.id })
     }
   }
@@ -211,8 +253,12 @@ export function perBeatLine(
   name: (media: string) => string = (m) => (m ? `media ${m}` : 'the primary'),
 ): string {
   const parts = [
-    `one zoom per beat: ${r.beats} beat${r.beats === 1 ? '' : 's'} held zooms, ${r.kept.length} proposal${r.kept.length === 1 ? '' : 's'} kept (now manual), ${r.rejected} rejected into doc.rejected (no re-plan brings them back)`,
+    `one zoom per beat: ${r.beats} beat${r.beats === 1 ? '' : 's'} held zooms, ${r.kept.length} proposal${r.kept.length === 1 ? '' : 's'} on a captioned step kept (now manual), ${r.rejected} rejected into doc.rejected (no re-plan brings them back)`,
   ]
+  if (r.none.length)
+    parts.push(
+      `${r.none.length} beat${r.none.length === 1 ? '' : 's'} kept no zoom, none of ${r.none.length === 1 ? 'its' : 'their'} proposals being on ${r.none.length === 1 ? 'its' : 'their'} captioned step (${r.none.map((b) => (b.step === null ? 'the opening' : String(b.step))).join(', ')})`,
+    )
   if (r.manual.length)
     parts.push(
       `${r.manual.length} beat${r.manual.length === 1 ? '' : 's'} kept ${r.manual.length === 1 ? 'its' : 'their'} manual zoom${r.manual.some((m) => m.ids.length > 1) ? 's' : ''}`,

@@ -78,12 +78,14 @@ function doc(over: Partial<ProjectDoc> = {}): ProjectDoc {
     },
     segments: [{ in: 0, out: 20 }],
     zoom: [
+      // The opening: no captioned step.
       zoom('z0', 0.2, 1.4),
-      // The `draw` beat: z2 is the longest.
+      // The `draw` beat (its step 2..3): z1 is on the drag; z2, the
+      // longest, frames the typing after it.
       zoom('z1', 2, 3.5),
       zoom('z2', 4, 7, { level: 1.8 }),
       zoom('z3', 7.5, 9.5),
-      // The `arrows` beat: z5 is longest, but the cut leaves most of it out.
+      // The `arrows` beat (its step 10..11): z4 is on it; z5, longer, is not.
       zoom('z4', 10, 12),
       zoom('z5', 13, 18),
     ],
@@ -108,49 +110,64 @@ describe('one zoom per beat', () => {
     ])
   })
 
-  it('keeps the one the cut plays longest, and rejects the rest like a person', () => {
-    // The cut keeps 0..14.5 and 17..20: z5 plays 2.5 s, z4 plays 2 s.
-    const d = doc({
-      segments: [
-        { in: 0, out: 14.5 },
-        { in: 17, out: 20 },
-      ],
-    })
+  it('keeps the one on the captioned step, and rejects the rest like a person', () => {
+    const d = doc()
     const r = oneZoomPerBeat(d, new Map([['', actions]]))
     expect(d.zoom.map((z) => [z.id, z.source])).toEqual([
-      ['z0', 'manual'],
-      ['z2', 'manual'],
-      ['z5', 'manual'],
+      ['z1', 'manual'],
+      ['z4', 'manual'],
     ])
     expect(r.kept.map((k) => [k.step, k.id])).toEqual([
-      [null, 'z0'],
-      ['draw', 'z2'],
-      ['arrows', 'z5'],
+      ['draw', 'z1'],
+      ['arrows', 'z4'],
     ])
-    expect(r.rejected).toBe(3)
+    // The opening has no captioned step: it keeps no zoom.
+    expect(r.none).toEqual([{ media: '', step: null, ids: ['z0'] }])
+    expect(r.rejected).toBe(4)
     expect(d.rejected).toEqual([
-      { id: 'r0', lane: 'zoom', in: 2, out: 3.5, note: PER_BEAT_NOTE },
-      { id: 'r1', lane: 'zoom', in: 7.5, out: 9.5, note: PER_BEAT_NOTE },
-      { id: 'r2', lane: 'zoom', in: 10, out: 12, note: PER_BEAT_NOTE },
+      { id: 'r0', lane: 'zoom', in: 0.2, out: 1.4, note: PER_BEAT_NOTE },
+      { id: 'r1', lane: 'zoom', in: 4, out: 7, note: PER_BEAT_NOTE },
+      { id: 'r2', lane: 'zoom', in: 7.5, out: 9.5, note: PER_BEAT_NOTE },
+      { id: 'r3', lane: 'zoom', in: 13, out: 18, note: PER_BEAT_NOTE },
     ])
     // A re-plan proposing them again drops them, and keeps the ones kept.
     for (const z of doc().zoom)
       expect(isRejected('zoom', z, d.rejected)).toBe(
-        ['z1', 'z3', 'z4'].includes(z.id),
+        ['z0', 'z2', 'z3', 'z5'].includes(z.id),
       )
     // Running it again changes nothing.
     const before = JSON.stringify(d)
     oneZoomPerBeat(d, new Map([['', actions]]))
     expect(JSON.stringify(d)).toBe(before)
-    expect(perBeatLine(r)).toMatch(/3 beats held zooms, 3 proposals kept/)
+    expect(perBeatLine(r)).toMatch(
+      /3 beats held zooms, 2 proposals on a captioned step kept .*; 1 beat kept no zoom, none of its proposals being on its captioned step \(the opening\)/,
+    )
+  })
+
+  it('of several on the captioned step keeps the one most on it, and keeps none when none is', () => {
+    const d = doc({
+      zoom: [
+        // On `draw` (2..3): z1 covers 0.3 s of it, z2 0.8 s; z1 is higher.
+        zoom('z1', 1.9, 2.3, { level: 2 }),
+        zoom('z2', 2.2, 6),
+        // The `arrows` beat holds only the tidy-up after its step.
+        zoom('z5', 13, 18),
+      ],
+    })
+    const r = oneZoomPerBeat(d, new Map([['', actions]]))
+    expect(r.kept).toEqual([{ media: '', step: 'draw', id: 'z2' }])
+    expect(r.none).toEqual([{ media: '', step: 'arrows', ids: ['z5'] }])
+    expect(d.zoom.map((z) => z.id)).toEqual(['z2'])
+    expect(perBeatLine(r)).toMatch(/1 beat kept no zoom.*\(arrows\)/)
   })
 
   it('a beat with a manual zoom keeps only its manual ones', () => {
     const d = doc()
-    d.zoom[1] = { ...d.zoom[1], source: 'manual' }
+    // A manual zoom off the step still wins its beat.
+    d.zoom[2] = { ...d.zoom[2], source: 'manual' }
     const r = oneZoomPerBeat(d, new Map([['', actions]]))
-    expect(r.manual).toEqual([{ media: '', step: 'draw', ids: ['z1'] }])
-    expect(d.zoom.map((z) => z.id)).toEqual(['z0', 'z1', 'z5'])
+    expect(r.manual).toEqual([{ media: '', step: 'draw', ids: ['z2'] }])
+    expect(d.zoom.map((z) => z.id)).toEqual(['z2', 'z4'])
   })
 
   it('leaves a media with no captioned step as planned, and names it', () => {
@@ -169,7 +186,7 @@ describe('one zoom per beat', () => {
       ],
     })
     d.zoom.push(
-      zoom('m1-z0', 1, 2, { media: 'm1' }),
+      zoom('m1-z0', 0.6, 2, { media: 'm1' }),
       zoom('m1-z1', 3, 4, { media: 'm1' }),
     )
     const r = oneZoomPerBeat(d, new Map([['', actions]]))
