@@ -14,7 +14,7 @@
  * deterministic: same track → same spans. The editor edits this *output*, not
  * the planner — every span is tagged `source: 'auto'`, so a regenerate can
  * replace planner suggestions while leaving user-touched ('manual') spans
- * alone. Ids by origin: `z{n}` clicks, `k{n}` typing, `d{n}` dwells.
+ * alone. Ids by origin: `z{n}` clicks, `k{n}` typing, `g{n}` drags, `d{n}` dwells.
  */
 import { clampZoomLevel } from '../types'
 import { resolveZoomStyle } from '../zoomStyle'
@@ -449,17 +449,19 @@ export function planAutoZoom(
 
   // One follow span per drag, at the drag level, from the press to the
   // release: the lowering's cursor follow tracks the pointer's path for
-  // the whole press.
-  const dragSpans: ZoomSpan[] = drags.map((d, i) => ({
-    id: `g${i}`,
-    in: round(Math.max(0, d.t0 - lead)),
-    out: round(d.t1 + hold),
-    level: clampZoomLevel(Math.min(Math.max(dragLevel, 1.1), maxLevel)),
-    cx: round(d.nx),
-    cy: round(d.ny),
-    focusMode: 'auto' as const,
-    source: 'auto',
+  // the whole press. Drags closer than a lead plus a hold chain: the
+  // earlier ends where the later enters.
+  const dragWork: Working[] = drags.map((d) => ({
+    in: Math.max(0, d.t0 - lead),
+    out: d.t1 + hold,
+    cx: d.nx,
+    cy: d.ny,
+    level: Math.min(Math.max(dragLevel, 1.1), maxLevel),
   }))
+  for (let i = 0; i + 1 < dragWork.length; i++) {
+    if (dragWork[i].out > dragWork[i + 1].in)
+      dragWork[i].out = dragWork[i + 1].in
+  }
 
   // Lone clicks below the cluster minimum earn no zoom (the Cursorful rule:
   // one stray click isn't worth a camera move — dwells may still cover it).
@@ -554,6 +556,27 @@ export function planAutoZoom(
   }
   typing = typing.filter((t) => t.out - t.in >= 0.3)
 
+  // A drag is a beat of its own, like a click on another field: its span
+  // keeps the whole press, and a click or typing span beside it CEDES the
+  // overlap (a label typed between two drags on a canvas sits between
+  // them, never under them). Without this the planner handed the linter
+  // spans it refuses.
+  for (const w of [...clickSpans, ...typing]) cedeTo(w, dragWork)
+  typing = typing.filter((t) => !t.dead && t.out - t.in >= 0.3)
+  for (const z of clickSpans) if (z.out - z.in < 0.3) z.dead = true
+  const dragSpans: ZoomSpan[] = dragWork
+    .filter((d) => d.out - d.in >= 0.3)
+    .map((d, i) => ({
+      id: `g${i}`,
+      in: round(d.in),
+      out: round(d.out),
+      level: clampZoomLevel(d.level),
+      cx: round(d.cx),
+      cy: round(d.cy),
+      focusMode: 'auto' as const,
+      source: 'auto',
+    }))
+
   // Deterministic ids (pure planner: same track → same spans, same ids),
   // re-numbered in TIME order per origin so ids stay stable under replans.
   const zSpans: ZoomSpan[] = clickSpans
@@ -597,6 +620,26 @@ export function planAutoZoom(
     ...dragReserved,
   ]).filter((d) => firstStep === undefined || d.out > firstStep)
   return within([...spans, ...dwells]).sort((a, b) => a.in - b.in)
+}
+
+/**
+ * Trim `w` off every window in `keep` it overlaps: it ends where a later
+ * window enters, starts where an earlier one leaves, keeps the longer side
+ * of one it straddles, and dies under one that covers it.
+ */
+function cedeTo(
+  w: { in: number; out: number; dead?: boolean },
+  keep: { in: number; out: number }[],
+): void {
+  for (const k of keep) {
+    if (w.dead || w.in >= k.out || w.out <= k.in) continue
+    if (k.in <= w.in && k.out >= w.out) w.dead = true
+    else if (k.in > w.in && k.out < w.out) {
+      if (k.in - w.in >= w.out - k.out) w.out = k.in
+      else w.in = k.out
+    } else if (k.in > w.in) w.out = k.in
+    else w.in = k.out
+  }
 }
 
 export interface TypingSession {
