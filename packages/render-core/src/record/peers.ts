@@ -61,7 +61,7 @@ import {
 } from './pace'
 import { StepBound, bounded, stepBoundMs } from './stepBound'
 import { conditionMiss, pollCondition, sayCondition } from './waits'
-import type { WaitCondition } from './waits'
+import type { ConditionState, WaitCondition } from './waits'
 import { urlSchemeProblem } from './setup'
 import type { PeerStepSpan } from '@vosjs/studio-core'
 
@@ -325,6 +325,26 @@ function deferred(): Deferred {
 /** One peer step as it ran, in the take's footage seconds. */
 export type { PeerStepSpan } from '@vosjs/studio-core'
 
+/** The most a peer step's kept value holds, in characters of JSON (as a take step's). */
+export const PEER_VALUE_MAX = 2048
+
+/**
+ * What a peer's check last answered, kept on its step the way the take's
+ * own steps keep theirs (`meta.steps[].value`): the value itself while its
+ * JSON fits, else that JSON cut short as a string; absent when the read
+ * answered nothing JSON can hold, or no value at all (a check that only
+ * holds or not).
+ */
+export function peerValue(last: ConditionState): unknown {
+  if (!('value' in last)) return undefined
+  const value = (last as { value?: unknown }).value
+  const json = JSON.stringify(value)
+  if (json === undefined) return undefined
+  return json.length <= PEER_VALUE_MAX
+    ? value
+    : `${json.slice(0, PEER_VALUE_MAX - 1)}…`
+}
+
 /** What a peer did: its steps as they ran, and the ones that never did. */
 export interface PeerRun {
   id: string
@@ -439,6 +459,7 @@ export async function runPeer(
     const tStart = opts.footageMs()
     let selector: string | undefined
     let reason: string | null = null
+    let value: unknown
     bound.start(
       stepBoundMs(
         step as Parameters<typeof stepBoundMs>[0],
@@ -589,6 +610,7 @@ export async function runPeer(
             everyMs: EXPECT_EVERY_MS,
             sleep: clock.sleep,
           })
+          value = peerValue(res.last)
           if (!res.ok) reason = conditionMiss(cond, res.last, timeoutMs)
           else log(`   ${tag} expect ${sayCondition(cond)}: holds`)
           break
@@ -616,6 +638,7 @@ export async function runPeer(
       tEnd: +(opts.footageMs() / 1000).toFixed(3),
       ...(reason ? { skipped: true, reason } : {}),
       ...(late ? { late: true } : {}),
+      ...(value !== undefined ? { value } : {}),
     })
   }
   return run

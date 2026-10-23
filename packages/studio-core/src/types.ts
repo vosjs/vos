@@ -386,6 +386,12 @@ export interface PeerStepSpan {
   reason?: string
   /** its trigger had fired before the peer reached it: it ran late */
   late?: boolean
+  /**
+   * What an `expect` last answered when its check reads the app's state
+   * (a `js` expression), kept as the take's own steps keep it: JSON, at
+   * most 2 KB, else that JSON cut short as a string. Absent otherwise.
+   */
+  value?: unknown
 }
 
 /** One executed actions.json step's extent in the recording. */
