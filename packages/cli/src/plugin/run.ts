@@ -2803,7 +2803,7 @@ async function cmdSession(argv: string[]): Promise<number> {
         },
         summary.origins.length
           ? `${summaryLine(summary)}\n  Record on it: vos record --actions actions.json --out take --session ${name} --strict`
-          : `${summaryLine(summary)}\n  Nothing was saved. Try again: vos session open ${url.href} --name ${name}, sign in, and close the window once the app shows you signed in (a cookie can take half a minute to be written; closing the window writes it at once)`,
+          : `${summaryLine(summary)}\n  ${opened.finish === 'quit' ? `Chrome exited${opened.code ? ` (code ${opened.code})` : ''} before anything was saved. If you did not quit it (⌘Q), it exited on its own: the likely cause is a HOME with no login keychain to keep the cookies' key in (a sandbox, a fresh user, a CI runner), or a profile another Chrome already holds. ` : ''}Nothing was saved. Try again: vos session open ${url.href} --name ${name}, sign in, and close the window once the app shows you signed in (a cookie can take half a minute to be written; closing the window writes it at once)`,
       )
       return summary.origins.length ? EXIT_OK : EXIT_ERROR
     }

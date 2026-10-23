@@ -99,6 +99,64 @@ describe('waitForFinish', () => {
   })
 })
 
+describe('Chrome exiting on its own is not a closed window', () => {
+  // The process table as ps reports it: the browser, a helper, and the
+  // page's renderer while the window is open.
+  const open = `
+  500     1 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir=/s
+  501   500 /Applications/Google Chrome.app/.../Google Chrome Helper --type=utility
+  502   500 /Applications/Google Chrome.app/.../Google Chrome Helper (Renderer) --type=renderer --renderer-client-id=6
+`
+  // The renderers gone, the browser still listed.
+  const noPages = `
+  500     1 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir=/s
+  501   500 /Applications/Google Chrome.app/.../Google Chrome Helper --type=utility
+`
+
+  function scripted(tables: string[], exitAt?: number) {
+    let exit!: () => void
+    const exited = new Promise<void>((r) => (exit = r))
+    let i = 0
+    const kill = vi.fn((_pid: number, _signal: NodeJS.Signals) => exit())
+    const watch: SessionWatch = {
+      pages: async () => {
+        const n = i++
+        // A browser shutting down drops its renderers, and its own process
+        // a moment after.
+        if (exitAt !== undefined && n === exitAt) setTimeout(exit, 5)
+        const table = tables[Math.min(n, tables.length - 1)]
+        return chromeTree(parseProcessTable(table), 500).pages
+      },
+      exited,
+      enter: new Promise<void>(() => {}),
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+      pollMs: 1,
+      confirmMs: 200,
+    }
+    return { watch, kill }
+  }
+
+  it('reads renderers gone while the browser stays up as the window closed', async () => {
+    const b = scripted([open, open, noPages])
+    await expect(waitForFinish(b.watch)).resolves.toBe('window-closed')
+  })
+
+  it('reads renderers gone and then the browser gone as Chrome exiting, and kills nothing', async () => {
+    const b = scripted([open, open, noPages], 3)
+    const log: string[] = []
+    const result = await runSessionWindow({
+      pid: 500,
+      watch: b.watch,
+      kill: b.kill,
+      save: async () => 'saved',
+      log: (l) => log.push(l),
+    })
+    expect(result.finish).toBe('quit')
+    expect(b.kill).not.toHaveBeenCalled()
+    expect(log.join('\n')).not.toContain('the window closed')
+  })
+})
+
 describe('every way of finishing saves', () => {
   it('the last window closed: quit this Chrome by its PID with SIGTERM, then save', async () => {
     const b = fakeBrowser([1, 1, 0, 0])
@@ -201,6 +259,12 @@ describe('the cookie report says counts, never a value', () => {
     )
   })
 
+  it('matches by host name, never the port a dev server listens on', () => {
+    expect(cookieAppliesTo('localhost', 'localhost:5301')).toBe(true)
+    expect(cookieAppliesTo('.example.com', 'app.example.com:8443')).toBe(true)
+    expect(cookieAppliesTo('localhost', 'localhost.evil:5301')).toBe(false)
+  })
+
   it('stays quiet on the first read and speaks once they change', () => {
     const state = { last: null as string | null, said: false }
     const host = 'app.example.com'
@@ -253,6 +317,24 @@ function profileWith(rows: [string, string, string][]): string {
   db.close()
   return dir
 }
+
+describe('the cookie store, as Chrome writes it, for a URL with a port', () => {
+  it('says the line for localhost:5301 when localhost saves a cookie', async () => {
+    if (!sqlite) return
+    const dir = profileWith([])
+    const log: string[] = []
+    const tick = cookieWatch(dir, 'localhost:5301', (l) => log.push(l))
+    await tick()
+    const db = new sqlite.DatabaseSync(join(dir, 'Default', 'Cookies'))
+    db.exec(
+      "INSERT INTO cookies VALUES (1,'localhost','','session','',x'00','/',13469306181000000,0,1,1,1,1,1,0,1,5301,1,0,0)",
+    )
+    db.close()
+    await tick()
+    expect(log).toHaveLength(1)
+    expect(log[0]).toMatch(/^localhost:5301 saved 1 cookie:/)
+  })
+})
 
 describe('the cookie store, as Chrome writes it', () => {
   it('reads a persistent cookie, whose expiry is past a safe JavaScript integer', async () => {

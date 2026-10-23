@@ -146,7 +146,7 @@ export async function openSessionWindow(opts: {
     ...(opts.extraArgs ?? []),
     opts.url,
   ]
-  const host = new URL(opts.url).host
+  const { host, hostname } = new URL(opts.url)
   const tty = opts.stdin !== false && process.stdin.isTTY === true
   const enter = tty
     ? enterPressed()
@@ -185,7 +185,7 @@ export async function openSessionWindow(opts: {
         },
         exited,
         enter: enter.pressed,
-        onTick: cookieWatch(opts.dir, host, opts.log),
+        onTick: cookieWatch(opts.dir, hostname, opts.log),
         ...(opts.pollMs !== undefined ? { pollMs: opts.pollMs } : {}),
       },
       kill: (p, signal) => process.kill(p, signal),

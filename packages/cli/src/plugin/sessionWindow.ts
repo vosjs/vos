@@ -144,6 +144,13 @@ export interface SessionWatch {
    * a navigation swapping its renderer; two is a window that is gone.
    */
   emptyPolls?: number
+  /**
+   * How long the browser must stay up once its pages are gone before the
+   * window counts as closed. Chrome that is EXITING (quit, or gone on its
+   * own) drops its renderers first and its own process a moment later;
+   * that is a quit, never a window the person closed.
+   */
+  confirmMs?: number
 }
 
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
@@ -176,13 +183,19 @@ export async function waitForFinish(w: SessionWatch): Promise<SessionFinish> {
         seen = true
         empty = 0
       } else if (seen && ++empty >= needEmpty) {
+        const exiting = await Promise.race([
+          w.exited.then(() => true),
+          sleep(w.confirmMs ?? 1500).then(() => false),
+        ])
+        if (exiting) break
         done = 'window-closed'
         break
       }
     }
     await w.onTick?.().catch(() => {})
   }
-  return done
+  // Set by the exit's own callback, which runs before this one resumes.
+  return done ?? 'quit'
 }
 
 /**
@@ -287,7 +300,9 @@ export interface CookieRow {
 /** Does a cookie stored for `cookieHost` go with requests to `host`? */
 export function cookieAppliesTo(cookieHost: string, host: string): boolean {
   const d = cookieHost.replace(/^\./, '').toLowerCase()
-  const h = host.toLowerCase()
+  // A cookie belongs to a host NAME, never a port: localhost:5301's cookies
+  // are stored for localhost.
+  const h = host.toLowerCase().replace(/:\d+$/, '')
   return h === d || h.endsWith(`.${d}`)
 }
 
