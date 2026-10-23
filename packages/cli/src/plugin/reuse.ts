@@ -490,55 +490,63 @@ export function retimeOverlays(
   const ctx = { oldSteps, newSteps, stepMap, report }
   const follow = (
     o: OverlayClip,
+    from: number,
     oldRef: number,
     newRef: number,
-  ): OverlayClip => {
-    const offset = o.start - sourceToOutput(oldPieces, oldRef)
+  ): OverlayClip & { start: number } => {
+    const offset = from - sourceToOutput(oldPieces, oldRef)
     const start = Math.max(0, sourceToOutput(newPieces, newRef) + offset)
     return { ...o, start: +start.toFixed(3) }
   }
   return overlays.map((o) => {
     // Anchored to a step: the lowering re-reads it against the new steps;
     // its fallback `start` follows too, so the document says where it plays.
+    // A layer with no fallback stays without one: its anchor is its time.
     if (o.anchor && typeof o.anchor === 'object') {
       const r = resolveLayerAnchor(next, o.anchor, newPieces)
       if (r.start === null) {
         report.flagged.push(
-          `overlay ${o.id}: anchored to step ${String(o.anchor.step)}, which is missing, skipped or cut in the new recording — it plays at its fallback ${o.start.toFixed(2)}s; re-anchor or re-place it`,
+          o.start === undefined
+            ? `overlay ${o.id}: anchored to step ${String(o.anchor.step)}, which is missing, skipped or cut in the new recording — it has no start to fall back to, so it plays nowhere; re-anchor it or give it a start`
+            : `overlay ${o.id}: anchored to step ${String(o.anchor.step)}, which is missing, skipped or cut in the new recording — it plays at its fallback ${o.start.toFixed(2)}s; re-anchor or re-place it`,
         )
         return o
       }
       report.anchored++
-      return { ...o, start: r.start }
+      return o.start === undefined ? o : { ...o, start: r.start }
     }
+    // Every layer without an anchor carries its start (validate refuses
+    // one that does not).
+    const at = o.start
+    if (at === undefined) return o
     const pin = o.pin
     if (pin?.step !== undefined) {
       const was = stepByRef(oldSteps, pin.step)
       const now = was ? matchStep(was, newSteps) : stepByRef(newSteps, pin.step)
       if (!now || now.skipped) {
         report.flagged.push(
-          `overlay ${o.id}: pinned to step ${String(pin.step)}, which is missing or skipped in the new recording — kept at ${o.start.toFixed(2)}s; re-pin or re-place it`,
+          `overlay ${o.id}: pinned to step ${String(pin.step)}, which is missing or skipped in the new recording — kept at ${at.toFixed(2)}s; re-pin or re-place it`,
         )
         return o
       }
       report.anchored++
-      return follow(o, was?.tStart ?? now.tStart, now.tStart)
+      return follow(o, at, was?.tStart ?? now.tStart, now.tStart)
     }
     if (typeof pin?.press === 'number') {
       const placed = placeMoment(pin.press, undefined, ctx)
       if ('gone' in placed) {
         report.flagged.push(
-          `overlay ${o.id}: pinned to a press at ${pin.press.toFixed(2)}s, and ${goneWords(placed.gone)} — kept at ${o.start.toFixed(2)}s; re-pin or re-place it`,
+          `overlay ${o.id}: pinned to a press at ${pin.press.toFixed(2)}s, and ${goneWords(placed.gone)} — kept at ${at.toFixed(2)}s; re-pin or re-place it`,
         )
         return o
       }
-      const moved = follow(o, pin.press, placed.at)
+      const moved = follow(o, at, pin.press, placed.at)
       return { ...moved, pin: { ...pin, press: +placed.at.toFixed(3) } }
     }
     // Unpinned (or pinned to a rect): the output-time contract holds, and
     // a layer that sat over a step which moved is named.
     const under = stepUnder(
-      outputToSource(oldPieces, o.start),
+      outputToSource(oldPieces, at),
       oldSteps,
       LAYER_AFTER_STEP,
     )
@@ -546,14 +554,14 @@ export function retimeOverlays(
     const now = matchStep(under, newSteps)
     if (!now) {
       report.flagged.push(
-        `overlay ${o.id} (${o.start.toFixed(2)}s): it sat over step ${stepName(under)}, which is missing or skipped in the new recording — kept at its output time; re-place it`,
+        `overlay ${o.id} (${at.toFixed(2)}s): it sat over step ${stepName(under)}, which is missing or skipped in the new recording — kept at its output time; re-place it`,
       )
       return o
     }
-    const expected = follow(o, under.tStart, now.tStart).start
-    if (Math.abs(expected - o.start) > LAYER_DRIFT) {
+    const expected = follow(o, at, under.tStart, now.tStart).start
+    if (Math.abs(expected - at) > LAYER_DRIFT) {
       report.flagged.push(
-        `overlay ${o.id} (${o.start.toFixed(2)}s): it sat over step ${stepName(under)}, which now plays at ${expected.toFixed(2)}s in the cut — kept at ${o.start.toFixed(2)}s by the output-time contract; pin it to follow (pin: { step: ${JSON.stringify(under.id ?? under.step)} }) or move it`,
+        `overlay ${o.id} (${at.toFixed(2)}s): it sat over step ${stepName(under)}, which now plays at ${expected.toFixed(2)}s in the cut — kept at ${at.toFixed(2)}s by the output-time contract; pin it to follow (pin: { step: ${JSON.stringify(under.id ?? under.step)} }) or move it`,
       )
     }
     return o

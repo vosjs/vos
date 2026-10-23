@@ -123,7 +123,7 @@ export function landStepCaptions(
       // The plan's own beat caption (`vos plan` on the primary).
       return media === '' && o.id === `${CAPTION_ID_PREFIX}${step.step}`
     })
-  const fresh: OverlayClip[] = []
+  const fresh: (OverlayClip & { start: number })[] = []
   const taken = new Set(kept.map((o) => o.id))
   for (const { id: media, source } of docMediaList(doc)) {
     const steps = source.meta.steps ?? []
@@ -162,8 +162,9 @@ export function landStepCaptions(
       let id = base
       for (let n = 2; taken.has(id); n++) id = `${base}-${n}`
       taken.add(id)
-      const clip: OverlayClip = {
+      const clip: OverlayClip & { start: number } = {
         ...houseCaption(id, caption, placed.start, CAPTION_MAX),
+        start: placed.start,
         anchor,
         from: STEP_CAPTIONS_FROM,
       }

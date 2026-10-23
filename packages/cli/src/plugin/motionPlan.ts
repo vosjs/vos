@@ -27,7 +27,9 @@ import {
   docOutputDuration,
   dropTemplate,
   endCardClips,
+  hasReplay,
   migrateMotion,
+  momentOutputs,
   ratedSegments,
   sameMedia,
   spanOutputExtent,
@@ -206,13 +208,22 @@ export function pickTrack(
 /** Click instants of the take in OUTPUT seconds, inside the range. */
 export function clickTimes(doc: ProjectDoc, range: [number, number]): number[] {
   const rated = ratedSegments(doc)
-  const out: number[] = []
+  // A press plays each time the cut plays its seconds, as its ring does.
+  const replayed = hasReplay(rated)
+  const at: number[] = []
   for (const e of doc.source.cursor) {
     if (e.type !== 'down') continue
     const src = e.t / 1000
+    if (replayed) {
+      at.push(...momentOutputs(rated, src))
+      continue
+    }
     const ext = spanOutputExtent(rated, src, src + 0.001)
-    if (!ext) continue
-    const t = ext.start
+    if (ext) at.push(ext.start)
+  }
+  if (replayed) at.sort((a, b) => a - b)
+  const out: number[] = []
+  for (const t of at) {
     if (t < range[0] || t > range[1]) continue
     if (out.length && t - out[out.length - 1] < 0.12) continue
     out.push(+(t - range[0]).toFixed(3))

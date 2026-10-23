@@ -55,6 +55,85 @@ const takeA = (): ProjectDoc => ({
 })
 
 describe('validate: anchored captions', () => {
+  it('judges an anchored layer over a press where it plays, not at its stale or absent start', () => {
+    const doc = takeA()
+    // `save` pressed at 6 s on an element under the caption's box.
+    doc.source.cursor = [
+      {
+        t: 6000,
+        x: 640,
+        y: 640,
+        type: 'down',
+        button: 0,
+        rect: { x: 340, y: 560, w: 600, h: 160 },
+      },
+      { t: 6100, x: 640, y: 640, type: 'up', button: 0 },
+    ] as ProjectDoc['source']['cursor']
+    const over = {
+      preset: 'caption' as const,
+      transform: { x: 0.5, y: 0.86, scale: 1, rotation: 0 },
+      duration: 2,
+    }
+    const stale = takeA()
+    stale.source = doc.source
+    stale.overlays = [
+      // Its fallback says 40 s (where it played before a trim); it plays at 5.8 s.
+      text('stale', 40, { ...over, anchor: { step: 'save', offset: -0.2 } }),
+    ]
+    const { start: _s, ...noStart } = text('none', 0, {
+      ...over,
+      anchor: { step: 'save', offset: -0.2 },
+    })
+    void _s
+    const absent = takeA()
+    absent.source = doc.source
+    absent.overlays = [noStart as TextOverlayClip]
+    for (const d of [stale, absent])
+      expect(
+        lintDoc(d).warnings.filter((w) =>
+          w.includes('sits over the thing being clicked'),
+        ),
+      ).toEqual([
+        'overlays[0] sits over the thing being clicked at 6.0s (output 6.0s) — pin it to that step (pin: { step }) so it sits beside the target and follows it, or move it off',
+      ])
+  })
+
+  it('says when a caption anchored to one media starts over the next media’s footage', () => {
+    const doc = takeA()
+    doc.media = [
+      {
+        id: 'm1',
+        videoKey: 'm1/recording.webm',
+        cursor: [],
+        meta: { ...doc.source.meta, durationMs: 4000, steps: [] },
+      },
+    ] as unknown as ProjectDoc['media']
+    // The primary trimmed to end just after `save`, then m1.
+    doc.segments = [
+      { in: 0, out: 6.6 },
+      { in: 0, out: 4, media: 'm1' },
+    ] as ProjectDoc['segments']
+    doc.overlays = [
+      // After its gesture plus 0.2 s: 6.7 s, over m1.
+      text('late', 0, {
+        preset: 'caption',
+        anchor: { step: 'save', at: 'end', offset: 0.2 },
+        duration: 2,
+      }),
+      // At its start: 6 s, over its own footage.
+      text('ok', 0, {
+        preset: 'caption',
+        anchor: { step: 'save', at: 'start' },
+        duration: 0.5,
+      }),
+    ]
+    const { problems, warnings } = lintDoc(doc)
+    expect(problems).toEqual([])
+    expect(warnings.filter((w) => w.includes('another scene'))).toEqual([
+      'overlays[0] (late): anchored to step "save", it starts at 6.70s, after that media\'s footage there ends (6.60s), where segments[1] plays media "m1": it speaks over another scene. Anchor it to the step\'s start (anchor.at: "start"), lower anchor.offset, or keep more of the footage it is about',
+    ])
+  })
+
   it('names an anchor that cannot resolve, and two captions on screen at once', () => {
     const doc = takeA()
     doc.overlays = [
@@ -125,6 +204,40 @@ describe('validate: anchored captions', () => {
     expect(lintDoc(doc).problems).toEqual([
       'overlays[0].anchor.step must be a step id (string) or its index (integer ≥ 0)',
       'overlays[0].anchor.offset must be a number (OUTPUT seconds)',
+    ])
+  })
+
+  it('needs no start on an anchored layer, and refuses one placed nowhere, naming its step', () => {
+    const doc = takeA()
+    const { start: _a, ...placed } = text('a', 0, {
+      preset: 'caption',
+      anchor: { step: 'save', offset: 0.2 },
+    })
+    const { start: _b, ...lost } = text('b', 0, {
+      preset: 'caption',
+      anchor: { step: 'nope' },
+    })
+    const { start: _c, ...bare } = text('c', 0)
+    doc.overlays = [placed, lost, bare] as never
+    const { problems, warnings } = lintDoc(doc)
+    expect(problems).toEqual([
+      'overlays[1].anchor: step "nope" is not in its meta.steps, and the layer has no start to fall back to, so it would play nowhere; re-anchor it, keep the footage that step plays in, or give it a start',
+      'overlays[2].start must be ≥ 0 (OUTPUT seconds)',
+    ])
+    expect(warnings.some((w) => w.includes('overlays[0]'))).toBe(false)
+  })
+
+  it('refuses an anchored layer with no start on a program, which has no steps', () => {
+    const { start: _s, ...clip } = text('a', 0, { anchor: { step: 'open' } })
+    const doc = {
+      program: { config: { version: 2, duration: 4 } },
+      overlays: [clip],
+      audio: [],
+    }
+    expect(
+      lintDoc(doc as never).problems.filter((p) => p.includes('overlays[0]')),
+    ).toEqual([
+      'overlays[0].anchor: names step "open", but a program document has no recorder steps, and the layer has no start to fall back to; give it a start',
     ])
   })
 })

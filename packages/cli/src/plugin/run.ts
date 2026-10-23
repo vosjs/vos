@@ -51,6 +51,7 @@ import { fetchMusicCatalog } from './music'
 import {
   composeCallout,
   footageFrames,
+  groundCheckTimes,
   groundFindings,
   isCalloutShape,
   registerFrom,
@@ -2554,13 +2555,7 @@ async function cmdValidate(argv: string[]): Promise<number> {
       (take.doc.overlays ?? []).some((o) => o.kind === 'html')
     ) {
       const doc = take.doc
-      const times = [
-        ...new Set(
-          (doc.overlays ?? [])
-            .filter((o) => o.kind === 'html')
-            .map((o) => +(o.start + Math.min(0.35, o.duration / 2)).toFixed(3)),
-        ),
-      ]
+      const times = groundCheckTimes(doc)
       const browser = await launchBrowser()
       try {
         const frames = await footageFrames(
