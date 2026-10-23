@@ -16,6 +16,7 @@
 import type {
   FrameSink,
   OutputSink,
+  SoundSink,
   RecorderBrowser,
   RecorderClock,
   RecorderContext,
@@ -51,8 +52,21 @@ import type {
   StepSpan,
 } from '@vosjs/studio-core'
 import { WALL_PROBE } from './wall'
-import { EXPOSURE_PROBE, ExposureLog, maskInitScript } from './exposure'
+import {
+  EXPOSURE_PROBE,
+  ExposureLog,
+  NoticeLog,
+  maskInitScript,
+} from './exposure'
+import type { ScannedNotice } from './exposure'
 import { SetupError, runSetup } from './setup'
+import { StepBound, bounded, stepBoundMs } from './stepBound'
+import {
+  MEDIA_DRAIN_PROBE,
+  MEDIA_WATCH_SCRIPT,
+  PageSoundLog,
+} from './pageSound'
+import type { MediaDrain } from './pageSound'
 import { TakeClock } from './takeClock'
 import { PageErrorLog } from './pageErrors'
 import { fitSurfaceToViewport } from './surfaceFit'
@@ -65,9 +79,10 @@ import {
   guardVerdict,
 } from './actions'
 import type { ActionsFile } from './actions'
+import { DEFAULT_READY, readyLine, reloadUntilReady, untilReady } from './ready'
+import type { ReadyReport } from './ready'
 import {
   conditionMiss,
-  domSettled,
   pollCondition,
   sayCondition,
   sayDuration,
@@ -201,12 +216,19 @@ export interface RecordResult {
   pace: PaceReport
   /** steps whose selector never became visible — the take continued without them. */
   skipped: SkippedStep[]
-  /** the initial goto never reached networkidle (recording proceeded anyway). */
+  /** `ready: "networkidle"` was asked for and the first load never reached it (recording proceeded anyway). */
   navTimeout: boolean
+  /** How the first load settled before step 1. */
+  ready: ReadyReport
   /** A wall the caller let through; null when the recorder landed where it was asked. */
   wall: WallVerdict | null
   /** Sensitive-looking text seen in the frame (kind + place, never the string). */
   exposures: NonNullable<RecordingMeta['exposures']>
+  /**
+   * INFORMATION, never a failure and never in `exposures`: the signed-in
+   * account's own name and its recent-items lists (also `meta.notices`).
+   */
+  notices: NonNullable<RecordingMeta['notices']>
   /** The script's masks with how many elements each reached; hits 0 hid nothing. */
   masks: NonNullable<RecordingMeta['masks']>
   /**
@@ -233,6 +255,8 @@ export interface RecordResult {
   skips: RecordingSkip[]
   /** The files `download` steps kept (also `meta.outputs`). */
   outputs: RecordingOutput[]
+  /** The sound the page played, each heard stretch in footage seconds (also `meta.media`). */
+  media: NonNullable<RecordingMeta['media']>
   /** An `await` timed out and the take stopped there; null when it ran to the end. */
   stopped: StoppedTake | null
   /** The page's own console errors, each distinct one with its full text and how often it came. */
@@ -299,6 +323,12 @@ export interface RecordOpts {
    * A rehearsal fetches the file and keeps nothing.
    */
   outputs?: OutputSink
+  /**
+   * Where the sound the page played is kept, fetched with the page's own
+   * cookies at the end of the take. A host that hands in none still
+   * records `meta.media`, with no file; a rehearsal fetches nothing.
+   */
+  sounds?: SoundSink
   /** Print every page error whole, each time it comes; by default one cut line per distinct error. */
   verbose?: boolean
   /**
@@ -306,6 +336,12 @@ export interface RecordOpts {
    * an `await`'s start, a heartbeat while it waits, and its end.
    */
   onEvent?: (event: Record<string, unknown>) => void
+  /**
+   * A step the page stopped answering in (it ran into its bound) stops the
+   * take there, as an `await` that timed out does (`--strict`). Without
+   * it the step is a skip and the take goes on.
+   */
+  stopOnHang?: boolean
   /** How often a long `await` reports it is still waiting (default 30 s). */
   awaitHeartbeatMs?: number
 }
@@ -406,13 +442,23 @@ export async function recordTake(
   // every navigation: the real value never reaches a painted frame.
   const masks = actions.mask ?? []
   if (masks.length) await context.addInitScript(maskInitScript(masks))
+  // Every media element the page plays is noted from document start, in
+  // every frame (pageSound.ts), so the sound it made can be placed later.
+  await context.addInitScript(MEDIA_WATCH_SCRIPT)
+  const soundLog = new PageSoundLog()
   const exposureLog = new ExposureLog(masks)
-  const page = await context.newPage()
+  const noticeLog = new NoticeLog()
+  const rawPage = await context.newPage()
+  // Every call into the page is bounded (stepBound.ts): a page that stops
+  // answering ends the step it hung, never the take's clock.
+  const pageBound = new StepBound()
+  const page = bounded(rawPage, pageBound)
   // What the frame shows, read after each step. A few ms in the page; a scan
   // that fails (mid-navigation) is skipped, never fatal.
   const scanExposures = async (step: number) => {
     const scan = await page.evaluate(EXPOSURE_PROBE).catch(() => null)
     exposureLog.add(step, scan as Parameters<ExposureLog['add']>[1])
+    noticeLog.add(step, (scan as { notices?: ScannedNotice[] } | null)?.notices)
   }
   // One line per distinct page error, cut short; repeats are counted and
   // said once at the end (pageErrors.ts). The full text rides the result.
@@ -423,16 +469,21 @@ export async function recordTake(
     if (line) log(line)
   })
 
-  log(`goto ${url}`)
-  let navTimeout = false
-  let response = await page
-    .goto(url, { waitUntil: 'networkidle', timeout: 45000 })
-    .catch(() => {
-      navTimeout = true
-      log('   (networkidle timeout — continuing)')
-      return null
+  // When the first page counts as ready: its DOM settled (default), or
+  // its network went idle (`ready: "networkidle"`). Polled on the wall's
+  // clock in a rehearsal too: how long a page takes is what it is for.
+  const readyMode = actions.ready ?? DEFAULT_READY
+  const open = (target: string) =>
+    untilReady(page, readyMode, (o) => page.goto(target, o), {
+      sleep: realSleep,
     })
-  await sleep(800) // hydration settle
+  log(`goto ${url}`)
+  const opened = await open(url)
+  let response = opened.response
+  const ready: ReadyReport = opened.ready
+  log(`   ${readyLine(ready)}`)
+  // A warning only when network idle was asked for and never came.
+  const navTimeout = ready.mode === 'networkidle' && ready.capped
 
   // The setup: off camera, before the wall is judged, because a setup that
   // signs in is exactly what makes the wall not there. A selector that never
@@ -443,6 +494,7 @@ export async function recordTake(
     const result = await runSetup(page, setup, {
       sleep: realSleep,
       env: opts.env ?? {},
+      goto: (target) => open(target),
     })
     for (const line of result.lines) log(`   ${line}`)
     if (result.failed) {
@@ -451,10 +503,7 @@ export async function recordTake(
     }
     // Back to the page the take is OF, signed in and past the banners.
     log(`goto ${url} (after setup)`)
-    response = await page
-      .goto(url, { waitUntil: 'networkidle', timeout: 45000 })
-      .catch(() => null)
-    await sleep(800)
+    response = (await open(url)).response
   }
 
   // A wall the caller let through (--allow-wall, or a soft one without
@@ -482,8 +531,10 @@ export async function recordTake(
   }
 
   await scanExposures(-1)
+  // What the page played while it was being prepared is not the take's.
+  await page.evaluate(MEDIA_DRAIN_PROBE).catch(() => null)
 
-  const cdp = await context.newCDPSession(page)
+  const cdp = await context.newCDPSession(rawPage)
   // The surface the screencast reads is the viewport, or the take is short
   // (surfaceFit.ts). Before the camera rolls; a rehearsal captures nothing.
   if (!dry) await fitSurfaceToViewport(cdp, vw, vh)
@@ -555,6 +606,13 @@ export async function recordTake(
     return { out, at, ms }
   }
   const emit = (e: Omit<CursorEvent, 't'>) => events.push({ t: now(), ...e })
+  // The page's media notes since the last look, in the recorder's clock.
+  const drainSound = async (step?: number) => {
+    const drain = (await page
+      .evaluate(MEDIA_DRAIN_PROBE)
+      .catch(() => null)) as MediaDrain | null
+    soundLog.add(drain, Date.now(), step)
+  }
 
   await page.mouse.move(cur.x, cur.y)
   emit({ x: cur.x, y: cur.y, type: 'move' })
@@ -831,6 +889,24 @@ export async function recordTake(
       )
       return true
     }
+    const boundMs = stepBoundMs(
+      step as Parameters<typeof stepBoundMs>[0],
+      askedMs(step as Parameters<typeof askedMs>[0]),
+      {
+        expectS: EXPECT_TIMEOUT_S,
+        awaitS: AWAIT_TIMEOUT_S,
+        downloadS: DOWNLOAD_TIMEOUT_S,
+      },
+    )
+    opts.onEvent?.({
+      event: 'step',
+      phase: 'start',
+      i: stepIdx,
+      ...(step.id ? { id: step.id } : {}),
+      do: step.do,
+    })
+    const stepWall = Date.now()
+    pageBound.start(boundMs)
     switch (step.do) {
       case 'wait':
         await sleep(clampWait(step.ms, now(), maxSeconds))
@@ -1091,18 +1167,7 @@ export async function recordTake(
         const cond: WaitCondition = step.until
         const timeoutMs = (step.timeout ?? AWAIT_TIMEOUT_S) * 1000
         const reload = step.reload
-          ? async () => {
-              const opts = {
-                waitUntil: 'networkidle' as const,
-                timeout: Math.min(45000, timeoutMs),
-              }
-              await (
-                page.reload ? page.reload(opts) : page.goto(page.url(), opts)
-              ).catch(() => null)
-              // Network quiet is not a drawn page: a list rendered from its
-              // data lands after it. Let the DOM settle before the look.
-              await domSettled(page, { sleep: realSleep })
-            }
+          ? () => reloadUntilReady(page, readyMode, timeoutMs)
           : undefined
         log(`await ${sayCondition(cond)} (off camera)…`)
         const awaitEvent = {
@@ -1247,6 +1312,26 @@ export async function recordTake(
         break
       }
     }
+    const hang = pageBound.end()
+    if (hang.hung) {
+      const reason = hangReason(step.do, hang.ms, hang.boundMs)
+      // One skip per step: a miss the step said already gives way to why.
+      const said = skipped.length > skippedBefore ? skipped.at(-1) : undefined
+      if (said) {
+        said.reason = reason
+        extra.reason = reason
+      } else skip((step as { selector?: string }).selector ?? '', reason)
+      log(`   (${tag} ${step.do}: ${reason})`)
+      // --strict: a page that stopped answering stops the take here.
+      if (opts.stopOnHang && !stopped)
+        stopped = {
+          step: stepIdx,
+          ...(step.id ? { id: step.id } : {}),
+          reason: `${tag} ${step.do}: ${reason}, so the take stopped there`,
+        }
+    }
+    // The step's own reads after it (its words, the scans) get a beat each.
+    pageBound.start(POST_STEP_READ_MS)
     // A guarded step that ran in a recording ran because the command named it.
     if (step.guard && !dry && skipped.length === skippedBefore) {
       confirmed.push(step.id ?? String(stepIdx))
@@ -1308,6 +1393,19 @@ export async function recordTake(
     })
     // After the pace is taken: the scan's few ms are not the step's.
     await scanExposures(stepIdx)
+    await drainSound(stepIdx)
+    pageBound.end()
+    const stepSpan = stepSpans[stepSpans.length - 1]
+    opts.onEvent?.({
+      event: 'step',
+      phase: 'end',
+      i: stepIdx,
+      ...(step.id ? { id: step.id } : {}),
+      do: step.do,
+      ms: Date.now() - stepWall,
+      ...(stepSpan?.skipped ? { skipped: true } : {}),
+      ...(hang.hung ? { hung: true } : {}),
+    })
     // An await that timed out with onTimeout "fail": the take ends here.
     if (stopped) break
   }
@@ -1317,12 +1415,29 @@ export async function recordTake(
     log(`   ${cappedLine(maxSeconds)}`)
   }
 
+  // The take's own finish reads the page too, and is bounded like a step.
+  pageBound.start(POST_STEP_READ_MS * 2)
+  await drainSound()
+  const endWall = Date.now()
   const durationMs = capped ? Math.min(now(), maxSeconds * 1000) : now()
+  const heard = soundLog.heard(takeClock, endWall, durationMs)
   await cdp.send('Page.stopScreencast').catch(() => {})
+  // Off camera now: the fetch takes what it takes.
+  const media = await keepPageSound(
+    heard,
+    dry ? undefined : opts.sounds,
+    fetchSource,
+    log,
+  )
   await sleep(200)
-  const pageTitle = await page.title().catch(() => '')
+  const pageTitle = (await page.title().catch(() => '')) ?? ''
   for (const line of pageErrors.repeats()) log(line)
-  await context.close()
+  // A context whose page stopped answering may not close either: the take
+  // is done whether it does or not.
+  pageBound.end()
+  pageBound.start(CLOSE_BOUND_MS)
+  await pageBound.race(context.close().catch(() => {}))
+  pageBound.end()
   // Every frame the screencast delivered has reached the sink.
   await sinkChain
 
@@ -1351,9 +1466,11 @@ export async function recordTake(
     ...(exposureLog.exposures().length
       ? { exposures: exposureLog.exposures() }
       : {}),
+    ...(noticeLog.notices().length ? { notices: noticeLog.notices() } : {}),
     ...(masks.length ? { masks: exposureLog.masks(masks) } : {}),
     ...(skips.length ? { skips } : {}),
     ...(outputs.length ? { outputs } : {}),
+    ...(media.length ? { media } : {}),
   }
 
   // Smoothness telemetry: screencast emits only on visual change, so frame
@@ -1375,7 +1492,8 @@ export async function recordTake(
   // The freeze share is a FACT (a workspace tour is mostly still and fine);
   // the warning is dead time: a hold nobody is reading, named per step.
   const dead = deadTime(stepSpans, frames, events, durationMs)
-  if (deadWarns(dead)) log(`   WARNING: ${deadLine(dead)}`)
+  // A rehearsal captures no frames: it has no dead time to warn about.
+  if (!dry && deadWarns(dead)) log(`   WARNING: ${deadLine(dead)}`)
 
   const pace = paceReport(paces)
   if (!dry) log(`   ${paceLine(pace)}`)
@@ -1386,8 +1504,10 @@ export async function recordTake(
     pace,
     skipped,
     navTimeout,
+    ready,
     wall,
     exposures: exposureLog.exposures(),
+    notices: noticeLog.notices(),
     masks: exposureLog.masks(masks),
     freezes,
     freezePct,
@@ -1397,10 +1517,66 @@ export async function recordTake(
     confirmed,
     skips,
     outputs,
+    media,
     stopped,
     pageErrors: pageErrors.entries(),
     actions: { ...actions, url },
   }
+}
+
+/**
+ * Fetch each sound the page was heard playing, once per address, and keep
+ * it through the host's sink: the take-relative key lands on its
+ * `meta.media` entry. A source that cannot be fetched (a `blob:` of a page
+ * that has gone, an address that answers 403) is said, and the entry keeps
+ * the reason instead of a file. Nothing is fetched without a sink.
+ */
+async function keepPageSound(
+  heard: ReturnType<PageSoundLog['heard']>,
+  sink: SoundSink | undefined,
+  fetchSource: (
+    src: string,
+  ) => Promise<{ bytes: Uint8Array; suggested: string; contentType?: string }>,
+  log: (msg: string) => void,
+): Promise<NonNullable<RecordingMeta['media']>> {
+  const kept = new Map<string, { file?: string; fetchError?: string }>()
+  const used = new Set<string>()
+  for (const h of heard) {
+    if (!h.meta.intervals.length) continue
+    const stretches = h.meta.intervals.length
+    log(
+      `   page sound: ${h.meta.src || 'a media element'} heard ${stretches === 1 ? 'once' : `${stretches} times`}`,
+    )
+    if (!sink || kept.has(h.src)) continue
+    try {
+      const got = await fetchSource(h.src)
+      const name = outputName(
+        undefined,
+        got.suggested,
+        `sound-${kept.size + 1}${extForType(got.contentType)}`,
+        used,
+      )
+      used.add(name)
+      kept.set(h.src, {
+        file: await sink.save(name, got.bytes, got.contentType),
+      })
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e)
+      kept.set(h.src, { fetchError: why })
+      log(`   (page sound not kept: ${why})`)
+    }
+  }
+  return heard.map((h) => ({ ...h.meta, ...(kept.get(h.src) ?? {}) }))
+}
+
+/** How long a step's own reads after it (its words, the scans) may take on a page that has stopped answering. */
+const POST_STEP_READ_MS = 5000
+/** How long the take waits for its browser context to close. */
+const CLOSE_BOUND_MS = 10_000
+
+/** Why a step ended at its bound, with the real time it took. */
+export function hangReason(verb: string, ms: number, boundMs: number): string {
+  return `the page stopped answering: this ${verb} ran ${sayDuration(ms)}, past its bound of ${sayDuration(boundMs)}`
 }
 
 /** A download's extension from its type, for a name the page did not give. */

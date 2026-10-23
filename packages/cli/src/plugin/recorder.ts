@@ -5,7 +5,8 @@
  * env for a setup's `{ env }` texts, and this machine's platform, and
  * writes the same four files it always wrote (cursor.json, meta.json,
  * frames.json, actions.json), byte for byte, plus `outputs/<name>` for every
- * file a `download` step kept.
+ * file a `download` step kept and `page-sound/<name>` for every sound the
+ * page was heard playing.
  */
 import { writeFileSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
@@ -17,6 +18,7 @@ import {
 import type {
   OutputSink,
   RecordOpts as CoreRecordOpts,
+  SoundSink,
 } from '@vosjs/render-core/record'
 import type { Browser, BrowserContext } from 'playwright'
 import { writeJson } from './take'
@@ -49,9 +51,26 @@ export function outputsSink(dir: string): OutputSink {
   }
 }
 
+/** The take's `page-sound/`: the sound the page played, keyed take-relative for the plan's clips. */
+export const PAGE_SOUND_DIR = 'page-sound'
+
+export function pageSoundSink(dir: string): SoundSink {
+  const soundDir = join(dir, PAGE_SOUND_DIR)
+  return {
+    save: async (name, bytes) => {
+      const problem = fileNameProblem(name)
+      if (problem) throw new Error(`${PAGE_SOUND_DIR}/${name}: ${problem}`)
+      await refuseSymlink(soundDir)
+      await mkdir(soundDir, { recursive: true })
+      await writeFileSafe(join(soundDir, name), bytes)
+      return `${PAGE_SOUND_DIR}/${name}`
+    },
+  }
+}
+
 export type RecordOpts = Omit<
   CoreRecordOpts,
-  'context' | 'env' | 'platform' | 'outputs'
+  'context' | 'env' | 'platform' | 'outputs' | 'sounds'
 > & {
   /**
    * A ready-made context to record IN, instead of one made from `browser`:
@@ -82,6 +101,7 @@ export async function recordTake(
     {
       ...opts,
       outputs: outputsSink(paths.dir),
+      sounds: pageSoundSink(paths.dir),
       env: process.env,
       platform:
         process.platform === 'darwin'
