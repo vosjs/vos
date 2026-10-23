@@ -322,6 +322,37 @@ describe('one zoom per beat', () => {
     expect(zoomMarkOf(steps[2], actions, undefined)).toBeUndefined()
   })
 
+  it('lists a captioned beat the planner proposed nothing in', () => {
+    // Proposals in the draw beat only; the arrows beat holds none.
+    const d = doc({ zoom: [zoom('z1', 2, 3.5)] })
+    const r = oneZoomPerBeat(
+      d,
+      new Map([['', marked({ draw: true, tidy: true })]]),
+    )
+    expect(r.none).toEqual([
+      {
+        media: '',
+        step: 'arrows',
+        caption: 'Arrows attach',
+        why: 'empty',
+        ids: [],
+        marked: [{ step: 4, do: 'click' }],
+      },
+    ])
+    expect(perBeatLine(r)).toContain(
+      'beat "Arrows attach": no proposal in this beat (marked #4 click)',
+    )
+    // Under the fallback too, and the opening is never listed for it.
+    const bare = oneZoomPerBeat(
+      doc({ zoom: [zoom('z1', 2, 3.5)] }),
+      new Map([['', actions]]),
+    )
+    expect(perBeatLine(bare)).toContain(
+      'beat "Arrows attach": no proposal in this beat',
+    )
+    expect(perBeatLine(bare)).not.toContain('the opening')
+  })
+
   it('a beat with a manual zoom keeps only its manual ones', () => {
     const d = doc()
     // A manual zoom off the mark still wins its beat.

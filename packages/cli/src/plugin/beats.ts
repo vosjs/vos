@@ -277,13 +277,17 @@ export interface PerBeatReport {
   /** One per kept zoom: the beat, the step it is on, the span. */
   kept: (BeatWords & { action: BeatTarget; id: string })[]
   /**
-   * Beats, or marked steps, that kept nothing: no step marked (`unmarked`),
-   * the opening under the fallback (`opening`), no gesture to stand in
-   * (`no-gesture`), or a marked step with no proposal on it (`no-proposal`).
+   * Beats, or marked steps, that kept nothing: no proposal in the beat at
+   * all (`empty`; a captioned beat only, never the opening), no step marked
+   * (`unmarked`), the opening under the fallback (`opening`), no gesture to
+   * stand in (`no-gesture`), or a marked step with no proposal on it
+   * (`no-proposal`).
    */
   none: (BeatWords & {
-    why: 'unmarked' | 'opening' | 'no-gesture' | 'no-proposal'
+    why: 'empty' | 'unmarked' | 'opening' | 'no-gesture' | 'no-proposal'
     action?: BeatTarget
+    /** On an `empty` beat: the steps it marks, which had nothing to keep. */
+    marked?: BeatTarget[]
     ids: string[]
   })[]
   /** Beats that hold a manual zoom already; their proposals were rejected. */
@@ -380,6 +384,21 @@ export function oneZoomPerBeat(
         media,
         step: beat.step,
         caption: beat.caption,
+      }
+      // A captioned beat the planner proposed nothing in is said too.
+      if (!inBeat.length) {
+        if (beat.step !== null)
+          report.none.push({
+            ...words,
+            why: 'empty',
+            ids: [],
+            ...(beat.marked.length
+              ? {
+                  marked: beat.marked.map((m) => ({ step: m.step, do: m.do })),
+                }
+              : {}),
+          })
+        continue
       }
       const targets = fallback
         ? beat.step === null || !beat.lastGesture
@@ -531,13 +550,15 @@ export function perBeatLine(
   for (const b of r.none)
     parts.push(
       `${beatName(b)}: ${
-        b.why === 'no-proposal' && b.action
-          ? `${target(b.action)}, but no proposal on it`
-          : b.why === 'unmarked'
-            ? 'no step marked "zoom", no zoom'
-            : b.why === 'no-gesture'
-              ? 'no gesture to stand in, no zoom'
-              : 'no zoom'
+        b.why === 'empty'
+          ? `no proposal in this beat${b.marked?.length ? ` (marked ${b.marked.map((m) => `#${m.step} ${m.do}`).join(', ')})` : ''}`
+          : b.why === 'no-proposal' && b.action
+            ? `${target(b.action)}, but no proposal on it`
+            : b.why === 'unmarked'
+              ? 'no step marked "zoom", no zoom'
+              : b.why === 'no-gesture'
+                ? 'no gesture to stand in, no zoom'
+                : 'no zoom'
       }`,
     )
   if (r.manual.length)
