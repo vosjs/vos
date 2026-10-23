@@ -12,6 +12,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { closeBrowser } from './closeBrowser'
 import { encodeRecording } from '../encode'
 import type { Browser } from 'playwright'
 
@@ -28,8 +29,8 @@ beforeAll(async () => {
 }, 60_000)
 
 afterAll(async () => {
-  await browser?.close()
-})
+  await closeBrowser(browser)
+}, 30_000)
 
 /** A JPEG of exactly width x height, from the browser itself. */
 async function jpeg(width: number, height: number): Promise<Buffer> {

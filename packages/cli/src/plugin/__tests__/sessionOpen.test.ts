@@ -52,7 +52,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 /** Close the browser's only page, the way a person closes the window. */
 async function closeOnlyPage(dir: string): Promise<void> {
   const portFile = join(dir, 'DevToolsActivePort')
-  for (let i = 0; i < 200; i++) {
+  // A loaded machine can take a while to start Chrome: a minute at most.
+  for (const until = Date.now() + 60_000; Date.now() < until; ) {
     if (existsSync(portFile)) {
       const port = readFileSync(portFile, 'utf8').split('\n')[0]
       const list = (await fetch(`http://127.0.0.1:${port}/json/list`)
@@ -115,5 +116,5 @@ describe('vos session open saves when the window closes', () => {
       readFileSync(join(dir, 'Default', 'Preferences'), 'utf8'),
     ) as { profile?: { exit_type?: string } }
     expect(prefs.profile?.exit_type).not.toBe('Crashed')
-  }, 60_000)
+  }, 150_000)
 })
