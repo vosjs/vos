@@ -47,8 +47,9 @@ The rubric for judging a take before its render ships. Judge stills
 7. **Levels 1.4–2.8 read well**; above 3× is for genuine detail (a number, a
    toggle), and must be brief. Below 1.3× reads as drift, not intent.
 8. **One zoom per beat.** Zooms that chain across unrelated UI read as a lost
-   camera. If the planner over-suggested, delete spans — an un-zoomed second
-   is better than an unmotivated one.
+   camera. If the planner over-suggested, mark the payoff steps and plan
+   `--zooms per-beat` (SKILL.md, step 2) rather than deleting spans by
+   hand — an un-zoomed second is better than an unmotivated one.
 9. **Focus on the subject, not the cursor resting spot.** `cx/cy` are
    normalized [0..1]; check the apex still shows the thing the beat is about,
    with breathing room (the subject inside the middle ~60% of the crop).
@@ -99,7 +100,10 @@ The two enemies, both measurable:
     per ~5s**, and let them happen WIDE (place zoom spans so the camera has
     released before a click that re-layouts; zoom into the RESULT, not the
     trigger). Census: `ffmpeg -vf "select='gt(scene,0.12)'"` on the final
-    render — each detection should be a transition you _chose_.
+    render — each detection should be a transition you _chose_. Prefer
+    `vos check-video <file>`: it also counts a hard cut between two light,
+    sparse pictures (thin lines on white cutting to an empty canvas),
+    which an average-difference threshold misses.
 
 ## Judge each still set against
 

@@ -134,6 +134,27 @@ Per-channel dimensions and byte budgets: `references/destinations.md`.
    from hover-triggered menus (taste.md, flow rules). Check with
    `vos validate actions.json`.
 
+   **Mark where the camera goes** (`@vosjs/cli` 0.80 and later). A step
+   with a `caption` starts a beat; put the caption on the step whose action
+   it describes. Mark each beat's PAYOFF `"zoom": true`: the moment the
+   viewer should see up close (the drag whose result is the point, the
+   click that opens the thing, the typing that names it). Mark a gesture
+   that must stay wide `"zoom": false`. Give every marked step an `id`.
+   Then `vos plan take --zooms per-beat` keeps exactly the marked zooms
+   and rejects the rest for good; the planner still picks level and
+   focus. Why marks: no rule inferred from a script matched a person's
+   zoom choices (the best got 3 of 5); marks reproduced all 5 and nothing
+   else.
+
+   **Check the app's own state** after any step that sets up the scene (a
+   document loaded, a count of items): `{ "do": "expect", "js":
+   "window.app.count()", "equals": 14 }`. A take can pass `--strict` with
+   the product in the wrong state (loaded twice, a duplicate on screen),
+   because the DOM says nothing about what a canvas app holds; with
+   `equals` a miss says what the app had. Read state only, never change
+   it. A collaboration product wants a second person on the page: `peers`
+   in `actions.json` (https://vos.so/llms-full.txt).
+
    Then REHEARSE it (`@vosjs/cli` 0.39 and later):
    `vos record --actions actions.json --out take --dry-run`. Every step runs
    against the real page, in order, because a later selector usually exists
@@ -180,6 +201,8 @@ Per-channel dimensions and byte budgets: `references/destinations.md`.
    - export: `{"resolution": "720p|1080p|2k|4k", "fps": 30}` — never above
      the footage (validate warns).
    Then `vos validate take --json` — lints must pass.
+   Several takes in one film, a cold open, an end card: the `vos-cut`
+   skill, "Assemble".
 
 5. **Look before you render** (the taste.md quality loop):
    - `vos frames take --at-zooms --times 0,25%,50%,75%,100% --json` → judge
@@ -268,3 +291,7 @@ when the ask is a release, not one video.
   `EXPOSED` list, and `mask` what is left.
 - A `mask` with `as: "text"` over product copy or a number: that is no
   longer a recording of the product.
+- Picking zooms by hand from a long proposal list (a canvas take proposes
+  one per gesture): mark the payoff steps and plan `--zooms per-beat`.
+- Trusting `--strict` for the scene: it proves the steps ran, not that the
+  app holds what the beat shows. Check with `expect` + `js` + `equals`.
