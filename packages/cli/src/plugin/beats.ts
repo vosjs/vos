@@ -40,6 +40,7 @@
  * is handed.
  */
 import { docMediaList, mediaKey, rejectSpan } from '@vosjs/studio-core'
+import { scriptStepOf } from './scriptStep'
 import { captionOf } from './stepCaptions'
 import type { ProjectDoc, StepSpan, ZoomSpan } from '@vosjs/studio-core'
 import type { ActionsFile } from './actions'
@@ -102,14 +103,10 @@ export function zoomMarkOf(
   step: StepSpan,
   actions: ActionsFile | null | undefined,
   script: Record<string, unknown> | undefined,
+  recorded: readonly StepSpan[] = [],
 ): boolean | undefined {
   const inList = (list: unknown): boolean | undefined => {
-    if (!Array.isArray(list)) return undefined
-    const byId =
-      step.id !== undefined
-        ? list.find((s) => (s as { id?: unknown })?.id === step.id)
-        : undefined
-    const raw = (byId ?? list[step.step]) as { zoom?: unknown } | undefined
+    const raw = scriptStepOf(step, list, recorded)
     return typeof raw?.zoom === 'boolean' ? raw.zoom : undefined
   }
   return (
@@ -135,7 +132,10 @@ function markedSteps(
   return [...(source.meta.steps ?? [])]
     .filter((s) => typeof s.tStart === 'number' && !s.skipped)
     .sort((a, b) => a.tStart - b.tStart || a.step - b.step)
-    .map((s) => ({ s, mark: zoomMarkOf(s, actions, source.script) }))
+    .map((s) => ({
+      s,
+      mark: zoomMarkOf(s, actions, source.script, source.meta.steps ?? []),
+    }))
 }
 
 /**
@@ -151,7 +151,12 @@ export function mediaBeats(
   const starts: { step: StepSpan; caption: string }[] = []
   for (const step of source.meta.steps ?? []) {
     if (typeof step.tStart !== 'number') continue
-    const caption = captionOf(step, actions, source.script)
+    const caption = captionOf(
+      step,
+      actions,
+      source.script,
+      source.meta.steps ?? [],
+    )
     if (caption) starts.push({ step, caption })
   }
   if (!starts.length) return []

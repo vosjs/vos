@@ -21,6 +21,7 @@ import {
 } from '@vosjs/studio-core'
 import { totalDuration } from '@vosjs/timeline'
 import { CAPTION_ID_PREFIX, houseCaption } from './motionPlan'
+import { scriptStepOf } from './scriptStep'
 import type {
   OverlayAnchor,
   OverlayClip,
@@ -50,11 +51,17 @@ export interface StepCaptionReport {
   uncaptioned: string[]
 }
 
-/** A step's caption: on the step itself, else its actions.json step, else the document's embedded script. */
+/**
+ * A step's caption: on the step itself, else its actions.json step, else
+ * the document's embedded script. `recorded` is the media's recorded steps,
+ * which find the script step a recorded one was made from when the script
+ * was edited after recording (`scriptStepOf`).
+ */
 export function captionOf(
   step: StepSpan,
   actions: ActionsFile | null | undefined,
   script: Record<string, unknown> | undefined,
+  recorded: readonly StepSpan[] = [],
 ): string | null {
   const own = (step as { caption?: unknown }).caption
   if (typeof own === 'string' && own.trim()) return own.trim()
@@ -62,12 +69,7 @@ export function captionOf(
     actions?.steps,
     Array.isArray(script?.steps) ? (script.steps as unknown[]) : undefined,
   ]) {
-    if (!Array.isArray(list)) continue
-    const byId =
-      step.id !== undefined
-        ? list.find((s) => (s as { id?: unknown })?.id === step.id)
-        : undefined
-    const raw = (byId ?? list[step.step]) as { caption?: unknown } | undefined
+    const raw = scriptStepOf(step, list, recorded)
     if (typeof raw?.caption === 'string' && raw.caption.trim())
       return raw.caption.trim()
   }
@@ -137,7 +139,7 @@ export function landStepCaptions(
     const steps = source.meta.steps ?? []
     let captioned = 0
     for (const step of steps) {
-      const caption = captionOf(step, actions.get(media), source.script)
+      const caption = captionOf(step, actions.get(media), source.script, steps)
       if (!caption) continue
       captioned++
       const ref = step.id ?? step.step

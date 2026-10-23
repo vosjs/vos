@@ -162,7 +162,12 @@ export function takeTimeline(
     file: source.videoKey,
     duration: r3((source.meta.durationMs || 0) / 1000),
     steps: (source.meta.steps ?? []).map((s) => {
-      const caption = captionOf(s, actions.get(id), source.script)
+      const caption = captionOf(
+        s,
+        actions.get(id),
+        source.script,
+        source.meta.steps ?? [],
+      )
       // A step is an instant as often as a stretch (a press, a key): it
       // plays where its first moment does.
       const out = Math.max(s.tEnd, s.tStart + 1e-3)
