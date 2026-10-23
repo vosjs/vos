@@ -115,7 +115,7 @@ import { clipEnvelope } from './audioEnvelope'
 import { clipGain } from './loudness'
 import { followFocusEvents } from './cursorFollow'
 import { pinPlacement, pinReferent } from './pin'
-import { resolveOverlayAnchors } from './anchor'
+import { resolveOverlayAnchors, sourceMomentToOutput } from './anchor'
 import { cursorIdleFade } from './cursorIdle'
 import { STUDIO_ENTRY_ID, studioEntry } from './studioEntry'
 import {
@@ -139,7 +139,13 @@ import {
   extractClicks,
   hexToRgbTriplet,
 } from './extractClicks'
-import { cardFields, layerMedia, mediaFrame, sameMedia } from '../media'
+import {
+  cardFields,
+  layerMedia,
+  mediaFrame,
+  mediaSource,
+  sameMedia,
+} from '../media'
 import { htmlLayerPayload } from '../htmlLayer'
 import type { StudioDoc } from '../doc/studioDoc'
 import type { TimelineEdit } from '@vosjs/shared/timelineEdits'
@@ -612,7 +618,13 @@ export function zoomTrackFromDoc(
     // recenter duration.
     let inPath = false
     for (const e of z.followEvents ?? []) {
-      const eOut = sourceToTimeline(segments, e.t)
+      // A recenter's time is a moment of the span's OWN media: a span on
+      // another media maps through that media's pieces (the media-blind
+      // lookup found the primary's piece at the same source second, an
+      // output time outside the span, and dropped every recenter).
+      const eOut = z.media
+        ? sourceMomentToOutput(segments, e.t, z.media)
+        : sourceToTimeline(segments, e.t)
       if (eOut === null || eOut <= tIn || eOut >= holdEnd) continue
       // A recenter with less than RAMP_FLOOR of room after the arrival or
       // before the exit would compress into a jump (the focus freezes for
@@ -2306,8 +2318,12 @@ const ON_FRAME = `(ctx, content, dt) => {
   // ceZs = the zoom transform's device scale, for the two values below that
   // are sized in DEVICE pixels inside a scaled user space.
   var ceZs = 1
-  // The camera model (cfr.camera; MIRRORS layout.ts zoomView — change them
-  // together). The magnifier scales the card about the focus, which stays
+  // The camera model (frame.camera; MIRRORS layout.ts zoomView — change them
+  // together). The camera is a FRAME-wide field, never a card's: a media's
+  // card (cfr) carries only the card-owned keys, so reading it there drew
+  // every media but the primary under the magnifier while the lowering
+  // clamped its focus, and every host placed its pins, for the stage. The
+  // magnifier scales the card about the focus, which stays
   // where it is on screen; the stage camera also slides the card so the
   // focus lands at the frame's centre, blended in over CAMERA_CENTRE_RAMP
   // of level (a smoothstep, 0 at level 1) so a ramp through the band slides
@@ -2315,7 +2331,7 @@ const ON_FRAME = `(ctx, content, dt) => {
   // the content point at the frame's centre under either model; the two
   // branches are the same map, the magnifier's kept in its old float order
   // so every existing document renders byte-identically.
-  var camStage = cfr.camera === 'stage'
+  var camStage = frame.camera === 'stage'
   var fx = dx + zx * dw, fy = dy + zy * dh
   var wcx = fx, wcy = fy
   // The point the stage camera lands its focus on: the span's place on
@@ -3533,19 +3549,34 @@ function loweredZoomSpans(
   camera: CameraModel,
   zoomStyle: ZoomStyleParams,
 ): LoweredZoomSpan[] {
-  const meta = doc.source.meta
+  // A span on another media is clamped against THAT media's card and
+  // follows THAT media's cursor: its cx/cy are fractions of its own footage,
+  // which ON_FRAME lays out in its own card (and the framing lint reads the
+  // same card). The primary's layout is the one the caller handed in.
+  const cards = new Map<string, CardLayout>([['', layout]])
+  const cardOf = (id: string | undefined): CardLayout => {
+    const key = id ?? ''
+    let l = cards.get(key)
+    if (!l) {
+      l = mediaSource(doc, key) ? docCardLayout(doc, key) : layout
+      cards.set(key, l)
+    }
+    return l
+  }
   return restSpansThroughTransitions(
     doc.zoom,
     rated,
     transitions,
     ZOOM_SPAN_MIN,
   ).map((z) => {
+    const src = mediaSource(doc, z.media) ?? doc.source
+    const card = cardOf(z.media)
     if (z.focusMode === 'auto') {
       const f = followFocusEvents(
         z,
-        doc.source.cursor,
-        { w: meta.width, h: meta.height },
-        layout,
+        src.cursor,
+        { w: src.meta.width, h: src.meta.height },
+        card,
         {
           safeRatio: zoomStyle.followSafeRatio,
           recenter: zoomStyle.followRecenter,
@@ -3563,7 +3594,7 @@ function loweredZoomSpans(
         z.cx,
         z.cy,
         clampZoomLevel(z.level),
-        layout,
+        card,
         camera,
         z.focusMode !== 'auto' ? z.screen : undefined,
       ),
