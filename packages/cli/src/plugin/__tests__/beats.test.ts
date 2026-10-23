@@ -266,6 +266,22 @@ describe('one zoom per beat', () => {
       ['draw', 1, 'z1'],
       ['arrows', 4, 'z5'],
     ])
+    // The proposal on the false step says why it went.
+    expect(d.rejected?.find((x) => x.in === 4 && x.out === 7)?.note).toBe(
+      ZOOM_FALSE_NOTE,
+    )
+    // So does one in a beat with no mark at all.
+    const unmarked = doc()
+    oneZoomPerBeat(
+      unmarked,
+      new Map([['', marked({ label: false, tidy: true })]]),
+    )
+    expect(
+      unmarked.rejected?.find((x) => x.in === 4 && x.out === 7)?.note,
+    ).toBe(ZOOM_FALSE_NOTE)
+    expect(
+      unmarked.rejected?.find((x) => x.in === 2 && x.out === 3.5)?.note,
+    ).toBe(PER_BEAT_NOTE)
     // A plain plan: the proposal on the false step is rejected for good,
     // and a true step with nothing proposed on it is said.
     const plain = doc()

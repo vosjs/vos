@@ -343,6 +343,7 @@ export function oneZoomPerBeat(
     beats: 0,
   }
   const drop = new Set<ZoomSpan>()
+  const refused = new Set<ZoomSpan>()
   const order = stronger(doc)
   for (const { id: media, source } of docMediaList(doc)) {
     if (opts.only && !opts.only.has(media)) continue
@@ -356,6 +357,7 @@ export function oneZoomPerBeat(
     const never = markedSteps(source, actions.get(media))
       .filter((x) => x.mark === false)
       .map((x) => beatStep(x.s))
+    for (const z of spans) if (never.some((s) => onStep(z, s))) refused.add(z)
     for (const beat of beats) {
       const inBeat = spans.filter((z) => {
         const mid = (z.in + z.out) / 2
@@ -424,7 +426,13 @@ export function oneZoomPerBeat(
       for (const z of auto) if (!chosen.includes(z)) drop.add(z)
     }
   }
-  report.rejected = rejectAll(doc, drop, PER_BEAT_NOTE)
+  // A proposal on a step the script says never to zoom on is rejected for
+  // that reason, whichever beat it sat in.
+  const onNever = new Set([...drop].filter((z) => refused.has(z)))
+  for (const z of onNever) drop.delete(z)
+  report.rejected =
+    rejectAll(doc, onNever, ZOOM_FALSE_NOTE) +
+    rejectAll(doc, drop, PER_BEAT_NOTE)
   return report
 }
 
