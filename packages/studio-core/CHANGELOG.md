@@ -1,5 +1,26 @@
 # @vosjs/studio-core
 
+## 0.44.0
+
+### Minor Changes
+
+- 96fab94: The recorder's scan notes, as information and never as a strict failure, where the signed-in account's own name shows in the frame (never printing the name, not even inside a selector) and any list of the account's recent items with the mask that hides it: `meta.notices[]`, the done events, the rehearsal and `vos validate`.
+- cd42672: An audio clip can carry a loudness target: `normalize` (integrated LUFS, -30..-6) beside its file's measured `loudness` (`{ lufs, peakDb, at, src }`). The lowering plays the clip at `10^((normalize - lufs) / 20) × gain`, which may exceed 1, capped so the sample peak stays under -1 dBFS and never lifted more than +24 dB, in the preview scheduler and the export mix alike (`clipGain`). The target applies only while `loudness.src` is the clip's key; a clip without one lowers byte for byte as before.
+
+  `vos audio measure <take>` writes every clip's `loudness` (BS.1770 integrated, K-weighted and gated, over the whole file, and the sample peak, by the meter `vos check-video` uses). `vos score` measures its track and sets `normalize: -16` with `--gain` as a trim on it (`--normalize <lufs|off>`); `vos join` measures the sound it adds. `vos validate` refuses a target out of range or a malformed measurement, and warns, with the verb to run, when a target is unmeasured, measured for another key, or held under its target by a cap. `vos push` and `vos pull --media` move `loudness.src` with the key.
+
+- 96fab94: Sound a page plays during a take is kept: every video or audio element heard (in the page or a same-origin frame) lands in `meta.media[]` with the footage stretches it was heard, its file is fetched with the page's cookies into the take's `page-sound/`, and the plan places one audio clip per stretch at its output time with `source: "page"`, which a re-plan replaces.
+- cd42672: `DOC_FEATURES` in `@vosjs/studio-core` lists the document fields a host's lowering must understand, each with the release that first renders it (`docFeatures`, `featuresNewerThan`, `compareVersions`), and `bakeDocFeatures(doc, version)` returns a copy with the newer ones said in what that release reads (an anchored caption at the start it plays at, its `{elapsed}` filled; a loudness target as its gain).
+
+  `vos push <take>` reads which studio-core the platform renders with (`GET <origin>/api/engine`) before anything uploads, and refuses (exit 2) a take that uses a newer field, which the platform's studio would draw wrong when it opens the take, and every version saved there would keep: `this take uses caption anchors (studio-core 0.43.0); vos.so renders with 0.42.4, …`. `--bake` sends a copy with every such field the take uses baked, whatever the platform answered (behind, current, or nothing), and leaves `doc.json` alone. A platform that cannot say (no such endpoint, a refusal, no answer within 2 s) is warned of and pushed to.
+
+  `vos join` no longer leaves a file handle open on a clip it copies without remuxing.
+
+### Patch Changes
+
+- 753af27: `actions.json` speaks canvas. `press` takes `keys`: a chord (`"Shift+D"`, `"Mod+Z"`, with `Mod` Meta on macOS and Control elsewhere), a plain key (`"r"`) or a sequence (`["v", "Escape"]`), each a typing ping that never carries the key. `drag` takes `modifiers` held for the whole drag, and `path`: viewport points inline or in a file beside the actions file, replayed point by point by their own times or evenly over `ms`, drawn with a pen when the points carry pressure. `click` takes `count: 2 | 3`, `button: "right" | "middle"` and `modifiers`, and `click` and `hover` take a viewport point (`x`, `y`) instead of a selector. A new `paste` step pastes words through the browser's clipboard with a trusted chord, and an image file as its own bytes in a paste dispatched in the page (the clipboard re-encodes a picture and drops its density); a hosted take refuses it. A gesture may `settle` (per step, or for the whole script): it waits until the page has made no DOM change and painted no new frame for 300 ms since its last change, and goes on at once on a page already still. A paced gesture that ran more than a fifth past its script is reported as `meta.steps[].overrunMs`, `overruns` in the done event and one line. `vos actions script` says the new steps in words. The recorder's driver contract gains `mouse.down`/`up` options, `keyboard.down`/`up` and an optional `grantPermissions`; `RecordOpts.files` reads the files a script names. `StepSpan` gains `overrunMs` and `settleMs`. The script a take keeps is self-contained: a path a file held is written inline in the take's `actions.json` (what a push embeds, a fetch writes back and a hosted take runs), `--hosted` sends it inline, and a pasted file is kept beside the script as `paste-<name>`.
+- 81f0fbd: The zoom planner never overlaps a drag's span with a click or typing span (they cede the drag its window, as a typing span cedes a click on another field), so `vos validate` accepts every fresh plan.
+
 ## 0.43.0
 
 ### Minor Changes

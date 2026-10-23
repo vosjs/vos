@@ -1,5 +1,51 @@
 # @vosjs/cli
 
+## 0.79.0
+
+### Minor Changes
+
+- 96fab94: The recorder's scan notes, as information and never as a strict failure, where the signed-in account's own name shows in the frame (never printing the name, not even inside a selector) and any list of the account's recent items with the mask that hides it: `meta.notices[]`, the done events, the rehearsal and `vos validate`.
+- cd42672: An audio clip can carry a loudness target: `normalize` (integrated LUFS, -30..-6) beside its file's measured `loudness` (`{ lufs, peakDb, at, src }`). The lowering plays the clip at `10^((normalize - lufs) / 20) × gain`, which may exceed 1, capped so the sample peak stays under -1 dBFS and never lifted more than +24 dB, in the preview scheduler and the export mix alike (`clipGain`). The target applies only while `loudness.src` is the clip's key; a clip without one lowers byte for byte as before.
+
+  `vos audio measure <take>` writes every clip's `loudness` (BS.1770 integrated, K-weighted and gated, over the whole file, and the sample peak, by the meter `vos check-video` uses). `vos score` measures its track and sets `normalize: -16` with `--gain` as a trim on it (`--normalize <lufs|off>`); `vos join` measures the sound it adds. `vos validate` refuses a target out of range or a malformed measurement, and warns, with the verb to run, when a target is unmeasured, measured for another key, or held under its target by a cap. `vos push` and `vos pull --media` move `loudness.src` with the key.
+
+- 753af27: `actions.json` speaks canvas. `press` takes `keys`: a chord (`"Shift+D"`, `"Mod+Z"`, with `Mod` Meta on macOS and Control elsewhere), a plain key (`"r"`) or a sequence (`["v", "Escape"]`), each a typing ping that never carries the key. `drag` takes `modifiers` held for the whole drag, and `path`: viewport points inline or in a file beside the actions file, replayed point by point by their own times or evenly over `ms`, drawn with a pen when the points carry pressure. `click` takes `count: 2 | 3`, `button: "right" | "middle"` and `modifiers`, and `click` and `hover` take a viewport point (`x`, `y`) instead of a selector. A new `paste` step pastes words through the browser's clipboard with a trusted chord, and an image file as its own bytes in a paste dispatched in the page (the clipboard re-encodes a picture and drops its density); a hosted take refuses it. A gesture may `settle` (per step, or for the whole script): it waits until the page has made no DOM change and painted no new frame for 300 ms since its last change, and goes on at once on a page already still. A paced gesture that ran more than a fifth past its script is reported as `meta.steps[].overrunMs`, `overruns` in the done event and one line. `vos actions script` says the new steps in words. The recorder's driver contract gains `mouse.down`/`up` options, `keyboard.down`/`up` and an optional `grantPermissions`; `RecordOpts.files` reads the files a script names. `StepSpan` gains `overrunMs` and `settleMs`. The script a take keeps is self-contained: a path a file held is written inline in the take's `actions.json` (what a push embeds, a fetch writes back and a hosted take runs), `--hosted` sends it inline, and a pasted file is kept beside the script as `paste-<name>`.
+- 96fab94: Sound a page plays during a take is kept: every video or audio element heard (in the page or a same-origin frame) lands in `meta.media[]` with the footage stretches it was heard, its file is fetched with the page's cookies into the take's `page-sound/`, and the plan places one audio clip per stretch at its output time with `source: "page"`, which a re-plan replaces.
+- cd42672: `DOC_FEATURES` in `@vosjs/studio-core` lists the document fields a host's lowering must understand, each with the release that first renders it (`docFeatures`, `featuresNewerThan`, `compareVersions`), and `bakeDocFeatures(doc, version)` returns a copy with the newer ones said in what that release reads (an anchored caption at the start it plays at, its `{elapsed}` filled; a loudness target as its gain).
+
+  `vos push <take>` reads which studio-core the platform renders with (`GET <origin>/api/engine`) before anything uploads, and refuses (exit 2) a take that uses a newer field, which the platform's studio would draw wrong when it opens the take, and every version saved there would keep: `this take uses caption anchors (studio-core 0.43.0); vos.so renders with 0.42.4, …`. `--bake` sends a copy with every such field the take uses baked, whatever the platform answered (behind, current, or nothing), and leaves `doc.json` alone. A platform that cannot say (no such endpoint, a refusal, no answer within 2 s) is warned of and pushed to.
+
+  `vos join` no longer leaves a file handle open on a clip it copies without remuxing.
+
+- 96fab94: The recorder starts a take once the first page has stopped changing (after load, 800 ms with no DOM change, at most 8 s) instead of waiting for network idle, which a page holding a socket open never reaches (`ready: "dom"`, the default); `ready: "networkidle"` in actions.json or `--ready networkidle` keeps the old wait, and the done event reports `ready: { mode, ms, capped }`.
+- 501054b: `vos session open` saves the session when the person finishes however they finish (the last window closed, Chrome quit, or Enter in the terminal), quitting its own Chrome by its process id, then opens the URL again on the saved profile and says plainly whether it is signed in, offering it for recording only when it is.
+- 96fab94: Every recorder step is bounded by its own timeout (an `expect`'s or an `await`'s, or a gesture's planned time plus 30 s): a page that stops answering ends the step as a skip with the real time it took, `--strict` stops the take there, `--json` reports a `step` event as each step starts and ends, and a rehearsal no longer warns of dead time it cannot have.
+
+### Patch Changes
+
+- e8f33dd: `vos push <take> --claimable` works from the command line. The push dispatcher refused every claimable push of a take directory as programs-only, so a remix of a public take fetched with `vos fetch <url> --media` never reached the take's claimable path. A take with no hosted files on record (recorded here, or fetched without `--media`) is still refused, now in one sentence that says why and what to run instead. Every refusal of a claimable take push (no hosted files on record, footage new or changed since the fetch, a storage-state file in the take, a document that fails lint) exits 2, as a refusal the command or the take can fix.
+- cd42672: The credential `vos login` stores carries the origin it was minted for (a file written before that line is `https://vos.so`'s), and it is sent only there: a command aimed at another origin sends no key and says so once. A key handed to the command (`--key`, `VOS_API_KEY`) goes where the command goes. A 401 names where to mint a key on the origin in use, and a request that gets no answer names the origin it could not reach.
+
+  `vos push` asks for consent before it reads the platform's release or bakes anything. `vos score` reports the level the film hears from the stretch of the track it plays, not the whole file. `vos validate <take>` refuses an audio clip whose key names no file in the take.
+
+- 501054b: The encoder draws every frame at its own size and refuses, in words, a take whose frames changed size mid-take, instead of stretching them onto the first frame's size.
+- 96fab94: A fresh plan exports at the resolution the footage holds: a 1280×720 take opens on 720p instead of a 1080p that `vos validate` then warns upscales.
+- 501054b: The recorder fits the browser window to the viewport before the camera rolls, so a take on headless Chrome records the whole viewport instead of losing the bottom 87 px.
+- bcb81e1: The bundled skills are 0.25.0: every skill that pushes a take or a film now sets its cover first, at the payoff (`still` in a take's `doc.json`, `vos push --still` for a program), so the shelf tile, the watch page's still and the share card show the result the video is about rather than its opening.
+- Updated dependencies [96fab94]
+- Updated dependencies [cd42672]
+- Updated dependencies [753af27]
+- Updated dependencies [501054b]
+- Updated dependencies [96fab94]
+- Updated dependencies [96fab94]
+- Updated dependencies [81f0fbd]
+- Updated dependencies [cd42672]
+- Updated dependencies [96fab94]
+- Updated dependencies [501054b]
+- Updated dependencies [96fab94]
+  - @vosjs/studio-core@0.44.0
+  - @vosjs/render-core@0.8.0
+
 ## 0.78.0
 
 ### Minor Changes
