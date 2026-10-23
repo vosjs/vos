@@ -55,6 +55,49 @@ const takeA = (): ProjectDoc => ({
 })
 
 describe('validate: anchored captions', () => {
+  it('judges an anchored layer over a press where it plays, not at its stale or absent start', () => {
+    const doc = takeA()
+    // `save` pressed at 6 s on an element under the caption's box.
+    doc.source.cursor = [
+      {
+        t: 6000,
+        x: 640,
+        y: 640,
+        type: 'down',
+        button: 0,
+        rect: { x: 340, y: 560, w: 600, h: 160 },
+      },
+      { t: 6100, x: 640, y: 640, type: 'up', button: 0 },
+    ] as ProjectDoc['source']['cursor']
+    const over = {
+      preset: 'caption' as const,
+      transform: { x: 0.5, y: 0.86, scale: 1, rotation: 0 },
+      duration: 2,
+    }
+    const stale = takeA()
+    stale.source = doc.source
+    stale.overlays = [
+      // Its fallback says 40 s (where it played before a trim); it plays at 5.8 s.
+      text('stale', 40, { ...over, anchor: { step: 'save', offset: -0.2 } }),
+    ]
+    const { start: _s, ...noStart } = text('none', 0, {
+      ...over,
+      anchor: { step: 'save', offset: -0.2 },
+    })
+    void _s
+    const absent = takeA()
+    absent.source = doc.source
+    absent.overlays = [noStart as TextOverlayClip]
+    for (const d of [stale, absent])
+      expect(
+        lintDoc(d).warnings.filter((w) =>
+          w.includes('sits over the thing being clicked'),
+        ),
+      ).toEqual([
+        'overlays[0] sits over the thing being clicked at 6.0s (output 6.0s) — pin it to that step (pin: { step }) so it sits beside the target and follows it, or move it off',
+      ])
+  })
+
   it('says when a caption anchored to one media starts over the next media’s footage', () => {
     const doc = takeA()
     doc.media = [

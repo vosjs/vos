@@ -48,6 +48,7 @@ import {
   formatElapsed,
   hasElapsed,
   outputEnd,
+  layerStart,
   resolveAnchor,
   resolveOverlayAnchors,
   pinBox,
@@ -2583,7 +2584,15 @@ function framingWarnings(
     const zoomTrack = docZoomTrack(docIn)
     const pins = resolvePins(docIn, layout, camera, zoomTrack)
     overlays.forEach((o, i) => {
-      if (!isObj(o) || !isNum(o.start) || !isNum(o.duration)) return
+      if (!isObj(o) || !isNum(o.duration)) return
+      // Where the layer PLAYS: an anchored one at its step (its `start` is
+      // only the fallback, stale after a trim, or absent), else its start.
+      const start = o.anchor
+        ? layerStart(o as unknown as OverlayClip, docIn, rated)
+        : isNum(o.start)
+          ? o.start
+          : null
+      if (start === null) return
       const tf = isObj(o.transform) ? o.transform : null
       if (!tf || !isNum(tf.x) || !isNum(tf.y)) return
       const pinned = pins.get(String(o.id))
@@ -2612,7 +2621,7 @@ function framingWarnings(
         }
         const about: { step: string; why: string }[] = []
         for (const c of pinCandidates(docIn, {
-          start: o.start,
+          start,
           duration: o.duration,
         })) {
           const named = c.selector
@@ -2685,7 +2694,7 @@ function framingWarnings(
       )
       for (const { c, key, ev } of presses) {
         const out = spanOutputExtent(rated, c.t, c.t + 0.001, key || undefined)
-        if (!out || out.start < o.start || out.start > o.start + o.duration)
+        if (!out || out.start < start || out.start > start + o.duration)
           continue
         const target = pinRectOnScreen(
           {
