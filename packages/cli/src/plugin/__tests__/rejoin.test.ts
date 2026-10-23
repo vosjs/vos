@@ -582,6 +582,33 @@ describe('vos join --keep-edits', () => {
     expect(said).not.toMatch(/0 step captions landed|0 beats held zooms/)
   })
 
+  it('warns, never refuses, when an input’s actions.json no longer matches its recording', async () => {
+    const e = await writeTake('drift', 6000, [step(0, 'go', 1)])
+    // A check added to the script after the take was recorded.
+    await writeFile(
+      join(e, 'actions.json'),
+      JSON.stringify({
+        steps: [
+          { do: 'expect', text: 'ready' },
+          { do: 'click', selector: '#go', id: 'go' },
+        ],
+      }),
+    )
+    writes = []
+    expect(
+      await cmdJoin([a, e, '--out', join(root, 'film-drift'), '--json']),
+    ).toBe(0)
+    const warned = writes
+      .flatMap((l) => l.split('\n'))
+      .filter((l) => l.startsWith('{'))
+      .map((l) => JSON.parse(l) as { event: string; message?: string })
+      .filter((x) => x.event === 'warning')
+      .map((x) => x.message)
+    expect(warned).toContain(
+      `${e}: actions.json has 2 steps and the take recorded 1 (meta.steps): captions and zoom marks are matched to the recorded steps by id, then by place beside a named step, then by index (vos info shows where each lands; record again to bring them back in step)`,
+    )
+  })
+
   it('matches a take joined before join.json by the footage it holds', async () => {
     const out = join(root, 'film-old')
     expect(await cmdJoin([a, b, '--out', out])).toBe(0)

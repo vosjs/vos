@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { captionOf } from '../stepCaptions'
-import { scriptStepOf } from '../scriptStep'
+import { scriptDrift, scriptDriftLine, scriptStepOf } from '../scriptStep'
 import { zoomMarkOf } from '../beats'
 import type { StepSpan } from '@vosjs/studio-core'
 import type { ActionsFile } from '../actions'
@@ -84,5 +84,37 @@ describe('the script step a recorded step was made from', () => {
     expect(
       scriptStepOf(other, [{ do: 'wait' }, { id: 'follow', do: 'drag' }], both),
     ).toBeUndefined()
+  })
+})
+
+describe('a script that no longer matches what was recorded', () => {
+  it('is said with the counts and the steps that changed, never refused', () => {
+    const d = scriptDrift(recorded, edited.steps)!
+    expect(d).toMatchObject({ recorded: 6, inScript: 7, changed: [] })
+    expect(scriptDriftLine(d)).toBe(
+      'actions.json has 7 steps and the take recorded 6 (meta.steps): captions and zoom marks are matched to the recorded steps by id, then by place beside a named step, then by index (vos info shows where each lands; record again to bring them back in step)',
+    )
+    // The same count, a verb changed at a step matched by id.
+    const same = (edited.steps as unknown as Record<string, unknown>[])
+      .slice(1)
+      .map((s) => (s.id === 'follow' ? { ...s, do: 'click' } : s))
+    const changed = scriptDrift(recorded, same)!
+    expect(changed.changed).toEqual([
+      { step: 5, id: 'follow', was: 'drag', now: 'click' },
+    ])
+    expect(scriptDriftLine(changed)).toMatch(
+      /^actions\.json no longer matches what was recorded; 1 recorded step changed \(#5 follow was drag, now click\): /,
+    )
+    // A script that still agrees says nothing.
+    expect(
+      scriptDrift(
+        recorded,
+        recorded.map((s) => ({
+          do: s.do,
+          ...(s.id ? { id: s.id } : {}),
+          ...(s.selector ? { selector: s.selector } : {}),
+        })),
+      ),
+    ).toBeNull()
   })
 })

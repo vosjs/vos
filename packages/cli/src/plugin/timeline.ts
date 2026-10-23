@@ -32,6 +32,7 @@ import { UsageError, parseArgs } from './args'
 import { EXIT_OK, createReporter } from './output'
 import { captionOf } from './stepCaptions'
 import { loadTake } from './take'
+import { scriptDrift, scriptDriftLine } from './scriptStep'
 import type {
   OverlayAnchor,
   OverlayClip,
@@ -388,6 +389,9 @@ export async function cmdTakeInfo(argv: string[]): Promise<number> {
     throw new UsageError(
       `${dir} has no doc.json yet; vos plan ${dir} writes one`,
     )
+  // A script edited since the take was recorded: said, never refused.
+  const drift = scriptDrift(take.meta.steps ?? [], take.actions?.steps)
+  if (drift) r.warn(scriptDriftLine(drift))
   const timeline = takeTimeline(take.doc, new Map([['', take.actions]]))
   r.done(
     { take: resolve(dir), doc: join(resolve(dir), 'doc.json'), ...timeline },

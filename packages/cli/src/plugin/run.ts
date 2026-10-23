@@ -156,6 +156,7 @@ import { cmdIngest } from './ingest'
 import { cmdCheckVideo } from './checkVideo'
 import { cmdJoin } from './join'
 import { cmdTakeInfo } from './timeline'
+import { scriptDrift, scriptDriftLine } from './scriptStep'
 import {
   applyZoomMarks,
   oneZoomPerBeat,
@@ -1629,6 +1630,13 @@ async function cmdPlan(argvIn: string[]): Promise<number> {
   // planner's proposal on it, a step marked `zoom: true` with none is said.
   // Read from actions.json now, so a mark added after recording counts.
   const marksTake = await loadTake(dir)
+  // A script edited since the take was recorded is read step by step
+  // against what was recorded: said, never refused.
+  const drift = scriptDrift(
+    marksTake.meta.steps ?? [],
+    marksTake.actions?.steps,
+  )
+  if (drift) r.warn(scriptDriftLine(drift))
   const marks = applyZoomMarks(s.doc, new Map([['', marksTake.actions]]))
   if (marks.rejected.length) await writeJson(marksTake.paths.doc, s.doc, true)
   const marksLine = zoomMarkLine(marks)

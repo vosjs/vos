@@ -61,6 +61,7 @@ import { EXIT_ERROR, EXIT_OK, createReporter } from './output'
 import { loudnessFact, measureTrack } from './score'
 import { landStepCaptions } from './stepCaptions'
 import { publicScript } from './takeScript'
+import { scriptDrift, scriptDriftLine } from './scriptStep'
 import { oneZoomPerBeat, perBeatLine, zoomModeOf } from './beats'
 import {
   JOIN_RECORD_NAME,
@@ -672,6 +673,12 @@ export async function cmdJoin(argv: string[]): Promise<number> {
       ...(muted.has(i) ? { mute: true } : {}),
     }
     parts.push(part)
+    // An input's script edited since it was recorded: said, never refused.
+    const drift =
+      part.kind === 'take'
+        ? scriptDrift(part.doc.source.meta.steps ?? [], part.actions?.steps)
+        : null
+    if (drift) r.warn(`${p}: ${scriptDriftLine(drift)}`)
     read.push({
       part,
       path: relative(out, inputs[i]) || '.',
