@@ -678,6 +678,54 @@ function forwardCorpus(n: number): ProjectDoc[] {
   return out
 }
 
+describe('a follow zoom on another media', () => {
+  // Media b's pointer sweeps right across its frame; the primary's never
+  // leaves the left third. A follow zoom on b follows b's pointer.
+  const sweep = (): CursorTrack => {
+    const out: CursorTrack = []
+    for (let t = 0; t <= 4000; t += 100)
+      out.push({ t, x: 200 + (t / 4000) * 1200, y: 450, type: 'move' })
+    return out
+  }
+  const bZoom = {
+    id: 'zb',
+    media: 'b',
+    in: 0.5,
+    out: 3.8,
+    level: 2.5,
+    cx: 0.2,
+    cy: 0.5,
+    focusMode: 'auto' as const,
+    source: 'manual' as const,
+  }
+  const cut = (replay: boolean) =>
+    doc({
+      segments: [
+        ...(replay ? [{ in: 10.3, out: 12, camera: 'rest' as const }] : []),
+        { in: 0, out: 12 },
+        { in: 0, out: 4, media: 'b' },
+      ],
+      media: [
+        { id: 'b', videoKey: 'blob:b', cursor: sweep(), meta: meta(4000) },
+      ],
+      zoom: [bZoom],
+    })
+
+  for (const replay of [false, true])
+    it(`steers by that media's own pointer${replay ? ', on a cut that replays the primary' : ''}`, () => {
+      const d = cut(replay)
+      const zt = lowerToComposition(d).data.zoomTrack as KeyframeTrack<number[]>
+      // b plays from 12 s (13.7 s after the resting cold open).
+      const bStart = replay ? 13.7 : 12
+      const early = sample(zt, bStart + 1, lerpArray)
+      const late = sample(zt, bStart + 3.4, lerpArray)
+      expect(early[0]).toBeGreaterThan(2)
+      expect(late[0]).toBeGreaterThan(2)
+      // The camera has gone right with b's pointer, which ends at 0.875.
+      expect(late[1]).toBeGreaterThan(early[1] + 0.2)
+    })
+})
+
 describe('byte parity for a forward cut', () => {
   const corpus = forwardCorpus(60)
 

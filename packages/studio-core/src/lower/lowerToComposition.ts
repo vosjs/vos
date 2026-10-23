@@ -145,7 +145,13 @@ import {
   extractClicks,
   hexToRgbTriplet,
 } from './extractClicks'
-import { cardFields, layerMedia, mediaFrame, sameMedia } from '../media'
+import {
+  cardFields,
+  layerMedia,
+  mediaFrame,
+  mediaSource,
+  sameMedia,
+} from '../media'
 import { htmlLayerPayload } from '../htmlLayer'
 import type { StudioDoc } from '../doc/studioDoc'
 import type { TimelineEdit } from '@vosjs/shared/timelineEdits'
@@ -721,12 +727,16 @@ function followEventOutput(
   tIn: number,
   tEnd: number,
 ): number | null {
-  const first = sourceToTimeline(segments, t)
-  if (first !== null && first > tIn && first < tEnd) return first
-  if (!hasReplay(segments)) return first
-  return (
-    momentOutputs(segments, t, media).find((o) => o > tIn && o < tEnd) ?? first
-  )
+  // A recenter is a moment of the span's OWN media. The primary's on a cut
+  // with no replay reads as it always did; any other media's (and every
+  // moment on a replaying cut) is mapped through that media's pieces only,
+  // never the first piece of any media that holds the same second.
+  if (sameMedia(media, undefined) && !hasReplay(segments)) {
+    const first = sourceToTimeline(segments, t)
+    return first
+  }
+  const outs = momentOutputs(segments, t, media)
+  return outs.find((o) => o > tIn && o < tEnd) ?? outs[0] ?? null
 }
 
 function sameVec(a: number[], b: number[]): boolean {
@@ -3570,7 +3580,6 @@ function loweredZoomSpans(
   camera: CameraModel,
   zoomStyle: ZoomStyleParams,
 ): LoweredZoomSpan[] {
-  const meta = doc.source.meta
   return restSpansThroughTransitions(
     doc.zoom,
     rated,
@@ -3578,10 +3587,13 @@ function loweredZoomSpans(
     ZOOM_SPAN_MIN,
   ).map((z) => {
     if (z.focusMode === 'auto') {
+      // The pointer the camera follows is the one recorded with the span's
+      // own media: another media's cursor is another recording's hand.
+      const own = mediaSource(doc, z.media) ?? doc.source
       const f = followFocusEvents(
         z,
-        doc.source.cursor,
-        { w: meta.width, h: meta.height },
+        own.cursor,
+        { w: own.meta.width, h: own.meta.height },
         layout,
         {
           safeRatio: zoomStyle.followSafeRatio,
