@@ -118,6 +118,7 @@ const TAKE_ONLY: Record<string, string> = {
   read: 'read keeps words from the filmed page',
   caption: 'a caption is a beat of the film, which is the take’s',
   settle: 'settle reads the filmed page’s frames',
+  zoom: 'a zoom mark picks a moment on the cursor track, and a peer is never on it',
 }
 
 const PEER_ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$/

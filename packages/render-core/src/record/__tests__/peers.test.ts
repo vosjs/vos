@@ -74,6 +74,28 @@ describe('peers', () => {
     ])
   })
 
+  it('refuses a zoom mark on a peer step, true or false: a peer is never on the cursor track', () => {
+    expect(
+      take([
+        {
+          id: 'bob',
+          steps: [
+            { do: 'click', x: 1, y: 1, zoom: true },
+            {
+              do: 'drag',
+              from: { x: 1, y: 1 },
+              to: { x: 9, y: 9 },
+              zoom: false,
+            },
+          ],
+        },
+      ]).filter((e) => e.includes('zoom')),
+    ).toEqual([
+      'peers[0].steps[0]: no zoom on a peer step: a zoom mark picks a moment on the cursor track, and a peer is never on it',
+      'peers[0].steps[1]: no zoom on a peer step: a zoom mark picks a moment on the cursor track, and a peer is never on it',
+    ])
+  })
+
   it('refuses a trigger naming no take step, both triggers, and a bad step in the take’s words', () => {
     expect(
       take([
