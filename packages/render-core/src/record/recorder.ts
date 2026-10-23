@@ -958,7 +958,8 @@ export async function recordTake(
         await sleep(clampWait(step.ms, now(), maxSeconds))
         break
       case 'move':
-        await moveTo(step.x, step.y)
+        // The pointer's travel is the recorder's, a gesture.
+        await gesture(() => moveTo(step.x, step.y))
         break
       case 'hover': {
         // An element's centre, or a viewport point (a spot on a canvas).

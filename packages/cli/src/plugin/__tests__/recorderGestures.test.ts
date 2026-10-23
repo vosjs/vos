@@ -70,6 +70,23 @@ board.addEventListener('pointerup', () => {
 });
 </script></body></html>`
 
+// A page that, like a whiteboard, answers every paste by reading the async
+// clipboard itself, and logs what the read gave it.
+const READER = `<!doctype html><html><head><meta charset="utf-8"><title>Reader</title></head><body>
+<div id="board" tabindex="0" style="position:absolute;left:0;top:0;width:640px;height:400px;background:#eee"></div>
+<script>
+window.log = [];
+document.addEventListener('paste', async (e) => {
+  e.preventDefault();
+  try {
+    const items = await navigator.clipboard.read();
+    const got = [];
+    for (const it of items) for (const t of it.types) got.push(t === 'text/plain' ? 'text:' + (await (await it.getType(t)).text()) : t);
+    log.push({ k: 'read', got });
+  } catch (err) { log.push({ k: 'read', error: String(err) }) }
+});
+</script></body></html>`
+
 /** A real 4x4 red PNG, assembled here: the browser's clipboard decodes what it holds. */
 function tinyPng(dpi?: number): Uint8Array {
   const crcTable = Array.from({ length: 256 }, (_, n) => {
@@ -141,10 +158,12 @@ beforeAll(async () => {
   server = createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'text/html' })
     res.end(
-      (req.url === '/laggy' ? LAGGY : CANVAS).replace(
-        '</body>',
-        `${MIRROR}</body>`,
-      ),
+      (req.url === '/laggy'
+        ? LAGGY
+        : req.url === '/reader'
+          ? READER
+          : CANVAS
+      ).replace('</body>', `${MIRROR}</body>`),
     )
   })
   await new Promise<void>((r) => server!.listen(0, '127.0.0.1', () => r()))
@@ -466,6 +485,25 @@ describe('paste of a file the clipboard would refuse', () => {
   }, 60_000)
 })
 
+describe('a paste after an image file paste', () => {
+  it('goes through the real clipboard: the page that reads the async clipboard gets the image, then the words', async () => {
+    if (!browser) return
+    const { logged } = await record(
+      [
+        { do: 'click', selector: '#board' },
+        { do: 'paste', file: 'retina.png', ms: 600 },
+        { do: 'paste', text: 'https://example.com/a-link', ms: 600 },
+      ],
+      { page: '/reader' },
+    )
+    const reads = logged.filter((l) => l.k === 'read')
+    expect(reads.map((r) => r.got ?? r.error)).toEqual([
+      ['image/png'],
+      ['text:https://example.com/a-link'],
+    ])
+  }, 60_000)
+})
+
 describe('click and hover at a viewport point', () => {
   it('double-clicks a canvas point holding Shift, releases it after, and hovers a point, with no rect on the track', async () => {
     if (!browser) return
@@ -503,7 +541,7 @@ describe('click and hover at a viewport point', () => {
 })
 
 describe('an idle page keeps the pace quiet', () => {
-  it('settles at once when nothing changed, reports no overrun on a key sequence and lists no short drag as slow', async () => {
+  it('settles at once when nothing changed, reports no overrun on a key sequence and lists no short drag or move as slow', async () => {
     if (!browser) return
     const { result } = await record(
       [
@@ -520,6 +558,8 @@ describe('an idle page keeps the pace quiet', () => {
           ],
         },
         { do: 'drag', x: 100, y: 100, tx: 140, ty: 120, ms: 100 },
+        { do: 'move', x: 500, y: 350 },
+        { do: 'move', x: 120, y: 80 },
       ],
       {},
     )
@@ -527,6 +567,8 @@ describe('an idle page keeps the pace quiet', () => {
     expect(result.meta.steps![2].settleMs).toBeLessThan(100)
     expect(result.overruns).toEqual([])
     expect(result.pace.slow.filter((s) => s.do === 'drag')).toEqual([])
+    // the pointer's travel is the recorder's gesture, never a slow step
+    expect(result.pace.slow.filter((s) => s.do === 'move')).toEqual([])
   }, 60_000)
 })
 

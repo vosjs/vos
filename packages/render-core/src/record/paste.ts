@@ -22,6 +22,11 @@
  * ping, never its contents.
  */
 
+/** How long after a dispatched paste is first read its item stays on the async reads, ms. */
+export const PASTE_READ_WINDOW_MS = 300
+/** How long a dispatched paste's item stays on the async reads when nothing reads it, ms. */
+export const PASTE_UNREAD_MS = 3000
+
 /** The most bytes a pasted file may hold. */
 export const PASTE_MAX_BYTES = 10 * 1024 * 1024
 
@@ -132,9 +137,28 @@ export function syntheticPasteScript(
       } else dt.setData(type, await blob.text());
     }
     try {
+      // The async reads answer the item for THIS paste only: shortly after
+      // the first read (an app may read text and items in turn), or after a
+      // few seconds when nothing reads, the browser's own reads come back,
+      // so a later paste through the clipboard is the clipboard's.
       const staged = [new ClipboardItem(b)];
-      navigator.clipboard.read = async () => staged;
-      navigator.clipboard.readText = async () => (b['text/plain'] ? b['text/plain'].text() : '');
+      const clip = navigator.clipboard;
+      const own = { read: Object.prototype.hasOwnProperty.call(clip, 'read'), readText: Object.prototype.hasOwnProperty.call(clip, 'readText') };
+      const was = { read: clip.read, readText: clip.readText };
+      let restored = false;
+      const restore = () => {
+        if (restored) return;
+        restored = true;
+        for (const k of ['read', 'readText']) {
+          if (own[k]) clip[k] = was[k];
+          else delete clip[k];
+        }
+      };
+      let soon = null;
+      const readOnce = () => { if (!soon) soon = setTimeout(restore, ${PASTE_READ_WINDOW_MS}) };
+      clip.read = async () => { readOnce(); return staged };
+      clip.readText = async () => { readOnce(); return b['text/plain'] ? b['text/plain'].text() : '' };
+      setTimeout(restore, ${PASTE_UNREAD_MS});
     } catch {}
     const target = document.activeElement || document.body;
     const ev = new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true, composed: true });
