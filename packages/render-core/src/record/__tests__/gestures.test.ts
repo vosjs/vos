@@ -432,6 +432,9 @@ describe('the overrun report', () => {
     expect(overrunOf(1000, 1150)).toBeNull()
     expect(overrunOf(1000, 2100)).toBe(1100)
     expect(overrunOf(50, 500)).toBeNull()
+    // a short gesture one slow sample over is not a page that fell behind
+    expect(overrunOf(100, 124)).toBeNull()
+    expect(overrunOf(200, 420)).toBe(220)
     expect(overrunLine([])).toBeNull()
     expect(
       overrunLine([

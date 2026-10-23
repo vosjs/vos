@@ -363,11 +363,18 @@ export interface StepOverrun {
 export const OVERRUN_SHARE = 0.2
 /** A plan shorter than this is not measured: its noise is the round trip. */
 export const OVERRUN_MIN_PLANNED_MS = 100
+/**
+ * The least a gesture must run over to count, ms: below it the difference
+ * is one slow sample or round trip on a busy machine, never a page that
+ * fell behind, however short the gesture.
+ */
+export const OVERRUN_MIN_MS = 100
 
 /** The overrun, ms, or null when the gesture kept to its plan. */
 export function overrunOf(plannedMs: number, tookMs: number): number | null {
   if (!(plannedMs >= OVERRUN_MIN_PLANNED_MS)) return null
   if (tookMs <= plannedMs * (1 + OVERRUN_SHARE)) return null
+  if (tookMs - plannedMs < OVERRUN_MIN_MS) return null
   return Math.round(tookMs - plannedMs)
 }
 
