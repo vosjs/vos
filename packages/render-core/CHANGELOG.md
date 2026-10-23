@@ -1,5 +1,28 @@
 # @vosjs/render-core
 
+## 0.8.0
+
+### Minor Changes
+
+- 96fab94: The recorder's scan notes, as information and never as a strict failure, where the signed-in account's own name shows in the frame (never printing the name, not even inside a selector) and any list of the account's recent items with the mask that hides it: `meta.notices[]`, the done events, the rehearsal and `vos validate`.
+- 753af27: `actions.json` speaks canvas. `press` takes `keys`: a chord (`"Shift+D"`, `"Mod+Z"`, with `Mod` Meta on macOS and Control elsewhere), a plain key (`"r"`) or a sequence (`["v", "Escape"]`), each a typing ping that never carries the key. `drag` takes `modifiers` held for the whole drag, and `path`: viewport points inline or in a file beside the actions file, replayed point by point by their own times or evenly over `ms`, drawn with a pen when the points carry pressure. `click` takes `count: 2 | 3`, `button: "right" | "middle"` and `modifiers`, and `click` and `hover` take a viewport point (`x`, `y`) instead of a selector. A new `paste` step pastes words through the browser's clipboard with a trusted chord, and an image file as its own bytes in a paste dispatched in the page (the clipboard re-encodes a picture and drops its density); a hosted take refuses it. A gesture may `settle` (per step, or for the whole script): it waits until the page has made no DOM change and painted no new frame for 300 ms since its last change, and goes on at once on a page already still. A paced gesture that ran more than a fifth past its script is reported as `meta.steps[].overrunMs`, `overruns` in the done event and one line. `vos actions script` says the new steps in words. The recorder's driver contract gains `mouse.down`/`up` options, `keyboard.down`/`up` and an optional `grantPermissions`; `RecordOpts.files` reads the files a script names. `StepSpan` gains `overrunMs` and `settleMs`. The script a take keeps is self-contained: a path a file held is written inline in the take's `actions.json` (what a push embeds, a fetch writes back and a hosted take runs), `--hosted` sends it inline, and a pasted file is kept beside the script as `paste-<name>`.
+- 96fab94: Sound a page plays during a take is kept: every video or audio element heard (in the page or a same-origin frame) lands in `meta.media[]` with the footage stretches it was heard, its file is fetched with the page's cookies into the take's `page-sound/`, and the plan places one audio clip per stretch at its output time with `source: "page"`, which a re-plan replaces.
+- 96fab94: The recorder starts a take once the first page has stopped changing (after load, 800 ms with no DOM change, at most 8 s) instead of waiting for network idle, which a page holding a socket open never reaches (`ready: "dom"`, the default); `ready: "networkidle"` in actions.json or `--ready networkidle` keeps the old wait, and the done event reports `ready: { mode, ms, capped }`.
+- 96fab94: Every recorder step is bounded by its own timeout (an `expect`'s or an `await`'s, or a gesture's planned time plus 30 s): a page that stops answering ends the step as a skip with the real time it took, `--strict` stops the take there, `--json` reports a `step` event as each step starts and ends, and a rehearsal no longer warns of dead time it cannot have.
+
+### Patch Changes
+
+- 501054b: The encoder draws every frame at its own size and refuses, in words, a take whose frames changed size mid-take, instead of stretching them onto the first frame's size.
+- 96fab94: A fresh plan exports at the resolution the footage holds: a 1280×720 take opens on 720p instead of a 1080p that `vos validate` then warns upscales.
+- 501054b: The recorder fits the browser window to the viewport before the camera rolls, so a take on headless Chrome records the whole viewport instead of losing the bottom 87 px.
+- Updated dependencies [96fab94]
+- Updated dependencies [cd42672]
+- Updated dependencies [753af27]
+- Updated dependencies [96fab94]
+- Updated dependencies [81f0fbd]
+- Updated dependencies [cd42672]
+  - @vosjs/studio-core@0.44.0
+
 ## 0.7.0
 
 ### Minor Changes
