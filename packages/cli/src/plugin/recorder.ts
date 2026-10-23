@@ -5,7 +5,8 @@
  * env for a setup's `{ env }` texts, and this machine's platform, and
  * writes the same four files it always wrote (cursor.json, meta.json,
  * frames.json, actions.json), byte for byte, plus `outputs/<name>` for every
- * file a `download` step kept.
+ * file a `download` step kept and `page-sound/<name>` for every sound the
+ * page was heard playing.
  */
 import { writeFileSync } from 'node:fs'
 import { lstat, mkdir, readFile, realpath } from 'node:fs/promises'
@@ -19,6 +20,7 @@ import {
 import type {
   OutputSink,
   RecordOpts as CoreRecordOpts,
+  SoundSink,
   ScriptFiles,
 } from '@vosjs/render-core/record'
 import type { Browser, BrowserContext } from 'playwright'
@@ -48,6 +50,23 @@ export function outputsSink(dir: string): OutputSink {
       await refuseSymlink(outDir)
       await mkdir(outDir, { recursive: true })
       await writeFileSafe(join(outDir, name), bytes)
+    },
+  }
+}
+
+/** The take's `page-sound/`: the sound the page played, keyed take-relative for the plan's clips. */
+export const PAGE_SOUND_DIR = 'page-sound'
+
+export function pageSoundSink(dir: string): SoundSink {
+  const soundDir = join(dir, PAGE_SOUND_DIR)
+  return {
+    save: async (name, bytes) => {
+      const problem = fileNameProblem(name)
+      if (problem) throw new Error(`${PAGE_SOUND_DIR}/${name}: ${problem}`)
+      await refuseSymlink(soundDir)
+      await mkdir(soundDir, { recursive: true })
+      await writeFileSafe(join(soundDir, name), bytes)
+      return `${PAGE_SOUND_DIR}/${name}`
     },
   }
 }
@@ -127,7 +146,7 @@ export async function scriptForHost(
 
 export type RecordOpts = Omit<
   CoreRecordOpts,
-  'context' | 'env' | 'platform' | 'outputs' | 'files'
+  'context' | 'env' | 'platform' | 'outputs' | 'sounds' | 'files'
 > & {
   /**
    * The actions file's directory: where a drag's path file and a paste's
@@ -163,6 +182,7 @@ export async function recordTake(
     {
       ...opts,
       outputs: outputsSink(paths.dir),
+      sounds: pageSoundSink(paths.dir),
       ...(opts.actionsDir ? { files: actionsDirFiles(opts.actionsDir) } : {}),
       env: process.env,
       platform:

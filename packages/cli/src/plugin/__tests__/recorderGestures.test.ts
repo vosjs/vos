@@ -20,7 +20,7 @@ import { recordTake } from '@vosjs/render-core/record'
 import type { FrameSink } from '@vosjs/render-core/record'
 import type { Browser } from 'playwright'
 import type { Server } from 'node:http'
-import { closeBrowser } from './browserTeardown'
+import { closeBrowser } from './closeBrowser'
 import { actionsDirFiles, scriptForHost } from '../recorder'
 
 const CANVAS = `<!doctype html><html><head><meta charset="utf-8"><title>Canvas</title>

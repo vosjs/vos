@@ -1,6 +1,8 @@
 import type { MaskRule } from './exposure'
 import type { SetupStep } from './setup'
 import { urlSchemeProblem, validateSetup } from './setup'
+import { readyProblem } from './ready'
+import type { ReadyMode } from './ready'
 import type { ClickButton, DragModifier, PathPoint } from './gestures'
 import {
   CLICK_BUTTONS,
@@ -40,6 +42,13 @@ export interface ActionsFile {
    * or stored.
    */
   setup?: SetupStep[]
+  /**
+   * When the first page counts as ready for step 1: `dom` (default),
+   * once its DOM has made no change for a beat after `load`, at most 8 s;
+   * `networkidle`, once the network has gone quiet, at most 45 s, which a
+   * page holding a socket open never does. `--ready` overrides.
+   */
+  ready?: ReadyMode
   /**
    * Every gesture waits on the app after it (`settle` on a step overrides):
    * a canvas that falls behind under load finishes the last stroke before
@@ -310,6 +319,8 @@ export function validateActions(value: unknown): string[] {
     }
   }
   if (obj.setup !== undefined) errors.push(...validateSetup(obj.setup))
+  const ready = readyProblem(obj.ready)
+  if (ready) errors.push(ready)
   if (obj.settle !== undefined && typeof obj.settle !== 'boolean')
     errors.push('settle must be true or false')
   if (obj.mask !== undefined) {

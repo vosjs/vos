@@ -9,6 +9,7 @@ import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { closeBrowser } from './closeBrowser'
 import { checkVideo } from '../checkVideo'
 import { makeFixtureVideo } from './videoFixture'
 import type { FixtureSpec } from './videoFixture'
@@ -29,9 +30,9 @@ beforeAll(async () => {
 }, 60_000)
 
 afterAll(async () => {
-  await browser?.close()
+  await closeBrowser(browser)
   if (dir) await rm(dir, { recursive: true, force: true })
-})
+}, 30_000)
 
 const base = (over: Partial<FixtureSpec>): FixtureSpec => ({
   width: 160,
