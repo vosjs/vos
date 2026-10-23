@@ -68,6 +68,10 @@ sliced to the window); the editorial cut still trims `segments`.
 
 ## 4. The shelf is the record — push BEFORE the handoff
 
+Set `still` in `doc.json` (OUTPUT seconds) to the payoff first, the result
+the footage shows, never the opening: without one the cover is derived
+near the start, usually a zoom on a navigation control.
+
 ```bash
 vos push take --label "footage handoff" --note "<what it shows; which composition it feeds>" \
   --prompt "<the person's prompt, as they wrote it>"

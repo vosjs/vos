@@ -57,9 +57,14 @@ the first line of `~/.config/vos/credentials`. With one, push:
 
 ```bash
 vos push my-config.json --title "…" --desc "one line" \
-  --prompt "<the person's prompt, as they wrote it>" --wait
+  --prompt "<the person's prompt, as they wrote it>" --still <t> --wait
 # --wait stays until the cover has rendered, then prints the links
 ```
+
+**Set the cover at the payoff.** `--still <t>` (OUTPUT seconds) picks the
+frame the shelf, the thumbnail and the share card show: the result the
+film is about, never the opening. Without it the cover is an early frame,
+before anything has arrived; later pushes keep the one you set.
 
 **Show the prompt that made it.** Pass the person's prompt with `--prompt`
 on the push that creates the vos: the watch page shows it by default, so
@@ -155,6 +160,8 @@ examples of every major type: `references/examples.md`.
 7. **NO `Date.now()` / `Math.random()`** in frame paths — determinism is the
    contract; derive everything from the timeline's time and `ctx.data`
 8. **NO `onFrame`** for new configs — put all per-frame logic in `onUpdate`
+9. **NO push without `--still`** at the payoff — the default cover is an
+   early frame, before the film has arrived
 
 ## Params and Looks (make it remixable)
 

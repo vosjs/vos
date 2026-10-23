@@ -184,6 +184,12 @@ beside "what the cut shows".
 vos push <take> --label "<what, imperative, ≤60 chars>" --note "<the ask you cut to; the beats with source seconds; what you dropped and added>" [--folder <slug>]
 ```
 
+Before pushing, set `still` in `doc.json` to the payoff, in OUTPUT seconds
+(`vos plan <take> --still <t>` writes it, `vos frames <take> --at-still`
+shows it): the result the cut is about, never the opening. Without one the
+cover is derived near the start, usually a zoom on a navigation control
+under the first caption.
+
 The base comes from `vos.json`. `409 stale_base` → `vos pull`, re-apply on
 top, push again. `409 protected_conflict` → keep the human's values unless
 the ask named that node (`--override <id>` only then). A 400 prints the
@@ -233,6 +239,8 @@ never write a status line.
 - speed up playback, or zoom a canvas being dragged;
 - spread a series before its seed is signed off;
 - push without `--label` and `--note`.
+- push without a `still` at the payoff (the derived cover sits near the
+  start, under the first caption);
 - open a zoom before the click it frames, or aim it at a `type` verb's
   field centre (frame the text; start the span after the click);
 - leave the cold open frozen (a static page records as freeze-then-bang:
