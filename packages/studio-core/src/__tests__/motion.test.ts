@@ -352,7 +352,7 @@ describe('the migration (one vocabulary)', () => {
       anim: { enter: 'rise', exit: 'none' },
     })
     expect(clips[0].start).toBeCloseTo(10.35, 6)
-    expect(clips[0].start + clips[0].duration).toBeCloseTo(13, 6)
+    expect(clips[0].start! + clips[0].duration).toBeCloseTo(13, 6)
     expect(docOutputDuration(m)).toBeCloseTo(13, 6)
   })
 

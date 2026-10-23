@@ -25,7 +25,8 @@ import {
 } from '../planner/autoSpeed'
 import { planAutoTilt } from '../planner/autoTilt'
 import { resolveZoomStyle } from '../zoomStyle'
-import { ratedSegments, spanOutputExtent } from '../lower/lowerToComposition'
+import { ratedSegments } from '../lower/lowerToComposition'
+import { longestOutputExtent } from '../lower/occurrences'
 import type { Click } from '../planner/autoZoom'
 import type { ChangeWitness } from './changes'
 import type { ProjectDoc, SpeedSpan, TiltSpan, ZoomSpan } from '../types'
@@ -333,9 +334,10 @@ export function momentsFromDoc(
 
   const rated = ratedSegments(doc)
   // An instant is a hair-wide window; at the very end it leans back inside.
+  // On a cut that replays its seconds a moment is read in its longest pass.
   const outputOf = (a: number, b: number) => {
     const lo = a >= dur ? Math.max(0, dur - 0.001) : a
-    return spanOutputExtent(rated, lo, Math.max(b, lo + 0.001))
+    return longestOutputExtent(rated, lo, Math.max(b, lo + 0.001))
   }
   const covers = (s: { in: number; out: number }, d: Draft) =>
     d.in === d.out ? s.in <= d.in && d.in < s.out : s.in < d.out && s.out > d.in

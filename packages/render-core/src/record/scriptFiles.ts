@@ -49,7 +49,7 @@ export async function loadScriptFiles(
       return {
         problem:
           f.as === 'paste'
-            ? `${at} pastes the file "${f.name}", which could not be read beside the actions file (${why}): a file paste needs its file beside the script, so put ${f.name} next to it (a take fetched from vos.so carries its paths and its words, never a pasted file). Nothing was recorded.`
+            ? `${at} pastes the file "${f.name}", which could not be read beside the actions file (${why}): a file paste needs its file beside the script, so put ${f.name} next to it (a take fetched with its media brings its pasted files home beside its script; one pushed before they travelled with it does not). Nothing was recorded.`
             : `${at} names "${f.name}", which could not be read beside the actions file (${why}). Nothing was recorded.`,
       }
     }

@@ -17,7 +17,7 @@ import {
   EXIT_WALL,
   createReporter,
 } from './output'
-import { validateActions } from './actions'
+import { jsSyntaxProblems, validateActions } from './actions'
 import { lintDoc } from './validateDoc'
 import { containerMismatch } from './container'
 import { docAudioRefs, readMediaHead, takeRelativeFile } from './media'
@@ -51,6 +51,7 @@ import { fetchMusicCatalog } from './music'
 import {
   composeCallout,
   footageFrames,
+  groundCheckTimes,
   groundFindings,
   isCalloutShape,
   registerFrom,
@@ -81,6 +82,7 @@ import { deadLine, deadWarns } from './pace'
 import type { TakePaths } from './take'
 import { BrowserUnavailableError, launchBrowser } from '../browser'
 import { recordTake, scriptForHost } from './recorder'
+import { PasteFileRefusal } from './pasteFiles'
 import type { RecordResult, SkippedStep } from './recorder'
 import {
   RecordRefusedError,
@@ -89,6 +91,7 @@ import {
   hostedRefusals,
   readyProblem,
   overrunLine,
+  sayValue,
 } from '@vosjs/render-core/record'
 import type { ReadyMode, ReadyReport } from '@vosjs/render-core/record'
 import { WallError, wallVerdict } from './wall'
@@ -155,6 +158,16 @@ import { cmdActions } from './agentBrowser'
 import { cmdIngest } from './ingest'
 import { cmdCheckVideo } from './checkVideo'
 import { cmdJoin } from './join'
+import { cmdTakeInfo } from './timeline'
+import { scriptDrift, scriptDriftLine } from './scriptStep'
+import {
+  applyZoomMarks,
+  oneZoomPerBeat,
+  perBeatLine,
+  zoomMarkLine,
+  zoomModeOf,
+} from './beats'
+import type { PerBeatReport } from './beats'
 import { cmdScore } from './score'
 import { cmdAudio } from './audio'
 import { PlatformBehindError } from './platformEngine'
@@ -210,7 +223,8 @@ Take pipeline
   vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--allow-wall] [--keep-frames] [--max-duration <s>] [--ready dom|networkidle] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [--verbose] [--json]
   vos record --hosted --actions actions.json [--url <url>] [--out take] [--title "…"] [--folder <id>] [--header name=value]... [--json]
             the take recorded on vos.so's fleet (no browser here): lands as a private vos with its doc and digest, then fetched into --out with its media
-  vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions|--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
+  vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions|--captions none] [--clicks none] [--still <t>] [--release v2.1] [--zooms per-beat] [--json]
+            --zooms per-beat keeps at most one zoom per beat: the beats are the captioned steps of actions.json (each runs until the next one starts, plus the opening before the first); a step marked "zoom": true in actions.json is its beat's payoff, and the beat keeps the proposal that overlaps it most (one per marked step, never two overlapping), promoted to manual; a beat with no marked step keeps no zoom; when no step of the take is marked, each beat's last click, drag, type or paste stands in (the opening keeps none) and the done line says so; a step marked "zoom": false is never zoomed on; the rest go into doc.rejected like a person deleting them, and a beat with a manual zoom keeps only its manual ones. A media with no captioned step keeps its zooms as planned, and the done line says so
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
   vos frames <take> [--times 0,25%,50%,75%,100%] [--frame <t>] [--at-zooms] [--at-moments] [--at-still] [--size WxH] [--out dir] [--background <url|slug>] [--set <path=value>]... [--strict] [--json]
             --at-zooms stills every zoom span's apex on every media of the take and renders it again with the zooms off: a zoom whose frame matches its zoom-off twin did not render, and says so (exit 2 under --strict)
@@ -218,6 +232,8 @@ Take pipeline
             the rendered file itself, no ffmpeg: duration, size, codecs, resolution, frame rate; full-frame scene changes (a warning when a 5 s window holds more than one); loudness (short-term every 3 s, integrated, sample peak; a warning below -23 or above -9 LUFS); the first and last frames as PNGs (a warning when either is near-uniform). Exit 2 on any warning under --strict
   vos deliver <take> --to youtube,x,shorts,github (or all) [--look plate|gradient|dark|none] [--brand BRAND.md] [--set path=value] [--release v2.1] [--out dir] [--range a..b] [--parallel N] [--json]
   vos digest <take> [--out dir] [--full 960] [--crop 640] [--no-frames] [--transcript <file.json>] [--style <doc.json|vosId>] [--json]
+  vos info <take> [--json]
+            the take's two clocks, read-only: per media, every step with its id, what it did, its source seconds (meta.json tStart..tEnd), its caption and where it plays; then the output timeline after trims, speed and freezes: each segment, speed span, freeze, zoom and tilt span (or "(cut)"), every layer with its anchor resolved, each sound clip, the still and the film's end
   vos brand <url> [--out BRAND.md] [--json]
   vos open <take> [--studio <url>] [--print]
   vos callout <take> <note|tag|code> --step <id> [--title "…"] [--body "…"] [--kicker "…"] [--code "…"|--code-file f] [--seconds 3] [--side auto|right|left|below|above] [--mark ring|underline|none] [--leader] [--color #hex (the mark and leader; the kicker is --accent)] [--brand BRAND.md] [--ground #hex] [--accent #hex] [--font "…"] [--body-px <n> (the body size on the delivered frame)] [--id x] [--print] [--json]
@@ -225,8 +241,9 @@ Take pipeline
   vos actions from-agent-browser <steps.jsonl> [--out actions.json] [--url <url>] [--viewport WxH] [--json]
   vos ingest <video.webm|mp4> [--cursor <trace.zip|steps.jsonl|cursor.csv>] [--as footage|take] [--out take] [--offset <ms>] [--viewport WxH] [--background <slug|url|none>] [--json]
             a take from a recording someone else made (a cloud agent's PR video, a Playwright run's video, a Loom export): the file becomes recording.<container>, meta.json from its own dimensions and duration, and a trace beside it becomes cursor.json so the planner has clicks to zoom on; without one, nothing is planned and the done event says so. Without a trace the file opens as FINISHED footage (a render from HyperFrames or Remotion, a film): no card, no browser bar, no drawn cursor, its own frame rate; --as take gives a screen demo the card
-  vos join <take> <take|file.mp4>... --out <dir> [--force] [--captions] [--mute <file>]... [--json]
-            several takes (and plain video files) as ONE take, cut in argument order: the first is the primary (its frame, cursor, export and sound), each next one a media m1, m2, … with its footage copied, its spans tagged and renamed, its layers moved to where it now starts; a file opens full-bleed and its own sound plays as an audio clip (--mute <file> leaves it out). --captions lands every step's caption anchored to its step, each ending with its clip. The result must pass vos validate before anything is written
+  vos join <take> <take|file.mp4>... --out <dir> [--keep-edits|--force] [--captions] [--zooms per-beat] [--mute <file>]... [--json]
+            several takes (and plain video files) as ONE take, cut in argument order: the first is the primary (its frame, cursor, export and sound), each next one a media m1, m2, … with its footage copied, its spans tagged and renamed, its layers moved to where it now starts; a file opens full-bleed and its own sound plays as an audio clip (--mute <file> leaves it out). --captions lands every step's caption anchored to its step, starting as the step begins (anchor.at "start"), each ending with its clip. --zooms per-beat keeps a beat's zoom on its steps marked "zoom": true (as vos plan --zooms per-beat). The result must pass vos validate before anything is written
+            --keep-edits joins again over an edited joined take and keeps its edits: inputs are matched to their media by source file (join.json records each input's path and footage hash), a kept input keeps its id and everything on it (segments in their edited order, spans, rejections, anchored layers, its sound), the frame, export, styles and still stay, a new input is joined fresh under a new id (and only it is captioned or re-planned), a re-recorded input (changed footage at its path, or the same script at a new one) keeps its edits re-timed by its steps as vos plan --reuse does, and an input that is gone takes its edits with it, each named. A new input's segments go before the next kept input's; reordering the kept inputs regroups the segments in argument order. The first input must stay the primary. --force replaces the take instead
   vos score <take> --track <slug|file> [--at <step id|output seconds>] [--gain 0..1] [--normalize <lufs|off>] [--fade-in <s>] [--fade-out <s>] [--dry-run] [--json]
             the film's music as one audio clip (id score): reads the track's loudness, finds its strongest swell and offsets the track so the swell lands at --at (a step, resolved through the cut, or output seconds); without --at it starts where the track first rises above its median level. The clip carries its measured loudness and a target, --normalize (default -16 LUFS), with --gain (default 0.5) a trim on it; --normalize off plays it at --gain alone
   vos audio measure <take> [--json]
@@ -273,7 +290,8 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
             signed-in person's line carries for a key, once, no click
   vos fetch <vosId|watch-url> [--out dir] [--media] [--json]
             writes config.json + vos.json (no auth needed for public programs);
-            a take vos also gets its doc.json, and --media its footage
+            a take vos also gets its doc.json, and --media its footage, its
+            actions.json and every file that script pastes, beside it
   vos push  <config.json|take> [--vos id] [--title t] [--slug s] [--remix-of id]
             [--desc d] [--tags a,b] [--folder <folderId|slug>]
             [--note n] [--label l] [--base versionId] [--override <id>]... [--yes] [--json]
@@ -295,7 +313,9 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
             Without --folder a new vos lands unfiled, at the root of your
             shelf. A document's local files (doc.json: picture and video
             overlays, 3D props, sound; a take's mic and cam too) upload
-            with the push, each once. --wait stays until the version's still has
+            with the push, each once, and so does every file a take's
+            actions.json pastes (a picture through the upload door, a text
+            file inside the document; one outside the take is refused). --wait stays until the version's still has
             rendered and prints absolute still and preview links.
             --still <seconds> sets a PROGRAM's cover (doc.json "still", kept
             by every later push); without it the platform picks an early
@@ -409,9 +429,11 @@ networkidle was asked for and never came; neither is a strict failure. --max-dur
 the hosted recording cap, read live from GET /api/limits (30 min when the
 origin is unreachable): the capture stops there and says so in one line.
 Three steps beyond the gestures: expect checks the page on camera
-(selector, text or gone; enabled; timeout 5 s); await waits OFF camera
-(until {selector|text|gone}, timeout 600 s, poll 2 s, reload, onTimeout
-fail|continue), so the footage has no gap and the cut lands in
+(selector, text or gone; enabled; or js, an expression evaluated in the
+page, truthy or with equals a value, for state an app keeps in script,
+said with the value it got and kept on meta.steps[].value; timeout 5 s);
+await waits OFF camera (until {selector|text|gone|js}, timeout 600 s,
+poll 2 s, reload, onTimeout fail|continue), so the footage has no gap and the cut lands in
 meta.skips[] and becomes a segment boundary; download keeps a file the page
 makes in the take's outputs/ (selector: the download a click starts; src:
 the currentSrc of a video, audio or img; as: the file name), listed in
@@ -425,7 +447,7 @@ name) and a list of its recent items, with the mask that hides it;
 notices are information, never a --strict failure. A click, press or type with "guard": "spend" costs
 something real: --dry-run hovers it and never presses, and record presses
 it only with --confirm <id> (repeatable), refusing before any capture
-otherwise. --hosted refuses guarded and download steps.
+otherwise. --hosted refuses guarded, download, paste and js steps.
 peers in actions.json add other people OFF camera: each its own browser
 context (storageState, by a path from the actions file) on the same url,
 its steps started with a take step or after one (by id); only the take's
@@ -558,6 +580,7 @@ lint-gated, so a bad override fails like a bad doc.json):
 async function loadActions(file: string): Promise<ActionsFile> {
   const raw = JSON.parse(await readFile(file, 'utf8')) as unknown
   const errors = validateActions(raw)
+  if (!errors.length) errors.push(...jsSyntaxProblems(raw as ActionsFile))
   if (errors.length)
     throw new UsageError(`invalid actions file:\n  ${errors.join('\n  ')}`)
   return raw as ActionsFile
@@ -1160,6 +1183,9 @@ async function cmdRecord(argv: string[]): Promise<number> {
           ...(out
             ? [`→ ${out.name} (${out.bytes} bytes, not kept in a rehearsal)`]
             : []),
+          ...(s.value !== undefined && !s.skipped
+            ? [`= ${sayValue(s.value)}`]
+            : []),
         ].map((n) => `  ${n}`)
         return `  ${s.skipped ? '✗' : '✓'} #${s.step}${s.id ? ` (${s.id})` : ''} ${s.do}${what}${s.skipped ? `  ${s.reason ?? 'NOT FOUND'}` : rect}${s.navigated ? '  → navigated' : ''}${notes.join('')}`
       })
@@ -1556,7 +1582,7 @@ async function cmdPlan(argvIn: string[]): Promise<number> {
   const dir = positionals[0]
   if (!dir)
     throw new UsageError(
-      'vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<seconds>]]... [--motion] [--headline "…"] [--launch LAUNCH.md] [--brand BRAND.md]',
+      'vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<seconds>]]... [--motion] [--headline "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--zooms per-beat]',
     )
   const r = createReporter(flags.json === true)
   if (flags.fresh === true) {
@@ -1590,6 +1616,9 @@ async function cmdPlan(argvIn: string[]): Promise<number> {
   // fetched into the take's brand/ folder for the layout and the end card.
   const release = await releaseInputs(dir, flags, r, multi.with ?? [])
   const stepCaptions = strFlag(flags, 'captions') === 'steps'
+  const zoomMode = zoomModeOf(strFlag(flags, 'zooms'))
+  if (zoomMode && typeof zoomMode === 'object')
+    throw new UsageError(zoomMode.error)
   // Step captions are anchored to their steps; the plan's fixed-time beat
   // captions would say the same words twice.
   if (stepCaptions) release.launchRoles.captions = 'none'
@@ -1629,6 +1658,31 @@ async function cmdPlan(argvIn: string[]): Promise<number> {
     captions = landStepCaptions(s.doc, new Map([['', take.actions]]))
     await writeJson(take.paths.doc, s.doc, true)
   }
+  // The script's zoom marks: a step marked `zoom: false` loses the
+  // planner's proposal on it, a step marked `zoom: true` with none is said.
+  // Read from actions.json now, so a mark added after recording counts.
+  const marksTake = await loadTake(dir)
+  // A script edited since the take was recorded is read step by step
+  // against what was recorded: said, never refused.
+  const drift = scriptDrift(
+    marksTake.meta.steps ?? [],
+    marksTake.actions?.steps,
+  )
+  if (drift) r.warn(scriptDriftLine(drift))
+  const marks = applyZoomMarks(s.doc, new Map([['', marksTake.actions]]))
+  if (marks.rejected.length) await writeJson(marksTake.paths.doc, s.doc, true)
+  const marksLine = zoomMarkLine(marks)
+  // One zoom per beat: the captioned steps are the beats, the marked steps
+  // their payoffs, and every other proposal inside one is rejected the way
+  // a person deletes it.
+  let perBeat: PerBeatReport | null = null
+  if (zoomMode === 'per-beat') {
+    const take = await loadTake(dir)
+    perBeat = oneZoomPerBeat(s.doc, new Map([['', take.actions]]))
+    await writeJson(take.paths.doc, s.doc, true)
+  }
+  const zoomAuto = s.doc.zoom.filter((z) => z.source !== 'manual').length
+  const zoomManual = s.doc.zoom.length - zoomAuto
   const captionLines = captions
     ? `\n  ${captions.landed.length} step caption${captions.landed.length === 1 ? '' : 's'} anchored to their steps` +
       (captions.skipped.length
@@ -1667,8 +1721,8 @@ async function cmdPlan(argvIn: string[]): Promise<number> {
       take: resolve(dir),
       fresh: s.fresh,
       cursorKept: s.cursorKept,
-      zoomAuto: s.zoomAuto,
-      zoomManual: s.zoomManual,
+      zoomAuto,
+      zoomManual,
       duration: s.doc.source.meta.durationMs / 1000,
       ...(s.backdrop !== undefined ? { backdrop: s.backdrop } : {}),
       ...(s.styleFrom
@@ -1678,8 +1732,9 @@ async function cmdPlan(argvIn: string[]): Promise<number> {
       ...(s.motion ? { motion: s.motion } : {}),
       ...(s.reuse ? { reuse: s.reuse } : {}),
       ...(captions ? { captions } : {}),
+      ...(perBeat ? { perBeat } : {}),
     },
-    `${s.reuse ? 'Reused' : s.fresh ? 'Planned' : 'Refreshed'} ${join(dir, 'doc.json')}: ${s.zoomAuto} auto + ${s.zoomManual} manual zoom spans${s.cursorKept ? '' : ' (cursor track dropped)'}${layoutLines}${motionLines}${reuseLines}${captionLines}`,
+    `${s.reuse ? 'Reused' : s.fresh ? 'Planned' : 'Refreshed'} ${join(dir, 'doc.json')}: ${zoomAuto} auto + ${zoomManual} manual zoom spans${s.cursorKept ? '' : ' (cursor track dropped)'}${layoutLines}${motionLines}${reuseLines}${captionLines}${marksLine ? `\n  ${marksLine}` : ''}${perBeat ? `\n  ${perBeatLine(perBeat)}` : ''}`,
   )
   return EXIT_OK
 }
@@ -2574,13 +2629,7 @@ async function cmdValidate(argv: string[]): Promise<number> {
       (take.doc.overlays ?? []).some((o) => o.kind === 'html')
     ) {
       const doc = take.doc
-      const times = [
-        ...new Set(
-          (doc.overlays ?? [])
-            .filter((o) => o.kind === 'html')
-            .map((o) => +(o.start + Math.min(0.35, o.duration / 2)).toFixed(3)),
-        ),
-      ]
+      const times = groundCheckTimes(doc)
       const browser = await launchBrowser()
       try {
         const frames = await footageFrames(
@@ -2911,6 +2960,8 @@ export async function run(argv: string[]): Promise<number> {
         return await cmdCheckVideo(rest)
       case 'join':
         return await cmdJoin(rest)
+      case 'info':
+        return await cmdTakeInfo(rest)
       case 'score':
         return await cmdScore(rest)
       case 'audio':
@@ -2930,7 +2981,8 @@ export async function run(argv: string[]): Promise<number> {
       e instanceof SetupEnvError ||
       e instanceof RecordRefusedError ||
       e instanceof PlatformBehindError ||
-      e instanceof PushRefusedError
+      e instanceof PushRefusedError ||
+      e instanceof PasteFileRefusal
     ) {
       process.stderr.write(`${e.message}\n`)
       return EXIT_USAGE

@@ -11,6 +11,7 @@
  */
 import { segmentRate } from '@vosjs/timeline'
 import { sameMedia } from '../media'
+import { hasReplay, momentOutputs, spanOutputExtents } from './occurrences'
 import type { Segment } from '@vosjs/timeline'
 import type { CursorTrack, Rect } from '../types'
 
@@ -133,6 +134,7 @@ export function extractClicks(
   opts: ExtractClickOptions,
 ): LoweredClick[] {
   const out: LoweredClick[] = []
+  const replayed = hasReplay(segments)
   for (let i = 0; i < track.length; i++) {
     const e = track[i]
     if (e.type !== 'down') continue
@@ -152,25 +154,39 @@ export function extractClicks(
       }
     }
 
-    const ot = outputAt(segments, st, opts.media)
-    if (ot === null) continue
     const upSrc = st + Math.max(pressLen, 0.02)
-    const up =
-      keptOutputEnd(segments, st, upSrc, opts.media) ?? ot + CLICK_SYNTH_RELEASE
+    // One press, one ring per time its moment plays: a cut that replays
+    // the press's seconds shows the click in each occurrence.
+    const presses = replayed
+      ? momentOutputs(segments, st, opts.media)
+      : [outputAt(segments, st, opts.media)]
+    const releases = replayed
+      ? spanOutputExtents(segments, st, upSrc, opts.media)
+      : []
+    const rect =
+      opts.rects && e.rect ? gatedRect(e.rect, e.x, e.y, opts.space) : null
+    presses.forEach((ot, k) => {
+      if (ot === null) return
+      // This occurrence's release: the kept stretch after its press and
+      // before the press plays again.
+      const nextOt = presses[k + 1] ?? Infinity
+      const up = replayed
+        ? (releases.find((r) => r.start >= ot - 1e-6 && r.start < nextOt)
+            ?.end ?? ot + CLICK_SYNTH_RELEASE)
+        : (keptOutputEnd(segments, st, upSrc, opts.media) ??
+          ot + CLICK_SYNTH_RELEASE)
 
-    const click: LoweredClick = {
-      ot: round(ot),
-      up: round(Math.max(up, ot + 0.02)),
-      st: round(st),
-      x: round(e.x),
-      y: round(e.y),
-      b: button,
-    }
-    if (opts.rects && e.rect) {
-      const r = gatedRect(e.rect, e.x, e.y, opts.space)
-      if (r) click.r = r
-    }
-    out.push(click)
+      const click: LoweredClick = {
+        ot: round(ot),
+        up: round(Math.max(up, ot + 0.02)),
+        st: round(st),
+        x: round(e.x),
+        y: round(e.y),
+        b: button,
+      }
+      if (rect) click.r = rect
+      out.push(click)
+    })
   }
   return out.sort((a, b) => a.ot - b.ot)
 }

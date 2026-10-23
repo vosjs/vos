@@ -113,11 +113,12 @@ import { pasteItemOf, runPaste } from './pasteStep'
 import { CHANGE_AGE_PROBE, appSettled, settleOn } from './settle'
 import {
   conditionMiss,
+  keptValue,
   pollCondition,
   sayCondition,
   sayDuration,
 } from './waits'
-import type { PollResult, WaitCondition } from './waits'
+import type { ConditionState, PollResult, WaitCondition } from './waits'
 import {
   OUTPUT_MAX_BYTES,
   readMediaSource,
@@ -1095,6 +1096,14 @@ export async function recordTake(
       if (reason) extra.reason = reason
     }
     if (step.guard) extra.guard = step.guard
+    if (typeof step.zoom === 'boolean') extra.zoom = step.zoom
+    // What a `js` check last answered, kept on the step: the app's own
+    // state at that moment, which the frames cannot say.
+    const keepValue = (last: ConditionState) => {
+      if (!('value' in last)) return
+      const kept = keptValue(last.value)
+      if (kept !== undefined) extra.value = kept
+    }
     /**
      * A rehearsal never presses a step that spends: the pointer goes to its
      * target, so the selector is proven, and the press is left out. True
@@ -1574,6 +1583,7 @@ export async function recordTake(
           everyMs: EXPECT_EVERY_MS,
           sleep: realSleep,
         })
+        keepValue(res.last)
         if (res.ok) log(`expect ${sayCondition(cond)}: holds`)
         else {
           const reason = conditionMiss(cond, res.last, timeoutMs)
@@ -1625,6 +1635,7 @@ export async function recordTake(
           clearInterval(beat)
         }
         const { out, at, ms } = waited
+        keepValue(out.last)
         opts.onEvent?.({ ...awaitEvent, phase: 'end', ms, held: out.ok })
         extra.offCameraMs = ms
         if (!out.ok) extra.timedOut = true

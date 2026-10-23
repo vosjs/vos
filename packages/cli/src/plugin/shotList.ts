@@ -113,8 +113,16 @@ function sayCondition(c: {
   text?: string
   gone?: string
   enabled?: boolean
+  js?: string
+  equals?: unknown
   id?: string
 }): string {
+  // A state the app keeps in script: a person reads it in the browser's
+  // console, so the beat names the expression to run there.
+  if (c.js !== undefined)
+    return c.equals !== undefined
+      ? `the console's \`${c.js}\` gives ${JSON.stringify(c.equals)}`
+      : `the console's \`${c.js}\` is true`
   if (c.text !== undefined) return `"${c.text}" shows on the page`
   if (c.gone !== undefined) return `${sayTarget(c.gone)} is gone`
   const target = sayStepTarget({ selector: c.selector ?? '', id: c.id })
@@ -125,10 +133,19 @@ function sayCondition(c: {
 
 function beatOf(step: ActionStep): string | null {
   const line = gestureBeat(step)
+  if (!line) return line
+  // What the cut's camera does here, said where a person reads it: a step
+  // marked as the beat's payoff is zoomed in on, one marked against it is not.
+  const camera =
+    step.zoom === true
+      ? ' (zoomed in on in the cut)'
+      : step.zoom === false
+        ? ' (the cut stays wide here)'
+        : ''
   // A step that spends something real is marked where a person reads it.
-  return line && step.guard
-    ? `${line} (this spends something real: do it only if you mean to)`
-    : line
+  return step.guard
+    ? `${line}${camera} (this spends something real: do it only if you mean to)`
+    : `${line}${camera}`
 }
 
 function gestureBeat(step: ActionStep): string | null {

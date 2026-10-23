@@ -34,6 +34,15 @@ export type DocSegment = Segment & {
   anim?: Anim
   /** @deprecated migrated on read into a `FreezeSpan` at this segment's `out`. */
   hold?: number
+  /**
+   * `'rest'`: the camera rests through this clip's pass. No source-anchored
+   * camera move applies there (zoom, tilt, cam move, a follow zoom's
+   * recenters), even over seconds another pass zooms on; the cursor, the
+   * click effects, the speed spans and the freezes are the footage's and
+   * still play. A span that runs into or out of the pass ramps at its edge
+   * as at any span's. Absent = the camera plays here as everywhere.
+   */
+  camera?: 'rest'
 }
 
 /** A single input event captured in the page, relative to the recording's t0. */
@@ -432,12 +441,24 @@ export interface StepSpan {
    */
   text?: string
   /**
+   * What an `expect` or an `await` with a `js` expression last answered,
+   * as JSON (at most 2 KB, else that JSON cut short as a string): the
+   * app's own state at that moment, which the frames cannot say. Absent
+   * when the expression answered nothing JSON can hold.
+   */
+  value?: unknown
+  /**
    * The step carries a guard (`"spend"`): `confirmed` says the recording
    * pressed it because the command named it; a rehearsal only hovers one
    * and leaves `confirmed` absent.
    */
   guard?: 'spend'
   confirmed?: boolean
+  /**
+   * The script's `zoom` mark on the step: `true` = the beat's payoff, the
+   * step a per-beat plan keeps its zoom on; `false` = never zoom here.
+   */
+  zoom?: boolean
   /**
    * An `await` step: the wall-clock ms it waited OFF CAMERA. The footage
    * clock stood still meanwhile, so `tStart`..`tEnd` hold only the
@@ -1455,8 +1476,10 @@ export interface OverlayPin {
  * and `offset` OUTPUT seconds are added. So a trim, a speed change or a
  * re-record moves the caption with its step, and nobody recomputes a
  * `start`. `start` stays the clip's fallback when the step cannot be
- * found or the cut leaves it out (validate says which); `duration` is the
- * clip's own either way.
+ * found or the cut leaves it out (validate says which), and may be left
+ * out; `duration` is the clip's own either way. On a cut that replays the
+ * step's seconds, the layer starts in the pass where the step plays the
+ * longest (the first on a tie).
  */
 export interface OverlayAnchor {
   /** The step: its `id` (`meta.steps[].id`) when it has one, else its index. */
@@ -1472,8 +1495,13 @@ export interface OverlayAnchor {
 interface OverlayClipBase {
   /** Stable identity for selection/editing in the timeline UI. */
   id: string
-  /** OUTPUT-time span (seconds). */
-  start: number
+  /**
+   * OUTPUT seconds the layer starts at. Required unless the layer carries
+   * an `anchor`, which places it; with one, `start` is only the fallback
+   * for an anchor that does not resolve, and a layer with neither plays
+   * nowhere (validate refuses it, naming the step).
+   */
+  start?: number
   duration: number
   transform: OverlayTransform
   /**
@@ -1922,11 +1950,24 @@ export interface ProjectDoc {
      * travels as the cut does. Absent on a human recording.
      */
     script?: Record<string, unknown>
+    /**
+     * The files the script pastes, by the plain name it pastes them by,
+     * and where their bytes are: a hosted file (`/api/assets/<id>/file`,
+     * for a picture) or a `data:` address (a text file, carried in the
+     * document). `vos push` writes it from the take's own files and
+     * `vos fetch --media` writes each one back beside `actions.json`, so a
+     * fetched take records again with every file it pastes. Absent when
+     * the script pastes no file.
+     */
+    scriptFiles?: Record<string, string>
   }
   /**
    * Kept SOURCE-time spans (@vosjs/timeline `Segment`s); the output timeline is
    * their concatenation — trim/split/cut are all segment edits. Canonical form
    * is one full-source segment; an empty list is tolerated and means "untrimmed".
+   * A segment may play seconds an earlier one already played (a cold open,
+   * a replay): every source-anchored span over them plays in each
+   * occurrence (see `lower/occurrences.ts`).
    */
   segments: DocSegment[]
   /**

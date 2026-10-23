@@ -62,7 +62,9 @@ Engine verbs (local, no account, no network beyond the render page's CDN deps)
              --width/--height keeps the program's aspect, both set the frame
   vos still  <config.json|url> [out.webp|out.png|out.jpg] [--time 0 | --times 0,1.5,50%]
                                [--width] [--height] [--set data.<key>=<value>]... [--json]
-  vos info   <config.json|url> [--json]
+  vos info   <config.json|url|take> [--json]
+             a take: its steps per media in source seconds, and every segment, span,
+             layer and sound in output seconds after trims and speed
   vos check  <config.json|url> [--json]
              migrate → schema → syntax → compile → determinism/dialect lints, all local
   vos preview <config.json|url> [--port 0]
@@ -311,9 +313,16 @@ async function cmdStill(argv: string[]): Promise<number> {
 }
 
 async function cmdInfo(argv: string[]): Promise<number> {
+  // A take DIRECTORY reads as the take's two clocks (its steps in source
+  // seconds, its cut in output seconds), through the take pipeline; every
+  // other source is a program config. The same sniff as render.
+  const first = argv.find((a) => !a.startsWith('-'))
+  if (first && directoryKind(first) === 'take') {
+    return delegate(['info', ...argv])
+  }
   const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
   const source = positionals[0]
-  if (!source) throw new UsageError('vos info <config.json|url>')
+  if (!source) throw new UsageError('vos info <config.json|url|take>')
   const r = createReporter(flags.json === true)
 
   const { config, warnings } = await loadVosConfig(source)

@@ -4,7 +4,13 @@
  * mapped through the cut into OUTPUT seconds. The captions a plan writes
  * sit there. Pure.
  */
-import { ratedSegments, spanOutputExtent } from '@vosjs/studio-core'
+import {
+  hasReplay,
+  longestOutputExtent,
+  momentOutputs,
+  ratedSegments,
+  spanOutputExtent,
+} from '@vosjs/studio-core'
 import type { StepSpan } from '@vosjs/studio-core'
 
 /** Seconds after a gesture's end before the frame is read: the response has landed. */
@@ -22,5 +28,11 @@ export function stepOutputTime(
   const src = step.tEnd + settle
   const ext = spanOutputExtent(rated, src, src + 0.001)
   if (!ext) return null
-  return ext.start
+  if (!hasReplay(rated)) return ext.start
+  // A step the cut replays settles in the pass it plays longest.
+  const pass = longestOutputExtent(rated, step.tStart, step.tEnd)
+  const after = pass
+    ? momentOutputs(rated, src).find((o) => o >= pass.start - 1e-6)
+    : undefined
+  return after ?? ext.start
 }

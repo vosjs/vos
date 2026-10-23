@@ -327,6 +327,10 @@ export function pinRectOnScreen(
 }
 
 export interface PinPlacementInput {
+  /**
+   * The layer, placed: its `start` is where it plays (an anchored layer
+   * with none is placed first, `layerStart`; unplaced it reads from 0).
+   */
   clip: OverlayClip
   referent: Rect
   layout: CardLayout
@@ -394,6 +398,7 @@ export interface PinPlacement {
  */
 export function pinPlacement(input: PinPlacementInput): PinPlacement {
   const { clip, referent, layout, camera, zoomTrack, base, motion } = input
+  const start = clip.start ?? 0
   const dur = Math.max(0.001, clip.duration)
   const gap = clip.pin?.gap ?? PIN_GAP
   const box = pinBox(clip, layout)
@@ -402,8 +407,8 @@ export function pinPlacement(input: PinPlacementInput): PinPlacement {
 
   const refAt = (local: number): Rect =>
     pinRectOnScreen(
-      pinReferentAt(referent, clip.start + local, input),
-      clip.start + local,
+      pinReferentAt(referent, start + local, input),
+      start + local,
       layout,
       camera,
       zoomTrack,

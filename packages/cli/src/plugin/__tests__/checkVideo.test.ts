@@ -153,6 +153,51 @@ describe('vos check-video', () => {
     expect(r.warnings).toEqual([])
   }, 120_000)
 
+  it('counts one cut where a light board of thin lines cuts to the empty canvas, and none where a block appears on it', async () => {
+    if (!browser) return console.warn(`skipped: no browser (${skipReason})`)
+    const canvas = (over: Partial<FixtureSpec>) =>
+      base({
+        width: 480,
+        height: 270,
+        fps: 30,
+        seconds: 3,
+        tone: undefined,
+        ...over,
+      })
+    const r = await check(
+      'board-cut',
+      canvas({
+        scenes: [
+          { at: 0, kind: 'canvas', color: '#141414', board: true },
+          { at: 1.5, kind: 'canvas', color: '#141414' },
+        ],
+      }),
+    )
+    // Most of both frames is the same light ground: little changes on
+    // average and over under a quarter of the frame, and it is a cut.
+    expect(r.scenes.changes).toHaveLength(1)
+    expect(r.scenes.changes[0].time).toBeCloseTo(1.5, 1)
+    expect(r.scenes.changes[0].change).toBeLessThan(0.12)
+    expect(r.scenes.changes[0].coverage).toBeLessThan(0.25)
+    // An app's own change in one frame, one block, is not.
+    const block = await check(
+      'board-block',
+      canvas({
+        scenes: [
+          { at: 0, kind: 'canvas', color: '#141414', board: true },
+          {
+            at: 1.5,
+            kind: 'canvas',
+            color: '#141414',
+            board: true,
+            block: true,
+          },
+        ],
+      }),
+    )
+    expect(block.scenes.changes).toEqual([])
+  }, 120_000)
+
   it('warns on a silent sound track', async () => {
     if (!browser) return console.warn(`skipped: no browser (${skipReason})`)
     const r = await check('silent', base({ tone: { amplitude: 0 } }))
