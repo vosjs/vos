@@ -11,6 +11,8 @@
  * notes (footage upscaling, sub-minimum spans) that still render fine.
  */
 import {
+  NORMALIZE_MAX_LUFS,
+  NORMALIZE_MIN_LUFS,
   CAM_SIZE_MAX,
   CAM_SIZE_MIN,
   CAM_SPAN_MIN,
@@ -58,6 +60,7 @@ import {
   snapRunWeight,
   RUN_STYLE_KEYS,
   ratedSegments,
+  clipGain,
   recommendedExportResolution,
   resolvePins,
   spanOutputExtent,
@@ -66,7 +69,7 @@ import {
   unionFitLevel,
 } from '@vosjs/studio-core'
 import { TYPEFACE_CATALOG, findFontFamily, findTypeface } from '@vosjs/shared'
-import type { RichText, TextOverlayClip } from '@vosjs/studio-core'
+import type { AudioClip, RichText, TextOverlayClip } from '@vosjs/studio-core'
 import type {
   CardLayout,
   ExportResolution,
@@ -364,6 +367,59 @@ function checkAnchor(s: Json, name: string, problems: string[]): void {
   if (a.offset !== undefined && !isNum(a.offset)) {
     problems.push(`${name}: anchor.offset must be a number (seconds)`)
   }
+}
+
+/**
+ * A loudness target and the measurement it is computed from. The target
+ * is the author's; the measurement is tooling's, so a missing or stale one
+ * is a warning with the verb that writes it: the clip still plays, at its
+ * gain alone.
+ */
+function lintLoudness(
+  a: Json,
+  name: string,
+  problems: string[],
+  warnings: string[],
+): void {
+  if (a.normalize !== undefined) {
+    if (
+      !isNum(a.normalize) ||
+      a.normalize < NORMALIZE_MIN_LUFS ||
+      a.normalize > NORMALIZE_MAX_LUFS
+    )
+      problems.push(
+        `${name}: normalize is a target loudness in LUFS, ${NORMALIZE_MIN_LUFS}..${NORMALIZE_MAX_LUFS} (e.g. -16; got ${String(a.normalize)})`,
+      )
+  }
+  const l = a.loudness
+  if (l !== undefined) {
+    if (
+      !isObj(l) ||
+      !isNum(l.lufs) ||
+      (l.peakDb !== null && !isNum(l.peakDb)) ||
+      typeof l.at !== 'string' ||
+      typeof l.src !== 'string'
+    ) {
+      problems.push(
+        `${name}: loudness is a measurement { lufs, peakDb, at, src } written by vos audio measure, never by hand; delete it and measure again`,
+      )
+      return
+    }
+  }
+  if (!isNum(a.normalize)) return
+  const g = clipGain(a as unknown as AudioClip)
+  if (g.basis === 'unmeasured' || g.basis === 'stale')
+    warnings.push(
+      `${name}: normalize ${a.normalize} is ignored until the clip is measured${g.basis === 'stale' ? ` (its loudness was measured for ${String((l as Json).src)}, not ${String(a.key)})` : ''}, so it plays at its gain alone; measure it: vos audio measure <take>`,
+    )
+  else if (g.capped === 'peak')
+    warnings.push(
+      `${name}: normalize ${a.normalize} asks for gain ${g.asked?.toFixed(2)}, held at ${g.gain.toFixed(2)} so the file's peak stays under -1 dBFS; it plays ${(20 * Math.log10((g.asked ?? g.gain) / g.gain)).toFixed(1)} dB under its target`,
+    )
+  else if (g.capped === 'lift')
+    warnings.push(
+      `${name}: normalize ${a.normalize} asks for more than +24 dB, the most a target lifts; it plays under its target`,
+    )
 }
 
 function checkSpanList(
@@ -936,8 +992,11 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       )
     }
     if (a.gain !== undefined && (!isNum(a.gain) || a.gain < 0 || a.gain > 1)) {
-      problems.push(`${name}: gain must be 0..1`)
+      problems.push(
+        `${name}: gain must be 0..1 (to lift a quiet file, give it a loudness target: normalize, in LUFS)`,
+      )
     }
+    lintLoudness(a, name, problems, warnings)
   }
 
   if (recording) {

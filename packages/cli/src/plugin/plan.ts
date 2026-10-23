@@ -32,7 +32,11 @@ import {
   withBackdrop,
   migrateMotion,
 } from '@vosjs/studio-core'
-import { splitSegmentsAtSkips } from '@vosjs/render-core/record'
+import {
+  splitSegmentsAtSkips,
+  withFittingExport,
+  withPageSound,
+} from '@vosjs/render-core/record'
 import { loadTake, writeJson } from './take'
 import { retimeCut, retimeOverlays } from './reuse'
 import { proposeMotion } from './motionPlan'
@@ -308,6 +312,9 @@ export async function planTake(
     if (prev.objects?.length) doc.objects = prev.objects
     if (prev.audio.length) doc.audio = prev.audio
     if (prev.camMotion?.length) doc.camMotion = prev.camMotion
+    // The page's own sound is the NEW recording's: the previous take's
+    // page clips go, the ones this take heard are placed.
+    withPageSound(doc, meta.media)
     // The frame that stands for the take is an output moment too, and the
     // author's choice: it carries as it is.
     if (prev.still !== undefined) doc.still = prev.still
@@ -397,8 +404,15 @@ export async function planTake(
       activity,
       steps: doc.source.meta.steps,
     })
+    // The footage decides the export a fresh doc opens on; a --style
+    // reference's export is the series' choice and stays.
+    if (!opts.style) withFittingExport(doc)
     fresh = true
   }
+
+  // The sound the page played, placed under the footage it was heard over;
+  // a re-plan replaces only those clips.
+  withPageSound(doc, meta.media)
 
   // The motion proposals ride a fresh document, or an explicit re-ask.
   let motion: PlanSummary['motion']

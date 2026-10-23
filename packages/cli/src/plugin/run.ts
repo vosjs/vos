@@ -2,7 +2,7 @@ import { videoFormat } from '../outputs'
 import { landedLines, waitForLanded } from './landed'
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import {
   END_CARD_FROM,
   docOutputDuration,
@@ -20,7 +20,8 @@ import {
 import { validateActions } from './actions'
 import { lintDoc } from './validateDoc'
 import { containerMismatch } from './container'
-import { readMediaHead } from './media'
+import { docAudioRefs, readMediaHead, takeRelativeFile } from './media'
+import { localFile } from '../programAssets'
 import {
   collectConfigMediaUrls,
   collectDocMediaUrls,
@@ -64,6 +65,7 @@ import {
   readSyncState,
   requireCredential,
   resolveCredential,
+  mintAt,
 } from './platform'
 import { startTakeServer } from './server'
 import {
@@ -78,27 +80,38 @@ import {
 import { deadLine, deadWarns } from './pace'
 import type { TakePaths } from './take'
 import { BrowserUnavailableError, launchBrowser } from '../browser'
-import { recordTake } from './recorder'
+import { recordTake, scriptForHost } from './recorder'
 import type { RecordResult, SkippedStep } from './recorder'
 import {
   RecordRefusedError,
   guardVerdict,
   guardedSteps,
   hostedRefusals,
+  readyProblem,
+  overrunLine,
 } from '@vosjs/render-core/record'
-import { WALL_PROBE, WallError, wallVerdict } from './wall'
-import { EXPOSURE_ADVICE, exposureLine } from './exposure'
+import type { ReadyMode, ReadyReport } from '@vosjs/render-core/record'
+import { WallError, wallVerdict } from './wall'
+import {
+  EXPOSURE_ADVICE,
+  exposureLine,
+  noticeAdvice,
+  noticeLine,
+} from './exposure'
 import { SetupEnvError, SetupError, parseHeaders } from './setup'
 import {
   listSessions,
   openSession,
   removeSession,
+  sessionVerdict,
   sessionDir,
   sessionNameVerdict,
   summarizeSession,
   summaryLine,
   withSession,
+  verdictLine,
 } from './session'
+import type { SessionVerdict } from './session'
 import type { Arrival, WallVerdict } from './wall'
 import type { Reporter } from './output'
 import {
@@ -143,6 +156,8 @@ import { cmdIngest } from './ingest'
 import { cmdCheckVideo } from './checkVideo'
 import { cmdJoin } from './join'
 import { cmdScore } from './score'
+import { cmdAudio } from './audio'
+import { PlatformBehindError } from './platformEngine'
 import { bareCaptionsFlag, landStepCaptions } from './stepCaptions'
 import type { StepCaptionReport } from './stepCaptions'
 import { cmdLook } from './look'
@@ -177,6 +192,7 @@ const BOOLEAN_FLAGS = new Set([
   'claimable',
   'share',
   'verbose',
+  'bake',
 ])
 /** Repeatable value flags (accumulate): --set path=value on render/frames, --override id on push, --browser-arg=<switch> and --confirm <id> on record/create. */
 export const MULTI_FLAGS = new Set([
@@ -190,8 +206,8 @@ export const MULTI_FLAGS = new Set([
 export const HELP = `vos — record a browser flow, plan effects, render a product video; sync with vos.so
 
 Take pipeline
-  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
-  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--allow-wall] [--keep-frames] [--max-duration <s>] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [--verbose] [--json]
+  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--allow-wall] [--keep-frames] [--max-duration <s>] [--ready dom|networkidle] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
+  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--allow-wall] [--keep-frames] [--max-duration <s>] [--ready dom|networkidle] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [--verbose] [--json]
   vos record --hosted --actions actions.json [--url <url>] [--out take] [--title "…"] [--folder <id>] [--header name=value]... [--json]
             the take recorded on vos.so's fleet (no browser here): lands as a private vos with its doc and digest, then fetched into --out with its media
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions|--captions none] [--clicks none] [--still <t>] [--release v2.1] [--json]
@@ -211,8 +227,10 @@ Take pipeline
             a take from a recording someone else made (a cloud agent's PR video, a Playwright run's video, a Loom export): the file becomes recording.<container>, meta.json from its own dimensions and duration, and a trace beside it becomes cursor.json so the planner has clicks to zoom on; without one, nothing is planned and the done event says so. Without a trace the file opens as FINISHED footage (a render from HyperFrames or Remotion, a film): no card, no browser bar, no drawn cursor, its own frame rate; --as take gives a screen demo the card
   vos join <take> <take|file.mp4>... --out <dir> [--force] [--captions] [--mute <file>]... [--json]
             several takes (and plain video files) as ONE take, cut in argument order: the first is the primary (its frame, cursor, export and sound), each next one a media m1, m2, … with its footage copied, its spans tagged and renamed, its layers moved to where it now starts; a file opens full-bleed and its own sound plays as an audio clip (--mute <file> leaves it out). --captions lands every step's caption anchored to its step, each ending with its clip. The result must pass vos validate before anything is written
-  vos score <take> --track <slug|file> [--at <step id|output seconds>] [--gain 0..1] [--fade-in <s>] [--fade-out <s>] [--dry-run] [--json]
-            the film's music as one audio clip (id score): reads the track's loudness, finds its strongest swell and offsets the track so the swell lands at --at (a step, resolved through the cut, or output seconds); without --at it starts where the track first rises above its median level
+  vos score <take> --track <slug|file> [--at <step id|output seconds>] [--gain 0..1] [--normalize <lufs|off>] [--fade-in <s>] [--fade-out <s>] [--dry-run] [--json]
+            the film's music as one audio clip (id score): reads the track's loudness, finds its strongest swell and offsets the track so the swell lands at --at (a step, resolved through the cut, or output seconds); without --at it starts where the track first rises above its median level. The clip carries its measured loudness and a target, --normalize (default -16 LUFS), with --gain (default 0.5) a trim on it; --normalize off plays it at --gain alone
+  vos audio measure <take> [--json]
+            every audio clip's loudness (BS.1770 integrated LUFS and sample peak, the meter check-video reads a render with), written beside it in doc.json as loudness { lufs, peakDb, at, src }; a clip's normalize (a target in LUFS, -30..-6) plays it at the gain that reaches it, past 1 if need be, capped so its peak stays under -1 dBFS, and only once it is measured for its own key
   vos port inventory <page.html|project dir> [--render <their render.mp4>] [--out port] [--json]
             a finished piece (a HyperFrames composition, a Remotion project bundled with its own bundler, a hand-rolled page) read as a browser renders it: words, palette, faces (catalog or missing), media, scenes, gaps → port/inventory.json, with stills from its render
   vos port scaffold [--from port/inventory.json] [--out port/program] [--json]
@@ -223,8 +241,8 @@ Take pipeline
             per-frame SSIM and source | vos | difference sheets; exit 1 when ANY frame is under the threshold (needs ffmpeg)
   vos look <url> [--session <name>|--storage-state <file>] [--viewport WxH] [--headed] [--click <selector>]... [--type <selector>=<text>]... [--wait <ms>] [--header name=value]... [--browser-arg=<switch>]... [--out look] [--json]
             see a page before scripting it, signed in the way vos record would be: <out>/look.png and every control in view with ONE proposed selector (test id, aria-label, role + name, then words in its dialog or landmark), UNIQUE or AMBIGUOUS as the recorder's own engine counts it, plus what the frame exposes. --click/--type run first, in order; a click on a spend or delete word is refused. Exit 4 at a sign-in wall
-  vos session open <url> --name <app>   a plain Chrome window on a vos-owned profile; sign in, close it
-  vos session check <name> [--url <url>]   headless: does the session still open the page? exit 0/4
+  vos session open <url> --name <app>   a plain Chrome window on a vos-owned profile; sign in, set the account up, close the window (or Enter)
+  vos session check <name> [--url <url>] [--strict]   headless, against a stranger: does the page open as you? exit 0/4
   vos session list | rm <name>          what exists and how old; delete one
   vos actions script <actions.json> [--json]
             the flow as numbered beats in words, for a person recording it by hand
@@ -259,7 +277,7 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
   vos push  <config.json|take> [--vos id] [--title t] [--slug s] [--remix-of id]
             [--desc d] [--tags a,b] [--folder <folderId|slug>]
             [--note n] [--label l] [--base versionId] [--override <id>]... [--yes] [--json]
-            [--claimable] [--wait] [--still <seconds>]
+            [--claimable] [--wait] [--still <seconds>] [--bake]
             a take DIRECTORY (doc.json) pushes recording + doc; a config.json
             pushes the program. No --vos: create a PRIVATE vos; with --vos:
             add a version against the tracked base — a stale push 409s WITH
@@ -282,6 +300,14 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
             --still <seconds> sets a PROGRAM's cover (doc.json "still", kept
             by every later push); without it the platform picks an early
             frame. A take's cover is its doc.json "still".
+            A take push first reads which studio-core the platform renders
+            with (GET /api/engine) and refuses (exit 2) a take using a field
+            newer than it, which its studio would draw wrong and save that
+            way; --bake sends a copy any renderer plays, every such field
+            resolved (an anchored caption at the start it plays at, a
+            loudness target as its gain) whatever the platform answered,
+            doc.json untouched. Without --bake an unreadable answer warns
+            and pushes.
   vos delete <vosId|watch-url|dir> [--yes] [--dry-run] [--json]
             move a vos to Trash on vos.so. Nothing is erased: it stays
             restorable until the date the delete prints (vos restore <id>).
@@ -374,9 +400,12 @@ script edits.
 record --strict exits 2 when any selector was skipped, an expect never
 held, a click landed on a disabled control, an await timed out, or the
 take hit --max-duration (the done event lists skipped[], disabled[] and
-capped either way). A first load that never reaches networkidle (a page
-holding a socket open) is a warning, navTimeout in the done event, never
-a strict failure. --max-duration defaults to
+capped either way). Step 1 runs once the first page has stopped changing
+(after load, 800 ms with no DOM change, at most 8 s); --ready networkidle
+(or "ready" in actions.json) waits for network idle instead, at most 45 s,
+which a page holding a socket open never reaches. The done event's ready
+{ mode, ms, capped } says how it settled; navTimeout is true only when
+networkidle was asked for and never came; neither is a strict failure. --max-duration defaults to
 the hosted recording cap, read live from GET /api/limits (30 min when the
 origin is unreachable): the capture stops there and says so in one line.
 Three steps beyond the gestures: expect checks the page on camera
@@ -386,10 +415,22 @@ fail|continue), so the footage has no gap and the cut lands in
 meta.skips[] and becomes a segment boundary; download keeps a file the page
 makes in the take's outputs/ (selector: the download a click starts; src:
 the currentSrc of a video, audio or img; as: the file name), listed in
-meta.outputs[]. A click, press or type with "guard": "spend" costs
+meta.outputs[]. Sound the page plays (a video or audio element heard,
+not muted) lands in meta.media[] with the footage stretches it was heard;
+its file is fetched into page-sound/ and the plan places it as audio
+clips with source "page", which a re-plan replaces. The scan after each
+step reports exposures (an email, a key, a card: kind and place) and,
+apart, notices: the signed-in account's own name (its places, never the
+name) and a list of its recent items, with the mask that hides it;
+notices are information, never a --strict failure. A click, press or type with "guard": "spend" costs
 something real: --dry-run hovers it and never presses, and record presses
 it only with --confirm <id> (repeatable), refusing before any capture
 otherwise. --hosted refuses guarded and download steps.
+Every step is bounded: a call into a page that stopped answering gives up
+at the step's own timeout (an expect's or an await's, or a gesture's plan
+plus 30 s), the step is a skip with the real time it took, and --strict
+stops the take there. --json reports { event: "step", phase, i, id, do,
+ms } as each step starts and ends.
 frames captures PNG stills at OUTPUT times (seconds or % of duration);
 --at-zooms adds every zoom span's apex, --at-moments every digest moment —
 the agent's eyes (--size WxH for an exact size). render
@@ -597,11 +638,55 @@ export function strictFails(rec: RecordResult): boolean {
   )
 }
 
-/** The warning a take or rehearsal prints when the first load never went network-idle. */
-function navTimeoutNote(rec: { navTimeout: boolean }): string {
-  return rec.navTimeout
-    ? '\n  note: the first load never reached networkidle (a page holding a socket open never does); recorded anyway'
-    : ''
+/**
+ * `--ready dom|networkidle`: when the first page counts as ready, over
+ * the script's own `ready`. Folded into the actions, so the take's
+ * actions.json says how it was recorded and a hosted take carries it.
+ */
+function withReady(
+  actions: ActionsFile,
+  flags: ParsedArgs['flags'],
+): ActionsFile {
+  const asked = strFlag(flags, 'ready')
+  if (asked === undefined) return actions
+  const problem = readyProblem(asked)
+  if (problem) throw new UsageError(`--${problem}`)
+  return { ...actions, ready: asked as ReadyMode }
+}
+
+/**
+ * The note a take or rehearsal prints when the first load gave up waiting:
+ * network idle never came (asked for with `ready: "networkidle"`), or the
+ * page never stopped changing within the settle's cap.
+ */
+function navTimeoutNote(rec: {
+  navTimeout: boolean
+  ready?: ReadyReport
+}): string {
+  if (rec.navTimeout)
+    return '\n  note: the first load never reached networkidle (a page holding a socket open never does); recorded anyway. The default, ready "dom", waits for the page to stop changing instead'
+  if (rec.ready?.mode === 'dom' && rec.ready.capped)
+    return `\n  note: the first page was still changing after ${(rec.ready.ms / 1000).toFixed(1)} s (an animation, a ticker); the take started anyway. Give step 1 a wait if the page needs longer`
+  return ''
+}
+
+/** `vos validate`'s notices section: information about the footage, after the warnings. */
+function noticeLines(notices: string[]): string {
+  return notices.length ? `\n  noticed:\n  ${notices.join('\n  ')}` : ''
+}
+
+/** A value as a shell word: bare when it is plain, else single-quoted. */
+function shellWord(v: string): string {
+  return /^[\w@%+=:,./-]+$/.test(v) ? v : `'${v.replace(/'/g, `'\\''`)}'`
+}
+
+/** The sound the page played, as the take-ready line says it. */
+function pageSoundNote(rec: Pick<RecordResult, 'media'>): string {
+  const heard = rec.media.filter((m) => m.intervals.length)
+  if (!heard.length) return ''
+  const kept = heard.filter((m) => m.file)
+  const lost = heard.filter((m) => !m.file)
+  return `\n  page sound: ${heard.length} source(s) heard; ${kept.length} kept in page-sound/ and placed as audio clips (source "page")${lost.length ? `; not kept: ${lost.map((m) => `${m.src || 'a media element'} (${m.fetchError ?? 'no file'})`).join(', ')}` : ''}`
 }
 
 /** A mask whose selector never reached an element hid nothing. */
@@ -609,6 +694,16 @@ function maskMisses(rec: {
   masks?: { selector: string; hits: number }[]
 }): string[] {
   return (rec.masks ?? []).filter((m) => m.hits === 0).map((m) => m.selector)
+}
+
+/** What the recorder noticed (the account's name, its recent items), in words: information, never a failure. */
+function noticeNote(rec: {
+  notices: Parameters<typeof noticeLine>[0][]
+}): string {
+  if (!rec.notices.length) return ''
+  return `\n  NOTICED in the frame (${rec.notices.length}):\n${rec.notices
+    .map((n) => `    - ${noticeLine(n)}`)
+    .join('\n')}\n  ${noticeAdvice(rec.notices)}`
 }
 
 /** What the frame shows, in words, for the end of a record or a rehearsal. */
@@ -664,9 +759,12 @@ function stepReportNote(
   rec: Pick<
     RecordResult,
     'disabled' | 'skips' | 'outputs' | 'confirmed' | 'stopped'
-  >,
+  > &
+    Partial<Pick<RecordResult, 'overruns'>>,
 ): string {
   const lines: string[] = []
+  const overrun = overrunLine(rec.overruns ?? [])
+  if (overrun) lines.push(`OVERRUN: ${overrun}`)
   if (rec.disabled.length)
     lines.push(
       `DISABLED when clicked: ${rec.disabled.map((d) => `#${d.step}${d.id ? ` ${d.id}` : ''} ${d.selector}`).join(', ')} (the press likely did nothing; an expect with enabled: true before it waits for the control)`,
@@ -859,7 +957,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
       'vos record --actions actions.json [--url <url>] [--out take]',
     )
   const r = createReporter(flags.json === true)
-  const actions = await loadActions(actionsPath)
+  const actions = withReady(await loadActions(actionsPath), flags)
   const url = strFlag(flags, 'url') ?? actions.url
   if (!url)
     throw new UsageError('no URL — set "url" in the actions file or pass --url')
@@ -896,7 +994,14 @@ async function cmdRecord(argv: string[]): Promise<number> {
       )
     // Nobody can confirm a step that spends on the fleet, and a download
     // has no take directory to land in there.
-    const refusals = hostedRefusals(actions)
+    // The script travels alone: a path a file holds goes up inline.
+    const hostedActions = await scriptForHost(
+      actions,
+      dirname(resolve(actionsPath)),
+    ).catch((e: unknown) => {
+      throw new UsageError(e instanceof Error ? e.message : String(e))
+    })
+    const refusals = hostedRefusals(hostedActions)
     if (refusals.length)
       throw new UsageError(
         `a hosted take cannot run this script: ${refusals.join('; ')}`,
@@ -912,7 +1017,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
     const key = resolveCredential(strFlag(flags, 'key'))
     if (!key)
       throw new UsageError(
-        'recording on vos.so needs a credential: vos login, or VOS_API_KEY (mint a key at https://vos.so/app/api)',
+        `recording on ${origin} needs a credential: vos login, or VOS_API_KEY (mint a key at ${mintAt(origin)})`,
       )
     const { env, missing } = hostedEnv(actions, process.env)
     if (missing.length)
@@ -926,7 +1031,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
       origin,
       key,
       url,
-      actions: { ...actions, url },
+      actions: { ...hostedActions, url },
       headers,
       title: strFlag(flags, 'title'),
       folderId: strFlag(flags, 'folder'),
@@ -1008,10 +1113,13 @@ async function cmdRecord(argv: string[]): Promise<number> {
       const started = Date.now()
       const rec = await inSession(sessionName, actions, (context) =>
         recordTake(browser, url, actions, takePaths(outDir), r.log, {
+          actionsDir: dirname(resolve(actionsPath)),
           storageState,
           headers,
           context,
           dryRun: true,
+          // A rehearsal is always strict: a page that stops answering stops it.
+          stopOnHang: true,
           verbose: flags.verbose === true,
           onEvent: (e) => r.event(e),
           // A rehearsal is always strict, and it touches no directory.
@@ -1064,6 +1172,15 @@ async function cmdRecord(argv: string[]): Promise<number> {
       // dropped --storage-state sent a signed-in rehearsal on to record
       // the sign-in page.
       const carried = [
+        // Every flag that shapes the take, as given, so the next command
+        // records what was rehearsed.
+        ...(['url', 'ready', 'max-duration', 'background'] as const).flatMap(
+          (k) =>
+            strFlag(flags, k)
+              ? [`--${k} ${shellWord(strFlag(flags, k)!)}`]
+              : [],
+        ),
+        ...(flags['keep-frames'] === true ? ['--keep-frames'] : []),
         ...(strFlag(flags, 'storage-state')
           ? [`--storage-state ${strFlag(flags, 'storage-state')}`]
           : []),
@@ -1096,10 +1213,12 @@ async function cmdRecord(argv: string[]): Promise<number> {
           pageErrors: rec.pageErrors,
           ...(rec.stopped ? { stopped: rec.stopped } : {}),
           navTimeout: rec.navTimeout,
+          ready: rec.ready,
           exposures: rec.exposures,
+          notices: rec.notices,
           masks: rec.masks,
         },
-        `${failed ? 'REHEARSAL FAILED' : 'Rehearsal passed'}: ${resolved}/${actions.steps.length} steps resolved in ${((Date.now() - started) / 1000).toFixed(1)}s${rec.navTimeout ? ' (the first load never reached networkidle)' : ''}\n${lines.join('\n')}\n  ${maskMisses(rec).length ? `MASK hid nothing: ${maskMisses(rec).join(', ')} (the selector reached no element). ` : ''}${rec.stopped ? `STOPPED: ${rec.stopped.reason}. ` : ''}${failed ? 'Fix the script, rehearse again, then record.' : `Rects are capture px (the step rects a pin or a callout reads). Next: vos record --actions ${actionsPath} --out ${nextOut}${carried ? ` ${carried}` : ''} --strict${guardNote}`}${exposureNote(rec)}`,
+        `${failed ? 'REHEARSAL FAILED' : 'Rehearsal passed'}: ${resolved}/${actions.steps.length} steps resolved in ${((Date.now() - started) / 1000).toFixed(1)}s${rec.navTimeout ? ' (the first load never reached networkidle)' : rec.ready.capped ? ' (the first page never stopped changing)' : ''}\n${lines.join('\n')}\n  ${maskMisses(rec).length ? `MASK hid nothing: ${maskMisses(rec).join(', ')} (the selector reached no element). ` : ''}${rec.stopped ? `STOPPED: ${rec.stopped.reason}. ` : ''}${failed ? 'Fix the script, rehearse again, then record.' : `Rects are capture px (the step rects a pin or a callout reads). Next: vos record --actions ${actionsPath} --out ${nextOut}${carried ? ` ${carried}` : ''} --strict${guardNote}`}${exposureNote(rec)}${noticeNote(rec)}`,
       )
       // An await that gave up stops the take, in a rehearsal as in a record.
       return rec.stopped ? EXIT_ERROR : failed ? EXIT_USAGE : EXIT_OK
@@ -1135,11 +1254,13 @@ async function cmdRecord(argv: string[]): Promise<number> {
     r.event({ event: 'phase', phase: 'record' })
     const rec = await inSession(sessionName, actions, (context) =>
       recordTake(browser, url, actions, paths, r.log, {
+        actionsDir: dirname(resolve(actionsPath)),
         maxDurationSeconds: maxDurationSeconds,
         storageState: storageState,
         headers,
         context,
         confirm,
+        stopOnHang: flags.strict === true,
         verbose: flags.verbose === true,
         onEvent: (e) => r.event(e),
         onArrival: wallGate(flags, r, {
@@ -1194,6 +1315,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
         zoomSpans: plan.doc.zoom.length,
         skipped: rec.skipped,
         navTimeout: rec.navTimeout,
+        ready: rec.ready,
         freezes: rec.freezes,
         freezePct: rec.freezePct,
         dead: rec.dead,
@@ -1201,17 +1323,20 @@ async function cmdRecord(argv: string[]): Promise<number> {
         pace: rec.pace,
         ...(rec.wall ? { wall: rec.wall } : {}),
         exposures: rec.exposures,
+        notices: rec.notices,
         ...(rec.masks.length ? { masks: rec.masks } : {}),
         disabled: rec.disabled,
         confirmed: rec.confirmed,
         skips: rec.skips,
         outputs: rec.outputs,
+        ...(rec.media.length ? { media: rec.media } : {}),
+        overruns: rec.overruns,
         pageErrors: rec.pageErrors,
         ...(strictFail ? { strictFailed: true } : {}),
       },
       strictFail
-        ? `STRICT: take recorded but incomplete — ${strictReason(rec)}; fix the flow and re-record.${skippedNote}${stepNote}${navTimeoutNote(rec)}${exposureNote(rec)}`
-        : `Take ready: ${outDir}\n  ${(rec.meta.durationMs / 1000).toFixed(1)}s · ${rec.frames.length} frames · ${rec.events.length} cursor events · ${clicks} clicks · ${plan.doc.zoom.length} zoom spans planned · ${rec.freezePct}% frozen · ${rec.dead.pct}% dead${deadWarns(rec.dead) ? ' ⚠ ' + deadLine(rec.dead) : ''}${skippedNote}${stepNote}${navTimeoutNote(rec)}\n  Next: edit ${join(outDir, 'doc.json')} (optional), then: vos render ${outDir}${exposureNote(rec)}`,
+        ? `STRICT: take recorded but incomplete — ${strictReason(rec)}; fix the flow and re-record.${skippedNote}${stepNote}${navTimeoutNote(rec)}${exposureNote(rec)}${noticeNote(rec)}`
+        : `Take ready: ${outDir}\n  ${(rec.meta.durationMs / 1000).toFixed(1)}s · ${rec.frames.length} frames · ${rec.events.length} cursor events · ${clicks} clicks · ${plan.doc.zoom.length} zoom spans planned · ${rec.freezePct}% frozen · ${rec.dead.pct}% dead${deadWarns(rec.dead) ? ' ⚠ ' + deadLine(rec.dead) : ''}${skippedNote}${stepNote}${navTimeoutNote(rec)}${pageSoundNote(rec)}\n  Next: edit ${join(outDir, 'doc.json')} (optional), then: vos render ${outDir}${exposureNote(rec)}${noticeNote(rec)}`,
     )
     return strictFail ? EXIT_USAGE : EXIT_OK
   } finally {
@@ -1240,7 +1365,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
     )
   }
   const r = createReporter(flags.json === true)
-  const actions = await loadActions(actionsPath)
+  const actions = withReady(await loadActions(actionsPath), flags)
   const url = strFlag(flags, 'url') ?? actions.url
   if (!url)
     throw new UsageError('no URL — set "url" in the actions file or pass --url')
@@ -1289,11 +1414,13 @@ async function cmdCreate(argv: string[]): Promise<number> {
     r.event({ event: 'phase', phase: 'record' })
     const rec = await inSession(sessionName, actions, (context) =>
       recordTake(browser, url, actions, paths, r.log, {
+        actionsDir: dirname(resolve(actionsPath)),
         maxDurationSeconds: maxDurationSeconds,
         storageState: storageState,
         headers,
         context,
         confirm,
+        stopOnHang: flags.strict === true,
         verbose: flags.verbose === true,
         onEvent: (e) => r.event(e),
         onArrival: wallGate(flags, r, {
@@ -1333,6 +1460,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
           skipped: rec.skipped,
           disabled: rec.disabled,
           navTimeout: rec.navTimeout,
+          ready: rec.ready,
           capped: rec.capped,
           strictFailed: true,
           rendered: false,
@@ -1373,19 +1501,23 @@ async function cmdCreate(argv: string[]): Promise<number> {
         ...result,
         skipped: rec.skipped,
         navTimeout: rec.navTimeout,
+        ready: rec.ready,
         freezes: rec.freezes,
         freezePct: rec.freezePct,
         dead: rec.dead,
         exposures: rec.exposures,
+        notices: rec.notices,
         ...(rec.masks.length ? { masks: rec.masks } : {}),
         disabled: rec.disabled,
         confirmed: rec.confirmed,
         skips: rec.skips,
         outputs: rec.outputs,
+        ...(rec.media.length ? { media: rec.media } : {}),
+        overruns: rec.overruns,
         pageErrors: rec.pageErrors,
         ...(flags.draft === true ? { draft: true } : {}),
       },
-      `Created ${result.out} (${(result.bytes / 1024).toFixed(0)} KB, ${result.width}x${result.height}@${result.fps}, ${result.duration.toFixed(1)}s, ${result.zoomSpans} zoom spans, ${result.clicks} click effects${result.audio ? ', audio' : ''}${flags.draft === true ? ', DRAFT' : ''})\n  take: ${outDir} — inspect with: vos frames ${outDir} --at-zooms; edit doc.json and re-render with: vos render ${outDir}${stepReportNote(rec)}${navTimeoutNote(rec)}${exposureNote(rec)}`,
+      `Created ${result.out} (${(result.bytes / 1024).toFixed(0)} KB, ${result.width}x${result.height}@${result.fps}, ${result.duration.toFixed(1)}s, ${result.zoomSpans} zoom spans, ${result.clicks} click effects${result.audio ? ', audio' : ''}${flags.draft === true ? ', DRAFT' : ''})\n  take: ${outDir} — inspect with: vos frames ${outDir} --at-zooms; edit doc.json and re-render with: vos render ${outDir}${stepReportNote(rec)}${navTimeoutNote(rec)}${exposureNote(rec)}${noticeNote(rec)}`,
     )
     return EXIT_OK
   } finally {
@@ -2377,6 +2509,11 @@ async function cmdValidate(argv: string[]): Promise<number> {
   for (const e of take.meta.exposures ?? [])
     warnings.push(`the recording shows ${exposureLine(e)}`)
   if (take.meta.exposures?.length) warnings.push(EXPOSURE_ADVICE)
+  // Information, never a warning: whose account the footage shows.
+  const notices = (take.meta.notices ?? []).map(
+    (n) => `the recording shows ${noticeLine(n)}`,
+  )
+  if (notices.length) notices.push(noticeAdvice(take.meta.notices ?? []))
   for (const m of take.meta.masks ?? [])
     if (m.hits === 0)
       warnings.push(
@@ -2397,6 +2534,18 @@ async function cmdValidate(argv: string[]): Promise<number> {
     )
     problems.push(...probe.problems)
     warnings.push(...probe.warnings)
+    // A sound the document names in the take must be there: a render that
+    // cannot read it plays the film without it, and says so only in a log.
+    for (const ref of docAudioRefs(take.doc)) {
+      const rel = takeRelativeFile(ref.key)
+      const found = localFile(rel, target)
+      if (!('refused' in found)) continue
+      problems.push(
+        existsSync(resolve(target, rel))
+          ? `doc.json: ${ref.where}: ${ref.key} ${found.refused}`
+          : `doc.json: ${ref.where}: ${ref.key} is not a file in the take, so a render plays the film without it (put the file there, or fix the key)`,
+      )
+    }
     // --picture: each html layer's ground against the footage it covers, as
     // the camera shows it at the layer's start (one browser session, the
     // footage rendered without layers).
@@ -2444,15 +2593,22 @@ async function cmdValidate(argv: string[]): Promise<number> {
         problems,
         warnings,
         ...(notes.length ? { notes } : {}),
+        ...(notices.length ? { notices } : {}),
       },
-      `${target}:\n  ${problems.join('\n  ')}${warnings.length ? `\n  warnings:\n  ${warnings.join('\n  ')}` : ''}${notes.length ? `\n  notes:\n  ${notes.join('\n  ')}` : ''}`,
+      `${target}:\n  ${problems.join('\n  ')}${warnings.length ? `\n  warnings:\n  ${warnings.join('\n  ')}` : ''}${notes.length ? `\n  notes:\n  ${notes.join('\n  ')}` : ''}${noticeLines(notices)}`,
     )
     return EXIT_ERROR
   }
   const noteLines = notes.length ? `\n  notes:\n  ${notes.join('\n  ')}` : ''
   r.done(
-    { valid: true, target, warnings, ...(notes.length ? { notes } : {}) },
-    `${target}: take is complete and renderable${warnings.length ? `\n  warnings:\n  ${warnings.join('\n  ')}` : ''}${noteLines}`,
+    {
+      valid: true,
+      target,
+      warnings,
+      ...(notes.length ? { notes } : {}),
+      ...(notices.length ? { notices } : {}),
+    },
+    `${target}: take is complete and renderable${warnings.length ? `\n  warnings:\n  ${warnings.join('\n  ')}` : ''}${noteLines}${noticeLines(notices)}`,
   )
   return EXIT_OK
 }
@@ -2466,7 +2622,7 @@ async function cmdPush(argv: string[]): Promise<number> {
   const dir = positionals[0]
   if (!dir)
     throw new UsageError(
-      'vos push <take> [--vos|--title|--label|--note|--prompt|--folder|--override|--yes|--key|--api|--claimable [--share]]',
+      'vos push <take> [--vos|--title|--label|--note|--prompt|--folder|--override|--yes|--key|--api|--bake|--claimable [--share]]',
     )
   const refusal = takePushRefusal({
     vos: strFlag(flags, 'vos'),
@@ -2495,6 +2651,7 @@ async function cmdPush(argv: string[]): Promise<number> {
         title: strFlag(flags, 'title'),
         prompt: strFlag(flags, 'prompt'),
         share: flags.share === true,
+        bake: flags.bake === true,
       },
       r,
     )
@@ -2524,6 +2681,7 @@ async function cmdPush(argv: string[]): Promise<number> {
       folder: strFlag(flags, 'folder'),
       overrides,
       prompt: strFlag(flags, 'prompt'),
+      bake: flags.bake === true,
     },
     r,
   )
@@ -2735,6 +2893,8 @@ export async function run(argv: string[]): Promise<number> {
         return await cmdJoin(rest)
       case 'score':
         return await cmdScore(rest)
+      case 'audio':
+        return await cmdAudio(rest)
       case 'look':
         return await cmdLook(rest)
       default:
@@ -2749,6 +2909,7 @@ export async function run(argv: string[]): Promise<number> {
       e instanceof SetupError ||
       e instanceof SetupEnvError ||
       e instanceof RecordRefusedError ||
+      e instanceof PlatformBehindError ||
       e instanceof PushRefusedError
     ) {
       process.stderr.write(`${e.message}\n`)
@@ -2767,6 +2928,22 @@ export async function run(argv: string[]): Promise<number> {
     )
     return EXIT_ERROR
   }
+}
+
+/**
+ * A session check's exit: 0 signed in, 4 not signed in, and a URL that
+ * cannot tell is a warning (0), or 4 under --strict. No verdict at all (no
+ * cookies) is `none`.
+ */
+function verdictExit(
+  v: SessionVerdict | null,
+  strict: boolean,
+  none: number,
+): number {
+  if (!v) return none
+  if (v.state === 'signed-in') return EXIT_OK
+  if (v.state === 'not-signed-in') return EXIT_WALL
+  return strict ? EXIT_WALL : EXIT_OK
 }
 
 /**
@@ -2793,18 +2970,31 @@ async function cmdSession(argv: string[]): Promise<number> {
       }
       if (!/^https?:$/.test(url.protocol))
         throw new UsageError('vos session open wants an http(s) URL')
-      await openSession(name!, url.href, { log: r.log })
+      const opened = await openSession(name!, url.href, { log: r.log })
       const summary = await summarizeSession(name!)
+      // Cookies prove nothing (analytics land on a stranger's visit too):
+      // the session passed only if the page it was opened on opens as the
+      // person, the same check `vos session check --url` runs.
+      const verdict = summary.origins.length
+        ? await sessionVerdict(name!, url.href)
+        : null
+      const signedIn = verdict?.state === 'signed-in'
+      const again = `Try again: vos session open ${url.href} --name ${name}, sign in, and close the window once the app shows you signed in`
       r.done(
         {
           name: summary.name,
+          finish: opened.finish,
+          signedIn,
+          ...(verdict ? { verdict } : {}),
           origins: summary.origins,
           newestExpires: summary.newestExpires,
           sessionOnly: summary.sessionOnly,
         },
-        `${summaryLine(summary)}\n  Record on it: vos record --actions actions.json --out take --session ${name} --strict`,
+        verdict
+          ? `${verdictLine(verdict, url.href, name!)}. ${summaryLine(summary)}${signedIn ? `\n  Record on it: vos record --actions actions.json --out take --session ${name} --strict` : verdict.state === 'not-signed-in' ? `\n  ${again}` : ''}`
+          : `${summaryLine(summary)}\n  ${opened.finish === 'quit' ? `Chrome exited${opened.code ? ` (code ${opened.code})` : ''} before anything was saved. If you did not quit it (⌘Q), it exited on its own: the likely cause is a HOME with no login keychain to keep the cookies' key in (a sandbox, a fresh user, a CI runner), or a profile another Chrome already holds. ` : ''}Nothing was saved. ${again}`,
       )
-      return summary.origins.length ? EXIT_OK : EXIT_ERROR
+      return verdictExit(verdict, flags.strict === true, EXIT_ERROR)
     }
     case 'check': {
       if (!arg) throw new UsageError(usage)
@@ -2828,48 +3018,18 @@ async function cmdSession(argv: string[]): Promise<number> {
       }
       // Does the session still open the page it was made for? The wall
       // check's own verdict, on this profile.
-      const verdict = await withSession(arg, async (ctx) => {
-        const page = await ctx.newPage()
-        const response = await page
-          .goto(url, { waitUntil: 'networkidle', timeout: 30000 })
-          .catch(() => null)
-        const seen = (await page.evaluate(WALL_PROBE).catch(() => null)) as {
-          passwordFields: number
-          newPasswordField: boolean
-          oneTimeCodeField: boolean
-        } | null
-        return wallVerdict({
-          askedUrl: url,
-          landedUrl: page.url(),
-          ...(response ? { status: response.status() } : {}),
-          passwordFields: seen?.passwordFields ?? 0,
-          newPasswordField: seen?.newPasswordField ?? false,
-          oneTimeCodeField: seen?.oneTimeCodeField ?? false,
-        })
-      })
-      if (verdict) {
-        r.done(
-          {
-            name: arg,
-            ok: false,
-            wall: verdict,
-            origins: summary.origins,
-            newestExpires: summary.newestExpires,
-          },
-          `session "${arg}" no longer opens ${url}: ${verdict.message.split('. ')[0]}. It expired, or the sign-in never landed. Sign in again: vos session open ${url} --name ${arg}`,
-        )
-        return EXIT_WALL
-      }
+      const verdict = await sessionVerdict(arg, url)
       r.done(
         {
           name: arg,
-          ok: true,
+          ok: verdict.state === 'signed-in',
+          verdict,
           origins: summary.origins,
           newestExpires: summary.newestExpires,
         },
-        `session "${arg}" opens ${url} signed in. ${summaryLine(summary)}`,
+        `session "${arg}": ${verdictLine(verdict, url, arg)}${verdict.state === 'not-signed-in' ? `. It expired, or the sign-in never landed. Sign in again: vos session open ${url} --name ${arg}` : `. ${summaryLine(summary)}`}`,
       )
-      return EXIT_OK
+      return verdictExit(verdict, flags.strict === true, EXIT_WALL)
     }
     case 'list': {
       const rows = listSessions()

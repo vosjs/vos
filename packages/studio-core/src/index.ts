@@ -601,6 +601,23 @@ export type { DuckOptions, MicRms } from './lower/duckCurve'
 export { clipEnvelope, envelopeValueAt } from './lower/audioEnvelope'
 export type { EnvelopePoint } from './lower/audioEnvelope'
 export {
+  NORMALIZE_MAX_LIFT_DB,
+  NORMALIZE_MAX_LUFS,
+  NORMALIZE_MIN_LUFS,
+  NORMALIZE_PEAK_CEILING_DB,
+  clipGain,
+  loudnessMatches,
+} from './lower/loudness'
+export type { ClipGain, ClipGainBasis } from './lower/loudness'
+export {
+  DOC_FEATURES,
+  bakeDocFeatures,
+  compareVersions,
+  docFeatures,
+  featuresNewerThan,
+} from './docFeatures'
+export type { BakeResult, DocFeature, UsedFeature } from './docFeatures'
+export {
   docOutputDuration,
   isMusicBed,
   musicBedClip,

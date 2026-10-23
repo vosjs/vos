@@ -1589,7 +1589,38 @@
           "gain": {
             "type": "number",
             "minimum": 0,
-            "maximum": 1
+            "maximum": 1,
+            "description": "linear gain; with a measured `normalize`, a trim on the target"
+          },
+          "normalize": {
+            "type": "number",
+            "minimum": -30,
+            "maximum": -6,
+            "description": "target integrated loudness, LUFS (e.g. -16). Applies only while `loudness.src` is this clip's `key`: the clip plays at 10^((normalize - loudness.lufs) / 20) × gain, which may exceed 1, capped so the file's sample peak stays under -1 dBFS and never lifted more than +24 dB. Unmeasured or measured for another key, it is ignored (vos validate warns: measure it with vos audio measure)"
+          },
+          "loudness": {
+            "type": "object",
+            "description": "what the file measures (BS.1770 integrated, K-weighted, gated, over the whole file), written by vos audio measure, vos score and vos join, never by hand",
+            "required": ["lufs", "peakDb", "at", "src"],
+            "properties": {
+              "lufs": {
+                "type": "number",
+                "description": "integrated loudness, LUFS"
+              },
+              "peakDb": {
+                "type": ["number", "null"],
+                "description": "sample peak, dBFS (not oversampled)"
+              },
+              "at": {
+                "type": "string",
+                "description": "when it was measured (ISO date)"
+              },
+              "src": {
+                "type": "string",
+                "description": "the key it was measured for"
+              }
+            },
+            "additionalProperties": false
           },
           "fadeIn": {
             "type": "number",
@@ -1608,6 +1639,11 @@
           "duck": {
             "type": "boolean",
             "description": "duck under the mic while speech is detected"
+          },
+          "source": {
+            "type": "string",
+            "enum": ["page"],
+            "description": "page: sound the recorded page itself played (a video or audio element heard during the take, meta.media), placed by the plan at the output time it was heard and keyed to the file fetched into page-sound/. A re-plan replaces only these; absent = a clip someone added"
           },
           "media": {
             "type": "string",

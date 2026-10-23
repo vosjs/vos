@@ -7,12 +7,13 @@
  * span are scaled down proportionally so they meet instead of crossing.
  */
 import { clipLength } from '../types'
+import { clipGain } from './loudness'
 import type { AudioClip } from '../types'
 
 export interface EnvelopePoint {
   /** output-timeline seconds. */
   t: number
-  /** linear gain 0..1. */
+  /** linear gain (0..1, above 1 only for a clip lifted to its `normalize`). */
   g: number
 }
 
@@ -20,7 +21,8 @@ export function clipEnvelope(
   clip: Pick<
     AudioClip,
     'start' | 'in' | 'out' | 'gain' | 'fadeIn' | 'fadeOut' | 'loop' | 'loopLen'
-  >,
+  > &
+    Partial<Pick<AudioClip, 'key' | 'normalize' | 'loudness'>>,
 ): EnvelopePoint[] {
   // Fades span the PLACED length (a looped clip fades over its full run).
   const span = clipLength(clip)
@@ -32,7 +34,8 @@ export function clipEnvelope(
     fi *= scale
     fo *= scale
   }
-  const g = Math.max(0, Math.min(1, clip.gain))
+  // `gain` clamped to 0..1, or the gain a measured `normalize` asks for.
+  const g = clipGain(clip).gain
   const pts: EnvelopePoint[] = []
   pts.push({ t: clip.start, g: fi > 0 ? 0 : g })
   if (fi > 0) pts.push({ t: clip.start + fi, g })

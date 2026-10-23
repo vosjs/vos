@@ -54,6 +54,7 @@ import {
   takeRelativeFile,
 } from './media'
 import { EXIT_ERROR, EXIT_OK, createReporter } from './output'
+import { loudnessFact, measureTrack } from './score'
 import { landStepCaptions } from './stepCaptions'
 import { loadTake, writeJson } from './take'
 import { lintDoc } from './validateDoc'
@@ -623,6 +624,25 @@ export async function cmdJoin(argv: string[]): Promise<number> {
     } else await copyFile(c.from, to)
   }
   const doc = plan.doc
+  // The sound the join added carries what its file measures, so a target
+  // can be set on it later without decoding it again. A file that cannot
+  // be measured here is copied all the same, and said.
+  const added = new Set(plan.media.map((m) => `${m.id}-sound`))
+  for (const clip of doc.audio) {
+    if (!added.has(clip.id) || !isTakeRelativeKey(clip.key)) continue
+    try {
+      const m = await measureTrack(join(out, takeRelativeFile(clip.key)))
+      if (m.lufs !== null)
+        clip.loudness = loudnessFact(
+          { lufs: m.lufs, peakDb: m.peakDb },
+          clip.key,
+        )
+    } catch (e) {
+      plan.notes.push(
+        `could not measure audio clip ${clip.id}'s loudness (${(e instanceof Error ? e.message : String(e)).split('\n')[0]}); vos audio measure ${outArg} tries again`,
+      )
+    }
+  }
   await writeJson(join(out, 'meta.json'), doc.source.meta, true)
   if (doc.source.cursor.length)
     await writeJson(join(out, 'cursor.json'), doc.source.cursor)

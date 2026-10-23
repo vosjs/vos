@@ -11,6 +11,7 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { closeBrowser } from './closeBrowser'
 import { LookRefusal, lookAt } from '../look'
 import type { LookControl } from '../look'
 import type { Browser } from 'playwright'
@@ -69,9 +70,9 @@ beforeAll(async () => {
 }, 60_000)
 
 afterAll(async () => {
-  await browser?.close()
+  await closeBrowser(browser)
   server?.close()
-})
+}, 30_000)
 
 async function look(
   path: string,

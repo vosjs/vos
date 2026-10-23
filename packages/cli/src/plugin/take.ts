@@ -150,6 +150,8 @@ export async function prepareReRecord(
     join(dir, 'digest'),
     // What the last run's download steps kept: this run downloads again.
     join(dir, 'outputs'),
+    // The sound the last run's page played: this run hears it again.
+    join(dir, 'page-sound'),
   ]) {
     await rm(stale, { recursive: true, force: true })
   }
