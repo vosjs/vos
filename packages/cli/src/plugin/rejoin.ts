@@ -68,6 +68,7 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   isRejected,
+  layerStart,
   mediaKey,
   mediaRefId,
   ratedSegments,
@@ -803,7 +804,9 @@ export function rejoinDocs(
       o = { ...o, key: `media:${byRef.to}` }
       redoLayers.set(o.id, byRef)
     }
-    if (o.anchor) {
+    if (o.anchor || o.start === undefined) {
+      // An anchored layer follows its step; one with neither a step nor a
+      // time plays nowhere and is kept as it is (validate refuses it).
       overlays.push(o)
       continue
     }
@@ -822,7 +825,9 @@ export function rejoinDocs(
     const k = fresh.owners.get(o.id)
     if (k === undefined || !newIds.has(k)) continue
     const d = o.anchor ? 0 : deltaOf(k)
-    overlays.push(d ? { ...o, start: round3(o.start + d) } : o)
+    overlays.push(
+      d && o.start !== undefined ? { ...o, start: round3(o.start + d) } : o,
+    )
   }
   if (overlays.length) doc.overlays = overlays
   else delete doc.overlays
@@ -909,8 +914,9 @@ export function rejoinDocs(
     }
   }
 
-  // Every anchored layer's fallback start is where it plays now. A layer
-  // anchored to a step a re-recorded input no longer plays has no place.
+  // Every anchored layer's fallback start is where it plays now; a layer
+  // that carries none keeps none, its anchor is its time. A layer anchored
+  // to a step a re-recorded input no longer plays has no place.
   const pieces = ratedSegments(doc)
   if (doc.overlays) {
     doc.overlays = doc.overlays.flatMap((o) => {
@@ -923,7 +929,7 @@ export function rejoinDocs(
         return []
       }
       if (redone) redone.entry.layers.push(o.id)
-      return r && r.start !== null && r.start !== o.start
+      return r && r.start !== null && o.start !== undefined && r.start !== o.start
         ? [{ ...o, start: r.start }]
         : [o]
     })
@@ -942,7 +948,11 @@ export function rejoinDocs(
       .map((o) => o.id),
   )
   const overrun = (doc.overlays ?? [])
-    .filter((o) => wasEnding.has(o.id) && o.start < newFootage - 1e-3)
+    .filter((o) => {
+      if (!wasEnding.has(o.id)) return false
+      const start = layerStart(o, doc, pieces)
+      return start !== null && start < newFootage - 1e-3
+    })
     .map((o) => o.id)
   if (overrun.length)
     report.notes.push(

@@ -186,6 +186,26 @@ describe('vos info <take>', () => {
     expect(text).toMatch(/c1 +text +10\.50–12\.50 anchor m1:share \+0\.5/)
   })
 
+  it('pairs each resolved layer with its own anchor when a layer before it is placed nowhere', () => {
+    const doc = cut()
+    const caption = doc.overlays![0]
+    const { start: _start, ...noStart } = caption
+    void _start
+    doc.overlays = [
+      // Anchored to a step the cut leaves out, and no start: plays nowhere.
+      { ...noStart, id: 'lost', anchor: { step: 'gone' } },
+      { ...noStart, id: 'end', anchor: { step: 'share', media: 'm1' } },
+    ] as typeof doc.overlays
+    const t = takeTimeline(doc, new Map([['', actions]]))
+    expect(t.overlays).toEqual([
+      expect.objectContaining({
+        id: 'end',
+        start: 10,
+        anchor: { step: 'share', media: 'm1' },
+      }),
+    ])
+  })
+
   it('is what vos info prints for a take directory', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'vos-info-'))
     const doc = cut()

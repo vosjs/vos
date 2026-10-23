@@ -213,24 +213,32 @@ export function takeTimeline(
     }
   })
 
+  // Resolved layers come back without the ones placed nowhere (an anchor
+  // that resolves to no step, and no start), so the raw layer is found by
+  // id, never by index.
   const resolved = resolveOverlayAnchors(doc, rated)
-  const overlays = (resolved.overlays ?? []).map((o: OverlayClip, i) => {
-    const raw = (doc.overlays ?? [])[i]
+  const rawById = new Map((doc.overlays ?? []).map((o) => [o.id, o]))
+  const overlays = (resolved.overlays ?? []).flatMap((o: OverlayClip) => {
+    const start = o.start
+    if (start === undefined) return []
+    const raw = rawById.get(o.id)
     const text =
       o.kind === 'text'
         ? overlayPlainText(o)
         : o.kind === 'html'
           ? undefined
           : (o as { key?: string }).key
-    return {
-      id: o.id,
-      kind: o.kind ?? 'text',
-      ...(text !== undefined ? { text } : {}),
-      start: r3(o.start),
-      end: r3(o.start + o.duration),
-      ...(raw?.anchor ? { anchor: raw.anchor } : {}),
-      ...(o.from ? { from: o.from } : {}),
-    }
+    return [
+      {
+        id: o.id,
+        kind: o.kind ?? 'text',
+        ...(text !== undefined ? { text } : {}),
+        start: r3(start),
+        end: r3(start + o.duration),
+        ...(raw?.anchor ? { anchor: raw.anchor } : {}),
+        ...(o.from ? { from: o.from } : {}),
+      },
+    ]
   })
 
   const footage = totalDuration(rated)

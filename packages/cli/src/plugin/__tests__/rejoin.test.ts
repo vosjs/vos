@@ -626,6 +626,35 @@ describe('vos join --keep-edits', () => {
     expect(existsSync(join(out, JOIN_RECORD_NAME))).toBe(true)
   })
 
+  it('leaves an anchored layer with no start without one, and still says when it now lands over footage', async () => {
+    const out = join(root, 'film-nostart')
+    expect(await cmdJoin([a, b, '--out', out])).toBe(0)
+    const joined = await readDoc(out)
+    const { start: _s, ...card } = text('card', 0, {
+      anchor: { step: 'share', media: 'm1', offset: 5 },
+    })
+    void _s
+    const { start: _t, ...cap } = text('cap', 0, {
+      anchor: { step: 'open', offset: 0.1 },
+    })
+    void _t
+    // The card plays past the footage (b's step at 3 s + 5 s, footage 18 s).
+    await writeDoc(out, {
+      ...joined,
+      overlays: [card, cap] as ProjectDoc['overlays'],
+    })
+    expect(
+      await cmdJoin([a, b, c, '--out', out, '--keep-edits', '--json']),
+    ).toBe(0)
+    const report = done().keptEdits!
+    const doc = await readDoc(out)
+    const byId = new Map(doc.overlays!.map((o) => [o.id, o]))
+    expect('start' in byId.get('card')!).toBe(false)
+    expect('start' in byId.get('cap')!).toBe(false)
+    expect(report.notes.join('\n')).toMatch(/card played after the footage/)
+    expect(lintDoc(doc).problems).toEqual([])
+  })
+
   it('is deterministic: the same re-join twice writes the same document', async () => {
     const out = join(root, 'film-twice')
     expect(await cmdJoin([a, b, '--out', out])).toBe(0)
