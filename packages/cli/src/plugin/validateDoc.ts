@@ -799,11 +799,27 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
         const which = spans
           .map((r) => `${r.in.toFixed(2)}–${r.out.toFixed(2)}s`)
           .join(', ')
-        const rests = entries(doc.segments)[index[p]]?.camera === 'rest'
+        const segs = entries(doc.segments)
+        const rests = segs[index[p]]?.camera === 'rest'
+        // The earlier passes over the same seconds that rest the camera: a
+        // cold open at rest, replayed by the trimmed recording after it.
+        const restedBefore = pieces
+          .map((q, k) => ({ q, k }))
+          .filter(
+            ({ q, k }) =>
+              k < p &&
+              (q.media ?? '') === m &&
+              segs[index[k]]?.camera === 'rest' &&
+              spans.some((r) => Math.min(q.out, r.out) > Math.max(q.in, r.in)),
+          )
+          .map(({ k }) => `segments[${index[k]}]`)
+        const what = `segments[${index[p]}] replays ${which} of ${m ? `media "${m}"` : 'the recording'}`
         notes.push(
           rests
-            ? `segments[${index[p]}] replays ${which} of ${m ? `media "${m}"` : 'the recording'} with its camera at rest: clicks, freezes and speed spans over those seconds play again, zooms, tilts and cam moves do not`
-            : `segments[${index[p]}] replays ${which} of ${m ? `media "${m}"` : 'the recording'}: zooms, tilts, clicks, freezes and speed spans over those seconds play in every occurrence`,
+            ? `${what} with its camera at rest: clicks, freezes and speed spans over those seconds play again, zooms, tilts and cam moves do not`
+            : restedBefore.length
+              ? `${what}, which ${restedBefore.join(' and ')} played with the camera at rest: clicks, freezes and speed spans over those seconds play in every occurrence, zooms, tilts and cam moves only in segments[${index[p]}]`
+              : `${what}: zooms, tilts, clicks, freezes and speed spans over those seconds play in every occurrence`,
         )
       }
     }
@@ -2151,6 +2167,43 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
 }
 
 /**
+ * Where a layer anchored to a step of one media starts over ANOTHER
+ * media's footage: the segment it lands in and where its own media's
+ * footage ended just before, or null when it starts over its own media
+ * (or past the footage, an ending on the ground). A step-anchored caption
+ * lands after its gesture; trim the footage after that step and the
+ * caption runs into the next scene with nothing saying so.
+ */
+function otherSceneAt(
+  doc: ProjectDoc,
+  start: number,
+  anchorMedia: unknown,
+): { index: number; media: string; ownEnd: number | null } | null {
+  const segs = Array.isArray(doc.segments) ? doc.segments : []
+  if (!segs.length) return null
+  const own = typeof anchorMedia === 'string' ? anchorMedia : ''
+  const mediaOf = (i: number): string =>
+    (segs[i] as { media?: unknown })?.media === undefined
+      ? ''
+      : String((segs[i] as { media?: unknown }).media)
+  const ext = segmentOutputExtents(doc)
+  const EPS = 1e-3
+  const at = (i: number) =>
+    start >= ext[i].start - EPS && start < ext[i].end - EPS
+  if (ext.some((_, i) => mediaOf(i) === own && at(i))) return null
+  const index = ext.findIndex((_, i) => mediaOf(i) !== own && at(i))
+  if (index < 0) return null
+  const before = ext
+    .filter((e, i) => mediaOf(i) === own && e.end <= start + EPS)
+    .map((e) => e.end)
+  return {
+    index,
+    media: mediaOf(index),
+    ownEnd: before.length ? Math.max(...before) : null,
+  }
+}
+
+/**
  * A layer's `anchor`: when it starts, as a recorder step. Checked for its
  * shape, then resolved against the steps and the cut the way the lowering
  * resolves it; one that cannot resolve plays at its `start`, which is said.
@@ -2237,6 +2290,13 @@ function checkOverlayAnchor(
     else
       warnings.push(
         `${name}.anchor: ${why}, so it plays at its fallback start (${at}); re-anchor it, or keep the footage that step plays in`,
+      )
+  }
+  if (r.start !== null) {
+    const over = otherSceneAt(docIn as ProjectDoc, r.start, a.media)
+    if (over)
+      warnings.push(
+        `${name}${typeof o.id === 'string' ? ` (${o.id})` : ''}: anchored to ${step}, it starts at ${r.start.toFixed(2)}s, ${over.ownEnd === null ? 'where' : `after that media's footage there ends (${over.ownEnd.toFixed(2)}s), where`} segments[${over.index}] plays ${over.media ? `media "${over.media}"` : 'the recording'}: it speaks over another scene. Anchor it to the step's start (anchor.at: "start"), lower anchor.offset, or keep more of the footage it is about`,
       )
   }
   if (elapsed && r.elapsedFrom && r.elapsedMs !== undefined)

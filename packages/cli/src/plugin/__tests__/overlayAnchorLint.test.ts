@@ -55,6 +55,42 @@ const takeA = (): ProjectDoc => ({
 })
 
 describe('validate: anchored captions', () => {
+  it('says when a caption anchored to one media starts over the next media’s footage', () => {
+    const doc = takeA()
+    doc.media = [
+      {
+        id: 'm1',
+        videoKey: 'm1/recording.webm',
+        cursor: [],
+        meta: { ...doc.source.meta, durationMs: 4000, steps: [] },
+      },
+    ] as unknown as ProjectDoc['media']
+    // The primary trimmed to end just after `save`, then m1.
+    doc.segments = [
+      { in: 0, out: 6.6 },
+      { in: 0, out: 4, media: 'm1' },
+    ] as ProjectDoc['segments']
+    doc.overlays = [
+      // After its gesture plus 0.2 s: 6.7 s, over m1.
+      text('late', 0, {
+        preset: 'caption',
+        anchor: { step: 'save', at: 'end', offset: 0.2 },
+        duration: 2,
+      }),
+      // At its start: 6 s, over its own footage.
+      text('ok', 0, {
+        preset: 'caption',
+        anchor: { step: 'save', at: 'start' },
+        duration: 0.5,
+      }),
+    ]
+    const { problems, warnings } = lintDoc(doc)
+    expect(problems).toEqual([])
+    expect(warnings.filter((w) => w.includes('another scene'))).toEqual([
+      'overlays[0] (late): anchored to step "save", it starts at 6.70s, after that media\'s footage there ends (6.60s), where segments[1] plays media "m1": it speaks over another scene. Anchor it to the step\'s start (anchor.at: "start"), lower anchor.offset, or keep more of the footage it is about',
+    ])
+  })
+
   it('names an anchor that cannot resolve, and two captions on screen at once', () => {
     const doc = takeA()
     doc.overlays = [

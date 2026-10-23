@@ -161,6 +161,24 @@ describe('lintDoc', () => {
     expect(r.warnings.some((w) => w.startsWith('zoom z2'))).toBe(false)
   })
 
+  it('says a replay plays the camera only where it is not at rest, the cold open first', () => {
+    const r = lintDoc(
+      makeDoc({
+        // A cold open at rest, then the trimmed recording replays it.
+        segments: [
+          { in: 18, out: 20, camera: 'rest' },
+          { in: 0, out: 10 },
+          { in: 12, out: 20 },
+        ],
+        zoom: [{ id: 'z1', in: 17, out: 19.5, level: 2, cx: 0.5, cy: 0.5 }],
+      } as unknown as Partial<ProjectDoc>),
+    )
+    expect(r.problems).toEqual([])
+    expect(r.notes).toEqual([
+      'segments[2] replays 18.00–20.00s of the recording, which segments[0] played with the camera at rest: clicks, freezes and speed spans over those seconds play in every occurrence, zooms, tilts and cam moves only in segments[2]',
+    ])
+  })
+
   it('catches the pixel-coords trap (cx/cy must be normalized [0..1])', () => {
     const r = lintDoc(
       makeDoc({
