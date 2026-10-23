@@ -135,7 +135,10 @@ Per beat, against `plan` and the recipe:
   decides the level, obey it. `cx`/`cy` = the moment's `focus`. Ids you
   mint: `u1`, `u2`… In an editor recording, zoom the LANE where a span
   appears, never the canvas being dragged. Release a zoom BEFORE a click
-  that navigates, so the page swap plays wide.
+  that navigates, so the page swap plays wide. A scripted take whose
+  steps carry `"zoom": true` marks (the `product-video` skill, step 2):
+  `vos plan <take> --zooms per-beat` keeps exactly those, so add a mark
+  to `actions.json` and re-plan rather than choosing among proposals.
 - **Speed.** Keep proposals on typing/idle/scroll; add `2×`-`3×` on a stretch
   whose `activity` is low and no beat needs, or under drag clusters; never
   over a beat's payoff, never over playback.
@@ -143,6 +146,13 @@ Per beat, against `plan` and the recipe:
   personality) and a beat earns punctuation. One pose per ~5s, ±5..18°.
 - **Trim.** Head and tail: cut to the first and last thing that matters
   (`segments`), leaving ~0.5s of settle at the end. Loading screens are cut.
+- **Assemble.** A cold open is a SEGMENT that repeats seconds the cut plays
+  again later, marked `"camera": "rest"` so it shows the settled whole
+  while the main play zooms; never a second join of the same recording.
+  An end card or caption with an `anchor` to a step needs no `start`.
+  Several takes are one `vos join`; to add, swap or reorder an input
+  later, run the same join with `--keep-edits`, which keeps every trim,
+  span, caption and still made since. Never rebuild the joined take.
 - **Text.** A caption per beat that has something to say, at a cadence (one
   every 5-10s, 2.5-4s each, never two at once), in the product's words and
   the video's intention; lower-third `y ≈ 0.82`; OUTPUT seconds; never over
@@ -165,6 +175,7 @@ do not understand.
 
 ```bash
 vos validate <take>                                   # clean; READ the framing warnings, fix them
+vos info <take>                                       # every step's source seconds, and the cut in output seconds
 vos digest <take> --no-frames                         # after retiming: fresh OUTPUT times, same frames
 vos frames <take> --at-moments --at-zooms --times 0,25%,50%,75%,100%
 vos frames <take> --times <every caption start + 1>   # each caption on its own ground
@@ -246,4 +257,8 @@ never write a status line.
 - leave the cold open frozen (a static page records as freeze-then-bang:
   trim it, or speed the load);
 - end wide on an empty page: the last frame is the poster, so the closing
-  span holds the result and its proof.
+  span holds the result and its proof;
+- write a helper script to print step times or where a layer lands:
+  `vos info <take>` reads both clocks;
+- rebuild a joined take to add a scene, or join a recording to itself for
+  a cold open (`--keep-edits`; a repeated segment).

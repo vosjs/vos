@@ -91,7 +91,10 @@ labels typed, real-looking data, the feature mid-story.
 **Write the story into `actions.json`.** Give steps an `id` (the re-render
 loop and the template anchors address them by it) and a `caption` where a
 beat deserves one (two to eight words; `plan` proposes it as a lower-third
-at that step's moment on the cuts that take words). After a click that
+at that step's moment on the cuts that take words), on the step whose
+action it describes, and mark each beat's payoff `"zoom": true` so
+`--zooms per-beat` keeps that zoom and no other (the `product-video`
+skill, step 2, has the rule and the state check). After a click that
 navigates, put a `wait` for the load, so the cut never dwells on a spinner.
 
 - **Fresh recording**: the `product-video` skill's loop (explore →
@@ -231,7 +234,8 @@ by data. Never spread before the seed is signed off.
   a frame near the start, not on what shipped.
 - A cold open (`firstlast`): the first frame is the marketing page's
   headline with the product nowhere; trim to the story or let the entrance
-  carry it.
+  carry it. A cold open of the RESULT is a repeated segment at camera rest
+  (the `vos-cut` skill, "Assemble").
 - The loading plane on screen: a click that navigates needs the `wait`
   after it.
 - White words on a paper ground: the end card takes the brand's ink; a
