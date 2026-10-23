@@ -29,6 +29,24 @@ describe('a pushed script carries no setup value', () => {
       steps: [],
     })
   })
+
+  it('names a peer’s sign-in by its file name only, never this machine’s path', () => {
+    const script = {
+      steps: [{ do: 'wait', ms: 1 }],
+      peers: [
+        {
+          id: 'bob',
+          storageState: '/Users/someone/.config/vos/bob.json',
+          steps: [{ do: 'wait', ms: 1 }],
+        },
+        { id: 'cy', steps: [{ do: 'wait', ms: 1 }] },
+      ],
+    }
+    expect(publicScript(script).peers).toEqual([
+      { id: 'bob', storageState: 'bob.json', steps: [{ do: 'wait', ms: 1 }] },
+      { id: 'cy', steps: [{ do: 'wait', ms: 1 }] },
+    ])
+  })
 })
 
 describe('the zoom marks travel with the script', () => {

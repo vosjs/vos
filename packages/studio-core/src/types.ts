@@ -225,6 +225,14 @@ export interface RecordingMeta {
    */
   steps?: StepSpan[]
   /**
+   * The other people on the page while the take ran (`peers` in
+   * actions.json): each a browser of its own, OFF CAMERA, its steps placed
+   * in the take's SOURCE seconds. Information only: no cursor event, zoom
+   * or anchor is ever made from a peer's step; what a peer did reaches the
+   * footage through the app itself. Absent on a take with no peers.
+   */
+  peers?: PeerTrack[]
+  /**
    * The recorder did not land where it was asked: a sign-in, an identity
    * provider, a 401/403, or a redirect to somewhere else. Present only when
    * the take was recorded ANYWAY, so whoever reads it later (a digest, an
@@ -360,6 +368,39 @@ export interface RejectedSpan {
   anchor?: StepAnchor
   /** Why, in the deleter's words. Optional. */
   note?: string
+}
+
+/** One peer's steps as they ran during a take, in SOURCE seconds. */
+export interface PeerTrack {
+  /** The peer's id from actions.json. */
+  id: string
+  steps: PeerStepSpan[]
+  /** Steps whose trigger never fired before the take's steps were over. */
+  notRun?: number[]
+}
+
+/** One peer step as it ran. */
+export interface PeerStepSpan {
+  /** index into the peer's own steps */
+  step: number
+  id?: string
+  do: string
+  /** the take step it started with (as it started) or after (as it ended) */
+  with?: string
+  after?: string
+  selector?: string
+  tStart: number
+  tEnd: number
+  skipped?: boolean
+  reason?: string
+  /** its trigger had fired before the peer reached it: it ran late */
+  late?: boolean
+  /**
+   * What an `expect` last answered when its check reads the app's state
+   * (a `js` expression), kept as the take's own steps keep it: JSON, at
+   * most 2 KB, else that JSON cut short as a string. Absent otherwise.
+   */
+  value?: unknown
 }
 
 /** One executed actions.json step's extent in the recording. */

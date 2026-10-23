@@ -25,6 +25,7 @@ import type {
 } from '@vosjs/render-core/record'
 import type { Browser, BrowserContext } from 'playwright'
 import { writeJson } from './take'
+import { looksLikeStorageState } from './session'
 import { refuseSymlink, writeFileSafe } from './safeWrite'
 import type { ActionsFile } from './actions'
 import type { TakePaths } from './take'
@@ -91,6 +92,37 @@ export function actionsDirFiles(dir: string): ScriptFiles {
         throw new Error(`${name} resolves outside the actions file's directory`)
       return new Uint8Array(await readFile(real))
     },
+  }
+}
+
+/**
+ * Where a peer's `storageState` is read from: a path from the actions
+ * file's directory (or an absolute one), to a regular file shaped like a
+ * Playwright storage state. The file is opened by the browser and nothing
+ * else: never copied into a take, never uploaded, never printed.
+ */
+export function peerStateFrom(dir: string): (name: string) => Promise<string> {
+  return async (name) => {
+    const file = resolve(dir, name)
+    let raw: string
+    try {
+      raw = await readFile(file, 'utf8')
+    } catch {
+      throw new Error(
+        `there is no file at ${file}; a storage state is never copied into a take, so name it by a path from the actions file (or an absolute one, such as one saved under ~/.config/vos)`,
+      )
+    }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      parsed = null
+    }
+    if (!looksLikeStorageState(parsed))
+      throw new Error(
+        `${file} is not a Playwright storage state ({ cookies, origins }); save one with context.storageState({ path })`,
+      )
+    return file
   }
 }
 
@@ -183,7 +215,12 @@ export async function recordTake(
       ...opts,
       outputs: outputsSink(paths.dir),
       sounds: pageSoundSink(paths.dir),
-      ...(opts.actionsDir ? { files: actionsDirFiles(opts.actionsDir) } : {}),
+      ...(opts.actionsDir
+        ? {
+            files: actionsDirFiles(opts.actionsDir),
+            peerStorageState: peerStateFrom(opts.actionsDir),
+          }
+        : {}),
       env: process.env,
       platform:
         process.platform === 'darwin'

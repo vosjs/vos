@@ -1,0 +1,7 @@
+---
+'@vosjs/render-core': minor
+'@vosjs/cli': minor
+'@vosjs/studio-core': minor
+---
+
+`actions.json` takes `peers`: other people on the page, off camera. Each peer is a browser context of its own (signed in from its own `storageState`, or signed out) on the take's `url` or its own, driven by its own steps: `wait`, `move`, `hover`, `click`, `type`, `press`, `scroll`, `drag` (an inline `path`) and `expect`, in the take's own step shapes. A peer step starts `with` a take step (as it starts) or `after` one (as it ends), named by id, else right after the peer's previous step. Only the take's page is filmed and only its own steps make the cursor track; what a peer does reaches the footage through the app's own sync. A peer's pointer and typing are paced on the take's clock, every peer step is bounded, and a miss is a skip listed with the take's (`peer` set), which `--strict` fails on. A peer that lands on a sign-in, or a storage state that is not there, refuses the take before anything is captured; a step still waiting when the take's steps end never runs and is said. `meta.peers[]` (`PeerTrack` in studio-core) places each peer step in the take's footage seconds, the done event carries `peers`, a rehearsal lists them, `vos actions script` says them as a second person's beats, a pushed script names a peer's storage state by its file name only, and `hostedRefusals` refuses peers. `RecordOpts.peerStorageState` resolves a peer's sign-in; `SkippedStep.peer` marks a peer's miss.

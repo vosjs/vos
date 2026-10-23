@@ -20,6 +20,7 @@ import type {
   RecorderBrowser,
   RecorderClock,
   RecorderContext,
+  RecorderPage,
   ScriptFiles,
 } from './driver'
 import { realSleep } from './driver'
@@ -52,7 +53,7 @@ import type {
   Rect,
   StepSpan,
 } from '@vosjs/studio-core'
-import { WALL_PROBE } from './wall'
+import { WALL_PROBE, wallVerdict } from './wall'
 import {
   EXPOSURE_PROBE,
   ExposureLog,
@@ -105,6 +106,8 @@ import type {
   StepOverrun,
 } from './gestures'
 import { inlineScript, loadScriptFiles } from './scriptFiles'
+import { StepSignals, runPeer } from './peers'
+import type { Peer, PeerRun } from './peers'
 import type { LoadedFiles } from './scriptFiles'
 import { pasteItemOf, runPaste } from './pasteStep'
 import { CHANGE_AGE_PROBE, appSettled, settleOn } from './settle'
@@ -204,6 +207,8 @@ export interface SkippedStep {
   selector: string
   /** why, when it is not a selector that never appeared: an expect that never held, a download that never came */
   reason?: string
+  /** A PEER's step (`peers[].id`): `step` is then an index into that peer's steps. */
+  peer?: string
 }
 
 /** A click whose target was disabled when it was pressed: the press happened, and likely did nothing. */
@@ -297,6 +302,8 @@ export interface RecordResult {
   overruns: StepOverrun[]
   /** The actions as recorded, `url` resolved: what a take directory writes back. */
   actions: ActionsFile
+  /** What each peer did, off camera (also `meta.peers`); [] with none. */
+  peers: PeerRun[]
 }
 
 export interface RecordOpts {
@@ -384,6 +391,14 @@ export interface RecordOpts {
   stopOnHang?: boolean
   /** How often a long `await` reports it is still waiting (default 30 s). */
   awaitHeartbeatMs?: number
+  /**
+   * Where a peer's `storageState` is read from: the CLI resolves the name
+   * from the actions file's directory to a path the browser opens, and
+   * throws in words when there is none. A host that hands in none cannot
+   * sign a peer in, and such a script is refused before anything is
+   * captured.
+   */
+  peerStorageState?: (name: string) => Promise<string> | string
 }
 
 /** The longest any pause lasts in a rehearsal. */
@@ -473,6 +488,24 @@ export async function recordTake(
   const read = await loadScriptFiles(actions, opts.files)
   if ('problem' in read) throw new RecordRefusedError(read.problem)
   const files: LoadedFiles = read
+  // A peer's sign-in is resolved before a browser context exists too: a
+  // storage state that is not there refuses the take in words.
+  const peers: Peer[] = actions.peers ?? []
+  const peerStates = new Map<string, string>()
+  for (const p of peers) {
+    if (p.storageState === undefined) continue
+    if (!opts.peerStorageState)
+      throw new RecordRefusedError(
+        `peer ${p.id} signs in from the storage state "${p.storageState}", and this recorder has nowhere to read one from. Nothing was recorded.`,
+      )
+    try {
+      peerStates.set(p.id, await opts.peerStorageState(p.storageState))
+    } catch (e) {
+      throw new RecordRefusedError(
+        `peer ${p.id}'s storage state "${p.storageState}" could not be read (${e instanceof Error ? e.message : String(e)}). Nothing was recorded.`,
+      )
+    }
+  }
   const vw = actions.viewport?.width ?? 1280
   const vh = actions.viewport?.height ?? 720
   const context =
@@ -583,6 +616,71 @@ export async function recordTake(
   // first settle knows how long the page has been still.
   if (actions.steps.some((s) => settleOn(s, actions.settle)))
     await page.evaluate(CHANGE_AGE_PROBE).catch(() => undefined)
+
+  // The peers open now, before the camera rolls: each its own context and
+  // page on the same address, never filmed, scanned or listened to. A peer
+  // that lands on a sign-in has no one signed in to act as, so the take is
+  // refused before a frame is captured.
+  const peerPages: {
+    peer: Peer
+    context: RecorderContext
+    page: RecorderPage
+  }[] = []
+  const closePeers = async () => {
+    const bound = new StepBound()
+    bound.start(CLOSE_BOUND_MS)
+    await Promise.all(
+      peerPages.map((p) => bound.race(p.context.close().catch(() => {}))),
+    )
+    bound.end()
+  }
+  for (const peer of peers) {
+    const peerUrl = peer.url ?? url
+    const pctx = await browser.newContext({
+      viewport: peer.viewport ?? { width: vw, height: vh },
+      deviceScaleFactor: 1,
+      ...(peerStates.has(peer.id)
+        ? { storageState: peerStates.get(peer.id) }
+        : {}),
+    })
+    if (opts.headers && Object.keys(opts.headers).length)
+      await applyHeaders(pctx, opts.headers, peerUrl, log)
+    const ppage = await pctx.newPage()
+    peerPages.push({ peer, context: pctx, page: ppage })
+    const peerErrors = new PageErrorLog(opts.verbose === true)
+    ppage.on('console', (m) => {
+      if (m.type() !== 'error') return
+      const line = peerErrors.add(m.text())
+      if (line) log(`   peer ${peer.id}: ${line.trim()}`)
+    })
+    log(`peer ${peer.id}: goto ${peerUrl} (off camera)`)
+    const popened = await untilReady(
+      ppage,
+      readyMode,
+      (o) => ppage.goto(peerUrl, o),
+      { sleep: realSleep },
+    )
+    const seen = (await ppage.evaluate(WALL_PROBE).catch(() => null)) as Pick<
+      Arrival,
+      'passwordFields' | 'newPasswordField' | 'oneTimeCodeField'
+    > | null
+    const peerWall = wallVerdict({
+      askedUrl: peerUrl,
+      landedUrl: ppage.url(),
+      ...(popened.response ? { status: popened.response.status() } : {}),
+      passwordFields: seen?.passwordFields ?? 0,
+      newPasswordField: seen?.newPasswordField ?? false,
+      oneTimeCodeField: seen?.oneTimeCodeField ?? false,
+    })
+    if (peerWall?.level === 'hard') {
+      await closePeers()
+      await context.close().catch(() => {})
+      throw new RecordRefusedError(
+        `peer ${peer.id} landed on ${peerWall.landed}, not ${peerWall.asked} (${peerWall.kind}): a peer acts as someone signed in, so give it a storageState of the second person's sign-in (beside actions.json). Nothing was recorded.`,
+      )
+    }
+    log(`   peer ${peer.id}: ${readyLine(popened.ready)}`)
+  }
 
   const cdp = await context.newCDPSession(rawPage)
   // The surface the screencast reads is the viewport, or the take is short
@@ -924,6 +1022,25 @@ export async function recordTake(
   // waits for its result (an expect, an await) cannot see that result.
   let unpressedGuard: number | null = null
   let capped = false
+  // The peers' lanes start now and wait on the take's step boundaries; the
+  // camera rolls with the first step.
+  const signals = new StepSignals(
+    actions.steps.map((s) => s.id).filter((id): id is string => !!id),
+  )
+  const lanes = peerPages.map(({ peer, page: ppage }) =>
+    runPeer(peer, ppage, signals, {
+      clock: { now: () => Date.now(), sleep },
+      footageMs: () => now(),
+      log,
+      dry,
+    }).catch((e: unknown): PeerRun => {
+      log(
+        `   (peer ${peer.id}: stopped: ${e instanceof Error ? e.message : String(e)})`,
+      )
+      return { id: peer.id, steps: [], notRun: [] }
+    }),
+  )
+  signals.begin()
   for (const [stepIdx, step] of actions.steps.entries()) {
     // The cap is checked between steps (a step is one gesture and runs
     // whole); only a wait is cut short, since it is the one step that can
@@ -1040,6 +1157,7 @@ export async function recordTake(
       ...(step.id ? { id: step.id } : {}),
       do: step.do,
     })
+    signals.start(step.id)
     const stepWall = Date.now()
     pageBound.start(boundMs)
     switch (step.do) {
@@ -1747,6 +1865,7 @@ export async function recordTake(
     await drainSound(stepIdx)
     pageBound.end()
     const stepSpan = stepSpans[stepSpans.length - 1]
+    signals.end(step.id)
     opts.onEvent?.({
       event: 'step',
       phase: 'end',
@@ -1760,6 +1879,21 @@ export async function recordTake(
     // An await that timed out with onTimeout "fail": the take ends here.
     if (stopped) break
   }
+  // The take's steps are over: a peer step still waiting never runs, one
+  // already running finishes (bounded) while the camera still rolls.
+  signals.close()
+  const peerRuns = await Promise.all(lanes)
+  for (const pr of peerRuns)
+    for (const ps of pr.steps)
+      if (ps.skipped)
+        skipped.push({
+          step: ps.step,
+          ...(ps.id ? { id: ps.id } : {}),
+          do: ps.do,
+          selector: ps.selector ?? '',
+          ...(ps.reason ? { reason: ps.reason } : {}),
+          peer: pr.id,
+        })
   if (!capped && !stopped) await sleep(TRAILING_HOLD_MS) // trailing hold
   if (capped || capReached(now(), maxSeconds)) {
     capped = true
@@ -1789,6 +1923,7 @@ export async function recordTake(
   pageBound.start(CLOSE_BOUND_MS)
   await pageBound.race(context.close().catch(() => {}))
   pageBound.end()
+  await closePeers()
   // Every frame the screencast delivered has reached the sink.
   await sinkChain
 
@@ -1822,6 +1957,15 @@ export async function recordTake(
     ...(skips.length ? { skips } : {}),
     ...(outputs.length ? { outputs } : {}),
     ...(media.length ? { media } : {}),
+    ...(peerRuns.length
+      ? {
+          peers: peerRuns.map((pr) => ({
+            id: pr.id,
+            steps: pr.steps,
+            ...(pr.notRun.length ? { notRun: pr.notRun } : {}),
+          })),
+        }
+      : {}),
   }
 
   // Smoothness telemetry: screencast emits only on visual change, so frame
@@ -1877,6 +2021,7 @@ export async function recordTake(
     // Self-contained: a path a file held is inline, so the take re-records
     // from its own script with the file gone.
     actions: { ...inlineScript(actions, files), url },
+    peers: peerRuns,
   }
 }
 

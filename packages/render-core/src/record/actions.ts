@@ -13,6 +13,8 @@ import {
 } from './gestures'
 import { pasteTypeOf } from './paste'
 import { SETTLE_VERBS } from './settle'
+import { peersHostedRefusal, validatePeers } from './peers'
+import type { Peer } from './peers'
 
 /**
  * The action script — the declarative recipe an agent (or human) writes to
@@ -56,6 +58,15 @@ export interface ActionsFile {
    */
   settle?: boolean
   steps: ActionStep[]
+  /**
+   * Other people on the page, OFF CAMERA: each a browser context of its
+   * own (its own storage state, so its own user) on the same `url`, driven
+   * by its own steps, each started `with` a take step or `after` one (by
+   * id). Only the take's page is filmed, and only its own steps make the
+   * cursor track; a peer's work reaches the footage through the app's own
+   * sync. A hosted take refuses peers.
+   */
+  peers?: Peer[]
 }
 
 export type ActionStep = (
@@ -371,6 +382,12 @@ export function validateActions(value: unknown): string[] {
     errors.push('steps must be a non-empty array')
     return errors
   }
+  if (obj.peers !== undefined)
+    errors.push(
+      ...validatePeers(obj.peers, obj.steps, (steps) =>
+        validateActions({ steps }),
+      ),
+    )
   const seenIds = new Set<string>()
   obj.steps.forEach((raw, i) => {
     const at = `steps[${i}]`
@@ -801,8 +818,12 @@ export function guardVerdict(
  * take directory to land in there, and a `js` check is code a stranger's
  * script would run in the fleet's browser.
  */
-export function hostedRefusals(actions: Pick<ActionsFile, 'steps'>): string[] {
+export function hostedRefusals(
+  actions: Pick<ActionsFile, 'steps' | 'peers'>,
+): string[] {
   const out: string[] = []
+  const peers = peersHostedRefusal(actions.peers)
+  if (peers) out.push(peers)
   for (const g of guardedSteps(actions))
     out.push(
       `steps[${g.step}] (${g.id}) is guarded (${g.guard}), and a hosted take has no way to confirm it: record it on this machine with --confirm ${g.id}`,
