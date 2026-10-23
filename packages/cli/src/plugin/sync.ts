@@ -343,12 +343,6 @@ export async function pushTake(
     filename: take.paths.recordingName,
   })
   const filename = nameForType(take.paths.recordingName, contentType)
-  if (filename !== take.paths.recordingName) {
-    r.log(
-      `  ${take.paths.recordingName} holds ${contentType} — uploading it as ${filename}`,
-    )
-  }
-  r.log(`uploading recording (${Math.round(bytes.length / 1024)} kB)…`)
   let upload: UploadedAsset
   try {
     upload = await uploadAsset(ctx, new Uint8Array(bytes), {
@@ -359,6 +353,15 @@ export async function pushTake(
       ...(take.meta.durationMs > 0
         ? { durationSeconds: take.meta.durationMs / 1000 }
         : {}),
+      // Said once the platform asks for the bytes: a re-push of a hosted
+      // take sends none, and says only that it reused them.
+      onSending: () => {
+        if (filename !== take.paths.recordingName)
+          r.log(
+            `  ${take.paths.recordingName} holds ${contentType} — uploading it as ${filename}`,
+          )
+        r.log(`uploading recording (${Math.round(bytes.length / 1024)} kB)…`)
+      },
       onPart: (done, total) => r.log(`  part ${done}/${total}`),
     })
   } catch (e) {

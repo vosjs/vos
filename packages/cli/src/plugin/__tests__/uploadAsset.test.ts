@@ -273,6 +273,22 @@ describe('the upload', () => {
     expect(calls.filter((c) => c.method === 'PUT')).toHaveLength(0)
   })
 
+  it('says it is sending only when it sends, never for bytes already held', async () => {
+    const said: number[] = []
+    platform({ reused: true })
+    await uploadAsset(target, bytes(40 * MiB), {
+      ...opts,
+      onSending: (parts) => said.push(parts),
+    })
+    expect(said).toEqual([])
+    platform()
+    await uploadAsset(target, bytes(40 * MiB), {
+      ...opts,
+      onSending: (parts) => said.push(parts),
+    })
+    expect(said).toEqual([3])
+  })
+
   it('reports parts as they land', async () => {
     platform()
     const seen: string[] = []

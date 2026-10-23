@@ -147,6 +147,36 @@ describe('scene changes', () => {
     ).toEqual([])
   })
 
+  it('counts a small change that stands alone scattered across the frame, and never one block or a faint tint', () => {
+    const t = (n: number) => Array.from({ length: n }, (_, i) => i / 30)
+    // A light board cut to the empty canvas: little changes on average and
+    // over under a quarter of the frame, but what changed by a lot lies
+    // all over it (the measures of a real cut of that kind).
+    const cut = [0, 0, 0, 0, 0.0365, 0.0001, 0, 0]
+    const cover = [0, 0, 0, 0, 0.243, 0, 0, 0]
+    const none = { share: 0, box: 0 }
+    const at4 = (s: { share: number; box: number }) =>
+      [0, 1, 2, 3, 4, 5, 6, 7].map((i) => (i === 4 ? s : none))
+    expect(
+      sceneChanges(t(8), cut, cover, at4({ share: 0.188, box: 0.278 })).map(
+        (c) => c.change,
+      ),
+    ).toEqual([0.0365])
+    // An embed appearing: as much changed by a lot, in one block.
+    expect(
+      sceneChanges(t(8), cut, cover, at4({ share: 0.167, box: 0.167 })),
+    ).toEqual([])
+    // A selection tint going away: wide, but nothing changed by a lot.
+    expect(sceneChanges(t(8), cut, cover, at4({ share: 0, box: 0 }))).toEqual(
+      [],
+    )
+    // Scattered, but beside motion: a camera move, not a cut.
+    const moving = [0, 0.02, 0.025, 0.03, 0.0365, 0.03, 0.025, 0.02]
+    expect(
+      sceneChanges(t(8), moving, cover, at4({ share: 0.3, box: 0.6 })),
+    ).toEqual([])
+  })
+
   it('counts per 5 s window and finds two cuts closer than 5 s wherever the window starts', () => {
     const cuts = [
       { time: 4.8, change: 0.4 },

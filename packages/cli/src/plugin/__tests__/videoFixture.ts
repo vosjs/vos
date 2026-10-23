@@ -18,9 +18,15 @@ export interface FixtureScene {
    * A flat colour; a busy picture (stripes, rings, text) under a hue; a
    * page (a light ground with a few boxes and lines, like an app); or a
    * sparse one (small light boxes on a dark ground, like a canvas seen
-   * whole).
+   * whole); or a canvas app on a card over a dark ground, light and
+   * mostly empty, holding a `board` (outlined boxes, thin arrows, notes,
+   * a small form) and a dark `block` over part of it when asked.
    */
-  kind: 'solid' | 'busy' | 'page' | 'sparse'
+  kind: 'solid' | 'busy' | 'page' | 'sparse' | 'canvas'
+  /** A canvas scene draws its board. */
+  board?: boolean
+  /** A canvas scene draws a dark block over its board (an embed appearing). */
+  block?: boolean
   /** A busy scene's picture moves this many pixels a second (a pan). */
   pan?: number
   /** The picture drawn this much larger, about the frame's centre. */
@@ -118,6 +124,52 @@ async function encodeInPage(opts: { mbCode: string; spec: FixtureSpec }) {
         spec.width * 0.25,
         spec.height * 0.17,
       )
+    }
+    if (scene.kind === 'canvas') {
+      const W = spec.width
+      const H = spec.height
+      const X = (f: number) => Math.round(W * f) + 0.5
+      const Y = (f: number) => Math.round(H * f) + 0.5
+      g.fillStyle = '#f8f9fa'
+      g.fillRect(W * 0.1, H * 0.05, W * 0.8, H * 0.8)
+      if (scene.board) {
+        g.fillStyle = '#ffffff'
+        g.fillRect(W * 0.22, H * 0.17, W * 0.5, H * 0.54)
+        g.strokeStyle = '#d0d4da'
+        g.lineWidth = 1
+        g.strokeRect(X(0.22), Y(0.17), W * 0.5, H * 0.54)
+        g.strokeStyle = '#1d1d1d'
+        g.fillStyle = '#1d1d1d'
+        g.font = `${Math.max(6, Math.round(H / 40))}px sans-serif`
+        for (let j = 0; j < 4; j++) {
+          const x = 0.24 + j * 0.12
+          g.strokeRect(X(x), Y(0.28), W * 0.095, H * 0.09)
+          g.fillText('Step', W * (x + 0.03), H * 0.335)
+          if (j < 3) {
+            g.beginPath()
+            g.moveTo(X(x + 0.095), Y(0.325))
+            g.lineTo(X(x + 0.12), Y(0.325))
+            g.stroke()
+          }
+        }
+        g.strokeStyle = '#d8453a'
+        g.beginPath()
+        g.ellipse(W * 0.53, H * 0.325, W * 0.065, H * 0.07, 0, 0, Math.PI * 2)
+        g.stroke()
+        g.fillStyle = '#fcd59b'
+        for (let j = 0; j < 3; j++)
+          g.fillRect(W * (0.39 + j * 0.088), H * 0.41, W * 0.08, H * 0.15)
+        g.fillStyle = '#f1f1f3'
+        g.fillRect(W * 0.23, H * 0.47, W * 0.15, H * 0.22)
+        g.fillStyle = '#1d1d1d'
+        g.fillRect(W * 0.25, H * 0.63, W * 0.11, H * 0.025)
+        g.fillStyle = '#3c3c44'
+        g.fillRect(W * 0.57, H * 0.56, W * 0.14, H * 0.14)
+      }
+      if (scene.block) {
+        g.fillStyle = '#050505'
+        g.fillRect(W * 0.39, H * 0.4, W * 0.33, H * 0.3)
+      }
     }
     if (scene.kind === 'sparse') {
       g.strokeStyle = 'rgba(200,210,120,0.8)'
