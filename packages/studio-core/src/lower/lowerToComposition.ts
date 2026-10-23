@@ -2912,8 +2912,18 @@ const ON_FRAME = `(ctx, content, dt) => {
     var tqAx = (tqA[0] - W / 2) * trGsc + W / 2 + trGox * W, tqAy = (tqA[1] - H / 2) * trGsc + H / 2 - trGoy * H
     var tqBx = (tqB[0] - W / 2) * trSc + W / 2 + trOx * W, tqBy = (tqB[1] - H / 2) * trSc + H / 2 - trOy * H
     var tqX2 = tqAx + (tqBx - tqAx) * tqP, tqY2 = tqAy + (tqBy - tqAy) * tqP
+    // A slide pulls the two cards a frame apart, so the lerp would cross
+    // the bare ground between them: the dot rides the card that holds
+    // more of the frame instead, moved with it, and only a card's own
+    // point is ever drawn on that card.
+    var tqOn = true
+    if (trOut.kind === 'slide' || (trIn && trIn.kind === 'slide')) {
+      var tqOut = Math.abs(trGox) + Math.abs(trGoy) <= Math.abs(trOx) + Math.abs(trOy)
+      tqOn = tqOut ? !!trQa : !!trQb
+      tqX2 = tqOut ? tqAx : tqBx; tqY2 = tqOut ? tqAy : tqBy
+    }
     var tqR = trQs || (((d.cursorStyle && d.cursorStyle.size) || 24) * s * 0.5)
-    drawCur(ovC, tqX2, tqY2, tqR, 1, 2 * (trQw || s))
+    if (tqOn) drawCur(ovC, tqX2, tqY2, tqR, 1, 2 * (trQw || s))
   }
   ov.sig = ovSig
   ov.active = camActiveNow || !!trOut || pqLive

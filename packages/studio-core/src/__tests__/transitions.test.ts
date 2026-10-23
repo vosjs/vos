@@ -373,11 +373,17 @@ describe('ON_FRAME across a boundary', () => {
     }
     g.__vosTimeline = { mapTime, sample, lerpArray, rateAt, totalDuration }
     const calls: string[] = []
+    const arcs: number[][] = []
     const c2d = new Proxy(
       {},
       {
         get: (_t, key: string) => {
           if (key === 'measureText') return () => ({ width: 42 })
+          if (key === 'arc')
+            return (...args: number[]) => {
+              calls.push('arc')
+              arcs.push(args)
+            }
           if (key === 'createLinearGradient')
             return () => ({ addColorStop: () => {} })
           if (key === 'drawImage')
@@ -422,7 +428,7 @@ describe('ON_FRAME across a boundary', () => {
       },
       1 / 30,
     )
-    return { a, b, ghosts, calls, card }
+    return { a, b, ghosts, calls, card, arcs }
   }
 
   it('inside the window the incoming plays live and the outgoing’s last frame paints from a ghost', () => {
@@ -457,6 +463,48 @@ describe('ON_FRAME across a boundary', () => {
     expect(run.ghosts[0].currentTime).toBeCloseTo(3.998, 3)
     expect(run.ghosts[0].drawn).toBe(0)
     expect(run.a.drawn).toBe(1)
+  })
+
+  it('a slide carries the dot on a card, never across the ground between them', () => {
+    // Under a fade the cards share one place and the dot is the eased lerp
+    // from the outgoing's last point to the incoming's: that measures both
+    // points at any time. Under a slide the cards are a frame apart, so the
+    // dot rides the card holding more of the frame, moved with it.
+    const W = 1920
+    const ease = (p: number) => 1 - Math.pow(1 - p, 3)
+    const fade = push({
+      segments: [
+        { in: 0, out: 4, anim: { exit: 'fade' } },
+        { in: 1, out: 5, media: 'b', anim: { enter: 'fade' } },
+      ],
+    })
+    const dot = (d: ProjectDoc, t: number) => {
+      const run = runFrame(d, t)
+      expect(run.arcs.length).toBe(1)
+      return run.arcs[0]
+    }
+    const outgoing = dot(fade, 4)
+    const sides: string[] = []
+    for (const t of [4.02, 4.08, 4.15, 4.3, 4.5]) {
+      const e = ease((t - 4) / 0.6)
+      const lerp = dot(fade, t)
+      const incoming = [0, 1].map(
+        (i) => outgoing[i] + (lerp[i] - outgoing[i]) / e,
+      )
+      const away = e * TRANSITION_TRAVEL
+      const arriving = (1 - e) * TRANSITION_TRAVEL
+      const onOutgoing = away <= arriving
+      sides.push(onOutgoing ? 'out' : 'in')
+      const slid = dot(push(), t)
+      expect(slid[0]).toBeCloseTo(
+        onOutgoing ? outgoing[0] - away * W : incoming[0] + arriving * W,
+        3,
+      )
+      expect(slid[1]).toBeCloseTo(onOutgoing ? outgoing[1] : incoming[1], 3)
+    }
+    // The window covers both cards' turns.
+    expect(sides[0]).toBe('out')
+    expect(sides.at(-1)).toBe('in')
   })
 
   it('a fade exit alone: the incoming holds still while the ghost paints', () => {
