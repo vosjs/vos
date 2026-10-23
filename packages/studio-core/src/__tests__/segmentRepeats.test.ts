@@ -724,6 +724,30 @@ describe('a follow zoom on another media', () => {
       // The camera has gone right with b's pointer, which ends at 0.875.
       expect(late[1]).toBeGreaterThan(early[1] + 0.2)
     })
+
+  it("follows that media's pointer in every pass of its replayed seconds", () => {
+    const d = doc({
+      segments: [
+        { in: 0, out: 12 },
+        { in: 0, out: 4, media: 'b' },
+        { in: 0, out: 4, media: 'b' },
+      ],
+      media: [
+        { id: 'b', videoKey: 'blob:b', cursor: sweep(), meta: meta(4000) },
+      ],
+      zoom: [bZoom],
+    })
+    const zt = lowerToComposition(d).data.zoomTrack as KeyframeTrack<number[]>
+    // b plays from 12 s and again from 16 s; each pass times its own
+    // recenters on b, so the camera sweeps right with b's pointer twice.
+    for (const bStart of [12, 16]) {
+      const early = sample(zt, bStart + 1, lerpArray)
+      const late = sample(zt, bStart + 3.4, lerpArray)
+      expect(early[0]).toBeGreaterThan(2)
+      expect(late[0]).toBeGreaterThan(2)
+      expect(late[1]).toBeGreaterThan(early[1] + 0.2)
+    }
+  })
 })
 
 describe('byte parity for a forward cut', () => {
