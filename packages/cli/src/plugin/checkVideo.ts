@@ -4,7 +4,7 @@
  * pictures and the sound are decoded in the browser the CLI already drives
  * (mediabunny over WebCodecs, the copy this package installs), which hands
  * back small measurements: each sampled frame's change from the one before
- * (the mean absolute difference of its colours, drawn 64 px on the long side),
+ * (the mean absolute difference of its colours, drawn 160 px on the long side),
  * the K-weighted energy of the sound in 100 ms pieces, the first and last
  * frames as PNGs. What they mean is decided in videoChecks.ts.
  */
@@ -20,6 +20,7 @@ import { launchBrowser } from '../browser'
 import {
   SCENE_CHANGE_AT,
   CELL_CHANGED_AT,
+  CELL_STRONG_AT,
   ISOLATED_CHANGE_AT,
   SCENE_WINDOW,
   SUB_BLOCK_SECONDS,
@@ -31,13 +32,20 @@ import {
   sceneWarnings,
   windowCounts,
 } from './videoChecks'
-import type { LoudnessReport, SceneChange } from './videoChecks'
+import type { LoudnessReport, SceneChange, SceneScatter } from './videoChecks'
 import type { Browser } from 'playwright'
 
 const BOOLEAN_FLAGS = new Set(['json', 'help', 'strict'])
 
-/** The long side frames are drawn at to be compared, in pixels. */
-const THUMB_LONG_SIDE = 64
+/**
+ * The long side frames are drawn at to be compared, in pixels. Large
+ * enough that a thin line still reads as a change where it vanishes: at
+ * 64 px a board of outlined boxes on white averages into the white.
+ */
+const THUMB_LONG_SIDE = 160
+
+/** The cells a frame's change is counted in: this many across its long side. */
+const CELLS_LONG_SIDE = 16
 
 export interface VideoFacts {
   file: string
@@ -116,6 +124,7 @@ interface DecodeDone {
   times: number[]
   changes: number[]
   coverage: number[]
+  scatter: SceneScatter[]
   firstDeviation: number
   lastDeviation: number
   firstTime: number
@@ -139,8 +148,10 @@ async function decodeInPage(opts: {
   sampleFps: number
   thumbW: number
   thumbH: number
+  cellPx: number
   subBlock: number
   cellChanged: number
+  cellStrong: number
 }) {
   const w = window as unknown as Record<string, any>
   try {
@@ -199,19 +210,30 @@ async function decodeInPage(opts: {
       for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i])
       return s / Math.max(1, a.length) / 255
     }
-    // How much of the frame changed: the share of 4 px cells whose own
-    // mean difference reaches `opts.cellChanged`.
-    const coverageOf = (a: number[], b: number[]) => {
+    // How much of the frame changed: the share of cells whose own mean
+    // difference reaches `opts.cellChanged`; and how the cells that changed
+    // by a lot (`opts.cellStrong`) lie: their share, and the box around
+    // them as a share of the frame.
+    const coverageOf = (
+      a: number[],
+      b: number[],
+    ): { share: number; scatter: { share: number; box: number } } => {
       const W = opts.thumbW
       const H = opts.thumbH
+      const C = opts.cellPx
       let cells = 0
       let changed = 0
-      for (let cy = 0; cy < H; cy += 4)
-        for (let cx = 0; cx < W; cx += 4) {
+      let strong = 0
+      let x0 = W
+      let x1 = 0
+      let y0 = H
+      let y1 = 0
+      for (let cy = 0; cy < H; cy += C)
+        for (let cx = 0; cx < W; cx += C) {
           let s = 0
           let n = 0
-          for (let y = cy; y < Math.min(H, cy + 4); y++)
-            for (let x = cx; x < Math.min(W, cx + 4); x++) {
+          for (let y = cy; y < Math.min(H, cy + C); y++)
+            for (let x = cx; x < Math.min(W, cx + C); x++) {
               const k = (y * W + x) * 3
               s +=
                 Math.abs(a[k] - b[k]) +
@@ -220,9 +242,24 @@ async function decodeInPage(opts: {
               n += 3
             }
           cells++
-          if (s / Math.max(1, n) / 255 >= opts.cellChanged) changed++
+          const m = s / Math.max(1, n) / 255
+          if (m >= opts.cellChanged) changed++
+          if (m >= opts.cellStrong) {
+            strong++
+            x0 = Math.min(x0, cx)
+            x1 = Math.max(x1, Math.min(W, cx + C))
+            y0 = Math.min(y0, cy)
+            y1 = Math.max(y1, Math.min(H, cy + C))
+          }
         }
-      return changed / Math.max(1, cells)
+      const n = Math.max(1, cells)
+      return {
+        share: changed / n,
+        scatter: {
+          share: strong / n,
+          box: strong ? ((x1 - x0) * (y1 - y0)) / Math.max(1, W * H) : 0,
+        },
+      }
     }
 
     // Every frame is decoded in order (never a seek per sample, which
@@ -240,6 +277,8 @@ async function decodeInPage(opts: {
     const times: number[] = []
     const changes: number[] = []
     const coverage: number[] = []
+    const scatter: { share: number; box: number }[] = []
+    const none = { share: 0, scatter: { share: 0, box: 0 } }
     let next = -Infinity
     let prev: number[] | null = null
     let first: number[] | null = null
@@ -269,7 +308,9 @@ async function decodeInPage(opts: {
       }
       times.push(t)
       changes.push(prev ? difference(prev, g) : 0)
-      coverage.push(prev ? coverageOf(prev, g) : 0)
+      const cov = prev ? coverageOf(prev, g) : none
+      coverage.push(cov.share)
+      scatter.push(cov.scatter)
       prev = g
       lastKept = t
       lastGray = g
@@ -282,7 +323,9 @@ async function decodeInPage(opts: {
     if (tail && lastTime > lastKept) {
       times.push(lastTime)
       changes.push(prev ? difference(prev, tail) : 0)
-      coverage.push(prev ? coverageOf(prev, tail) : 0)
+      const cov = prev ? coverageOf(prev, tail) : none
+      coverage.push(cov.share)
+      scatter.push(cov.scatter)
       lastGray = tail
     }
 
@@ -344,6 +387,7 @@ async function decodeInPage(opts: {
       times,
       changes,
       coverage,
+      scatter,
       firstDeviation: deviation(first),
       lastDeviation: deviation(lastGray),
       firstTime,
@@ -416,8 +460,10 @@ export async function checkVideo(
         sampleFps,
         thumbW: side(facts.width),
         thumbH: side(facts.height),
+        cellPx: Math.max(1, Math.round(THUMB_LONG_SIDE / CELLS_LONG_SIDE)),
         subBlock: SUB_BLOCK_SECONDS,
         cellChanged: CELL_CHANGED_AT,
+        cellStrong: CELL_STRONG_AT,
       })
       .catch(() => {})
     done = (await waitForPageDone(
@@ -437,7 +483,12 @@ export async function checkVideo(
   await writeFile(firstFile, Buffer.from(done.firstPng, 'base64'))
   await writeFile(lastFile, Buffer.from(done.lastPng, 'base64'))
 
-  const changes = sceneChanges(done.times, done.changes, done.coverage)
+  const changes = sceneChanges(
+    done.times,
+    done.changes,
+    done.coverage,
+    done.scatter,
+  )
   const loudness = done.audio
     ? loudnessFromEnergies(done.audio.energies, done.audio.peak)
     : null
