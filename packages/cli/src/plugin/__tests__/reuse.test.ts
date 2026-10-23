@@ -62,6 +62,29 @@ describe('buildStepMap', () => {
     expect(m.map(2)).toBeCloseTo(6, 5) // the id carried the anchor
   })
 
+  it('finds an unnamed step by its place beside the nearest named one', () => {
+    // A check was added after `open`, so every unnamed step after it moved
+    // one index on; `move` and `hover` keep their place beside `zoom`.
+    const oldS = steps([
+      { id: 'open', do: 'wait', tStart: 0, tEnd: 1.5 },
+      { do: 'move', tStart: 1.6, tEnd: 2.6 },
+      { id: 'zoom', do: 'press', tStart: 3, tEnd: 5 },
+      { do: 'hover', tStart: 5.5, tEnd: 7 },
+    ])
+    const newS = steps([
+      { id: 'open', do: 'wait', tStart: 0, tEnd: 1.5 },
+      { id: 'count', do: 'expect', tStart: 1.6, tEnd: 1.6 },
+      { do: 'move', tStart: 1.7, tEnd: 2.4 },
+      { id: 'zoom', do: 'press', tStart: 2.8, tEnd: 4.8 },
+      { do: 'hover', tStart: 5.2, tEnd: 6.6 },
+    ])
+    const m = buildStepMap(oldS, newS, 8, 8)
+    expect(m.unmatched).toEqual([])
+    expect(m.matched).toBe(4)
+    expect(m.map(1.6)).toBeCloseTo(1.7, 5)
+    expect(m.map(5.5)).toBeCloseTo(5.2, 5)
+  })
+
   it('a skipped step in the new take is no match', () => {
     const oldS = steps([{ do: 'click', selector: '#x', tStart: 1, tEnd: 2 }])
     const newS = steps([

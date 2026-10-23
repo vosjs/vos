@@ -14,11 +14,24 @@
  *   never by position: the joined take keeps a `join.json` naming each
  *   input's path and the sha256 of its footage. The same footage at the
  *   same path is the same media (the same footage at a new path too: a
- *   moved directory); a path whose footage changed is a different
- *   recording, so its old media goes and the new one comes in fresh. A
- *   take joined before `join.json` existed is matched by the footage it
- *   holds (a take's footage is copied byte for byte), and a video file
- *   joined then reads as new, since the join re-encoded its container.
+ *   moved directory). A take joined before `join.json` existed is matched
+ *   by the footage it holds (a take's footage is copied byte for byte),
+ *   and a video file joined then reads as new, since the join re-encoded
+ *   its container.
+ * - A RE-RECORDED input keeps its edits, re-timed by its steps the way
+ *   `vos plan --reuse` re-times a cut onto a new recording of the same
+ *   script (`retimeCut`, one mapping): a take whose footage changed at the
+ *   same path, or a take at a new path that recorded the same script (most
+ *   of the old take's named steps are in the new one, and the url agrees).
+ *   It comes in under a new media id; its segments take the old ones'
+ *   place in the cut, re-timed; its manual spans and rejections follow the
+ *   steps they sat on; the planner's fresh proposals for it fill in where
+ *   no kept span or rejection stands; a layer anchored to one of its steps
+ *   stays on that step when the new take has it; a layer placed by output
+ *   second over its footage keeps its place in the scene. What cannot be
+ *   placed (a span on a step the new take lacks, a layer anchored to one)
+ *   is dropped and named. A plain video file has no steps to re-time by,
+ *   so a changed file is still a removal plus an addition.
  * - A kept input keeps its media id, its media entry, and everything on it
  *   as edited: segments, every source-anchored span (zoom, speed, tilt,
  *   cam moves, freezes, rejections), its sound clip, and every layer
@@ -54,6 +67,7 @@ import { createReadStream, existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
+  isRejected,
   mediaKey,
   mediaRefId,
   ratedSegments,
@@ -61,11 +75,20 @@ import {
   segmentOutputExtents,
 } from '@vosjs/studio-core'
 import { totalDuration } from '@vosjs/timeline'
+import { splitSegmentsAtSkips } from '@vosjs/render-core/record'
 import { UsageError } from './args'
 import { joinDocs } from './join'
 import { isTakeRelativeKey, takeRelativeFile } from './media'
-import type { DocSegment, OverlayClip, ProjectDoc } from '@vosjs/studio-core'
+import { retimeCut } from './reuse'
+import type {
+  DocSegment,
+  Media,
+  OverlayClip,
+  ProjectDoc,
+  RejectedSpan,
+} from '@vosjs/studio-core'
 import type { JoinPart, JoinPlan } from './join'
+import type { ReusedCut } from './reuse'
 
 /** The record a joined take keeps of what it was joined from. */
 export const JOIN_RECORD_NAME = 'join.json'
@@ -105,6 +128,24 @@ export interface RejoinReport {
     spans: number
     layers: string[]
     sound: string[]
+  }[]
+  /**
+   * Inputs recorded again since the join: their edits re-timed onto the
+   * new footage by its steps, under a new media id; what could not be
+   * placed is named in `flagged`.
+   */
+  rerecorded: {
+    label: string
+    /** The old media id and the new one. */
+    from: string
+    id: string
+    /** The prior input's path, when it was found at another one. */
+    was?: string
+    segments: number
+    spans: number
+    layers: string[]
+    /** What needs a look, in words: what was dropped, trimmed or interpolated, and why. */
+    flagged: string[]
   }[]
   /** The kept inputs changed order, so the segments play in argument order again. */
   regrouped: boolean
@@ -251,27 +292,148 @@ const keysOf = (x: JoinedInput): string[] => [
   ...Object.values(x.sub ?? {}),
 ]
 
+/** A media's recorded script url, when its document carries one. */
+const scriptUrl = (m: { script?: unknown } | undefined): string | undefined => {
+  const s = m?.script as { url?: unknown } | undefined
+  return typeof s?.url === 'string' ? s.url : undefined
+}
+
+/** More than half of these named steps must be in the new take for a new path to be the same scene. */
+const SAME_SCRIPT = 0.5
+
+/**
+ * Which inputs were RECORDED AGAIN: a prior take input that did not come
+ * back paired with a new take input. A changed input (its path came back
+ * with other footage) is paired with the input at that path; a removed
+ * one with the new input that recorded the same script, read from the
+ * steps (more than half of its named steps, the url agreeing when both
+ * say one; the best match, and a tie is no match). Both sides must be
+ * takes with steps and no media of their own: a plain file has nothing to
+ * re-time by. Returns new input index → prior input index.
+ */
+export function rerecordedInputs(
+  prev: ProjectDoc,
+  record: JoinRecord,
+  inputs: readonly RejoinInput[],
+  m: Pick<ReturnType<typeof matchInputs>, 'match' | 'changed' | 'removed'>,
+): Map<number, number> {
+  const pairs = new Map<number, number>()
+  const mediaOf = (k: string) => (prev.media ?? []).find((x) => x.id === k)
+  const fit = (j: number) => {
+    const x = record.inputs[j]
+    if (x.kind !== 'take' || x.media === '' || Object.keys(x.sub ?? {}).length)
+      return null
+    const media = mediaOf(x.media)
+    const steps = media?.meta.steps ?? []
+    return media && steps.length ? { media, steps } : null
+  }
+  const open = (i: number) =>
+    i > 0 &&
+    m.match[i] === null &&
+    !pairs.has(i) &&
+    inputs[i].part.kind === 'take' &&
+    !(inputs[i].part.doc.media ?? []).length &&
+    !!inputs[i].part.doc.source.meta.steps?.length
+  for (const j of m.changed) {
+    if (!fit(j)) continue
+    const i = inputs.findIndex(
+      (n, at) => open(at) && n.path === record.inputs[j].path,
+    )
+    if (i >= 0) pairs.set(i, j)
+  }
+  for (const j of m.removed) {
+    const old = fit(j)
+    if (!old) continue
+    const ids = [
+      ...new Set(old.steps.map((s) => s.id).filter((v): v is string => !!v)),
+    ]
+    if (!ids.length) continue
+    const url = scriptUrl(old.media)
+    let best = -1
+    let bestScore = SAME_SCRIPT
+    let tie = false
+    inputs.forEach((n, i) => {
+      if (!open(i)) return
+      const there = scriptUrl(n.part.doc.source) ?? n.part.actions?.url
+      if (url && there && url !== there) return
+      const now = new Set((n.part.doc.source.meta.steps ?? []).map((s) => s.id))
+      const score = ids.filter((id) => now.has(id)).length / ids.length
+      if (score > bestScore) {
+        best = i
+        bestScore = score
+        tie = false
+      } else if (score === bestScore && best >= 0) tie = true
+    })
+    if (best >= 0 && !tie) pairs.set(best, j)
+  }
+  return pairs
+}
+
+/** One media of a joined document, seen as a take of its own: its source and the edits on it. */
+function mediaView(
+  doc: ProjectDoc,
+  media: Media,
+  segments: DocSegment[],
+): ProjectDoc {
+  const own = <T extends { media?: string }>(
+    xs: readonly T[] | undefined,
+  ): T[] =>
+    (xs ?? [])
+      .filter((x) => mediaKey(x.media) === media.id)
+      .map((x) => {
+        const { media: _, ...rest } = x
+        return rest as T
+      })
+  return {
+    ...doc,
+    source: {
+      videoKey: media.videoKey,
+      cursor: media.cursor,
+      meta: media.meta,
+    },
+    segments: own(segments),
+    zoom: own(doc.zoom),
+    speed: own(doc.speed),
+    tilt: own(doc.tilt),
+    freeze: own(doc.freeze),
+    rejected: own(doc.rejected),
+    media: undefined,
+  }
+}
+
 /**
  * Join `inputs` over `prev`, the joined take's edited document, keeping
  * its edits (see the module comment). Throws a UsageError when the first
- * input is not the take's primary.
+ * input is not the take's primary. `where` says a recorded input path
+ * (relative to the joined take) in the report's words.
  */
 export function rejoinDocs(
   prev: ProjectDoc,
   record: JoinRecord,
   inputs: readonly RejoinInput[],
+  opts: { where?: (recordPath: string) => string } = {},
 ): {
   plan: JoinPlan
   report: RejoinReport
   newIds: Set<string>
   dropped: Set<string>
 } {
+  const where = opts.where ?? ((p: string) => p)
   const { match, changed, removed } = matchInputs(record.inputs, inputs)
   const first = match[0] === null ? null : record.inputs[match[0]]
   if (!first || first.media !== '')
     throw new UsageError(
       `--keep-edits: ${inputs[0].part.label} is not the primary this take was joined from (its first input, footage unchanged). The primary carries the cut's frame and camera; keep it first, or join afresh with --force`,
     )
+  // Inputs recorded again: new input index → prior input index.
+  const redo = rerecordedInputs(prev, record, inputs, {
+    match,
+    changed,
+    removed,
+  })
+  const redoneFrom = new Set(redo.values())
+  /** A new input: no prior input, and not a prior input recorded again. */
+  const isNew = (i: number) => match[i] === null && !redo.has(i)
 
   // The kept inputs keep their ids; every id the take ever named stays
   // retired, so a new input never inherits an old media's edits.
@@ -294,7 +456,7 @@ export function rejoinDocs(
   fresh.ids.forEach((ids, i) => {
     for (const k of [ids.id, ...Object.values(ids.sub)]) {
       argOf.set(k, i)
-      if (match[i] === null) newIds.add(k)
+      if (isNew(i)) newIds.add(k)
     }
   })
   match.forEach((j, i) => {
@@ -317,6 +479,7 @@ export function rejoinDocs(
     kept: [],
     added: [],
     dropped: [],
+    rerecorded: [],
     regrouped: false,
     shifted: [],
     notes: [],
@@ -324,14 +487,15 @@ export function rejoinDocs(
   inputs.forEach((x, i) => {
     const j = match[i]
     if (j === null) {
-      report.added.push({ label: x.part.label, id: fresh.ids[i].id })
+      if (isNew(i))
+        report.added.push({ label: x.part.label, id: fresh.ids[i].id })
       return
     }
     const was = record.inputs[j]
     report.kept.push({
       label: x.part.label,
       id: was.media,
-      ...(was.path && was.path !== x.path ? { moved: was.path } : {}),
+      ...(was.path && was.path !== x.path ? { moved: where(was.path) } : {}),
     })
   })
 
@@ -344,7 +508,63 @@ export function rejoinDocs(
     : [{ in: 0, out: round3(prev.source.meta.durationMs / 1000) }]
   const prevExt = segmentOutputExtents(prev)
   const prevFootage = totalDuration(ratedSegments(prev))
-  let segments: DocSegment[] = prevSegments.filter((s) => kept.has(keyOf(s)))
+
+  // A re-recorded input's cut, re-timed onto its new footage by its steps
+  // (the same mapping `vos plan --reuse` makes), under its new media id.
+  interface Redo {
+    i: number
+    from: string
+    to: string
+    rt: ReusedCut
+    segments: DocSegment[]
+    placed: boolean
+    entry: RejoinReport['rerecorded'][number]
+  }
+  const redoByOld = new Map<string, Redo>()
+  for (const [i, j] of redo) {
+    const from = record.inputs[j].media
+    const to = fresh.ids[i].id
+    const was = (prev.media ?? []).find((m) => m.id === from)!
+    const view = mediaView(prev, was, prevSegments)
+    const meta = inputs[i].part.doc.source.meta
+    const rt = retimeCut(view, meta.steps ?? [], meta.durationMs)
+    const cut = view.segments.length
+      ? splitSegmentsAtSkips(rt.segments, meta.skips)
+      : []
+    const x = inputs[i]
+    redoByOld.set(from, {
+      i,
+      from,
+      to,
+      rt,
+      segments: cut.map((sg) => ({ ...sg, media: to })),
+      placed: false,
+      entry: {
+        label: x.part.label,
+        from,
+        id: to,
+        ...(record.inputs[j].path && record.inputs[j].path !== x.path
+          ? { was: where(record.inputs[j].path) }
+          : {}),
+        segments: cut.length,
+        spans: 0,
+        layers: [],
+        flagged: [...rt.report.flagged],
+      },
+    })
+  }
+  const redoTo = new Set([...redoByOld.values()].map((r) => r.to))
+
+  let segments: DocSegment[] = prevSegments.flatMap((sg) => {
+    const r = redoByOld.get(keyOf(sg))
+    if (r) {
+      // The new recording's cut takes the place of the old one's first clip.
+      if (r.placed) return []
+      r.placed = true
+      return r.segments
+    }
+    return kept.has(keyOf(sg)) ? [sg] : []
+  })
   // The kept inputs' order now against their order in the record.
   const keptOrder = match.filter((j): j is number => j !== null)
   const inOrder = keptOrder.every((j, k) => k === 0 || keptOrder[k - 1] < j)
@@ -361,7 +581,7 @@ export function rejoinDocs(
   const freshExt = segmentOutputExtents(fresh.doc)
   const firstFresh = new Map<number, number>()
   inputs.forEach((_, i) => {
-    if (match[i] !== null) return
+    if (!isNew(i)) return
     const mine = freshSegs
       .map((s, at) => ({ s, at }))
       .filter((x) => argOf.get(keyOf(x.s)) === i)
@@ -369,7 +589,7 @@ export function rejoinDocs(
     firstFresh.set(i, mine[0].at)
     let at = segments.length
     for (let n = i + 1; n < inputs.length; n++) {
-      if (match[n] === null) continue
+      if (isNew(n)) continue
       const k = segments.findIndex((s) => argOf.get(keyOf(s)) === n)
       if (k >= 0) {
         at = k
@@ -390,7 +610,9 @@ export function rejoinDocs(
         const f = freshMedia.get(m.id)
         return !m.script && f?.script ? { ...m, script: f.script } : m
       }),
-    ...(fresh.doc.media ?? []).filter((m) => newIds.has(m.id)),
+    ...(fresh.doc.media ?? []).filter(
+      (m) => newIds.has(m.id) || redoTo.has(m.id),
+    ),
   ]
     .map((m, at) => ({ m, at, arg: argOf.get(m.id) ?? 0 }))
     .sort((a, b) => a.arg - b.arg || a.at - b.at)
@@ -414,12 +636,58 @@ export function rejoinDocs(
     dropCount.set(k, c)
   }
   for (const s of prevSegments)
-    if (dropped.has(keyOf(s))) tally(keyOf(s), 'segments')
+    if (dropped.has(keyOf(s)) && !redoByOld.has(keyOf(s)))
+      tally(keyOf(s), 'segments')
+  type Span = { id: string; media?: string; in?: number; out?: number }
+  /** A re-recorded input's spans on one lane: its cut's, re-timed, then the planner's fresh proposals where nothing stands. */
+  const redoSpans = (lane: (typeof spanLanes)[number]): Span[] => {
+    const out: Span[] = []
+    for (const r of redoByOld.values()) {
+      const tag = (x: object): Span => ({ ...(x as Span), media: r.to })
+      let mine: Span[]
+      if (lane === 'camMotion') {
+        // A cam move is not re-timed by a re-record (as with plan --reuse).
+        mine = ((prev.camMotion ?? []) as Span[])
+          .filter((x) => keyOf(x) === r.from)
+          .map(tag)
+      } else {
+        mine = (r.rt[lane] as object[]).map(tag)
+        if (lane === 'zoom' || lane === 'speed' || lane === 'tilt') {
+          const rejected = r.rt.rejected as RejectedSpan[]
+          const proposed = ((fresh.doc[lane] ?? []) as Span[]).filter(
+            (x) =>
+              keyOf(x) === r.to &&
+              (x as { source?: string }).source === 'auto' &&
+              !mine.some((m) => x.in! < m.out! && m.in! < x.out!) &&
+              !isRejected(lane, x as { in: number; out: number }, rejected),
+          )
+          r.entry.spans += mine.length
+          mine = [...mine, ...proposed]
+        } else if (lane === 'rejected') {
+          const fromTake = (
+            (fresh.doc.rejected ?? []) as RejectedSpan[]
+          ).filter(
+            (x) =>
+              keyOf(x) === r.to &&
+              !isRejected(x.lane, x, r.rt.rejected as RejectedSpan[]),
+          )
+          r.entry.spans += mine.length
+          mine = [...mine, ...(fromTake as Span[])]
+        } else r.entry.spans += mine.length
+      }
+      if (lane === 'camMotion') r.entry.spans += mine.length
+      out.push(...mine)
+    }
+    return out
+  }
   for (const lane of spanLanes) {
     const before = (prev[lane] ?? []) as { media?: string }[]
-    for (const s of before) if (dropped.has(keyOf(s))) tally(keyOf(s), 'spans')
+    for (const s of before)
+      if (dropped.has(keyOf(s)) && !redoByOld.has(keyOf(s)))
+        tally(keyOf(s), 'spans')
     const next = [
       ...before.filter((s) => kept.has(keyOf(s))),
+      ...redoSpans(lane),
       ...((fresh.doc[lane] ?? []) as { media?: string }[]).filter((s) =>
         newIds.has(keyOf(s)),
       ),
@@ -473,30 +741,80 @@ export function rejoinDocs(
     }
     return null
   }
+  /** Where a media's clips play, first to last, in a cut. */
+  const blockOf = (
+    segs: readonly DocSegment[],
+    ext: readonly { start: number; end: number }[],
+    k: string,
+  ): { start: number; end: number } | null => {
+    const at = segs.flatMap((sg, i) => (keyOf(sg) === k ? [ext[i]] : []))
+    return at.length ? { start: at[0].start, end: at[at.length - 1].end } : null
+  }
+  /**
+   * `follow`, and over a re-recorded input's footage the same place in its
+   * scene: the offset from where the scene starts, kept while it still
+   * falls inside the scene's new length.
+   */
+  const place = (t: number): number | null => {
+    const k = footageAt(t)
+    const r = k === null ? undefined : redoByOld.get(k)
+    if (!r) return follow(t)
+    const was = blockOf(prevSegments, prevExt, r.from)
+    const now = blockOf(segments, newExt, r.to)
+    if (!was || !now) return null
+    const moved = now.start + (t - was.start)
+    if (moved >= now.end - 1e-6) return null
+    return Math.abs(moved - t) < 1e-9 ? t : round3(moved)
+  }
+  /** A thing over a re-recorded input's footage that has no place in its new recording. */
+  const loseOver = (t: number, what: string): boolean => {
+    const r = redoByOld.get(footageAt(t) ?? '\u0000')
+    if (!r) return false
+    r.entry.flagged.push(
+      `${what} (${t.toFixed(2)} s): it played over this input's footage past where its new recording ends; dropped`,
+    )
+    return true
+  }
 
   // Layers: the edited ones, then a new input's.
   const overlays: OverlayClip[] = []
-  for (const o of prev.overlays ?? []) {
+  /** A re-recorded input's layers, by id: the input they now follow. */
+  const redoLayers = new Map<string, Redo>()
+  for (const prevLayer of prev.overlays ?? []) {
+    let o = prevLayer
     const refMedia =
       o.kind !== 'text' && o.kind !== 'html' ? mediaRefId(o.key) : null
     const owner = o.anchor ? mediaKey(o.anchor.media) : null
-    const gone =
-      (owner !== null && dropped.has(owner) && owner) ||
-      (refMedia !== null && dropped.has(refMedia) && refMedia) ||
-      null
+    const goes = (k: string | null): k is string =>
+      k !== null && dropped.has(k) && !redoByOld.has(k)
+    const gone = (goes(owner) && owner) || (goes(refMedia) && refMedia) || null
     if (gone) {
       lose(gone, 'layers', o.id)
       continue
+    }
+    // A re-recorded input's layer names its new media.
+    const byOwner = owner === null ? undefined : redoByOld.get(owner)
+    if (byOwner && o.anchor) {
+      o = { ...o, anchor: { ...o.anchor, media: byOwner.to } }
+      redoLayers.set(o.id, byOwner)
+    }
+    const byRef = refMedia === null ? undefined : redoByOld.get(refMedia)
+    if (byRef && o.kind !== 'text' && o.kind !== 'html') {
+      o = { ...o, key: `media:${byRef.to}` }
+      redoLayers.set(o.id, byRef)
     }
     if (o.anchor) {
       overlays.push(o)
       continue
     }
-    const t = follow(o.start)
+    const t = place(o.start)
     if (t === null) {
-      lose(footageAt(o.start) ?? '', 'layers', o.id)
+      if (!loseOver(o.start, `layer ${o.id}`))
+        lose(footageAt(o.start) ?? '', 'layers', o.id)
       continue
     }
+    const over = redoByOld.get(footageAt(o.start) ?? '\u0000')
+    if (over) redoLayers.set(o.id, over)
     if (t !== o.start) report.shifted.push(o.id)
     overlays.push(t === o.start ? o : { ...o, start: t })
   }
@@ -516,9 +834,10 @@ export function rejoinDocs(
       objects.push(ob)
       continue
     }
-    const t = follow(ob.span.start)
+    const t = place(ob.span.start)
     if (t === null) {
-      lose(footageAt(ob.span.start) ?? '', 'layers', ob.id)
+      if (!loseOver(ob.span.start, `prop ${ob.id}`))
+        lose(footageAt(ob.span.start) ?? '', 'layers', ob.id)
       continue
     }
     if (t !== ob.span.start) report.shifted.push(ob.id)
@@ -549,6 +868,13 @@ export function rejoinDocs(
       audio.push(a)
       continue
     }
+    const r = redoByOld.get(k)
+    if (r) {
+      r.entry.flagged.push(
+        `sound ${a.id}: it was the old recording's own sound; dropped`,
+      )
+      continue
+    }
     if (dropped.has(k)) {
       lose(k, 'sound', a.id)
       continue
@@ -571,7 +897,7 @@ export function rejoinDocs(
 
   // The cover moment, an output second the author chose.
   if (typeof prev.still === 'number') {
-    const t = follow(prev.still)
+    const t = place(prev.still)
     if (t === null) {
       delete doc.still
       report.notes.push(
@@ -583,16 +909,26 @@ export function rejoinDocs(
     }
   }
 
-  // Every anchored layer's fallback start is where it plays now.
+  // Every anchored layer's fallback start is where it plays now. A layer
+  // anchored to a step a re-recorded input no longer plays has no place.
   const pieces = ratedSegments(doc)
-  if (doc.overlays)
-    doc.overlays = doc.overlays.map((o) => {
-      if (!o.anchor) return o
-      const r = resolveAnchor(doc, o.anchor, pieces)
-      return r.start !== null && r.start !== o.start
-        ? { ...o, start: r.start }
-        : o
+  if (doc.overlays) {
+    doc.overlays = doc.overlays.flatMap((o) => {
+      const r = o.anchor ? resolveAnchor(doc, o.anchor, pieces) : null
+      const redone = redoLayers.get(o.id)
+      if (o.anchor && r && r.start === null && redone) {
+        redone.entry.flagged.push(
+          `layer ${o.id}: anchored to step ${String(o.anchor.step)}, which the new recording does not have, skipped, or the cut leaves out; dropped`,
+        )
+        return []
+      }
+      if (redone) redone.entry.layers.push(o.id)
+      return r && r.start !== null && r.start !== o.start
+        ? [{ ...o, start: r.start }]
+        : [o]
     })
+    if (!doc.overlays.length) delete doc.overlays
+  }
   // An ending anchored to a step (an end card on the last input's last
   // step) stays on its step, which may no longer be the end: say so.
   const prevPieces = ratedSegments(prev)
@@ -616,9 +952,10 @@ export function rejoinDocs(
   // What went, per input.
   const labelOf = (k: string): string => {
     const x = record.inputs.find((r) => keysOf(r).includes(k))
-    return x?.path || (k ? `media ${k}` : 'the primary')
+    return x?.path ? where(x.path) : k ? `media ${k}` : 'the primary'
   }
   for (const j of [...changed, ...removed]) {
+    if (redoneFrom.has(j)) continue
     const x = record.inputs[j]
     for (const k of keysOf(x)) {
       const c = dropCount.get(k) ?? { segments: 0, spans: 0 }
@@ -636,7 +973,7 @@ export function rejoinDocs(
   }
   // A media in the document the record never named (and so no input).
   for (const k of dropped) {
-    if (report.dropped.some((d) => d.id === k)) continue
+    if (report.dropped.some((d) => d.id === k) || redoByOld.has(k)) continue
     const c = dropCount.get(k) ?? { segments: 0, spans: 0 }
     const items = droppedItems.get(k) ?? { layers: [], sound: [] }
     report.dropped.push({
@@ -658,14 +995,13 @@ export function rejoinDocs(
   }
 
   // A new input's notes only: the kept ones' were said at their join.
-  const newLabels = inputs
-    .filter((_, i) => match[i] === null)
-    .map((x) => x.part.label)
+  report.rerecorded = [...redoByOld.values()].map((r) => r.entry)
+  const newLabels = inputs.filter((_, i) => isNew(i)).map((x) => x.part.label)
   const notes = fresh.notes.filter((n) =>
     newLabels.some((l) => n.startsWith(`${l}:`)),
   )
   const copies = fresh.copies.filter((c) =>
-    [...newIds].some((k) => k !== '' && c.to.startsWith(`${k}/`)),
+    [...newIds, ...redoTo].some((k) => k !== '' && c.to.startsWith(`${k}/`)),
   )
   return {
     plan: {
@@ -694,6 +1030,16 @@ export function rejoinLines(r: RejoinReport): string[] {
     )
   if (r.added.length)
     lines.push(`added ${r.added.map((a) => `${a.label} → ${a.id}`).join(', ')}`)
+  for (const x of r.rerecorded) {
+    lines.push(
+      `re-recorded ${x.label}${x.was ? ` (was ${x.was})` : ''}: ${x.from} → ${x.id}; its edits re-timed by its steps: ${[
+        n(x.segments, 'segment'),
+        n(x.spans, 'span'),
+        x.layers.length ? `layers ${x.layers.join(', ')}` : '0 layers',
+      ].join(', ')}`,
+    )
+    for (const f of x.flagged) lines.push(`  ${f}`)
+  }
   for (const d of r.dropped) {
     const what = [
       n(d.segments, 'segment'),

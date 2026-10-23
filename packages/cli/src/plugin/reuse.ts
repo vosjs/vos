@@ -62,18 +62,63 @@ export interface StepMap {
 }
 
 /**
- * Match an old step to a new one: by `id` when both carry one; else the
+ * An unnamed old step by its place beside the NEAREST named one: the step
+ * two after `zoomOut` is still two after `zoomOut` when a step was added
+ * before it. Looked for from the named step before and the one after; the
+ * verb and the selector must agree, and two answers that disagree are no
+ * answer.
+ */
+function matchByNeighbour(
+  old: StepSpan,
+  newSteps: readonly StepSpan[],
+  oldSteps: readonly StepSpan[],
+): StepSpan | null {
+  const named = oldSteps.filter(
+    (s) => s.id && newSteps.some((n) => n.id === s.id && !n.skipped),
+  )
+  const before = named
+    .filter((s) => s.step < old.step)
+    .sort((a, b) => b.step - a.step)[0]
+  const after = named
+    .filter((s) => s.step > old.step)
+    .sort((a, b) => a.step - b.step)[0]
+  const found = [before, after].flatMap((anchor) => {
+    if (!anchor) return []
+    const now = newSteps.find((n) => n.id === anchor.id)!
+    const hit = newSteps.find(
+      (n) => n.step === now.step + old.step - anchor.step,
+    )
+    return hit &&
+      !hit.skipped &&
+      !hit.id &&
+      hit.do === old.do &&
+      hit.selector === old.selector
+      ? [hit]
+      : []
+  })
+  return found.length && found.every((h) => h === found[0]) ? found[0] : null
+}
+
+/**
+ * Match an old step to a new one: by `id` when both carry one; else, for
+ * an unnamed step, by its place beside the nearest named step; else the
  * same index when the verb + selector still agree there; else a UNIQUE
  * (do, selector) match anywhere. A new step that was skipped (selector
  * never appeared) is no match — its gesture did not happen.
  */
-function matchStep(old: StepSpan, newSteps: StepSpan[]): StepSpan | null {
+function matchStep(
+  old: StepSpan,
+  newSteps: StepSpan[],
+  oldSteps: readonly StepSpan[] = [],
+): StepSpan | null {
   const usable = (s: StepSpan | undefined): s is StepSpan =>
     !!s && s.skipped !== true
   if (old.id) {
     const byId = newSteps.find((s) => s.id === old.id)
     return usable(byId) ? byId : null
   }
+  const near = matchByNeighbour(old, newSteps, oldSteps)
+  if (near) return near
   const atIndex = newSteps.find((s) => s.step === old.step)
   if (
     usable(atIndex) &&
@@ -139,7 +184,7 @@ export function buildStepMap(
   let matched = 0
   for (const old of oldSteps) {
     if (old.skipped) continue // never ran in the old take; nothing anchored to it
-    const hit = matchStep(old, newSteps)
+    const hit = matchStep(old, newSteps, oldSteps)
     if (!hit) {
       unmatched.push(old)
       continue
@@ -243,7 +288,7 @@ function placeMoment(
   }
   const under = stepUnder(t, ctx.oldSteps)
   if (under) {
-    const hit = matchStep(under, ctx.newSteps)
+    const hit = matchStep(under, ctx.newSteps, ctx.oldSteps)
     if (!hit) return { gone: under }
     ctx.report.anchored++
     return { at: hit.tStart + (t - under.tStart), via: 'step' }
@@ -514,7 +559,9 @@ export function retimeOverlays(
     const pin = o.pin
     if (pin?.step !== undefined) {
       const was = stepByRef(oldSteps, pin.step)
-      const now = was ? matchStep(was, newSteps) : stepByRef(newSteps, pin.step)
+      const now = was
+        ? matchStep(was, newSteps, oldSteps)
+        : stepByRef(newSteps, pin.step)
       if (!now || now.skipped) {
         report.flagged.push(
           `overlay ${o.id}: pinned to step ${String(pin.step)}, which is missing or skipped in the new recording — kept at ${o.start.toFixed(2)}s; re-pin or re-place it`,
@@ -543,7 +590,7 @@ export function retimeOverlays(
       LAYER_AFTER_STEP,
     )
     if (!under) return o
-    const now = matchStep(under, newSteps)
+    const now = matchStep(under, newSteps, oldSteps)
     if (!now) {
       report.flagged.push(
         `overlay ${o.id} (${o.start.toFixed(2)}s): it sat over step ${stepName(under)}, which is missing or skipped in the new recording — kept at its output time; re-place it`,

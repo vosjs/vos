@@ -9,7 +9,12 @@ import {
   DEFAULT_FRAME_STYLE,
 } from '@vosjs/studio-core'
 import { cmdJoin } from '../join'
-import { JOIN_RECORD_NAME, matchInputs } from '../rejoin'
+import {
+  JOIN_RECORD_NAME,
+  matchInputs,
+  rejoinLines,
+  rerecordedInputs,
+} from '../rejoin'
 import { lintDoc } from '../validateDoc'
 import type { ProjectDoc, StepSpan, TextOverlayClip } from '@vosjs/studio-core'
 import type { JoinRecord, RejoinReport } from '../rejoin'
@@ -329,7 +334,7 @@ describe('vos join --keep-edits', () => {
     ])
   })
 
-  it('reads changed footage as a new recording, and refuses another primary', async () => {
+  it('re-times a take re-recorded in place by its steps, and refuses another primary', async () => {
     const e = await writeTake('e', 5000, [step(0, 'go', 1)])
     const out = join(root, 'film-change')
     expect(await cmdJoin([a, e, '--out', out])).toBe(0)
@@ -338,22 +343,30 @@ describe('vos join --keep-edits', () => {
       ...joined,
       speed: [{ id: 's1', media: 'm1', in: 1, out: 2, rate: 2 }],
     })
-    // e is re-recorded in place.
+    // e is re-recorded in place: the same script, its step 0.6 s later.
+    await writeTake('e', 5600, [step(0, 'go', 1.6)])
     await writeFile(join(e, 'recording.webm'), 'new footage of e')
     expect(await cmdJoin([a, e, '--out', out, '--keep-edits', '--json'])).toBe(
       0,
     )
     const report = done().keptEdits!
-    expect(report.dropped).toMatchObject([
-      { id: 'm1', why: 'changed', spans: 1 },
+    expect(report.dropped).toEqual([])
+    expect(report.added).toEqual([])
+    expect(report.rerecorded).toMatchObject([
+      { label: e, from: 'm1', id: 'm2', segments: 1, spans: 1, flagged: [] },
     ])
-    expect(report.added).toEqual([{ label: e, id: 'm2' }])
     const doc = await readDoc(out)
-    expect(doc.speed).toBeUndefined()
+    // The speed span sat on `go` and follows it.
+    expect(doc.speed).toEqual([
+      { id: 's1', media: 'm2', in: 1.6, out: 2.6, rate: 2 },
+    ])
     expect(doc.segments).toEqual([
       { in: 0, out: 10 },
-      { in: 0, out: 5, media: 'm2' },
+      { in: 0, out: 5.6, media: 'm2' },
     ])
+    expect(existsSync(join(out, 'm1'))).toBe(false)
+    expect(existsSync(join(out, 'm2/recording.webm'))).toBe(true)
+    expect(lintDoc(doc).problems).toEqual([])
     await expect(cmdJoin([b, a, '--out', out, '--keep-edits'])).rejects.toThrow(
       /not the primary/,
     )
@@ -361,6 +374,175 @@ describe('vos join --keep-edits', () => {
       cmdJoin([a, e, '--out', out, '--keep-edits', '--force']),
     ).rejects.toThrow(/pass one/)
     await expect(cmdJoin([a, e, '--out', out])).rejects.toThrow(/--keep-edits/)
+  })
+
+  it('carries a scene re-recorded at a new path onto its new timing, and names what it could not place', async () => {
+    const sp = (
+      n: number,
+      id: string | undefined,
+      act: string,
+      t0: number,
+      t1: number,
+    ): StepSpan => ({
+      step: n,
+      ...(id ? { id } : {}),
+      do: act as StepSpan['do'],
+      tStart: t0,
+      tEnd: t1,
+    })
+    const url = 'http://localhost:5199/?seed=map'
+    // The scene as first recorded.
+    const scene = await writeTake('scene', 13000, [
+      sp(0, 'scene', 'wait', 0, 1.5),
+      sp(1, undefined, 'move', 1.6, 2.6),
+      sp(2, 'zoomOut', 'press', 3.2, 5.9),
+      sp(3, undefined, 'hover', 6, 7.2),
+      sp(4, 'brush', 'drag', 7.2, 10.3),
+      sp(5, 'selected', 'wait', 10.3, 11),
+      sp(6, 'pulse', 'click', 11, 11.5),
+      sp(7, 'end', 'wait', 11.6, 13),
+    ])
+    const out = join(root, 'film-rerecord')
+    expect(await cmdJoin([a, scene, '--out', out])).toBe(0)
+    const joined = await readDoc(out)
+    const media = joined.media!.map((m) => ({ ...m, script: { url } }))
+    // The cut: the scene trimmed in two, two speed spans on unnamed steps,
+    // a zoom on `pulse`, a proposal rejected on the brush, captions on
+    // three steps and a label placed over the scene by output second.
+    const sceneStart = 10 // a's 10 s play first
+    await writeDoc(out, {
+      ...joined,
+      media,
+      segments: [
+        { in: 0, out: 10 },
+        { in: 0.3, out: 3.25, media: 'm1' },
+        { in: 3.75, out: 11.6, media: 'm1' },
+      ],
+      speed: [
+        { id: 's12', media: 'm1', in: 1.6, out: 2.6, rate: 2 },
+        { id: 's13', media: 'm1', in: 6, out: 7.2, rate: 2 },
+      ],
+      zoom: [
+        {
+          id: 'zp',
+          media: 'm1',
+          in: 11,
+          out: 11.5,
+          level: 1.5,
+          cx: 0.5,
+          cy: 0.5,
+          source: 'manual',
+        },
+      ],
+      rejected: [{ id: 'r29', media: 'm1', lane: 'zoom', in: 7.24, out: 10.3 }],
+      overlays: [
+        text('c6', 0, {
+          anchor: { step: 'zoomOut', media: 'm1', offset: 0.3 },
+        }),
+        text('c6b', 0, { anchor: { step: 'selected', media: 'm1' } }),
+        text('c-pulse', 0, { anchor: { step: 'pulse', media: 'm1' } }),
+        text('over-scene', sceneStart + 1),
+      ],
+    })
+    // Recorded again elsewhere: a check added after `scene`, everything
+    // after it 0.3 s earlier, and `pulse` gone from the script. Its own
+    // plan proposes a zoom on the brush (rejected in the cut) and one on
+    // `zoomOut` (nothing stands there).
+    const again = await writeTake(
+      'scene-again',
+      12300,
+      [
+        sp(0, 'scene', 'wait', 0, 1.5),
+        sp(1, 'count', 'expect', 1.55, 1.55),
+        sp(2, undefined, 'move', 1.58, 2.3),
+        sp(3, 'zoomOut', 'press', 2.9, 5.6),
+        sp(4, undefined, 'hover', 5.7, 6.9),
+        sp(5, 'brush', 'drag', 6.9, 10),
+        sp(6, 'selected', 'wait', 10, 10.7),
+        sp(7, 'end', 'wait', 10.9, 12.3),
+      ],
+      {
+        zoom: [
+          {
+            id: 'g0',
+            in: 6.92,
+            out: 10,
+            level: 1.6,
+            cx: 0.5,
+            cy: 0.5,
+            source: 'auto',
+          },
+          {
+            id: 'g1',
+            in: 3,
+            out: 5.5,
+            level: 1.4,
+            cx: 0.3,
+            cy: 0.3,
+            source: 'auto',
+          },
+        ],
+      },
+    )
+    await writeFile(
+      join(again, 'actions.json'),
+      JSON.stringify({ url, steps: [{ id: 'scene', do: 'wait', ms: 1500 }] }),
+    )
+    expect(
+      await cmdJoin([a, again, '--out', out, '--keep-edits', '--json']),
+    ).toBe(0)
+    const report = done().keptEdits!
+    expect(report.added).toEqual([])
+    expect(report.dropped).toEqual([])
+    expect(report.rerecorded).toHaveLength(1)
+    const redone = report.rerecorded[0]
+    expect(redone).toMatchObject({
+      label: again,
+      from: 'm1',
+      id: 'm2',
+      was: '../scene',
+      segments: 2,
+    })
+    expect(redone.layers.sort()).toEqual(['c6', 'c6b', 'over-scene'])
+    expect(redone.flagged.join('\n')).toMatch(/zoom zp: .*pulse/)
+    expect(redone.flagged.join('\n')).toMatch(/layer c-pulse: .*pulse/)
+
+    const doc = await readDoc(out)
+    expect(doc.media!.map((m) => m.id)).toEqual(['m2'])
+    // The segments take the old clips' place, re-timed by the steps.
+    const mine = doc.segments.filter((s) => s.media === 'm2')
+    expect(mine).toHaveLength(2)
+    expect(doc.segments[0]).toEqual({ in: 0, out: 10 })
+    // The old clip ended at `selected`'s end (11.6 is `end`'s start); so does the new one.
+    expect(mine[1].out).toBeCloseTo(10.9, 2)
+    // Speed spans on unnamed steps follow them, found beside the named ones.
+    expect(doc.speed).toEqual([
+      { id: 's12', media: 'm2', in: 1.58, out: 2.58, rate: 2 },
+      { id: 's13', media: 'm2', in: 5.7, out: 6.9, rate: 2 },
+    ])
+    // The rejection follows the brush and keeps the planner's proposal on
+    // it out; the one on `zoomOut` stands.
+    expect(doc.rejected).toEqual([
+      { id: 'r29', media: 'm2', lane: 'zoom', in: 6.94, out: 10 },
+    ])
+    expect(doc.zoom.map((z) => z.id)).toEqual(['m2-g1'])
+    // The captions stay on their steps, now on the new media.
+    const byId = new Map(doc.overlays!.map((o) => [o.id, o]))
+    expect(byId.get('c6')!.anchor).toEqual({
+      step: 'zoomOut',
+      media: 'm2',
+      offset: 0.3,
+    })
+    expect(byId.get('c6b')!.anchor).toEqual({ step: 'selected', media: 'm2' })
+    expect(byId.has('c-pulse')).toBe(false)
+    // The label keeps its place in the scene.
+    expect(byId.get('over-scene')!.start).toBe(sceneStart + 1)
+    expect(existsSync(join(out, 'm1'))).toBe(false)
+    expect(existsSync(join(out, 'm2/recording.webm'))).toBe(true)
+    expect(lintDoc(doc).problems).toEqual([])
+    expect(rejoinLines(report).join('\n')).toMatch(
+      /re-recorded .*scene-again \(was \.\.\/scene\): m1 → m2; its edits re-timed by its steps: 2 segments, 3 spans, layers c6, c6b, over-scene/,
+    )
   })
 
   it('matches a take joined before join.json by the footage it holds', async () => {
@@ -388,6 +570,100 @@ describe('vos join --keep-edits', () => {
     const once = await readFile(join(out, 'doc.json'), 'utf8')
     expect(await cmdJoin([a, b, c, '--out', out, '--keep-edits'])).toBe(0)
     expect(await readFile(join(out, 'doc.json'), 'utf8')).toBe(once)
+  })
+})
+
+describe('rerecordedInputs', () => {
+  const steps = (ids: string[]): StepSpan[] =>
+    ids.map((id, i) => ({ step: i, id, do: 'click', tStart: i, tEnd: i + 0.5 }))
+  const take = (
+    stepIds: string[],
+    over: Partial<{ kind: 'take' | 'file'; url: string }> = {},
+  ) => ({
+    kind: over.kind ?? ('take' as const),
+    label: 'x',
+    dir: '.',
+    actions: over.url ? { url: over.url, steps: [] } : null,
+    doc: {
+      source: {
+        videoKey: 'recording.webm',
+        cursor: [],
+        meta: meta(5000, steps(stepIds)),
+      },
+    } as unknown as ProjectDoc,
+  })
+  const prev = {
+    media: [
+      {
+        id: 'm1',
+        videoKey: 'm1/recording.webm',
+        cursor: [],
+        meta: meta(5000, steps(['open', 'zoom', 'brush', 'end'])),
+        script: { url: 'http://x.test/a' },
+      },
+      {
+        id: 'm2',
+        videoKey: 'm2/recording.webm',
+        cursor: [],
+        meta: meta(5000, steps(['intro', 'share', 'end'])),
+      },
+    ],
+  } as unknown as ProjectDoc
+  const record: JoinRecord = {
+    version: 1,
+    inputs: [
+      { path: 'p', kind: 'take', footage: 'P', media: '' },
+      { path: 'old/scene', kind: 'take', footage: 'S', media: 'm1' },
+      { path: 'clip', kind: 'take', footage: 'C', media: 'm2' },
+    ],
+  }
+  const input = (path: string, part: ReturnType<typeof take>) => ({
+    path,
+    footage: `new:${path}`,
+    part: part as never,
+  })
+  it('pairs a removed take with the new one that recorded the same script', () => {
+    const inputs = [
+      { path: 'p', footage: 'P', part: take([]) as never },
+      input('new/scene', take(['open', 'count', 'zoom', 'brush', 'end'])),
+      // Shares only `end` with the clip: not the same scene.
+      input('other', take(['other', 'end'])),
+    ]
+    const m = matchInputs(record.inputs, inputs)
+    expect(m.removed).toEqual([1, 2])
+    expect([...rerecordedInputs(prev, record, inputs, m)]).toEqual([[1, 1]])
+  })
+  it('pairs a changed take at its path, never a plain file, never another url', () => {
+    const same = [
+      { path: 'p', footage: 'P', part: take([]) as never },
+      input('old/scene', take(['a', 'b'])),
+    ]
+    expect([
+      ...rerecordedInputs(prev, record, same, matchInputs(record.inputs, same)),
+    ]).toEqual([[1, 1]])
+    const file = [
+      { path: 'p', footage: 'P', part: take([]) as never },
+      input('old/scene', take(['open', 'zoom'], { kind: 'file' })),
+    ]
+    expect(
+      rerecordedInputs(prev, record, file, matchInputs(record.inputs, file))
+        .size,
+    ).toBe(0)
+    const elsewhere = [
+      { path: 'p', footage: 'P', part: take([]) as never },
+      input(
+        'new/scene',
+        take(['open', 'zoom', 'brush'], { url: 'http://x.test/b' }),
+      ),
+    ]
+    expect(
+      rerecordedInputs(
+        prev,
+        record,
+        elsewhere,
+        matchInputs(record.inputs, elsewhere),
+      ).size,
+    ).toBe(0)
   })
 })
 
