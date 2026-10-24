@@ -129,6 +129,19 @@ vos record --actions actions.json --out take --session acme --dry-run
 vos record --actions actions.json --out take --session acme --strict --json
 ```
 
+Anything else you need from the signed-in browser (what the account holds,
+a state no step reaches yet, a check that a flow cleaned up after itself)
+runs INSIDE the session (`@vosjs/cli` 0.81 and later):
+
+```bash
+vos session exec acme list-keys.mjs --url https://app.example.com/settings/keys
+```
+
+`list-keys.mjs` is an ES module whose default export receives
+`{ context, page, url, name }`, opened exactly as `record` opens the
+profile; what it returns is printed (`result` in `--json`). Never open the
+profile any other way: see the rules below.
+
 `--session` and `--storage-state` are two doors to one take; pass one.
 No file to mint, nothing in the take, nothing to delete: the profile lives
 under `~/.config/vos/sessions/` and `vos push` refuses a take that holds a
@@ -191,6 +204,13 @@ show, before anything is pushed further or handed over.
   mint again and it is a live credential for as long as it sits there.
 - **A session expires.** When a re-record that worked last week skips its
   first selector, re-walk the ladder before touching the script.
+- **Never open a session's profile yourself.** Not with Playwright's
+  `launchPersistentContext`, not with a bundled Chromium, not with a
+  keychain flag patched in. A browser that cannot decrypt the profile's
+  cookies starts the store over: measured, one such launch signed a session
+  out for the system Chrome too, and the person had to sign in again. Every
+  read goes through a vos verb (`look`, `record`, `session exec`), one at a
+  time: two verbs on one profile at once lock it.
 - **A person signing in will use their REAL account**, whatever you asked
   for: it is the one they have. The recorder looks for you (`@vosjs/cli`
   0.42 and later): the rehearsal ends with `EXPOSED in the frame`, naming

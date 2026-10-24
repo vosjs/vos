@@ -89,6 +89,25 @@ person before recording**; an answer that does neither was not an answer.
    the product is a real account, and report it at the end so they can
    delete what was made. A product where creating is cheap (a sandbox, a
    seeded local instance) needs the ledger written, not asked.
+   **Undo it in `teardown`** (`@vosjs/cli` 0.81 and later): the setup verbs,
+   run off camera after every rehearsal and take, and when one stops
+   early, so no rehearsal leaves a draft behind. When the video itself
+   deletes on camera what it made (a key created, then revoked), the
+   teardown is the net for a take that stopped before the delete: open it
+   with a guard on what the take created (`@vosjs/cli` 0.83 and later),
+   so a good take says `teardown: nothing to undo` instead of a failure.
+   ```json
+   "teardown": [
+     { "do": "press", "key": "Escape" },
+     { "do": "if", "selector": "[aria-label='Actions for CI deploy']" },
+     { "do": "click", "selector": "[aria-label='Actions for CI deploy']" },
+     { "do": "click", "selector": "role=menuitem[name='Revoke']" },
+     { "do": "click", "selector": "role=alertdialog >> role=button[name='Revoke']" }
+   ]
+   ```
+   A step that fails AFTER the guard is a real leftover: say it to the
+   person. Read the account back before you report (a `vos session exec`
+   script lists it) and say it holds what it held before.
 4. **What it SPENDS.** A step that costs something real (a generation, a
    purchase, a message sent, a deploy) carries `"guard": "spend"` and an
    `id`. A rehearsal hovers it and never presses it; `vos record` refuses
@@ -153,6 +172,17 @@ person before recording**; an answer that does neither was not an answer.
    whose words mean spend, delete or submit. Take UNIQUE selectors into
    steps as they are. Then the side-effect ledger (pre-flight, 3), then
    rehearse.
+
+   **Past what `look` reaches, script inside the session.** A state no
+   step reaches yet, what the account holds, a check after a flow: write
+   an ES module and run `vos session exec <app> script.mjs --url <page>`
+   (`@vosjs/cli` 0.81 and later). Its default export gets
+   `{ context, page, url, name }` on the profile exactly as `record` opens
+   it, and what it returns is printed. **Never open the session's profile
+   yourself** (Playwright's `launchPersistentContext`, a bundled Chromium, a
+   keychain flag): a browser that cannot read the profile's cookies starts
+   them over, the session is signed out for good, and the person signs in
+   again. Run one verb at a time on a session; two at once lock the profile.
 
    **Verified the feature with agent-browser already?** Keep that walk and
    skip the second script. agent-browser's `--json` result does not say
@@ -250,6 +280,12 @@ person before recording**; an answer that does neither was not an answer.
    flow is broken — fix it, never ship around it. A guarded step records
    only with `--confirm <id>` (pre-flight, 4). The take auto-encodes and
    auto-plans.
+   **Recording again into a take you already cut** (a fixed step, a longer
+   hold, the product changed): add `--reuse` (`@vosjs/cli` 0.81 and later).
+   The new footage replaces the old and your cut (zooms, captions, layers,
+   cover, sound) is re-timed onto it in the same command; the last line
+   names what it kept and what could not follow. Without it the take is
+   planned fresh and the cut waits in `doc.prev.json`.
    (`vos create --actions actions.json out.webm --strict` is the one-shot
    record+render verb — fine for a quick first pass, but THIS skill's loop
    reviews frames before rendering, so prefer the separate verbs here.)
@@ -302,9 +338,14 @@ person before recording**; an answer that does neither was not an answer.
    every zoom span is draggable.
 
 6c. **Pushing it to vos.so** (`vos push take`)? Set `still` in `doc.json`
-   (OUTPUT seconds) to the payoff first, the result the video is about,
-   never the opening: without one the cover is derived near the start,
-   usually a zoom on a navigation control under the first caption.
+   (OUTPUT seconds) to the payoff BEFORE the first push, the result the
+   video is about, never the opening: without one the cover is derived near
+   the start, usually a zoom on a navigation control or an empty field
+   under the first caption, and moving it after costs a second version.
+   `vos plan take --still <t>` writes it and `vos frames take --at-still`
+   shows it: look before the push. The push writes
+   `take/vos.json`: its `vosId` is the link (`https://vos.so/vos/<vosId>`).
+   Read the link there, never from filtered logs or a lookup script.
 
 7. **Package for the destination**: `references/destinations.md`.
 
@@ -383,3 +424,14 @@ when the ask is a release, not one video.
 - Scripting a signed-in product blind: `vos look` first, then the ledger,
   then the rehearsal. Guessing selectors from a public page costs a take
   per guess.
+- Opening a session's profile with your own Playwright: it signed a
+  founder's session out minutes after `vos look` had used it. Script
+  inside it with `vos session exec`.
+- Recording again into a cut take without `--reuse`: the fresh plan takes
+  the cut's place.
+- A teardown that undoes an on-camera delete with no `if` in front of its
+  undoing: every good take reports `TEARDOWN FAILED`, and a person learns
+  to ignore the line that one day is true.
+- Cutting a caption's `duration` because the plan said it outlasts its
+  step: the words then cannot be read. Shorten the words, or give the step
+  more `ms` and record again.

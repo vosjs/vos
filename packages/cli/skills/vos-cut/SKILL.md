@@ -232,7 +232,9 @@ shows it): the result the cut is about, never the opening. Without one the
 cover is derived near the start, usually a zoom on a navigation control
 under the first caption.
 
-The base comes from `vos.json`. `409 stale_base` → `vos pull`, re-apply on
+The push writes `<take>/vos.json`: its `vosId` is the link
+(`https://vos.so/vos/<vosId>`); read it there, never from filtered logs or
+a lookup script. The base comes from `vos.json`. `409 stale_base` → `vos pull`, re-apply on
 top, push again. `409 protected_conflict` → keep the human's values unless
 the ask named that node (`--override <id>` only then). A 400 prints the
 field and its limit. Then `GET /api/vos/<id>`, follow
