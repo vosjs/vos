@@ -363,6 +363,30 @@ describe('applyTemplate (a template is a vos, applied at an anchor)', () => {
     expect(again.doc.freeze).toHaveLength(1)
   })
 
+  it("dropping a template takes its cursor-off range and keeps a person's", () => {
+    const d = take()
+    d.cursor = {
+      ...d.cursor,
+      off: [
+        { in: 2, out: 3 },
+        { in: 10, from: 'vos-endcard' },
+        { in: 1, from: 'x' },
+      ],
+    }
+    const dropped = dropTemplate(d, 'vos-endcard')
+    expect(dropped.cursor.off).toEqual([
+      { in: 2, out: 3 },
+      { in: 1, from: 'x' },
+    ])
+    expect(d.cursor.off).toHaveLength(3) // pure
+    // the last stamped range leaves no empty list behind
+    const only = take()
+    only.cursor = { ...only.cursor, off: [{ in: 10, from: 'vos-endcard' }] }
+    expect(dropTemplate(only, 'vos-endcard').cursor).not.toHaveProperty('off')
+    // nothing stamped with that from: the same document
+    expect(dropTemplate(dropped, 'vos-endcard')).toBe(dropped)
+  })
+
   it('re-applying with the same from replaces its clips and leaves the rest', () => {
     const once = applyTemplate(endCard, take(), { at: 'end', from: 'x' }).doc
     const twice = applyTemplate(endCard, once, {

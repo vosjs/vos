@@ -38,7 +38,7 @@ import {
   withPageSound,
 } from '@vosjs/render-core/record'
 import { loadTake, writeJson } from './take'
-import { retimeCut, retimeOverlays } from './reuse'
+import { footageOutputEnd, retimeCut, retimeOverlays } from './reuse'
 import { proposeMotion } from './motionPlan'
 import type { MotionProposalInput, ReleaseWords } from './motionPlan'
 import type { ReuseReport } from './reuse'
@@ -319,6 +319,28 @@ export async function planTake(
     // author's choice: it carries as it is.
     if (prev.still !== undefined) doc.still = prev.still
     if (opts.still != null) doc.still = opts.still
+    // So are the ranges the cursor is off: they carry at their output
+    // times, like an unpinned layer (a style copy never carries them), and
+    // one that began after the footage (the end card's) keeps its distance
+    // from the footage's end, which moves with the new recording's length.
+    if (prev.cursor?.off?.length) {
+      const oldEnd = footageOutputEnd(prev)
+      const shift = footageOutputEnd(doc) - oldEnd
+      doc.cursor = {
+        ...doc.cursor,
+        off: prev.cursor.off.map((r) =>
+          r.in >= oldEnd - 1e-6 && Math.abs(shift) > 1e-6
+            ? {
+                ...r,
+                in: +Math.max(0, r.in + shift).toFixed(3),
+                ...(r.out !== undefined
+                  ? { out: +Math.max(0, r.out + shift).toFixed(3) }
+                  : {}),
+              }
+            : { ...r },
+        ),
+      }
+    }
     await writeJson(take.paths.doc, doc, true)
     return {
       doc,

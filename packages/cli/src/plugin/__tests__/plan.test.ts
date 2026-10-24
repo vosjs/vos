@@ -335,4 +335,43 @@ describe('planTake', () => {
     )
     expect(s.doc.frame.anim?.exit).toEqual({ kind: 'recede', seconds: 2.5 })
   })
+
+  it('--reuse carries the cursor-off ranges at their output times', async () => {
+    const dir = await makeTake()
+    const prev = (await planTake(dir)).doc
+    prev.cursor = { ...prev.cursor, off: [{ in: 1, out: 2 }, { in: 4 }] }
+    const s = await planTake(await makeTake(), {
+      reuse: { from: 'prev', doc: prev },
+    })
+    expect(s.doc.cursor.off).toEqual([{ in: 1, out: 2 }, { in: 4 }])
+  })
+
+  it('--reuse keeps the end card’s cursor-off range at the end of a longer recording', async () => {
+    const dir = await makeTake()
+    const prev = (await planTake(dir)).doc
+    // The previous recording was 6 s, its end card frozen at the end.
+    prev.source.meta.durationMs = 6000
+    prev.segments = [{ in: 0, out: 6 }]
+    prev.freeze = [{ id: 'f0', at: 6, seconds: 2.5, from: 'endcard' }]
+    prev.cursor = {
+      ...prev.cursor,
+      off: [
+        { in: 1, out: 2 },
+        { in: 6, from: 'endcard' },
+      ],
+    }
+    const s = await planTake(await makeTake(), {
+      reuse: { from: 'prev', doc: prev },
+    })
+    // The new one is 8 s: the card's range moves to its end, the person's
+    // range inside the footage stays at its second.
+    expect(s.doc.freeze?.find((f) => f.from === 'endcard')?.at).toBeCloseTo(
+      8,
+      3,
+    )
+    expect(s.doc.cursor.off).toEqual([
+      { in: 1, out: 2 },
+      { in: 8, from: 'endcard' },
+    ])
+  })
 })

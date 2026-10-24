@@ -1110,6 +1110,56 @@ describe('lintDoc: the still', () => {
   })
 })
 
+describe('lintDoc: cursor-off ranges', () => {
+  const withOff = (off: unknown) =>
+    lintDoc(
+      makeDoc({
+        cursor: { smoothing: 0.5, size: 1, off },
+      } as unknown as Partial<ProjectDoc>),
+    )
+
+  it('takes ranges in output seconds, open-ended and overlapping ones too', () => {
+    const r = withOff([
+      { in: 0, out: 2 },
+      { in: 1.5, out: 4 },
+      { in: 18, from: 'endcard' },
+    ])
+    expect(r.problems).toEqual([])
+    expect(r.warnings).toEqual([])
+  })
+
+  it('names a malformed list or range', () => {
+    expect(withOff({ in: 1 }).problems).toEqual([
+      'cursor.off must be an array of { in, out?, from? } ranges (OUTPUT seconds)',
+    ])
+    expect(
+      withOff([
+        3,
+        { in: -1 },
+        { in: 'x' },
+        { in: 4, out: 4 },
+        { in: 4, out: 'end' },
+        { in: 1, from: '' },
+        { in: 1, until: 2 },
+      ]).problems,
+    ).toEqual([
+      'cursor.off[0] must be an object { in, out?, from? } (OUTPUT seconds)',
+      'cursor.off[1].in=-1 must be a number ≥ 0 (OUTPUT seconds)',
+      'cursor.off[2].in=x must be a number ≥ 0 (OUTPUT seconds)',
+      'cursor.off[3].out=4 must be a number past in (4s); leave it out to hide the cursor to the end of the film',
+      'cursor.off[4].out=end must be a number past in (4s); leave it out to hide the cursor to the end of the film',
+      'cursor.off[5].from must be the id of the template that placed it',
+      'cursor.off[6].until: not a range field (in, out, from)',
+    ])
+  })
+
+  it('warns on a range that starts past the film', () => {
+    expect(withOff([{ in: 25 }]).warnings).toEqual([
+      "cursor.off[0] starts at 25s, past the film's end (20.00s): it hides nothing",
+    ])
+  })
+})
+
 describe('lintDoc: a layer that shows a document media, as a card', () => {
   it('takes a known reference and a card, names a stranger and a foreign field', () => {
     const base = makeDoc({

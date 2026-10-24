@@ -334,7 +334,33 @@
         },
         "cursor": {
           "type": "object",
-          "description": "Cursor rendering (visible, hideWhenIdle, smoothing, size, style, click effects). See CursorStyle in @vosjs/studio-core. `style: \"arrow\"` (the default for new takes) draws an OS-style pointer with its tip on the recorded point; `\"default\"` (every earlier take) draws the white dot. `visible: false` hides the drawn pointer only \u2014 the track still drives cursor-follow zoom, and click effects keep drawing (silence those with clickFx.style: \"none\"). `hideWhenIdle` (default true) fades the dot out after ~1s parked and back in when it moves; scrolling is not movement, and it is always back at full opacity on a click.",
+          "description": "Cursor rendering (visible, hideWhenIdle, smoothing, size, style, click effects). See CursorStyle in @vosjs/studio-core. `style: \"arrow\"` (the default for new takes) draws an OS-style pointer with its tip on the recorded point; `\"default\"` (every earlier take) draws the white dot. `visible: false` hides the drawn pointer only \u2014 the track still drives cursor-follow zoom, and click effects keep drawing (silence those with clickFx.style: \"none\"). `hideWhenIdle` (default true) fades the dot out after ~1s parked and back in when it moves; scrolling is not movement, and it is always back at full opacity on a click. `off` hides the drawn pointer over time ranges.",
+          "properties": {
+            "off": {
+              "type": "array",
+              "description": "Time ranges in which the drawn pointer is hidden, in OUTPUT seconds (the timeline the viewer sees, like overlays, so a range stays put through trims and speed changes). `{ in, out?, from? }`: an absent `out` hides it to the end of the film. The pointer fades out over 0.15 s before `in` and back in over 0.15 s after `out`, so the range itself is fully hidden; overlapping ranges read as their union. The track still drives cursor-follow zoom and click effects, as with `visible: false`. `from` marks a range something else placed (`endcard`: the end card's, written by `vos plan` and replaced or removed with the end card); a range without one is yours and a re-plan never touches it.",
+              "items": {
+                "type": "object",
+                "required": ["in"],
+                "properties": {
+                  "in": {
+                    "type": "number",
+                    "minimum": 0,
+                    "description": "OUTPUT seconds the pointer is gone from."
+                  },
+                  "out": {
+                    "type": "number",
+                    "description": "OUTPUT seconds it returns at, past `in`. Absent = to the end of the film."
+                  },
+                  "from": {
+                    "type": "string",
+                    "description": "What placed it (e.g. `endcard`). Absent = a person's own."
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
           "additionalProperties": true
         },
         "cam": {

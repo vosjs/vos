@@ -226,4 +226,28 @@ describe('bakeDocFeatures', () => {
     expect(r.baked).toEqual([])
     expect(r.unbakeable.map((f) => f.id)).toEqual(['text-runs'])
   })
+
+  it('counts cursor-off ranges, new in 0.46.0, which nothing older can say', () => {
+    const d = take()
+    d.cursor = {
+      ...DEFAULT_CURSOR_STYLE,
+      off: [
+        { in: 1, out: 2 },
+        { in: 6, from: 'endcard' },
+      ],
+    }
+    expect(docFeatures(d).map((u) => [u.feature.id, u.count])).toEqual([
+      ['cursor-off', 2],
+    ])
+    expect(featuresNewerThan(d, '0.45.2').map((u) => u.feature.id)).toEqual([
+      'cursor-off',
+    ])
+    expect(featuresNewerThan(d, '0.46.0')).toEqual([])
+    const r = bakeDocFeatures(d, '0.45.2')
+    expect(r.baked).toEqual([])
+    expect(r.unbakeable.map((f) => f.id)).toEqual(['cursor-off'])
+    // an empty list is no use
+    d.cursor = { ...DEFAULT_CURSOR_STYLE, off: [] }
+    expect(docFeatures(d)).toEqual([])
+  })
 })

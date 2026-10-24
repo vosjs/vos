@@ -240,6 +240,9 @@ describe('proposeMotion (the cut’s motion as data on the document)', () => {
       'bed fresh-focus',
       '2 click sound(s)',
     ])
+    // The drawn cursor is off from where the footage ends to the end of
+    // the film, so it never sits under the card's words.
+    expect(p.doc.cursor.off).toEqual([{ in: 34, from: 'endcard' }])
     // The bed fills the whole output, the end card included.
     expect(p.doc.audio[0].out).toBeCloseTo(36.5, 3)
     // The document it writes is a document the lint accepts.
@@ -300,6 +303,51 @@ describe('proposeMotion (the cut’s motion as data on the document)', () => {
     expect(again.audio.find((a) => a.id === 'bed')?.key).toBe(
       'https://x/fresh.mp3',
     )
+  })
+
+  it("a re-plan replaces the end card's cursor-off range and never a person's", () => {
+    const first = proposeMotion(doc(), {
+      words: { headline: 'Ship it' },
+      launch: {},
+      captions: [],
+      catalog,
+    }).doc
+    first.cursor = {
+      ...first.cursor,
+      off: [...(first.cursor.off ?? []), { in: 5, out: 6 }],
+    }
+    // a longer cut: the card moves, and its range with it
+    first.segments = [{ in: 0, out: 30 }]
+    const again = proposeMotion(first, {
+      words: { headline: 'Ship it' },
+      launch: {},
+      captions: [],
+      catalog,
+    }).doc
+    expect(again.cursor.off).toEqual([
+      { in: 5, out: 6 },
+      { in: 30, from: 'endcard' },
+    ])
+    // a plan with no end card takes its range away and leaves the person's
+    const none = proposeMotion(again, {
+      words: { headline: 'Ship it' },
+      launch: { endCard: 'none' },
+      captions: [],
+      catalog,
+    }).doc
+    expect(none.cursor.off).toEqual([{ in: 5, out: 6 }])
+    expect(lintDoc(none).problems).toEqual([])
+    // and with nothing left the field goes
+    const bare = proposeMotion(
+      proposeMotion(doc(), {
+        words: { headline: 'Ship it' },
+        launch: {},
+        captions: [],
+        catalog,
+      }).doc,
+      { words: {}, launch: { endCard: 'none' }, captions: [], catalog },
+    ).doc
+    expect(bare.cursor).not.toHaveProperty('off')
   })
 
   it('roles switch things off and say what could not be proposed', () => {
@@ -508,6 +556,8 @@ describe('destinationMechanics (what the spec does at render time)', () => {
     expect(d.frame.anim).toBeUndefined()
     expect(d.audio).toEqual([])
     expect(d.overlays).toEqual([])
+    // the end card's cursor-off range goes with it (a blink at the wrap)
+    expect(d.cursor.off).toEqual([])
     expect(lintDoc(d).problems).toEqual([])
     expect(m.notes).toEqual([
       'loop: no card motion',
@@ -572,6 +622,8 @@ describe('a template stamped from: endcard is the end card', () => {
     expect((p.doc.overlays ?? []).some((o) => o.id === 'endcard-sub')).toBe(
       false,
     )
+    // The cursor leaves where the footage ends, its words coming later.
+    expect(p.doc.cursor.off).toEqual([{ in: 34, from: 'endcard' }])
   })
 
   it('endCard: none drops it with the house clips', () => {
@@ -584,6 +636,7 @@ describe('a template stamped from: endcard is the end card', () => {
     })
     expect((p.doc.overlays ?? []).some((o) => o.from === 'endcard')).toBe(false)
     expect((p.doc.freeze ?? []).some((f) => f.from === 'endcard')).toBe(false)
+    expect(p.doc.cursor.off).toBeUndefined()
   })
 })
 
