@@ -23,6 +23,29 @@ describe('hostedEnv', () => {
     expect(missing).toEqual(['DEMO_PASSWORD'])
   })
 
+  it('takes the teardown’s names too, each once', () => {
+    const { env, missing } = hostedEnv(
+      {
+        ...actions,
+        teardown: [
+          { do: 'type', selector: '#pw', text: { env: 'DEMO_PASSWORD' } },
+          { do: 'type', selector: '#why', text: { env: 'REVOKE_REASON' } },
+        ],
+      } as ActionsFile,
+      {
+        DEMO_EMAIL: 'a@example.com',
+        DEMO_PASSWORD: 'p',
+        REVOKE_REASON: 'r',
+      },
+    )
+    expect(env).toEqual({
+      DEMO_EMAIL: 'a@example.com',
+      DEMO_PASSWORD: 'p',
+      REVOKE_REASON: 'r',
+    })
+    expect(missing).toEqual([])
+  })
+
   it('sends nothing for a script with no setup', () => {
     expect(hostedEnv({ ...actions, setup: undefined }, { A: 'b' })).toEqual({
       env: {},

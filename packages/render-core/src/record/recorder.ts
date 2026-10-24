@@ -61,7 +61,15 @@ import {
   maskInitScript,
 } from './exposure'
 import type { ScannedNotice } from './exposure'
-import { SetupError, runSetup } from './setup'
+import {
+  SetupEnvError,
+  SetupError,
+  TEARDOWN_BOUND_MS,
+  runSetup,
+  teardownEnvProblem,
+  teardownLine,
+} from './setup'
+import type { TeardownReport } from './setup'
 import { StepBound, bounded, stepBoundMs } from './stepBound'
 import {
   MEDIA_DRAIN_PROBE,
@@ -304,6 +312,11 @@ export interface RecordResult {
   actions: ActionsFile
   /** What each peer did, off camera (also `meta.peers`); [] with none. */
   peers: PeerRun[]
+  /**
+   * What the script's `teardown` did after the take, off camera; null when
+   * it has none. A failure here is reported and never fails the take.
+   */
+  teardown: TeardownReport | null
 }
 
 export interface RecordOpts {
@@ -345,9 +358,10 @@ export interface RecordOpts {
    */
   context?: RecorderContext
   /**
-   * The environment a setup's `{ env }` texts resolve from: the shell's
-   * for the CLI, the job's own map on the fleet. Absent means no env at
-   * all, so a setup that reads one fails in words.
+   * The environment a setup's and a teardown's `{ env }` texts resolve
+   * from: the shell's for the CLI, the job's own map on the fleet. Absent
+   * means no env at all, so a setup that reads one fails in words, and a
+   * teardown that reads one refuses the take before it begins.
    */
   env?: Record<string, string | undefined>
   /** The platform the take is recorded on, for `meta.platform`. */
@@ -464,6 +478,29 @@ export async function recordTake(
   log: (msg: string) => void,
   opts: RecordOpts = {},
 ): Promise<RecordResult> {
+  // Set once the take's first step is about to run: a take that throws
+  // after that still runs its teardown, since undoing what it created
+  // matters most exactly then. Best effort, and the throw propagates.
+  const late: { teardown?: () => Promise<unknown> } = {}
+  try {
+    return await recordTakeSteps(browser, url, actions, sink, log, opts, late)
+  } catch (e) {
+    const teardown = late.teardown
+    late.teardown = undefined
+    if (teardown) await teardown().catch(() => {})
+    throw e
+  }
+}
+
+async function recordTakeSteps(
+  browser: RecorderBrowser,
+  url: string,
+  actions: ActionsFile,
+  sink: FrameSink,
+  log: (msg: string) => void,
+  opts: RecordOpts,
+  late: { teardown?: () => Promise<unknown> },
+): Promise<RecordResult> {
   const dry = opts.dryRun === true
   const sleep = dry
     ? (ms: number) => realSleep(Math.min(ms, DRY_PAUSE_MS))
@@ -482,6 +519,11 @@ export async function recordTake(
         `steps[${download}] is a download, and this recorder has nowhere to keep a file. Nothing was recorded.`,
       )
   }
+  // A teardown that reads a variable this env does not hold is refused
+  // before anything runs, in a rehearsal too (it clicks for real): the take
+  // would create what its teardown then cannot remove.
+  const teardownEnv = teardownEnvProblem(actions.teardown, opts.env ?? {})
+  if (teardownEnv) throw new SetupEnvError(teardownEnv)
   // The files a script names (a path to draw, a file to paste) are read
   // and checked before a browser context exists, in a rehearsal too: a
   // missing or malformed one refuses the take in words.
@@ -542,8 +584,10 @@ export async function recordTake(
   // One line per distinct page error, cut short; repeats are counted and
   // said once at the end (pageErrors.ts). The full text rides the result.
   const pageErrors = new PageErrorLog(opts.verbose === true)
+  // The teardown's page errors are not the take's.
+  let tearingDown = false
   page.on('console', (m) => {
-    if (m.type() !== 'error') return
+    if (m.type() !== 'error' || tearingDown) return
     const line = pageErrors.add(m.text())
     if (line) log(line)
   })
@@ -583,6 +627,57 @@ export async function recordTake(
     // Back to the page the take is OF, signed in and past the banners.
     log(`goto ${url} (after setup)`)
     response = (await open(url)).response
+  }
+
+  // The teardown: off camera, after the take, on this page and context. Run
+  // once, bounded as a whole, and never thrown: a step that fails stops it
+  // there and is reported, and the take stands.
+  const teardownSteps = actions.teardown ?? []
+  let teardown: TeardownReport | null = null
+  let teardownRan = false
+  const runTeardown = async (): Promise<TeardownReport | null> => {
+    if (!teardownSteps.length || teardownRan) return teardown
+    teardownRan = true
+    tearingDown = true
+    log(`teardown: ${teardownSteps.length} step(s), off camera`)
+    try {
+      const result = await runSetup(page, teardownSteps, {
+        phase: 'teardown',
+        sleep: realSleep,
+        env: opts.env ?? {},
+        goto: (target) => open(target),
+        boundMs: TEARDOWN_BOUND_MS,
+      })
+      for (const line of result.lines) log(`   ${line}`)
+      teardown = {
+        ran: result.ran,
+        of: teardownSteps.length,
+        ...(result.failed
+          ? {
+              failed: {
+                step: result.failed.step,
+                do: result.failed.do,
+                ...(result.failed.selector !== undefined
+                  ? { selector: result.failed.selector }
+                  : {}),
+                error: result.failed.error ?? 'the step failed',
+              },
+            }
+          : {}),
+      }
+    } catch (e) {
+      teardown = {
+        ran: 0,
+        of: teardownSteps.length,
+        failed: {
+          step: 0,
+          do: teardownSteps[0].do,
+          error: e instanceof Error ? e.message : String(e),
+        },
+      }
+    }
+    if (teardown.failed) log(`   ${teardownLine(teardown)}`)
+    return teardown
   }
 
   // A wall the caller let through (--allow-wall, or a soft one without
@@ -1041,6 +1136,15 @@ export async function recordTake(
     }),
   )
   signals.begin()
+  // From the first step on, a take that throws still runs its teardown,
+  // with the camera stopped first so none of it is captured.
+  late.teardown = async () => {
+    if (!dry) await cdp.send('Page.stopScreencast').catch(() => {})
+    pageBound.end()
+    // No result carries it on this path, so the log says how it went.
+    const report = await runTeardown()
+    if (report && !report.failed) log(`   ${teardownLine(report)}`)
+  }
   for (const [stepIdx, step] of actions.steps.entries()) {
     // The cap is checked between steps (a step is one gesture and runs
     // whole); only a wait is cut short, since it is the one step that can
@@ -1917,9 +2021,13 @@ export async function recordTake(
   await sleep(200)
   const pageTitle = (await page.title().catch(() => '')) ?? ''
   for (const line of pageErrors.repeats()) log(line)
+  pageBound.end()
+  // The camera has stopped and the take's reads are done: what the take
+  // created is undone now, before the context (and its cookies) closes.
+  late.teardown = undefined
+  await runTeardown()
   // A context whose page stopped answering may not close either: the take
   // is done whether it does or not.
-  pageBound.end()
   pageBound.start(CLOSE_BOUND_MS)
   await pageBound.race(context.close().catch(() => {}))
   pageBound.end()
@@ -2022,6 +2130,7 @@ export async function recordTake(
     // from its own script with the file gone.
     actions: { ...inlineScript(actions, files), url },
     peers: peerRuns,
+    teardown,
   }
 }
 

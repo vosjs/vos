@@ -102,7 +102,7 @@ import {
   noticeAdvice,
   noticeLine,
 } from './exposure'
-import { SetupEnvError, SetupError, parseHeaders } from './setup'
+import { SetupEnvError, SetupError, parseHeaders, teardownLine } from './setup'
 import {
   listSessions,
   openSession,
@@ -156,7 +156,12 @@ import { cmdCompare } from './compare'
 import { cmdPort } from './port'
 import { cmdRecipe } from './recipe'
 import { cmdBrand } from './brand'
-import { announceEnvNames, hostedEnv, recordHosted } from './hostedRecord'
+import {
+  announceEnvNames,
+  envReaders,
+  hostedEnv,
+  recordHosted,
+} from './hostedRecord'
 import { urlSchemeProblem } from '@vosjs/render-core/record'
 import { cmdActions } from './agentBrowser'
 import { cmdIngest } from './ingest'
@@ -754,6 +759,22 @@ function exposureNote(rec: {
 }
 
 /**
+ * What the script's teardown did after the take, for the end of a record or
+ * a rehearsal: how many steps ran, or where it stopped and what may be left
+ * behind. Never part of whether the take passed.
+ */
+function teardownNote(rec: Pick<RecordResult, 'teardown'>): string {
+  return rec.teardown ? `\n  ${teardownLine(rec.teardown)}` : ''
+}
+
+/** The teardown's report on a done event, when the script has one. */
+function teardownField(rec: Pick<RecordResult, 'teardown'>): {
+  teardown?: NonNullable<RecordResult['teardown']>
+} {
+  return rec.teardown ? { teardown: rec.teardown } : {}
+}
+
+/**
  * `--confirm <id>`, repeatable: the guarded steps a recording may press.
  * Checked against the script BEFORE a browser opens, so a step that
  * spends is refused (or a typo in an id is caught) at no cost; a
@@ -1151,7 +1172,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
     const { env, missing } = hostedEnv(actions, process.env)
     if (missing.length)
       throw new UsageError(
-        `the setup reads ${missing.map((n) => `{ "env": "${n}" }`).join(', ')} and this shell has no ${missing.length === 1 ? 'value for it' : 'values for them'}; export ${missing.join(', ')} and run again (the value rides the job, and is never stored)`,
+        `${envReaders(actions)} ${missing.map((n) => `{ "env": "${n}" }`).join(', ')} and this shell has no ${missing.length === 1 ? 'value for it' : 'values for them'}; export ${missing.join(', ')} and run again (the value rides the job, and is never stored)`,
       )
     r.log('recording on vos.so…')
     r.event({ event: 'phase', phase: 'record' })
@@ -1366,8 +1387,9 @@ async function cmdRecord(argv: string[]): Promise<number> {
           notices: rec.notices,
           masks: rec.masks,
           ...(rec.peers.length ? { peers: rec.peers } : {}),
+          ...teardownField(rec),
         },
-        `${failed ? 'REHEARSAL FAILED' : 'Rehearsal passed'}: ${resolved}/${actions.steps.length} steps resolved in ${((Date.now() - started) / 1000).toFixed(1)}s${rec.navTimeout ? ' (the first load never reached networkidle)' : rec.ready.capped ? ' (the first page never stopped changing)' : ''}\n${lines.join('\n')}\n  ${maskMisses(rec).length ? `MASK hid nothing: ${maskMisses(rec).join(', ')} (the selector reached no element). ` : ''}${rec.stopped ? `STOPPED: ${rec.stopped.reason}. ` : ''}${failed ? 'Fix the script, rehearse again, then record.' : `Rects are capture px (the step rects a pin or a callout reads). Next: vos record --actions ${actionsPath} --out ${nextOut}${carried ? ` ${carried}` : ''} --strict${guardNote}`}${exposureNote(rec)}${noticeNote(rec)}`,
+        `${failed ? 'REHEARSAL FAILED' : 'Rehearsal passed'}: ${resolved}/${actions.steps.length} steps resolved in ${((Date.now() - started) / 1000).toFixed(1)}s${rec.navTimeout ? ' (the first load never reached networkidle)' : rec.ready.capped ? ' (the first page never stopped changing)' : ''}\n${lines.join('\n')}\n  ${maskMisses(rec).length ? `MASK hid nothing: ${maskMisses(rec).join(', ')} (the selector reached no element). ` : ''}${rec.stopped ? `STOPPED: ${rec.stopped.reason}. ` : ''}${failed ? 'Fix the script, rehearse again, then record.' : `Rects are capture px (the step rects a pin or a callout reads). Next: vos record --actions ${actionsPath} --out ${nextOut}${carried ? ` ${carried}` : ''} --strict${guardNote}`}${exposureNote(rec)}${noticeNote(rec)}${teardownNote(rec)}`,
       )
       // An await that gave up stops the take, in a rehearsal as in a record.
       return rec.stopped ? EXIT_ERROR : failed ? EXIT_USAGE : EXIT_OK
@@ -1431,8 +1453,9 @@ async function cmdRecord(argv: string[]): Promise<number> {
           outputs: rec.outputs,
           pageErrors: rec.pageErrors,
           ...kept.fields,
+          ...teardownField(rec),
         },
-        `FAILED: ${rec.stopped.reason}.\n  The footage up to it is in ${outDir}.${skippedNote}${stepNote}${navTimeoutNote(rec)}${kept.line}`,
+        `FAILED: ${rec.stopped.reason}.\n  The footage up to it is in ${outDir}.${skippedNote}${stepNote}${navTimeoutNote(rec)}${kept.line}${teardownNote(rec)}`,
       )
       return EXIT_ERROR
     }
@@ -1465,12 +1488,13 @@ async function cmdRecord(argv: string[]): Promise<number> {
         overruns: rec.overruns,
         pageErrors: rec.pageErrors,
         ...(rec.peers.length ? { peers: rec.peers } : {}),
+        ...teardownField(rec),
         ...(strictFail ? { strictFailed: true } : {}),
         ...kept.fields,
       },
       strictFail
         ? `STRICT: take recorded but incomplete — ${strictReason(rec)}; fix the flow and re-record.${skippedNote}${stepNote}${navTimeoutNote(rec)}${kept.line}${exposureNote(rec)}${noticeNote(rec)}`
-        : `Take ready: ${outDir}\n  ${(rec.meta.durationMs / 1000).toFixed(1)}s · ${rec.frames.length} frames · ${rec.events.length} cursor events · ${clicks} clicks · ${plan.doc.zoom.length} zoom spans planned · ${rec.freezePct}% frozen · ${rec.dead.pct}% dead${deadWarns(rec.dead) ? ' ⚠ ' + deadLine(rec.dead) : ''}${skippedNote}${stepNote}${navTimeoutNote(rec)}${pageSoundNote(rec)}${kept.line}\n  Next: ${kept.next ? `${kept.next}, then` : `edit ${join(outDir, 'doc.json')} (optional), then:`} vos render ${outDir}${exposureNote(rec)}${noticeNote(rec)}`,
+        : `Take ready: ${outDir}\n  ${(rec.meta.durationMs / 1000).toFixed(1)}s · ${rec.frames.length} frames · ${rec.events.length} cursor events · ${clicks} clicks · ${plan.doc.zoom.length} zoom spans planned · ${rec.freezePct}% frozen · ${rec.dead.pct}% dead${deadWarns(rec.dead) ? ' ⚠ ' + deadLine(rec.dead) : ''}${skippedNote}${stepNote}${navTimeoutNote(rec)}${pageSoundNote(rec)}${kept.line}\n  Next: ${kept.next ? `${kept.next}, then` : `edit ${join(outDir, 'doc.json')} (optional), then:`} vos render ${outDir}${exposureNote(rec)}${noticeNote(rec)}${teardownNote(rec)}`,
     )
     return strictFail ? EXIT_USAGE : EXIT_OK
   } finally {
@@ -1565,8 +1589,9 @@ async function cmdCreate(argv: string[]): Promise<number> {
           skipped: rec.skipped,
           rendered: false,
           ...kept.fields,
+          ...teardownField(rec),
         },
-        `FAILED: ${rec.stopped.reason}. NOT rendering; the footage up to it is in ${outDir}.${kept.line}`,
+        `FAILED: ${rec.stopped.reason}. NOT rendering; the footage up to it is in ${outDir}.${kept.line}${teardownNote(rec)}`,
       )
       return EXIT_ERROR
     }
@@ -1583,8 +1608,9 @@ async function cmdCreate(argv: string[]): Promise<number> {
           strictFailed: true,
           rendered: false,
           ...kept.fields,
+          ...teardownField(rec),
         },
-        `STRICT: take recorded but incomplete — ${strictReason(rec)}; NOT rendering. Fix the flow and re-run, or render the partial take with: vos render ${outDir}${kept.line}`,
+        `STRICT: take recorded but incomplete — ${strictReason(rec)}; NOT rendering. Fix the flow and re-run, or render the partial take with: vos render ${outDir}${kept.line}${teardownNote(rec)}`,
       )
       return EXIT_USAGE
     }
@@ -1634,10 +1660,11 @@ async function cmdCreate(argv: string[]): Promise<number> {
         ...(rec.media.length ? { media: rec.media } : {}),
         overruns: rec.overruns,
         pageErrors: rec.pageErrors,
+        ...teardownField(rec),
         ...(flags.draft === true ? { draft: true } : {}),
         ...kept.fields,
       },
-      `Created ${result.out} (${(result.bytes / 1024).toFixed(0)} KB, ${result.width}x${result.height}@${result.fps}, ${result.duration.toFixed(1)}s, ${result.zoomSpans} zoom spans, ${result.clicks} click effects${result.audio ? ', audio' : ''}${flags.draft === true ? ', DRAFT' : ''})\n  take: ${outDir} — inspect with: vos frames ${outDir} --at-zooms; edit doc.json and re-render with: vos render ${outDir}${stepReportNote(rec)}${navTimeoutNote(rec)}${kept.line}${exposureNote(rec)}${noticeNote(rec)}`,
+      `Created ${result.out} (${(result.bytes / 1024).toFixed(0)} KB, ${result.width}x${result.height}@${result.fps}, ${result.duration.toFixed(1)}s, ${result.zoomSpans} zoom spans, ${result.clicks} click effects${result.audio ? ', audio' : ''}${flags.draft === true ? ', DRAFT' : ''})\n  take: ${outDir} — inspect with: vos frames ${outDir} --at-zooms; edit doc.json and re-render with: vos render ${outDir}${stepReportNote(rec)}${navTimeoutNote(rec)}${kept.line}${exposureNote(rec)}${noticeNote(rec)}${teardownNote(rec)}`,
     )
     return EXIT_OK
   } finally {

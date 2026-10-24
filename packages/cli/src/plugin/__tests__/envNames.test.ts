@@ -23,6 +23,26 @@ describe('the env names a script reads are said before any value is', () => {
     expect(notice?.line).not.toContain('a literal')
   })
 
+  it('names the teardown’s variables too, and says who reads them', () => {
+    const both = envNamesNotice({
+      setup: [{ do: 'type', selector: '#pw', text: { env: 'DEMO_PW' } }],
+      teardown: [
+        { do: 'type', selector: '#pw', text: { env: 'DEMO_PW' } },
+        { do: 'type', selector: '#why', text: { env: 'REVOKE_REASON' } },
+      ],
+    } as unknown as Pick<ActionsFile, 'setup' | 'teardown'>)
+    expect(both?.names).toEqual(['DEMO_PW', 'REVOKE_REASON'])
+    expect(both?.line).toMatch(
+      /^the setup and teardown read these environment variables from this shell: DEMO_PW, REVOKE_REASON/,
+    )
+    const teardownOnly = envNamesNotice({
+      teardown: [{ do: 'type', selector: '#why', text: { env: 'WHY' } }],
+    } as unknown as Pick<ActionsFile, 'setup' | 'teardown'>)
+    expect(teardownOnly?.line).toMatch(
+      /^the teardown reads this environment variable from this shell: WHY/,
+    )
+  })
+
   it('says one name in the singular', () => {
     expect(
       envNamesNotice(

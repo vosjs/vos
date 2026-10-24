@@ -45,6 +45,15 @@ export interface ActionsFile {
    */
   setup?: SetupStep[]
   /**
+   * Run AFTER the take, off camera, with the same verbs as `setup`: what
+   * the take created in the product (an API key, a project, an invite)
+   * removed again. They run once the screencast has stopped, on the take's
+   * own page, after a rehearsal too, and when the take stops early or
+   * throws after its first step. A failing teardown never fails the take;
+   * it stops at the step that failed and is reported.
+   */
+  teardown?: SetupStep[]
+  /**
    * When the first page counts as ready for step 1: `dom` (default),
    * once its DOM has made no change for a beat after `load`, at most 8 s;
    * `networkidle`, once the network has gone quiet, at most 45 s, which a
@@ -356,6 +365,8 @@ export function validateActions(value: unknown): string[] {
     }
   }
   if (obj.setup !== undefined) errors.push(...validateSetup(obj.setup))
+  if (obj.teardown !== undefined)
+    errors.push(...validateSetup(obj.teardown, 'teardown'))
   const ready = readyProblem(obj.ready)
   if (ready) errors.push(ready)
   if (obj.settle !== undefined && typeof obj.settle !== 'boolean')

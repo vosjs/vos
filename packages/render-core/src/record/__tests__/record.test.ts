@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 import { base64Bytes, jpegDims } from '../recorder'
 import { planFreshTake } from '../plan'
 import { capReached, cappedLine, clampWait } from '../cap'
-import { setupEnvNames, validateSetup } from '../setup'
+import {
+  scriptEnvNames,
+  setupEnvNames,
+  teardownEnvProblem,
+  validateSetup,
+} from '../setup'
 import { validateActions } from '../actions'
 import type { RecordingArtifact } from '@vosjs/studio-core'
 
@@ -121,6 +126,46 @@ describe('validation is the same words on both hosts', () => {
         steps: [{ do: 'click', selector: '#share', read: '' }],
       }),
     ).toEqual(['steps[0]: read must be a selector'])
+  })
+
+  it('holds a teardown to the setup’s rules, naming teardown[i]', () => {
+    expect(
+      validateActions({
+        steps: [{ do: 'wait', ms: 100 }],
+        teardown: [
+          { do: 'click', selector: '#revoke' },
+          { do: 'type', selector: '#password', text: { env: 'DEMO_PW' } },
+        ],
+      }),
+    ).toEqual([])
+    expect(
+      validateSetup(
+        [{ do: 'type', selector: '#password', text: 'hunter2' }],
+        'teardown',
+      )[0],
+    ).toMatch(/^teardown\[0\]: .*committed and pushed/)
+    expect(validateSetup([{ do: 'goto' }], 'teardown')).toEqual([
+      'teardown[0]: goto needs a url',
+    ])
+  })
+
+  it('lists every variable a setup and a teardown read, once', () => {
+    const setup = [
+      { do: 'type' as const, selector: '#pw', text: { env: 'DEMO_PW' } },
+    ]
+    const teardown = [
+      { do: 'type' as const, selector: '#pw', text: { env: 'DEMO_PW' } },
+      { do: 'type' as const, selector: '#why', text: { env: 'WHY' } },
+      { do: 'type' as const, selector: '#q', text: 'literal' },
+    ]
+    expect(scriptEnvNames({ setup, teardown })).toEqual(['DEMO_PW', 'WHY'])
+    expect(scriptEnvNames({})).toEqual([])
+    // A teardown variable the env does not hold refuses the take up front.
+    expect(teardownEnvProblem(teardown, { DEMO_PW: 'x', WHY: 'y' })).toBeNull()
+    expect(teardownEnvProblem(teardown, { DEMO_PW: 'x' })).toContain(
+      'teardown[1] reads the environment variable WHY, which is not set',
+    )
+    expect(teardownEnvProblem(undefined, {})).toBeNull()
   })
 
   it('takes a press of a named key, and a type that replaces or lands the caret', () => {
