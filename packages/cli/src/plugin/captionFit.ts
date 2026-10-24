@@ -56,8 +56,8 @@ export function fitCaptions<T>(
         item,
         why:
           nextRoom < clipRoom
-            ? `the next caption starts ${(nextStart - slot.start).toFixed(2)}s after it, too soon to read it`
-            : `it plays in the last ${Math.max(0, clipRoom).toFixed(2)}s of its clip, too short to read it`,
+            ? `the next caption starts ${(nextStart - slot.start).toFixed(2)}s after it, too soon to read it (more time on its step, its ms, gives it room)`
+            : `it plays in the last ${Math.max(0, clipRoom).toFixed(2)}s of its clip, too short to read it (a wait after its step gives it room)`,
       })
       continue
     }
