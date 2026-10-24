@@ -6,7 +6,7 @@ import {
   retimeOverlays,
   stepUnder,
 } from '../reuse'
-import type { ProjectDoc, StepSpan } from '@vosjs/studio-core'
+import type { OverlayClip, ProjectDoc, StepSpan } from '@vosjs/studio-core'
 
 /**
  * The reuse claim, tested at the pure layer: a cut made on one recording
@@ -495,6 +495,53 @@ describe('re-record parity: a span follows the step it was made on', () => {
     )
     expect(cut.rejected.map((r) => r.id).sort()).toEqual(['g0', 'g1', 'g2'])
     expect(cut.report.flagged.some((f) => f.includes('overlapped'))).toBe(false)
+  })
+
+  it('a layer after the footage (an end card) keeps its distance from the end when the footage grows or shrinks', () => {
+    const card = (id: string, start: number, from?: string): OverlayClip => ({
+      id,
+      kind: 'text',
+      preset: 'title',
+      start,
+      duration: 2,
+      text: id,
+      transform: { x: 0.5, y: 0.5, scale: 1, rotation: 0 },
+      ...(from ? { from } : {}),
+    })
+    const prev = base(
+      {
+        freeze: [{ id: 'f0', at: 20, seconds: 2.5, from: 'endcard' }],
+        overlays: [
+          card('in-footage', 0.3),
+          card('endcard-title', 20.35, 'endcard'),
+          card('closing-line', 21),
+        ],
+      },
+      oldS,
+    )
+    for (const [ms, end] of [
+      [26000, 26],
+      [17000, 17],
+    ] as const) {
+      const next = base(
+        {
+          source: {
+            ...prev.source,
+            meta: { ...prev.source.meta, durationMs: ms, steps: newS },
+          },
+          segments: [{ in: 0, out: end }],
+          freeze: [{ id: 'f0', at: end, seconds: 2.5, from: 'endcard' }],
+        },
+        newS,
+      )
+      const report = { anchored: 0, mapped: 0, flagged: [] as string[] }
+      const out = retimeOverlays(prev, next, report)
+      const at = (id: string) => out.find((o) => o.id === id)?.start
+      expect(at('in-footage')).toBe(0.3)
+      expect(at('endcard-title')).toBeCloseTo(end + 0.35, 3)
+      expect(at('closing-line')).toBeCloseTo(end + 1, 3)
+      expect(report.flagged).toEqual([])
+    }
   })
 
   it("a pinned layer follows its step's new output time; an unpinned one over a moved step is named", () => {
