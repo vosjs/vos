@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fitCaptions, readingSeconds } from '../captionFit'
+import { fitCaptions, heldLine, readingSeconds } from '../captionFit'
 
 const at = (start: number, end = 30) => ({ start, end })
 
@@ -83,6 +83,16 @@ describe('fitCaptions (no two captions on screen at once)', () => {
         'Open the settings, then the keys page, then press Create key',
       ),
     ).toBe(3)
+  })
+
+  it('a held caption names both fixes and warns off a shorter duration', () => {
+    const line = heldLine('the caption for step 2', 0.81)
+    expect(line).toMatch(
+      /^the caption for step 2 stays 0\.81s past its step to be read/,
+    )
+    expect(line).toMatch(/shorten its words/)
+    expect(line).toMatch(/give its step more time/)
+    expect(line).toMatch(/Do not cut its duration/)
   })
 
   it('keeps every interval apart by at least the gap', () => {

@@ -106,7 +106,12 @@ export function fitCaptions<T>(
   return { kept, dropped }
 }
 
-/** A kept caption that stays past its step, in words, with the room it needs. */
+/**
+ * A kept caption that stays past its step, in words, with both ways to let
+ * it leave with the step: fewer words (an edit to the caption, no take) or
+ * more time on the step (a re-record). Never a shorter duration: that only
+ * takes the time its words need to be read.
+ */
 export function heldLine(label: string, held: number): string {
-  return `${label} stays ${held.toFixed(2)}s past its step to be read (more time on its step, its ms, lets it leave with the step)`
+  return `${label} stays ${held.toFixed(2)}s past its step to be read; to let it leave with the step, shorten its words (17 characters read in a second) or give its step more time (its ms, then record again). Do not cut its duration: the words need that time`
 }
