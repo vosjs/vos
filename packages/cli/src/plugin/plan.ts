@@ -29,6 +29,7 @@ import {
   planAutoSpeed,
   planAutoZoom,
   projectFromArtifact,
+  ratedSegments,
   withBackdrop,
   migrateMotion,
 } from '@vosjs/studio-core'
@@ -177,6 +178,22 @@ function applyStyle(
 }
 
 /**
+ * Where the FOOTAGE ends in output seconds: the cut's length without the
+ * freezes a template laid (an end card's, stamped `from`), which play after
+ * the footage.
+ */
+function footageEnd(doc: ProjectDoc): number {
+  const own: ProjectDoc = {
+    ...doc,
+    freeze: (doc.freeze ?? []).filter((f) => !f.from),
+  }
+  return ratedSegments(own).reduce((acc, s) => {
+    const rate = s.rate && s.rate > 0 ? s.rate : 1
+    return acc + (s.out - s.in) / rate
+  }, 0)
+}
+
+/**
  * The planners over the take's OTHER media (concat): each media's own
  * cursor track, in its own capture space, proposes zoom and speed spans
  * stamped with its id; the manual spans and the rejections of that media
@@ -320,9 +337,27 @@ export async function planTake(
     if (prev.still !== undefined) doc.still = prev.still
     if (opts.still != null) doc.still = opts.still
     // So are the ranges the cursor is off: they carry at their output
-    // times, like an unpinned layer (a style copy never carries them).
-    if (prev.cursor?.off?.length)
-      doc.cursor = { ...doc.cursor, off: structuredClone(prev.cursor.off) }
+    // times, like an unpinned layer (a style copy never carries them), and
+    // one that began after the footage (the end card's) keeps its distance
+    // from the footage's end, which moves with the new recording's length.
+    if (prev.cursor?.off?.length) {
+      const oldEnd = footageEnd(prev)
+      const shift = footageEnd(doc) - oldEnd
+      doc.cursor = {
+        ...doc.cursor,
+        off: prev.cursor.off.map((r) =>
+          r.in >= oldEnd - 1e-6 && Math.abs(shift) > 1e-6
+            ? {
+                ...r,
+                in: +Math.max(0, r.in + shift).toFixed(3),
+                ...(r.out !== undefined
+                  ? { out: +Math.max(0, r.out + shift).toFixed(3) }
+                  : {}),
+              }
+            : { ...r },
+        ),
+      }
+    }
     await writeJson(take.paths.doc, doc, true)
     return {
       doc,
