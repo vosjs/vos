@@ -723,6 +723,7 @@ export async function cmdJoin(argv: string[]): Promise<number> {
   let captions: StepCaptionReport | null = null
   if (withCaptions) {
     captions = landStepCaptions(plan.doc, plan.actions, { only })
+    for (const line of captions.held) plan.notes.push(line)
     for (const k of captions.uncaptioned)
       plan.notes.push(
         `no step in ${labelOf.get(k) ?? `media ${k}`} carries a caption`,

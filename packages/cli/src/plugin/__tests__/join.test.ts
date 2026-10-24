@@ -377,7 +377,8 @@ describe('vos join: a file’s own sound, captions per clip', () => {
   )
 
   it('ends a caption with its clip, and names an input with no caption', async () => {
-    // A's last step begins at 8.5 s of its 10 s: 1.5 s of room.
+    // A's last step begins at 8.5 s of its 10 s: 1.5 s of room, less than
+    // its words take to read (2.4 s), so the clip's end is what ends it.
     const doc = takeA()
     doc.source.meta.steps = [
       ...doc.source.meta.steps!,
@@ -385,7 +386,7 @@ describe('vos join: a file’s own sound, captions per clip', () => {
     ]
     const a = await writeTake('cap-a', doc, {
       open: 'Open the panel',
-      wrap: 'Wrap it up',
+      wrap: 'Wrap the whole flow up and send the link',
     })
     const b = await writeTake('cap-b', takeB(), {})
     const out = join(root, 'cap-film')

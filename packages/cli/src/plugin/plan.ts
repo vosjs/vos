@@ -65,7 +65,7 @@ export interface PlanSummary {
   /** The layout the reference carried and what the copy left alone. */
   layout?: LayoutParts & { notes: string[] }
   /** The motion proposed onto the document, and what could not be. */
-  motion?: { notes: string[]; skipped: string[] }
+  motion?: { notes: string[]; skipped: string[]; held: string[] }
   /** `--reuse`: what the re-anchor did and what it could not. */
   reuse?: ReuseReport & { from: string }
 }
@@ -441,7 +441,11 @@ export async function planTake(
   if (opts.motion && (fresh || opts.motion.again)) {
     const proposed = proposeMotion(doc, opts.motion)
     doc = proposed.doc
-    motion = { notes: proposed.notes, skipped: proposed.skipped }
+    motion = {
+      notes: proposed.notes,
+      skipped: proposed.skipped,
+      held: proposed.held,
+    }
   }
 
   // The frame that stands for the take: named, never proposed. A plan
