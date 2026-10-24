@@ -29,7 +29,6 @@ import {
   planAutoSpeed,
   planAutoZoom,
   projectFromArtifact,
-  ratedSegments,
   withBackdrop,
   migrateMotion,
 } from '@vosjs/studio-core'
@@ -39,7 +38,7 @@ import {
   withPageSound,
 } from '@vosjs/render-core/record'
 import { loadTake, writeJson } from './take'
-import { retimeCut, retimeOverlays } from './reuse'
+import { footageOutputEnd, retimeCut, retimeOverlays } from './reuse'
 import { proposeMotion } from './motionPlan'
 import type { MotionProposalInput, ReleaseWords } from './motionPlan'
 import type { ReuseReport } from './reuse'
@@ -175,22 +174,6 @@ function applyStyle(
   const { doc: next, notes } = copyLayout(seed, copyStyle(seed, doc), { keys })
   if (opts.words) patchStageWords(next, opts.words)
   return { doc: next, layout: { ...parts, notes } }
-}
-
-/**
- * Where the FOOTAGE ends in output seconds: the cut's length without the
- * freezes a template laid (an end card's, stamped `from`), which play after
- * the footage.
- */
-function footageEnd(doc: ProjectDoc): number {
-  const own: ProjectDoc = {
-    ...doc,
-    freeze: (doc.freeze ?? []).filter((f) => !f.from),
-  }
-  return ratedSegments(own).reduce((acc, s) => {
-    const rate = s.rate && s.rate > 0 ? s.rate : 1
-    return acc + (s.out - s.in) / rate
-  }, 0)
 }
 
 /**
@@ -341,8 +324,8 @@ export async function planTake(
     // one that began after the footage (the end card's) keeps its distance
     // from the footage's end, which moves with the new recording's length.
     if (prev.cursor?.off?.length) {
-      const oldEnd = footageEnd(prev)
-      const shift = footageEnd(doc) - oldEnd
+      const oldEnd = footageOutputEnd(prev)
+      const shift = footageOutputEnd(doc) - oldEnd
       doc.cursor = {
         ...doc.cursor,
         off: prev.cursor.off.map((r) =>
