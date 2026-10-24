@@ -20,6 +20,7 @@ import {
   segmentOutputExtents,
 } from '@vosjs/studio-core'
 import { totalDuration } from '@vosjs/timeline'
+import { CAPTION_MAX, CAPTION_MIN, fitCaptions } from './captionFit'
 import { CAPTION_ID_PREFIX, houseCaption } from './motionPlan'
 import { scriptStepOf } from './scriptStep'
 import type {
@@ -39,12 +40,6 @@ export const STEP_CAPTIONS_FROM = 'steps'
  * gesture ended ran a caption over the next beat's payoff.
  */
 export const STEP_CAPTION_AT = 'start' as const
-
-/** The longest a step caption stays, and the shortest it is cut to by the next one. */
-const CAPTION_MAX = 3
-const CAPTION_MIN = 1.2
-/** The air between one caption's end and the next one's start. */
-const CAPTION_GAP = 0.1
 
 export interface StepCaptionReport {
   /** Captions landed (each `media` absent = the primary). */
@@ -127,6 +122,7 @@ export function landStepCaptions(
     return footageEnd
   }
   const ends = new Map<OverlayClip, number>()
+  const labels = new Map<OverlayClip, string>()
   /** Does a caption the run keeps already speak for this step? */
   const spoken = (media: string, step: StepSpan, steps: StepSpan[]) =>
     kept.some((o) => {
@@ -182,6 +178,7 @@ export function landStepCaptions(
         from: STEP_CAPTIONS_FROM,
       }
       ends.set(clip, end)
+      labels.set(clip, label)
       fresh.push(clip)
       report.landed.push({
         id,
@@ -192,20 +189,22 @@ export function landStepCaptions(
     }
     if (steps.length && !captioned) report.uncaptioned.push(media)
   }
-  // In playing order, each caption gives way to the next one, and ends
-  // with the clip it starts in.
-  fresh.sort((a, b) => a.start - b.start)
-  fresh.forEach((c, i) => {
-    const next = fresh[i + 1]
-    const clipRoom = (ends.get(c) ?? footageEnd) - c.start
-    const nextRoom = next ? next.start - CAPTION_GAP - c.start : Infinity
-    c.duration = +Math.min(
-      CAPTION_MAX,
-      clipRoom,
-      Math.max(CAPTION_MIN, nextRoom),
-    ).toFixed(3)
+  // In playing order, each caption gives way to the next one and ends with
+  // the clip it starts in; one that cannot be read before the next is
+  // dropped and said, never left on screen beside it.
+  const fit = fitCaptions(fresh, (c) => ({
+    start: c.start,
+    end: ends.get(c) ?? footageEnd,
+  }))
+  for (const { item, why } of fit.dropped) {
+    report.skipped.push(`${labels.get(item) ?? item.id}: ${why}`)
+    report.landed = report.landed.filter((l) => l.id !== item.id)
+  }
+  const landedClips = fit.kept.map(({ item, duration }) => {
+    item.duration = duration
+    return item
   })
-  const overlays = [...kept, ...fresh]
+  const overlays = [...kept, ...landedClips]
   if (overlays.length) doc.overlays = overlays
   else delete doc.overlays
   return report
