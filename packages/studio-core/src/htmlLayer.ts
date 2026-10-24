@@ -80,6 +80,27 @@ export interface HtmlLayerInlineAsset {
  */
 export const HTML_LAYER_LIVE_HZ = 60
 
+/**
+ * A MOVING layer (one with a motion track) is drawn from a raster of its
+ * picture, made at this multiple of the largest size its track reaches.
+ * The browser places text on whole device pixels each time it rasterizes
+ * the picture, so a layer re-rasterized at every pose stepped where the
+ * shapes beside it glided; a fixed raster resampled per frame moves
+ * smoothly. Twice the drawn size, because a raster resampled at about its
+ * own size softens every edge by up to half a pixel, while one drawn DOWN
+ * from twice keeps text as sharp as the browser draws it (measured on a
+ * 1080p end card: edge contrast 187 against 185 drawn directly, 128 from a
+ * raster at 1x).
+ */
+export const HTML_LAYER_RASTER_SCALE = 2
+
+/**
+ * The most pixels that raster may hold: WebKit refuses a canvas larger than
+ * 4096 x 4096 in area (it draws blank), so the supersample shrinks to fit,
+ * a 4K frame's full-frame layer to about 1.38x.
+ */
+export const HTML_LAYER_RASTER_MAX_AREA = 4096 * 4096
+
 /** The host an SVG image's page can fetch an asset from (CORS and the fleet). */
 export const HTML_LAYER_ASSET_HOST = 'https://assets.vos.so/'
 

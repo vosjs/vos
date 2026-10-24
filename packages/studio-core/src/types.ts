@@ -1735,6 +1735,12 @@ export interface HtmlOverlayClip extends OverlayClipBase {
    * timeline's clock in the preview and in every export chunk alike. One
    * rasterize per frame while on screen. Absent = a still, byte-identical
    * to before the field existed.
+   *
+   * Move the LAYER with `motion` poses, never its text with CSS: the
+   * browser places text on whole device pixels each time it rasterizes, so
+   * text a keyframe drifts or scales slowly steps a pixel at a time beside
+   * shapes that glide. A layer with a motion track is drawn from one raster
+   * of each picture and moves by resampling it, which glides.
    */
   live?: boolean
   /** Values for a live layer's `{{data.<name>}}` placeholders. */

@@ -1,5 +1,9 @@
 import { timelineRuntimeCode } from '@vosjs/timeline/bundle'
-import { HTML_LAYER_LIVE_HZ } from '../htmlLayer'
+import {
+  HTML_LAYER_LIVE_HZ,
+  HTML_LAYER_RASTER_MAX_AREA,
+  HTML_LAYER_RASTER_SCALE,
+} from '../htmlLayer'
 import { OVERLAY_FONT_FACES } from '../overlayText'
 import { textLayoutCode } from '../richText/layoutCode'
 import { CARD_FOV, CARD_Z } from '../stage'
@@ -589,6 +593,35 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
     else { cc.beginPath(); cc.rect(x, y, w, h) }
   }
 
+  // A moving html layer's raster: its picture drawn ONCE at the largest size
+  // its track reaches (so a pose only ever scales it down), into one canvas
+  // per clip, redrawn only when a new picture lands or the frame's size
+  // changes. A still layer in motion rasterizes once; a live one once per
+  // picture, as before.
+  function hlRaster(ol, el, nw, nh) {
+    if (typeof document === 'undefined') return el
+    var hlPk = ol.scale
+    var hlKs = ol.track.keyframes
+    for (var hlKi = 0; hlKi < hlKs.length; hlKi++) if (hlKs[hlKi].value[2] > hlPk) hlPk = hlKs[hlKi].value[2]
+    var hlBW = ol.w * W * hlPk
+    var hlBH = hlBW * nh / nw
+    var hlSS = Math.min(${HTML_LAYER_RASTER_SCALE}, Math.sqrt(${HTML_LAYER_RASTER_MAX_AREA} / Math.max(1, hlBW * hlBH)))
+    var hlRW = Math.max(1, Math.floor(hlBW * hlSS))
+    var hlRH = Math.max(1, Math.floor(hlBH * hlSS))
+    var hlRs = ns.htmlRaster || (ns.htmlRaster = {})
+    var hlR = hlRs[ol.id]
+    if (!hlR) hlR = hlRs[ol.id] = { c: document.createElement('canvas'), el: null }
+    if (hlR.el !== el || hlR.c.width !== hlRW || hlR.c.height !== hlRH) {
+      if (hlR.c.width !== hlRW) hlR.c.width = hlRW
+      if (hlR.c.height !== hlRH) hlR.c.height = hlRH
+      var hlX = hlR.c.getContext('2d')
+      hlX.clearRect(0, 0, hlRW, hlRH)
+      try { hlX.drawImage(el, 0, 0, hlRW, hlRH) } catch (e) { return el }
+      hlR.el = el
+    }
+    return hlR.c
+  }
+
   // Text overlays: visibility signature + "a transition is animating".
   // During a hold the drawn pixels are static, so the signature alone drives
   // redraws (position/text/style edits change it — live SET_DATA); during
@@ -649,6 +682,7 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
       if (ns.htmlKeys) delete ns.htmlKeys[hlK]
       if (ns.htmlWant) delete ns.htmlWant[hlK]
       if (ns.htmlErrors) delete ns.htmlErrors[hlK]
+      if (ns.htmlRaster) delete ns.htmlRaster[hlK]
     }
   }
   // A styled layer's cached layout leaves with its clip.
@@ -865,7 +899,15 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
       }
       ovC.save()
       rr(-olDW / 2, -olDH / 2, olDW, olDH, olRad, ovC); ovC.clip()
-      try { ovC.drawImage(olEl, -olDW / 2, -olDH / 2, olDW, olDH) } catch (e) {}
+      // A MOVING html layer is drawn from a raster of its picture, never from
+      // the picture itself: the browser rasterizes an SVG image afresh at
+      // every draw transform and places text on whole device pixels as it
+      // does, so text under a slow move or scale held still and then jumped
+      // a pixel while the shapes beside it glided. A fixed raster moves by
+      // resampling, every frame.
+      var olSrc = ol.html && ol.track ? hlRaster(ol, olEl, olNW, olNH) : olEl
+      if (olSrc !== olEl) ovC.imageSmoothingQuality = 'high'
+      try { ovC.drawImage(olSrc, -olDW / 2, -olDH / 2, olDW, olDH) } catch (e) {}
       ovC.restore()
       if (ol.border && ol.border.width > 0) {
         ovC.strokeStyle = ol.border.color || '#ffffff'

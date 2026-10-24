@@ -546,6 +546,130 @@ describe('a kind:html layer, painted', () => {
     expect((asked[0][0] as { key: string }).key).toBe(keyOf(doc))
     expect(asked[0][1]).toBeUndefined()
   })
+
+  // A MOVING layer is drawn from a raster of its picture, never from the
+  // picture: the browser rasterizes an SVG image afresh at every draw
+  // transform and places text on whole device pixels as it does, so text
+  // under a slow move stepped a pixel at a time beside shapes that glided.
+  describe('a moving layer, drawn from one raster', () => {
+    interface FakeCanvas {
+      width: number
+      height: number
+      draws: unknown[][]
+    }
+    /** A page whose canvases record what is rasterized into them. */
+    function fakeDocument(): FakeCanvas[] {
+      const made: FakeCanvas[] = []
+      g.document = {
+        createElement: () => {
+          const c: FakeCanvas & { getContext: () => unknown } = {
+            width: 300,
+            height: 150,
+            draws: [],
+            getContext: () => ({
+              clearRect: () => {},
+              drawImage: (...a: unknown[]) => c.draws.push(a),
+            }),
+          }
+          made.push(c)
+          return c
+        },
+      }
+      return made
+    }
+    afterEach(() => {
+      delete g.document
+    })
+
+    const pushed = (over: Partial<HtmlOverlayClip> = {}) =>
+      htmlClip({
+        motion: [
+          { at: 0, scale: 1 },
+          { at: 2, scale: 1.5 },
+        ],
+        ...over,
+      })
+
+    it('rasterizes the picture ONCE at twice its largest size and moves that', () => {
+      const made = fakeDocument()
+      const doc = makeDoc({ overlays: [pushed()] })
+      const pic = picture(660, 510)
+      const run = makeRunner(doc, new Map([[keyOf(doc), pic]]))
+      const w = overlaysOf(doc)[0].w as number
+      run.frame(1.5)
+      run.frame(2.5)
+      expect(made).toHaveLength(1)
+      expect(made[0].width).toBe(Math.floor(w * 1920 * 1.5 * 2))
+      expect(made[0].height).toBe(Math.floor(w * 1920 * 1.5 * 2 * (510 / 660)))
+      // The picture went into the raster once; the frames drew the raster.
+      expect(made[0].draws).toHaveLength(1)
+      expect(made[0].draws[0][0]).toBe(pic)
+      expect(run.draws.some((d) => d[0] === made[0])).toBe(true)
+      expect(run.draws.some((d) => d[0] === pic)).toBe(false)
+    })
+
+    it('rasterizes a LIVE layer’s each new picture into the same canvas', () => {
+      const made = fakeDocument()
+      const doc = makeDoc({ overlays: [pushed({ live: true })] })
+      const a = picture(660, 510)
+      const b = picture(660, 510)
+      const run = makeRunner(
+        doc,
+        new Map([
+          [keyOf(doc) + '@30', a],
+          [keyOf(doc) + '@60', b],
+        ]),
+        { buildHtmlLayer: () => Promise.resolve() },
+      )
+      run.frame(1.5)
+      run.frame(2)
+      expect(made).toHaveLength(1)
+      expect(made[0].draws.map((d) => d[0])).toEqual([a, b])
+    })
+
+    it('never makes a raster WebKit would refuse, and keeps its shape', () => {
+      const made = fakeDocument()
+      const doc = makeDoc({
+        overlays: [
+          pushed({
+            css: '.card{background:#000}',
+            box: { width: 1920, height: 1080 },
+            transform: { x: 0.5, y: 0.5, scale: 1, rotation: 0 },
+            motion: [
+              { at: 0, scale: 1 },
+              { at: 2, scale: 3 },
+            ],
+          }),
+        ],
+      })
+      const run = makeRunner(doc, new Map([[keyOf(doc), picture(1920, 1080)]]))
+      run.frame(2)
+      expect(made[0].width * made[0].height).toBeLessThanOrEqual(4096 * 4096)
+      expect(made[0].width / made[0].height).toBeCloseTo(1920 / 1080, 2)
+    })
+
+    it('leaves a layer that does not move drawing its picture, as before', () => {
+      const made = fakeDocument()
+      const doc = makeDoc({ overlays: [htmlClip()] })
+      const pic = picture(660, 510)
+      const run = makeRunner(doc, new Map([[keyOf(doc), pic]]))
+      run.frame(2)
+      expect(made).toHaveLength(0)
+      expect(run.draws.some((d) => d[0] === pic)).toBe(true)
+    })
+
+    it('sweeps the raster of a clip that left the document', () => {
+      fakeDocument()
+      const doc = makeDoc({ overlays: [htmlClip({ id: 'stays' })] })
+      const vos = {
+        htmlLast: { gone: picture(1, 1), stays: picture(1, 1) },
+        htmlRaster: { gone: { c: {}, el: null } } as Record<string, unknown>,
+      }
+      const run = makeRunner(doc, new Map(), vos)
+      run.frame(2)
+      expect(vos.htmlRaster).toEqual({})
+    })
+  })
 })
 
 describe('one composer, two homes: assets and the live form', () => {
