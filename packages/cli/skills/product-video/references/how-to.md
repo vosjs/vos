@@ -26,6 +26,13 @@ how-tos and the cuts a person had to redo on them.
    the step in `actions.json`; `vos plan` and `vos join --captions` land
    each one anchored to its step, so a re-record carries it). One caption
    is one beat; a step with no caption is part of the beat before it.
+   It leaves when its step ends, or once its words are read when that is
+   later (17 characters a second, 1.2 to 3 s; `@vosjs/cli` 0.82 and later),
+   so a short caption on a quick step never lingers over the next one. A
+   caption the plan names as staying past its step has words that outrun
+   the beat: shorten them (an edit) or give the step more `ms` (a
+   re-record); never cut its `duration`, which takes the time its words
+   need to be read.
 
 3. **The result is the payoff, and the cold open.** Open on the finished
    result for a beat (a repeated segment at camera rest,
