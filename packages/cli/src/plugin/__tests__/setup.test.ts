@@ -38,7 +38,7 @@ describe('setup steps in actions.json', () => {
 
   it('names what is missing', () => {
     expect(validateSetup([{ do: 'hover', selector: '#x' }])).toEqual([
-      'setup[0]: "do" must be one of wait, click, type, press, goto',
+      'setup[0]: "do" must be one of wait, click, type, press, goto, if',
     ])
     expect(
       validateSetup([{ do: 'type', selector: '#x', text: { env: 1 } }]),
@@ -47,6 +47,9 @@ describe('setup steps in actions.json', () => {
     ])
     expect(validateSetup([{ do: 'press' }])).toEqual([
       'setup[0]: press needs a key',
+    ])
+    expect(validateSetup([{ do: 'if' }])).toEqual([
+      'setup[0]: if needs a selector',
     ])
   })
 })
@@ -133,6 +136,27 @@ describe('runSetup', () => {
     expect(err.message).toContain('Nothing was recorded')
   })
 
+  it('passes a sign-in guarded by if when the session is already signed in', async () => {
+    const filled: string[] = []
+    const r = await runSetup(
+      page({ missing: ['#email'], filled }) as never,
+      [
+        { do: 'if', selector: '#email' },
+        { do: 'type', selector: '#email', text: 'demo@acme.test' },
+        { do: 'type', selector: '#password', text: { env: 'PW' } },
+        { do: 'press', key: 'Enter' },
+      ],
+      { sleep, env: { PW: 'orchard-lantern-42' } },
+    )
+    expect(r.failed).toBeUndefined()
+    expect(r.skipped).toEqual({ step: 0, selector: '#email', rest: 3 })
+    expect(r.ran).toBe(1)
+    expect(filled).toEqual([])
+    expect(r.lines).toEqual([
+      'setup #0 if #email: not on the page, the 3 step(s) after it skipped',
+    ])
+  })
+
   it('surfaces a missing variable instead of typing nothing', async () => {
     await expect(
       runSetup(
@@ -175,7 +199,7 @@ describe('teardown steps in actions.json', () => {
         ],
       }),
     ).toEqual([
-      'teardown[0]: "do" must be one of wait, click, type, press, goto',
+      'teardown[0]: "do" must be one of wait, click, type, press, goto, if',
       'teardown[1]: a literal value typed into #password would live in actions.json, which is committed and pushed. Use { "env": "NAME" }',
       'teardown[2]: goto file:///etc/passwd is not an http(s) address, and the recorder opens only http and https pages',
       'teardown[3]: press needs a key',
@@ -220,6 +244,75 @@ describe('runSetup as a teardown', () => {
     expect(r.ran).toBe(1)
     expect(r.failed).toEqual({
       step: 1,
+      do: 'click',
+      selector: '#confirm',
+      error: 'locator.waitFor: Timeout 8000ms exceeded.',
+    })
+  })
+
+  it('ends at an if whose selector is gone: nothing to undo, never a failure', async () => {
+    const clicked: string[] = []
+    const looked: number[] = []
+    const watched = {
+      ...page({ missing: ['[aria-label="Actions for CI deploy"]'] }),
+      locator: (sel: string) => ({
+        first: () => ({
+          waitFor: async (o: { timeout: number }) => {
+            looked.push(o.timeout)
+            if (sel === '[aria-label="Actions for CI deploy"]')
+              throw new Error('locator.waitFor: Timeout 3000ms exceeded.')
+          },
+          click: async () => {
+            clicked.push(sel)
+          },
+          fill: async () => {},
+        }),
+      }),
+    }
+    const r = await runSetup(
+      watched as never,
+      [
+        { do: 'press', key: 'Escape' },
+        { do: 'if', selector: '[aria-label="Actions for CI deploy"]' },
+        { do: 'click', selector: '[aria-label="Actions for CI deploy"]' },
+        { do: 'click', selector: '[role="menuitem"]:has-text("Revoke")' },
+        { do: 'click', selector: '[role="alertdialog"] button' },
+      ],
+      { sleep, phase: 'teardown' },
+    )
+    expect(r.failed).toBeUndefined()
+    expect(r.ran).toBe(2)
+    expect(r.skipped).toEqual({
+      step: 1,
+      selector: '[aria-label="Actions for CI deploy"]',
+      rest: 3,
+    })
+    expect(clicked).toEqual([])
+    // It looks for the default 3 s, never the 8 s a step waits.
+    expect(looked).toEqual([3000])
+    expect(r.lines).toEqual([
+      'teardown #0 press Escape',
+      'teardown #1 if [aria-label="Actions for CI deploy"]: not on the page, the 3 step(s) after it skipped',
+    ])
+  })
+
+  it('runs past an if whose selector is there, and a failure after it still fails', async () => {
+    const r = await runSetup(
+      page({ missing: ['#confirm'] }) as never,
+      [
+        { do: 'if', selector: '#row', ms: 500 },
+        { do: 'click', selector: '#revoke' },
+        { do: 'click', selector: '#confirm' },
+      ],
+      { sleep, phase: 'teardown' },
+    )
+    expect(r.skipped).toBeUndefined()
+    expect(r.lines.slice(0, 2)).toEqual([
+      'teardown #0 if #row: on the page',
+      'teardown #1 click #revoke',
+    ])
+    expect(r.failed).toEqual({
+      step: 2,
       do: 'click',
       selector: '#confirm',
       error: 'locator.waitFor: Timeout 8000ms exceeded.',
@@ -300,6 +393,15 @@ describe('runSetup as a teardown', () => {
         failed: { step: 0, do: 'press', error: 'the page closed' },
       }),
     ).toContain('at teardown[0] (press): the page closed.')
+    expect(
+      teardownLine({
+        ran: 2,
+        of: 5,
+        skipped: { step: 1, selector: '#row', rest: 3 },
+      }),
+    ).toBe(
+      'teardown: nothing to undo, #row is not on the page (teardown[1] if); 2 step(s) ran, 3 skipped',
+    )
   })
 })
 
