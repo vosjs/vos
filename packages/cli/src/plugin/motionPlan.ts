@@ -34,6 +34,7 @@ import {
   sameMedia,
   spanOutputExtent,
 } from '@vosjs/studio-core'
+import { fitCaptions } from './captionFit'
 import { STEP_SETTLE_SECONDS, stepOutputTime } from './moments'
 import type {
   Anim,
@@ -79,6 +80,8 @@ export interface MusicCatalog {
 export const BED_ID = 'bed'
 export const CLICK_ID_PREFIX = 'click-'
 export const CAPTION_ID_PREFIX = 'caption-'
+/** The longest a beat's caption stays, seconds. */
+const CAPTION_BEAT_MAX = 3.5
 
 /** The house caption: a lower-third in a dark box, rising in and fading out. */
 export function houseCaption(
@@ -458,22 +461,32 @@ export function proposeMotion(
   if (opts.captions.length && !off(launch.captions)) {
     const rated = ratedSegments(doc)
     const steps = doc.source.meta.steps ?? []
+    const beats: { caption: (typeof opts.captions)[number]; t: number }[] = []
     for (const c of opts.captions) {
       const step = steps.find(
         (s) => (c.id !== undefined && s.id === c.id) || s.step === c.step,
       )
       if (!step || step.skipped) continue
       const t = stepOutputTime(rated, step, 0.2)
-      if (t === null || t < 0 || t > footage - 1) continue
+      if (t === null || t < 0 || t >= footage) continue
+      beats.push({ caption: c, t: +t.toFixed(3) })
+    }
+    // Each gives way to the next and leaves before the footage ends, so a
+    // caption never sits beside another one or runs into the end card.
+    const fit = fitCaptions(beats, (b) => ({ start: b.t, end: footage }), {
+      max: CAPTION_BEAT_MAX,
+    })
+    for (const { item, why } of fit.dropped)
+      skipped.push(`caption for step ${item.caption.step}: ${why}`)
+    for (const { item, duration } of fit.kept)
       captionClips.push(
         houseCaption(
-          `${CAPTION_ID_PREFIX}${c.step}`,
-          c.caption,
-          +t.toFixed(3),
-          Math.min(3.5, Math.max(2.5, footage - t - 0.2)),
+          `${CAPTION_ID_PREFIX}${item.caption.step}`,
+          item.caption.caption,
+          item.t,
+          duration,
         ),
       )
-    }
     if (captionClips.length) notes.push(`${captionClips.length} caption(s)`)
   }
   const overlays = [...kept, ...captionClips]
