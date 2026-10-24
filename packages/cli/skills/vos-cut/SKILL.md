@@ -102,6 +102,27 @@ video PLAYING, not idle. Neither wants the planner's proposal.
 If a folder is involved, read EVERY `.md` in it (own and inherited) before
 you decide anything.
 
+**Before the first cut, four answers from the frames** (a human's take has
+no mask and no exposure list; the scan needs the page):
+
+1. **Whose account, face and work is on screen.** An address, a key or a
+   card in a frame is said before anything is pushed, and the honest fix
+   is a re-record from a demo account, since a blur in `doc.json` leaves
+   the value in the footage `vos push` uploads. The person's own name,
+   face, avatar and recent items are theirs to show: say they are on
+   screen, never treat them as a defect.
+2. **Which door the footage walks.** A how-to names ONE way to the result.
+   A recording that wanders through two (a guided flow abandoned for an
+   apps menu) is cut to the one that reached the result, and the note says
+   which.
+3. **Where time was skipped.** A scripted take's off-camera wait is in
+   `meta.skips` and `vos info` prints it; the caption after it carries the
+   MEASURED time, never a round number nobody measured.
+4. **What the sound is.** The take's own sound (a mic), the sound the page
+   played (`meta.media`, placed as `source: "page"` clips by the plan),
+   the sound a downloaded output brought through `vos join`. The cut keeps
+   a sound the beat is about and never speeds over it.
+
 ## 2. Narrate
 
 Write 3-6 beats into your working notes, each with its moment ids, what it
@@ -163,6 +184,16 @@ Per beat, against `plan` and the recipe:
   light (an editor's timeline is), and judge every caption at its own
   instant. One caption per film is too sparse for a film that explains a
   flow; zero is right only when the recipe or the ask says no text.
+- **A how-to** (one flow to one result, for a docs page or a changelog)
+  has a grammar of its own: one caption per STEP, in the product's own
+  words for the control as a verb phrase ("Open Apps", "Press Generate"),
+  anchored to the step (`anchor: { step }`) so a re-record carries it;
+  the result as the cold open (a repeated segment at camera rest) and as
+  the last frame, with `still` on it and the one `"zoom": true` mark;
+  a recap card listing the path in the captions' words on the plate after
+  the card fades; an off-camera wait said in measured time (`{elapsed}`
+  in the caption after it); music scored `--at` the result's step. Never
+  a caption the footage does not show, never a second door.
 - **Style.** In a series, `vos plan --style <seed>` BEFORE you cut: it copies
   the seed's `zoomStyle`/`zoomParams`/`speedParams`/`tiltStyle`/`frame`/
   `cursor`/`cam`/`export` and re-plans the auto spans under them. Never
@@ -254,6 +285,9 @@ never write a status line.
   start, under the first caption);
 - open a zoom before the click it frames, or aim it at a `type` verb's
   field centre (frame the text; start the span after the click);
+- trust a zoom because the track lists it: `frames --at-zooms` renders
+  each apex beside its zoom-off twin and names one that matches its twin;
+  a listed zoom that never rendered has shipped in a film before;
 - leave the cold open frozen (a static page records as freeze-then-bang:
   trim it, or speed the load);
 - end wide on an empty page: the last frame is the poster, so the closing

@@ -52,6 +52,69 @@ failure / 3 no browser / 4 the recorder met a sign-in instead of the page
 | **Quick demo** (issue, PR, chat) | 1280×720 | webm, defaults | speed over polish; drafts acceptable here ONLY |
 
 Per-channel dimensions and byte budgets: `references/destinations.md`.
+A **how-to** (one flow in a product, from a door to its result, for a docs
+page or a changelog) takes the quick demo's viewport or the launch video's,
+and its own grammar: `references/how-to.md`.
+
+## Pre-flight: six answers before the first take
+
+A flow in somebody's product has consequences the footage does not show:
+two rehearsals left two untitled drafts in a founder's projects and both
+appeared in the recorded sidebar; a rehearsal that reaches "Generate"
+spends a credit; a result that arrives twelve minutes later is a second
+take without a plan for it. Answer these BEFORE `vos look`, the script or a
+rehearsal. **Each answer either changes the script or is said to the
+person before recording**; an answer that does neither was not an answer.
+
+1. **The door.** Which way through the product does the video walk, and
+   which others exist (a guided flow, a prompt box, an apps menu, a
+   template)? A how-to walks ONE. When there are several, list them and
+   confirm the door with the person before scripting; a door that works
+   under automation beats a recommended one that does not, and hiding the
+   automation from the site is never the answer (find another door, or
+   hand the shot list to a person: `references/sessions.md`, rung 4).
+2. **Whose account, face and work.** What the signed-in account shows ships
+   in the video: its avatar, its name, its recent items, the titles of its
+   other projects. A demo account is the answer; when the person records
+   from their own, say what will show before the take. The rehearsal
+   reports an address, a key or a card as EXPOSED (mask those), and the
+   account's own name and its recent lists as NOTICES: those are the
+   person's call. Say they will be on screen and offer the one-line `mask`;
+   never mask a name by default, and a face is yours to notice and theirs
+   to decide.
+3. **What the flow CREATES.** Write the side-effect ledger: for each step,
+   what it leaves in the product (a draft, a project, a message, a file, a
+   row), remembering that `--dry-run` CLICKS, so every rehearsal creates
+   them too. Say the ledger to the person before the first rehearsal when
+   the product is a real account, and report it at the end so they can
+   delete what was made. A product where creating is cheap (a sandbox, a
+   seeded local instance) needs the ledger written, not asked.
+4. **What it SPENDS.** A step that costs something real (a generation, a
+   purchase, a message sent, a deploy) carries `"guard": "spend"` and an
+   `id`. A rehearsal hovers it and never presses it; `vos record` refuses
+   the take before a browser opens unless the command names the step
+   (`--confirm <id>`), and the done event records that it was pressed.
+   Name the spend to the person in words ("one generation") and get the
+   yes before the record; the consent then lives in the file and the
+   command line, where a reviewer can read it.
+5. **Is the result async, and how long.** A product that finishes later (a
+   render, a generation, a deploy) is ONE take with an `await` step: the
+   capture stops, the page is polled off camera, the capture resumes when
+   the predicate holds, and the cut carries the measured time
+   (`{elapsed}` in the next caption; `references/how-to.md`). Wait for
+   what only the NEW result has (a percentage that appears, then goes;
+   never a title an older item shares), size `timeout` from what the
+   product measured last time, and `download` the output into
+   `take/outputs/` so the join can play it. On the hosted recorder the
+   waits come out of the footage cap: say how long before choosing it.
+6. **Does sound matter.** The recorder captures frames. Sound a page plays
+   through a `<video>` or `<audio>` element is kept (`@vosjs/cli` 0.79 and
+   later: each heard source lands in `meta.media` and the plan places a
+   clip per interval); sound a page synthesizes with Web Audio is not
+   heard, and a downloaded output's own sound rides as a clip through
+   `vos join`. When the sound IS the point (a voice preview, a generated
+   clip) and the product synthesizes it, say so before recording and plan
+   the download; when it is not, say the video is silent and score it.
 
 ## The core loop (every destination)
 
@@ -80,6 +143,16 @@ Per-channel dimensions and byte budgets: `references/destinations.md`.
    type or accept a production password, keep the state file out of the
    take directory and out of git, and record from a demo account: what the
    account shows ships in the video.
+
+   **Never script a signed-in page blind.** `vos look <url> --session <app>`
+   (or `--storage-state`; `@vosjs/cli` 0.78 and later) opens the page
+   through the door the recorder will use and prints a screenshot plus
+   every control in view with ONE proposed selector each, counted UNIQUE
+   or AMBIGUOUS by the recorder's own engine; `--click <selector>` shows
+   what a click opens before the script relies on it, and refuses a control
+   whose words mean spend, delete or submit. Take UNIQUE selectors into
+   steps as they are. Then the side-effect ledger (pre-flight, 3), then
+   rehearse.
 
    **Verified the feature with agent-browser already?** Keep that walk and
    skip the second script. agent-browser's `--json` result does not say
@@ -170,9 +243,13 @@ Per-channel dimensions and byte budgets: `references/destinations.md`.
    `references/sessions.md`.
 
 3. **Record**: `vos record --actions actions.json --out take --strict --json`
-   `--strict` always: skipped selector / networkidle timeout → exit 2 with
-   `skipped[]` in the done event. A skip means the flow is broken — fix it,
-   never ship around it. The take auto-encodes and auto-plans.
+   `--strict` always: a skipped selector, a failed `expect`, a click on a
+   disabled control, a timed-out `await` or a capped take → exit 2 with
+   `skipped[]` in the done event (a first load that never goes network-idle
+   is a note, not a failure, since `@vosjs/cli` 0.78). A skip means the
+   flow is broken — fix it, never ship around it. A guarded step records
+   only with `--confirm <id>` (pre-flight, 4). The take auto-encodes and
+   auto-plans.
    (`vos create --actions actions.json out.webm --strict` is the one-shot
    record+render verb — fine for a quick first pass, but THIS skill's loop
    reviews frames before rendering, so prefer the separate verbs here.)
@@ -295,3 +372,14 @@ when the ask is a release, not one video.
   one per gesture): mark the payoff steps and plan `--zooms per-beat`.
 - Trusting `--strict` for the scene: it proves the steps ran, not that the
   app holds what the beat shows. Check with `expect` + `js` + `equals`.
+- Trusting a zoom because the track lists it: two of a film's four zooms
+  never rendered and the list said they did. `frames --at-zooms` renders
+  each apex beside its zoom-off twin and names an apex that matches its
+  twin; read the stills, never the list.
+- A rehearsal that presses a step that spends: `--dry-run` CLICKS. A
+  spending step carries `"guard": "spend"` and an `id`, so the rehearsal
+  hovers it and `record` refuses it without `--confirm <id>`; a step that
+  only creates goes in the side-effect ledger before the first rehearsal.
+- Scripting a signed-in product blind: `vos look` first, then the ledger,
+  then the rehearsal. Guessing selectors from a public page costs a take
+  per guess.
