@@ -244,3 +244,10 @@ by data. Never spread before the seed is signed off.
 - A hand-typed dimension: every size comes from `channel-specs.json`.
 - The save beat on a demo instance that disables writes: say so in
   `skipped`, never fake the click.
+- A zoom trusted because the track lists it: `frames --at-zooms` renders
+  each apex beside its zoom-off twin and names one that matches; read the
+  stills before `deliver`, never the list.
+- A rehearsal that presses a step that spends or creates in the shipped
+  product: `--dry-run` CLICKS. Guard the spend (`"guard": "spend"` + `id`,
+  recorded only with `--confirm <id>`) and write the side-effect ledger
+  before the first rehearsal (the `product-video` skill's pre-flight).

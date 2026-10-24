@@ -49,14 +49,18 @@ selector matched no element, so whatever it was for may be showing.
 
 ## Strict-mode failures (exit 2)
 
-`vos record --strict` exits 2 when a selector was skipped or a navigation
-never reached networkidle, with `skipped[]` in the `--json` done event.
+`vos record --strict` exits 2 when a selector was skipped, an `expect`
+failed, a click landed on a disabled control, an `await` timed out or the
+take hit its cap, with `skipped[]` in the `--json` done event.
 
 - A skipped selector means the flow is broken: the element wasn't there, the
   selector is unstable (nth-child chains), or the page needed more settle
   time. Fix the actions.json — never ship a take that silently skipped steps.
-- Networkidle timeouts on pages with long-polling/websockets: add explicit
-  `wait` steps after navigation instead of relying on networkidle.
+- A first load that never goes network-idle (long-polling, websockets: most
+  SaaS) is a note (`navTimeout`), never a strict failure, since `@vosjs/cli`
+  0.78, and since 0.79 a take starts once the DOM has stopped changing
+  (`ready: "dom"`, the default; `networkidle` is the opt-in). On an older
+  CLI, add explicit `wait` steps after navigation instead of relying on it.
 - Always pass `--strict`. The lenient default exits 0 over broken flows,
   which is how bad takes ship.
 
