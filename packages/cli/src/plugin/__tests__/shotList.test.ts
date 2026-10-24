@@ -136,6 +136,21 @@ describe('shotList', () => {
     expect(text).toContain('Press the icon again to stop')
     // no selector syntax leaks where the script gave words
     expect(text).not.toContain('has-text')
+    expect(text).not.toContain('teardown')
+  })
+
+  it('says a teardown as what to undo after stopping', () => {
+    const list = shotList({
+      ...actions,
+      teardown: [
+        { do: 'goto', url: 'http://localhost:4101/orders' },
+        { do: 'click', selector: '#delete-order' },
+      ],
+    })
+    expect(list.teardown).toBe(2)
+    expect(formatShotList(list)).toMatch(
+      /Press the icon again to stop[^\n]*\nAfter you stop: the script's 2 teardown steps \(remove what the take created\) are yours to do; they are not part of the take\.$/,
+    )
   })
 })
 

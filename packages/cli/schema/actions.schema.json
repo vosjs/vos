@@ -33,51 +33,14 @@
       "type": "array",
       "description": "Run BEFORE the camera rolls, after the first navigation: a sign-in form, a cookie banner, an onboarding tour. Plain actions with no cursor, no frames, no pace and nothing in meta.steps; then the recorder opens `url` again and the take begins where the setup left it. A selector that never appears fails the take before anything is recorded (exit 2). A `type` step's text may be { \"env\": \"NAME\" }, read at run time and never logged or stored; a literal typed into a password field is refused, because actions.json is committed and pushed.",
       "items": {
-        "type": "object",
-        "required": ["do"],
-        "additionalProperties": false,
-        "properties": {
-          "do": {
-            "type": "string",
-            "enum": ["wait", "click", "type", "press", "goto"]
-          },
-          "id": {
-            "type": "string"
-          },
-          "selector": {
-            "type": "string"
-          },
-          "text": {
-            "oneOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "object",
-                "required": ["env"],
-                "additionalProperties": false,
-                "properties": {
-                  "env": {
-                    "type": "string",
-                    "description": "the environment variable holding the value"
-                  }
-                }
-              }
-            ]
-          },
-          "key": {
-            "type": "string",
-            "description": "press: a Playwright key name (Enter, Tab, Escape)"
-          },
-          "url": {
-            "type": "string",
-            "description": "goto: a page to open, for a sign-in that lives elsewhere"
-          },
-          "ms": {
-            "type": "number",
-            "description": "wait: the pause; click: the read after the page settled, held from its last visual change (default 150); type and scroll: the settle after (defaults 150/200)"
-          }
-        }
+        "$ref": "#/$defs/offCameraStep"
+      }
+    },
+    "teardown": {
+      "type": "array",
+      "description": "Run AFTER the take, off camera, with the same verbs and rules as setup: what the take created in the product (an API key, a project, an invite) removed again, so a rehearsal or a re-record leaves the account as it found it. The steps run once the screencast has stopped, on the take's own page and session, after a --dry-run rehearsal too, and also when the take stops early or throws after its first step ran. Nothing of them is captured or written to meta.steps. Bounded at 60 s in all. A step that fails stops the teardown and is reported (the --json done event's `teardown`), and never fails the take or changes its exit code. A { \"env\": \"NAME\" } the shell does not hold refuses the take before it begins.",
+      "items": {
+        "$ref": "#/$defs/offCameraStep"
       }
     },
     "ready": {
@@ -1107,6 +1070,54 @@
           }
         }
       ]
+    },
+    "offCameraStep": {
+      "type": "object",
+      "required": ["do"],
+      "additionalProperties": false,
+      "properties": {
+        "do": {
+          "type": "string",
+          "enum": ["wait", "click", "type", "press", "goto"]
+        },
+        "id": {
+          "type": "string"
+        },
+        "selector": {
+          "type": "string"
+        },
+        "text": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object",
+              "required": ["env"],
+              "additionalProperties": false,
+              "properties": {
+                "env": {
+                  "type": "string",
+                  "description": "the environment variable holding the value"
+                }
+              }
+            }
+          ]
+        },
+        "key": {
+          "type": "string",
+          "description": "press: a Playwright key name (Enter, Tab, Escape)"
+        },
+        "url": {
+          "type": "string",
+          "description": "goto: a page to open, for a sign-in that lives elsewhere"
+        },
+        "ms": {
+          "type": "number",
+          "description": "wait: the pause; click: the read after the page settled, held from its last visual change (default 150); type and scroll: the settle after (defaults 150/200)"
+        }
+      },
+      "description": "One setup or teardown step: a plain action, with no cursor and no frames."
     }
   }
 }

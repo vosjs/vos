@@ -42,38 +42,43 @@ export function scriptToWrite(
 }
 
 /**
- * The script as it may travel: every setup value a person typed replaced by
- * a word, and every setup address stripped to its origin and path. A setup
- * exists to pass a sign-in, so its literals are the one place a secret is
- * typed and its addresses the one place a magic link is pasted; a pushed
- * document is read by the fleet, by grants and, once public, by anyone. An
- * `{ env }` reference keeps its NAME, which is what a re-record needs.
+ * The script as it may travel: every setup and teardown value a person
+ * typed replaced by a word, and every setup and teardown address stripped
+ * to its origin and path. A setup exists to pass a sign-in and a teardown
+ * to undo what a take created, so their literals are the one place a secret
+ * is typed and their addresses the one place a magic link is pasted; a
+ * pushed document is read by the fleet, by grants and, once public, by
+ * anyone. An `{ env }` reference keeps its NAME, which is what a re-record
+ * needs.
  */
 export function publicScript(
   script: Record<string, unknown>,
 ): Record<string, unknown> {
   const peers = publicPeers(script.peers)
   if (peers) script = { ...script, peers }
-  const setup = script.setup
-  if (!Array.isArray(setup)) return script
-  return {
-    ...script,
-    setup: setup.map((step: unknown) => {
-      if (!step || typeof step !== 'object') return step
-      const s = step as Record<string, unknown>
-      if (s.do === 'type' && typeof s.text === 'string')
-        return { ...s, text: '[typed value not stored]' }
-      if (s.do === 'goto' && typeof s.url === 'string') {
-        try {
-          const u = new URL(s.url)
-          return { ...s, url: `${u.origin}${u.pathname}` }
-        } catch {
-          return s
-        }
-      }
-      return s
-    }),
+  for (const key of ['setup', 'teardown'] as const) {
+    const steps = script[key]
+    if (Array.isArray(steps))
+      script = { ...script, [key]: steps.map(publicStep) }
   }
+  return script
+}
+
+/** One off-camera step as it may travel: no typed literal, no query or hash. */
+function publicStep(step: unknown): unknown {
+  if (!step || typeof step !== 'object') return step
+  const s = step as Record<string, unknown>
+  if (s.do === 'type' && typeof s.text === 'string')
+    return { ...s, text: '[typed value not stored]' }
+  if (s.do === 'goto' && typeof s.url === 'string') {
+    try {
+      const u = new URL(s.url)
+      return { ...s, url: `${u.origin}${u.pathname}` }
+    } catch {
+      return s
+    }
+  }
+  return s
 }
 
 /**

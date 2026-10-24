@@ -30,6 +30,25 @@ describe('a pushed script carries no setup value', () => {
     })
   })
 
+  it('strips a teardown the same way', () => {
+    const out = publicScript({
+      steps: [{ do: 'wait', ms: 1 }],
+      teardown: [
+        { do: 'goto', url: 'https://x.test/settings/keys?token=abc#row' },
+        { do: 'type', selector: '#confirm', text: 'delete my key' },
+        { do: 'type', selector: '#pw', text: { env: 'DEMO_PW' } },
+        { do: 'click', selector: '#revoke' },
+      ],
+    })
+    expect(out.teardown).toEqual([
+      { do: 'goto', url: 'https://x.test/settings/keys' },
+      { do: 'type', selector: '#confirm', text: '[typed value not stored]' },
+      { do: 'type', selector: '#pw', text: { env: 'DEMO_PW' } },
+      { do: 'click', selector: '#revoke' },
+    ])
+    expect(out.setup).toBeUndefined()
+  })
+
   it('names a peer’s sign-in by its file name only, never this machine’s path', () => {
     const script = {
       steps: [{ do: 'wait', ms: 1 }],
