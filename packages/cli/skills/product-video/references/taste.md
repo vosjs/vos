@@ -25,6 +25,10 @@ The rubric for judging a take before its render ships. Judge stills
    Launch videos may run longer but every scene must still earn its seconds.
 3. **End settled.** Close on a resolved state (result visible, motion parked),
    never mid-action — the loop point should read as intentional.
+   A **how-to** (one flow to one result, for a docs page or a changelog)
+   keeps all three and adds its own: one door, one caption per step in
+   the product's words for the control, the result as the cold open and
+   the last frame, a recap card, measured times only (`how-to.md`).
 
 ## Flow authoring (actions.json)
 
