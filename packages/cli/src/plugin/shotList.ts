@@ -61,6 +61,8 @@ export interface ShotList {
   /** the take's asked length, from the script's own pacing */
   aboutS: number
   setup: number
+  /** The script's teardown steps: what the person undoes once they stop. */
+  teardown?: number
   /**
    * What each other person does (the script's `peers`), as beats tied to
    * the take's own: a second pair of hands, in their own browser, on the
@@ -265,6 +267,7 @@ export function shotList(actions: ActionsFile): ShotList {
     // gestures the recorder adds around each ask: about a second a beat
     aboutS: Math.round((total + beats.length * 1000) / 1000),
     setup: actions.setup?.length ?? 0,
+    ...(actions.teardown?.length ? { teardown: actions.teardown.length } : {}),
     ...(peers.length ? { peers } : {}),
   }
 }
@@ -298,5 +301,9 @@ export function formatShotList(list: ShotList): string {
   out.push(
     'Move at a talking pace, let each screen settle before the next beat, and end on the finished state. Press the icon again to stop; the take opens in the studio and saves to your shelf.',
   )
+  if (list.teardown)
+    out.push(
+      `After you stop: the script's ${list.teardown} teardown step${list.teardown === 1 ? '' : 's'} (remove what the take created) are yours to do; they are not part of the take.`,
+    )
   return out.join('\n')
 }

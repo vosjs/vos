@@ -7,12 +7,13 @@
  * take directory every other verb reads.
  *
  * What travels: the script, the viewport, `--header` values, and the value
- * of every `{ "env": "NAME" }` a setup step reads, taken from THIS shell.
+ * of every `{ "env": "NAME" }` a setup or teardown step reads, taken from
+ * THIS shell.
  * What never travels: a session (`--session`, `--storage-state`), because
  * none of a person's ever reaches vos.so; a page behind a sign-in fails on
  * the fleet in words naming the local ladder, exit 4.
  */
-import { setupEnvNames } from '@vosjs/render-core/record'
+import { scriptEnvNames, setupEnvNames } from '@vosjs/render-core/record'
 import { apiError, apiJson } from './platform'
 import type { ActionsFile } from '@vosjs/render-core/record'
 
@@ -61,14 +62,14 @@ export type HostedRecordOutcome =
 const POLL_MS = 3000
 const DEFAULT_TIMEOUT_MS = 20 * 60 * 1000
 
-/** The env the request carries: every name the setup reads, from this shell. */
+/** The env the request carries: every name the setup and teardown read, from this shell. */
 export function hostedEnv(
   actions: ActionsFile,
   shell: Record<string, string | undefined>,
 ): { env: Record<string, string>; missing: string[] } {
   const env: Record<string, string> = {}
   const missing: string[] = []
-  for (const name of setupEnvNames(actions.setup)) {
+  for (const name of scriptEnvNames(actions)) {
     const v = shell[name]
     if (v === undefined || v === '') missing.push(name)
     else env[name] = v
@@ -77,25 +78,38 @@ export function hostedEnv(
 }
 
 /**
- * The env NAMES a script's setup reads, said before any value is resolved,
- * so a person running a script they did not write sees what it is about to
- * read from their shell. Names only: a value is never printed. Null when
- * the script reads nothing.
+ * Who reads the env, as a sentence's subject and verb: `the setup reads`,
+ * `the teardown reads`, or `the setup and teardown read`.
+ */
+export function envReaders(
+  actions: Pick<ActionsFile, 'setup' | 'teardown'>,
+): string {
+  const setup = setupEnvNames(actions.setup).length > 0
+  const teardown = setupEnvNames(actions.teardown).length > 0
+  if (setup && teardown) return 'the setup and teardown read'
+  return teardown ? 'the teardown reads' : 'the setup reads'
+}
+
+/**
+ * The env NAMES a script's setup and teardown read, said before any value
+ * is resolved, so a person running a script they did not write sees what
+ * it is about to read from their shell. Names only: a value is never
+ * printed. Null when the script reads nothing.
  */
 export function envNamesNotice(
-  actions: Pick<ActionsFile, 'setup'>,
+  actions: Pick<ActionsFile, 'setup' | 'teardown'>,
 ): { names: string[]; line: string } | null {
-  const names = setupEnvNames(actions.setup)
+  const names = scriptEnvNames(actions)
   if (names.length === 0) return null
   return {
     names,
-    line: `the setup reads ${names.length === 1 ? 'this environment variable' : 'these environment variables'} from this shell: ${names.join(', ')} (names only; a value is never printed or stored)`,
+    line: `${envReaders(actions)} ${names.length === 1 ? 'this environment variable' : 'these environment variables'} from this shell: ${names.join(', ')} (names only; a value is never printed or stored)`,
   }
 }
 
 /** Say the names, as a line for a person or an `env` event for a machine. */
 export function announceEnvNames(
-  actions: Pick<ActionsFile, 'setup'>,
+  actions: Pick<ActionsFile, 'setup' | 'teardown'>,
   r: {
     log: (line: string) => void
     event: (obj: Record<string, unknown>) => void
