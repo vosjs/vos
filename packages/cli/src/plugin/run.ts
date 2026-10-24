@@ -74,6 +74,7 @@ import {
   dropScreencastFrames,
   ensureTakeDir,
   loadTake,
+  notePlannedDoc,
   prepareReRecord,
   takePaths,
   writeJson,
@@ -124,6 +125,7 @@ import {
 } from './recordingCap'
 import { encodeRecording } from './encode'
 import { planTake } from './plan'
+import type { PlanSummary } from './plan'
 import { openingBackdrop } from './backdrops'
 import { renderTake } from './renderTake'
 import {
@@ -219,8 +221,9 @@ export const MULTI_FLAGS = new Set([
 export const HELP = `vos — record a browser flow, plan effects, render a product video; sync with vos.so
 
 Take pipeline
-  vos create --actions actions.json [--url <url>] [--out take] [out.webm] [--strict] [--allow-wall] [--keep-frames] [--max-duration <s>] [--ready dom|networkidle] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
-  vos record --actions actions.json [--url <url>] [--out take] [--strict] [--dry-run] [--allow-wall] [--keep-frames] [--max-duration <s>] [--ready dom|networkidle] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [--verbose] [--json]
+  vos create --actions actions.json [--url <url>] [--out take] [--reuse] [out.webm] [--strict] [--allow-wall] [--keep-frames] [--max-duration <s>] [--ready dom|networkidle] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [render flags] [--json]
+  vos record --actions actions.json [--url <url>] [--out take] [--reuse] [--strict] [--dry-run] [--allow-wall] [--keep-frames] [--max-duration <s>] [--ready dom|networkidle] [--storage-state <file>|--session <name>] [--header name=value]... [--confirm <id>]... [--browser-arg=<switch>]... [--background <slug|url|none>] [--verbose] [--json]
+            --reuse, recording again into a take that has a cut: the cut (kept as doc.prev.json) goes onto the new footage as vos plan --reuse does; without it the take is planned fresh and its last line says where the cut is
   vos record --hosted --actions actions.json [--url <url>] [--out take] [--title "…"] [--folder <id>] [--header name=value]... [--json]
             the take recorded on vos.so's fleet (no browser here): lands as a private vos with its doc and digest, then fetched into --out with its media
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions|--captions none] [--clicks none] [--still <t>] [--release v2.1] [--zooms per-beat] [--json]
@@ -909,6 +912,98 @@ async function inSession<T>(
   })
 }
 
+/**
+ * A re-record replaces the FOOTAGE, never the cut. Run by the wall gate,
+ * once the recorder has landed where it was asked: the previous doc.json
+ * survives as doc.prev.json (the reuse base), actions.json and vos.json
+ * stay put, and derived artifacts of the old footage clear.
+ *
+ * `--reuse` applies that cut to the new footage in the same command (what
+ * `vos plan --reuse` does); without it, the take's last line and its done
+ * event say where the cut is and how to apply it, because a note logged
+ * before the take is gone by the time anyone reads the result.
+ */
+export function reRecord(
+  outDir: string,
+  flags: ParsedArgs['flags'],
+  r: { log: (line: string) => void },
+): {
+  prepare: () => Promise<void>
+  plan: (backdrop: Backdrop | null) => Promise<PlanSummary>
+  previousCut: () => string | null
+} {
+  const wantsReuse = flags.reuse === true
+  if (wantsReuse && !existsSync(join(outDir, 'doc.json')))
+    throw new UsageError(
+      `--reuse: ${outDir} has no cut to keep (no doc.json); record without --reuse`,
+    )
+  let previousCut: string | null = null
+  return {
+    prepare: async () => {
+      if (existsSync(join(outDir, 'meta.json'))) {
+        const { prevDoc, kept } = await prepareReRecord(outDir)
+        if (prevDoc) previousCut = join(outDir, PREV_DOC_NAME)
+        r.log(
+          `note: re-recording ${outDir} — kept ${kept.length ? kept.join(', ') : 'nothing'}` +
+            (prevDoc
+              ? wantsReuse
+                ? '; the previous cut goes onto the new footage when it is recorded (--reuse)'
+                : `; the previous cut is ${PREV_DOC_NAME}`
+              : ''),
+        )
+      }
+      await mkdir(outDir, { recursive: true })
+      await ensureTakeDir(outDir)
+    },
+    plan: async (backdrop) => {
+      const from = wantsReuse ? previousCut : null
+      const plan = await planTake(outDir, {
+        backdrop,
+        ...(from
+          ? {
+              reuse: {
+                from,
+                doc: JSON.parse(await readFile(from, 'utf8')) as ProjectDoc,
+              },
+            }
+          : {}),
+      })
+      // A fresh plan is noted, so the next re-record knows it was never
+      // edited and keeps the cut in doc.prev.json; a reused cut IS the cut.
+      if (!from) await notePlannedDoc(outDir)
+      return plan
+    },
+    previousCut: () => previousCut,
+  }
+}
+
+/** What a re-record says after its take about the cut it kept: lines and done-event fields. */
+export function previousCutReport(
+  outDir: string,
+  previousCut: string | null,
+  plan: Pick<PlanSummary, 'reuse'> | null,
+): { line: string; next: string | null; fields: Record<string, unknown> } {
+  if (plan?.reuse) {
+    const s = plan.reuse
+    return {
+      line:
+        `\n  reused ${s.from}: ${s.anchored} anchored + ${s.mapped} mapped span(s)` +
+        (s.flagged.length
+          ? `\n  flagged:\n    ${s.flagged.join('\n    ')}`
+          : ''),
+      next: null,
+      fields: { previousCut: s.from, reuse: s },
+    }
+  }
+  if (!previousCut) return { line: '', next: null, fields: {} }
+  const next = `vos plan ${outDir} --reuse`
+  return {
+    line: `\n  YOUR PREVIOUS CUT is kept in ${previousCut}, not on this footage. Apply it: ${next} (or record with --reuse next time)`,
+    next,
+    fields: { previousCut, next_step: next },
+  }
+}
+
 export async function takeBackdrop(
   flags: ParsedArgs['flags'],
   r: { log: (line: string) => void },
@@ -1130,12 +1225,15 @@ async function cmdRecord(argv: string[]): Promise<number> {
   // finding out. Branches HERE, before the take directory is touched: a
   // re-record moves doc.json aside, and a rehearsal must leave the take
   // exactly as it found it.
+  const cut = reRecord(outDir, flags, r)
   if (flags['dry-run'] === true) {
     // The same command line with --dry-run added must rehearse cleanly, so
     // the take's own flags are read here: a rehearsal is ALWAYS strict (any
-    // miss exits 2) and has no frames to keep, and neither is "ignored".
+    // miss exits 2) and has no frames to keep, and neither is "ignored";
+    // --reuse acts on the take, which a rehearsal never touches.
     void flags.strict
     void flags['keep-frames']
+    void flags.reuse
     const browser = await launchBrowser(browserArgs)
     try {
       r.log('rehearsing (nothing is captured or written)…')
@@ -1235,6 +1333,8 @@ async function cmdRecord(argv: string[]): Promise<number> {
         ...(sessionName ? [`--session ${sessionName}`] : []),
         ...(flags['allow-wall'] === true ? ['--allow-wall'] : []),
         ...confirm.map((c) => `--confirm ${c}`),
+        // A take that already has a cut keeps it on the new footage.
+        ...(existsSync(join(outDir, 'doc.json')) ? ['--reuse'] : []),
       ].join(' ')
       const nextOut = strFlag(flags, 'out') ?? 'take'
       // A guarded step the next command does not name would refuse it: the
@@ -1272,26 +1372,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
     }
   }
 
-  // Run by the wall gate, once the recorder has landed where it was asked.
-  // A re-record replaces the FOOTAGE, never the cut. The previous doc.json
-  // survives as doc.prev.json (the reuse base), actions.json and vos.json
-  // stay put, and derived artifacts of the old footage clear.
   const paths = takePaths(outDir)
-  const prepare = async () => {
-    if (existsSync(join(outDir, 'meta.json'))) {
-      const { prevDoc, kept } = await prepareReRecord(outDir)
-      r.log(
-        `note: re-recording ${outDir} — kept ${kept.length ? kept.join(', ') : 'nothing'}` +
-          (prevDoc
-            ? '; apply the previous cut to the new footage with: vos plan ' +
-              outDir +
-              ' --reuse'
-            : ''),
-      )
-    }
-    await mkdir(outDir, { recursive: true })
-    await ensureTakeDir(outDir)
-  }
 
   const browser = await launchBrowser(browserArgs)
   try {
@@ -1310,7 +1391,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
         onEvent: (e) => r.event(e),
         onArrival: wallGate(flags, r, {
           strict: flags.strict === true,
-          prepare,
+          prepare: cut.prepare,
         }),
       }),
     )
@@ -1321,7 +1402,8 @@ async function cmdRecord(argv: string[]): Promise<number> {
     )
     await releaseFrames(paths, flags, r.log)
     r.event({ event: 'phase', phase: 'plan' })
-    const plan = await planTake(outDir, { backdrop })
+    const plan = await cut.plan(backdrop)
+    const kept = previousCutReport(outDir, cut.previousCut(), plan)
     const clicks = rec.events.filter((e) => e.type === 'down').length
     const strict = flags.strict === true
     const strictFail = strict && strictFails(rec)
@@ -1344,8 +1426,9 @@ async function cmdRecord(argv: string[]): Promise<number> {
           skips: rec.skips,
           outputs: rec.outputs,
           pageErrors: rec.pageErrors,
+          ...kept.fields,
         },
-        `FAILED: ${rec.stopped.reason}.\n  The footage up to it is in ${outDir}.${skippedNote}${stepNote}${navTimeoutNote(rec)}`,
+        `FAILED: ${rec.stopped.reason}.\n  The footage up to it is in ${outDir}.${skippedNote}${stepNote}${navTimeoutNote(rec)}${kept.line}`,
       )
       return EXIT_ERROR
     }
@@ -1379,10 +1462,11 @@ async function cmdRecord(argv: string[]): Promise<number> {
         pageErrors: rec.pageErrors,
         ...(rec.peers.length ? { peers: rec.peers } : {}),
         ...(strictFail ? { strictFailed: true } : {}),
+        ...kept.fields,
       },
       strictFail
-        ? `STRICT: take recorded but incomplete — ${strictReason(rec)}; fix the flow and re-record.${skippedNote}${stepNote}${navTimeoutNote(rec)}${exposureNote(rec)}${noticeNote(rec)}`
-        : `Take ready: ${outDir}\n  ${(rec.meta.durationMs / 1000).toFixed(1)}s · ${rec.frames.length} frames · ${rec.events.length} cursor events · ${clicks} clicks · ${plan.doc.zoom.length} zoom spans planned · ${rec.freezePct}% frozen · ${rec.dead.pct}% dead${deadWarns(rec.dead) ? ' ⚠ ' + deadLine(rec.dead) : ''}${skippedNote}${stepNote}${navTimeoutNote(rec)}${pageSoundNote(rec)}\n  Next: edit ${join(outDir, 'doc.json')} (optional), then: vos render ${outDir}${exposureNote(rec)}${noticeNote(rec)}`,
+        ? `STRICT: take recorded but incomplete — ${strictReason(rec)}; fix the flow and re-record.${skippedNote}${stepNote}${navTimeoutNote(rec)}${kept.line}${exposureNote(rec)}${noticeNote(rec)}`
+        : `Take ready: ${outDir}\n  ${(rec.meta.durationMs / 1000).toFixed(1)}s · ${rec.frames.length} frames · ${rec.events.length} cursor events · ${clicks} clicks · ${plan.doc.zoom.length} zoom spans planned · ${rec.freezePct}% frozen · ${rec.dead.pct}% dead${deadWarns(rec.dead) ? ' ⚠ ' + deadLine(rec.dead) : ''}${skippedNote}${stepNote}${navTimeoutNote(rec)}${pageSoundNote(rec)}${kept.line}\n  Next: ${kept.next ? `${kept.next}, then` : `edit ${join(outDir, 'doc.json')} (optional), then:`} vos render ${outDir}${exposureNote(rec)}${noticeNote(rec)}`,
     )
     return strictFail ? EXIT_USAGE : EXIT_OK
   } finally {
@@ -1433,26 +1517,8 @@ async function cmdCreate(argv: string[]): Promise<number> {
   const headers = takeHeaders(multi)
   const confirm = takeConfirm(multi, actions, { dryRun: false, r })
 
-  // Run by the wall gate, once the recorder has landed where it was asked.
-  // A re-record replaces the FOOTAGE, never the cut. The previous doc.json
-  // survives as doc.prev.json (the reuse base), actions.json and vos.json
-  // stay put, and derived artifacts of the old footage clear.
   const paths = takePaths(outDir)
-  const prepare = async () => {
-    if (existsSync(join(outDir, 'meta.json'))) {
-      const { prevDoc, kept } = await prepareReRecord(outDir)
-      r.log(
-        `note: re-recording ${outDir} — kept ${kept.length ? kept.join(', ') : 'nothing'}` +
-          (prevDoc
-            ? '; apply the previous cut to the new footage with: vos plan ' +
-              outDir +
-              ' --reuse'
-            : ''),
-      )
-    }
-    await mkdir(outDir, { recursive: true })
-    await ensureTakeDir(outDir)
-  }
+  const cut = reRecord(outDir, flags, r)
 
   const browser = await launchBrowser(browserArgs)
   try {
@@ -1471,7 +1537,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
         onEvent: (e) => r.event(e),
         onArrival: wallGate(flags, r, {
           strict: flags.strict === true,
-          prepare,
+          prepare: cut.prepare,
         }),
       }),
     )
@@ -1482,7 +1548,8 @@ async function cmdCreate(argv: string[]): Promise<number> {
     )
     await releaseFrames(paths, flags, r.log)
     r.event({ event: 'phase', phase: 'plan' })
-    await planTake(outDir, { backdrop })
+    const plan = await cut.plan(backdrop)
+    const kept = previousCutReport(outDir, cut.previousCut(), plan)
 
     // An await that gave up stopped the take: nothing is rendered.
     if (rec.stopped) {
@@ -1493,8 +1560,9 @@ async function cmdCreate(argv: string[]): Promise<number> {
           stopped: rec.stopped,
           skipped: rec.skipped,
           rendered: false,
+          ...kept.fields,
         },
-        `FAILED: ${rec.stopped.reason}. NOT rendering; the footage up to it is in ${outDir}.`,
+        `FAILED: ${rec.stopped.reason}. NOT rendering; the footage up to it is in ${outDir}.${kept.line}`,
       )
       return EXIT_ERROR
     }
@@ -1510,8 +1578,9 @@ async function cmdCreate(argv: string[]): Promise<number> {
           capped: rec.capped,
           strictFailed: true,
           rendered: false,
+          ...kept.fields,
         },
-        `STRICT: take recorded but incomplete — ${strictReason(rec)}; NOT rendering. Fix the flow and re-run, or render the partial take with: vos render ${outDir}`,
+        `STRICT: take recorded but incomplete — ${strictReason(rec)}; NOT rendering. Fix the flow and re-run, or render the partial take with: vos render ${outDir}${kept.line}`,
       )
       return EXIT_USAGE
     }
@@ -1562,8 +1631,9 @@ async function cmdCreate(argv: string[]): Promise<number> {
         overruns: rec.overruns,
         pageErrors: rec.pageErrors,
         ...(flags.draft === true ? { draft: true } : {}),
+        ...kept.fields,
       },
-      `Created ${result.out} (${(result.bytes / 1024).toFixed(0)} KB, ${result.width}x${result.height}@${result.fps}, ${result.duration.toFixed(1)}s, ${result.zoomSpans} zoom spans, ${result.clicks} click effects${result.audio ? ', audio' : ''}${flags.draft === true ? ', DRAFT' : ''})\n  take: ${outDir} — inspect with: vos frames ${outDir} --at-zooms; edit doc.json and re-render with: vos render ${outDir}${stepReportNote(rec)}${navTimeoutNote(rec)}${exposureNote(rec)}${noticeNote(rec)}`,
+      `Created ${result.out} (${(result.bytes / 1024).toFixed(0)} KB, ${result.width}x${result.height}@${result.fps}, ${result.duration.toFixed(1)}s, ${result.zoomSpans} zoom spans, ${result.clicks} click effects${result.audio ? ', audio' : ''}${flags.draft === true ? ', DRAFT' : ''})\n  take: ${outDir} — inspect with: vos frames ${outDir} --at-zooms; edit doc.json and re-render with: vos render ${outDir}${stepReportNote(rec)}${navTimeoutNote(rec)}${kept.line}${exposureNote(rec)}${noticeNote(rec)}`,
     )
     return EXIT_OK
   } finally {

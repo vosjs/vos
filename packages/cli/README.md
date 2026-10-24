@@ -88,8 +88,7 @@ vos open take                                           # hand the take to the s
 When the product ships again, re-record the same script and keep the cut:
 
 ```bash
-vos record --actions actions.json --out take --strict   # footage replaced; the previous cut survives as doc.prev.json
-vos plan take --reuse                                   # re-time that cut onto the new recording; what could not follow is named
+vos record --actions actions.json --out take --strict --reuse   # footage replaced, the cut re-timed onto it; what could not follow is named
 ```
 
 Every manual span follows the step it was made on (the gesture whose window held it, or the one just before it), keeping its offset exactly; a span whose step is missing or skipped in the new recording is dropped and named with what it framed, never re-timed to a place with nothing under it. A layer pinned to a step (`pin: { step }`) plays when that step plays in the new cut; a layer that is not pinned keeps its output second, and when the step under it moved the report names it with the step's new time and the pin to write. A take fetched from vos.so can be recorded again: the script rides the document and `vos fetch --media` writes it back as `actions.json`.
@@ -261,7 +260,9 @@ take/
   meta.json        RecordingMeta (producer: "cli", per-step source extents)
   actions.json     the script that produced it, with the resolved url; pushed inside the document and written back by a fetch or pull with --media
   doc.json         ProjectDoc, the editable cut
-  doc.prev.json    the previous cut, kept by a re-record for `vos plan --reuse`
+  doc.prev.json    the previous cut, kept by a re-record for `--reuse`
+  .doc-planned     the hash of the plan the last recording wrote, so a re-record
+                   knows an unedited doc.json from a cut
   join.json        a joined take's inputs: each one's path, footage sha256 and media id, read by `vos join --keep-edits`
   outputs/         the files `download` steps kept, listed in meta.json's outputs
   page-sound/      the sound the page played during the take, listed in meta.json's media
@@ -279,7 +280,7 @@ claimed. Every verb resolves the name, and a push declares the container it
 finds in the bytes, so a file never reaches vos.so under the wrong type.
 `vos validate <take>` warns when an existing take holds one that does.
 
-A re-record replaces the footage, the cursor track, the frames, `outputs/` and everything derived from them, moves `doc.json` to `doc.prev.json`, and keeps `actions.json` and `vos.json`.
+A re-record replaces the footage, the cursor track, the frames, `outputs/` and everything derived from them, moves `doc.json` to `doc.prev.json`, and keeps `actions.json` and `vos.json`. With `--reuse` the cut goes onto the new footage in the same command (what `vos plan <take> --reuse` does afterwards); without it the take is planned fresh, and its last line and its done event (`previousCut`, `next_step`) say where the cut is and how to apply it. A plan nobody edited never takes the cut's place: recording again over a take whose `doc.json` is still the plan its recording wrote keeps the cut already in `doc.prev.json`.
 
 ## actions.json
 

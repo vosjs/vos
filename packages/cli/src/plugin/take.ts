@@ -9,6 +9,7 @@
  *     actions.json     the script that produced it (replay recipe)
  *     doc.json         ProjectDoc — the agent-editable surface
  */
+import { createHash } from 'node:crypto'
 import { mkdir, readFile, rename, rm } from 'node:fs/promises'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { writeFileSafe } from './safeWrite'
@@ -50,6 +51,37 @@ export function takeMediaFile(
 
 /** The previous cut, preserved by a re-record. */
 export const PREV_DOC_NAME = 'doc.prev.json'
+/**
+ * The hash of the doc.json a recording planned, beside the take. A doc.json
+ * that still matches it was never edited, so a re-record keeps the cut
+ * already in doc.prev.json instead of putting that plan over it.
+ */
+export const PLANNED_HASH_NAME = '.doc-planned'
+
+const sha256 = (text: string): string =>
+  createHash('sha256').update(text).digest('hex')
+
+/** Note the doc.json a recording just planned (see PLANNED_HASH_NAME). */
+export async function notePlannedDoc(dir: string): Promise<void> {
+  const doc = takePaths(dir).doc
+  if (!existsSync(doc)) return
+  await writeFileSafe(
+    join(dir, PLANNED_HASH_NAME),
+    sha256(await readFile(doc, 'utf8')),
+  )
+}
+
+/** Is the take's doc.json exactly the plan its recording wrote? */
+async function docIsUntouchedPlan(dir: string): Promise<boolean> {
+  const mark = join(dir, PLANNED_HASH_NAME)
+  const doc = takePaths(dir).doc
+  if (!existsSync(mark) || !existsSync(doc)) return false
+  const [want, have] = await Promise.all([
+    readFile(mark, 'utf8'),
+    readFile(doc, 'utf8'),
+  ])
+  return want.trim() === sha256(have)
+}
 
 export interface TakePaths {
   dir: string
@@ -129,11 +161,19 @@ export async function prepareReRecord(
   const p = takePaths(dir)
   const kept: string[] = []
   let prevDoc = false
-  if (existsSync(p.doc)) {
-    await rename(p.doc, join(dir, PREV_DOC_NAME))
+  const prevPath = join(dir, PREV_DOC_NAME)
+  if (existsSync(prevPath) && (await docIsUntouchedPlan(dir))) {
+    // The last recording's plan was never edited: the cut a person or an
+    // agent made is still the one in doc.prev.json, and it stays there.
+    await rm(p.doc, { force: true })
+    prevDoc = true
+    kept.push(PREV_DOC_NAME)
+  } else if (existsSync(p.doc)) {
+    await rename(p.doc, prevPath)
     prevDoc = true
     kept.push(PREV_DOC_NAME)
   }
+  await rm(join(dir, PLANNED_HASH_NAME), { force: true })
   if (existsSync(p.actions)) kept.push('actions.json')
   if (existsSync(join(dir, 'vos.json'))) kept.push('vos.json')
   for (const stale of [
