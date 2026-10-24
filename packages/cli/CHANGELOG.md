@@ -1,5 +1,22 @@
 # @vosjs/cli
 
+## 0.81.0
+
+### Minor Changes
+
+- e6564af: `cursor.off: [{ in, out? }]` hides the drawn cursor over ranges of output seconds (an absent `out` runs to the end of the film), with a short fade at each edge; `vos plan` hides it under the end card, and `vos validate` checks the ranges.
+- d23f523: `vos record --reuse` (and `vos create --reuse`) records again into a take and puts its cut onto the new footage in the same command. Without it, a re-record's last line and done event (`previousCut`, `next_step`) say where the kept cut is and how to apply it, a rehearsal of a take with a cut suggests `--reuse`, and recording again over a plan nobody edited keeps the cut already in `doc.prev.json` instead of replacing it. A reused cut keeps its end card and any layer after the footage at the new footage's end.
+- 62e5c71: `vos session exec <name> <script.mjs>` runs your own Playwright code inside a saved session, opened the way every vos verb opens it, so a script never launches the profile itself: a browser that cannot decrypt its cookies (Playwright's bundled one, a mock keychain) signs the session out for good. `vos session check` now names that as a cause when a session no longer opens signed in.
+- d88ea2f: `teardown` steps in actions.json: the setup's verbs, run off camera after a take or a rehearsal (and when a take stops early or throws) to remove what the take created; a failing teardown is reported on the done event and in words, and never fails the take.
+
+### Patch Changes
+
+- ff296c6: Captions from `vos plan --motion` and `--captions steps` never overlap: each gives way to the next and leaves before its clip (and the end card) begins, and a caption with too little room to be read is dropped and named in the plan's skipped list instead of sharing the screen.
+- Updated dependencies [e6564af]
+- Updated dependencies [d88ea2f]
+  - @vosjs/studio-core@0.46.0
+  - @vosjs/render-core@0.10.0
+
 ## 0.80.0
 
 ### Minor Changes

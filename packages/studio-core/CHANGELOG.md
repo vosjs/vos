@@ -1,5 +1,11 @@
 # @vosjs/studio-core
 
+## 0.46.0
+
+### Minor Changes
+
+- e6564af: `cursor.off: [{ in, out? }]` hides the drawn cursor over ranges of output seconds (an absent `out` runs to the end of the film), with a short fade at each edge; `vos plan` hides it under the end card, and `vos validate` checks the ranges.
+
 ## 0.45.2
 
 ### Patch Changes
