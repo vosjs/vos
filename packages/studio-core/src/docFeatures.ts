@@ -188,6 +188,17 @@ export const DOC_FEATURES: readonly DocFeature[] = [
         ? doc.segments.filter((s) => s && s.camera === 'rest').length
         : 0,
   },
+  {
+    id: 'cursor-off',
+    since: '0.46.0',
+    name: 'cursor-off ranges',
+    before: 'would draw the cursor through them',
+    // Nothing older can hide the cursor by time, so there is no bake.
+    uses: (doc) =>
+      isRecordingDoc(doc) && doc.cursor && Array.isArray(doc.cursor.off)
+        ? doc.cursor.off.length
+        : 0,
+  },
 ]
 
 /** `a` against `b` as releases (`x.y.z`; a pre-release tag is ignored): -1, 0 or 1. */

@@ -335,4 +335,14 @@ describe('planTake', () => {
     )
     expect(s.doc.frame.anim?.exit).toEqual({ kind: 'recede', seconds: 2.5 })
   })
+
+  it('--reuse carries the cursor-off ranges at their output times', async () => {
+    const dir = await makeTake()
+    const prev = (await planTake(dir)).doc
+    prev.cursor = { ...prev.cursor, off: [{ in: 1, out: 2 }, { in: 4 }] }
+    const s = await planTake(await makeTake(), {
+      reuse: { from: 'prev', doc: prev },
+    })
+    expect(s.doc.cursor.off).toEqual([{ in: 1, out: 2 }, { in: 4 }])
+  })
 })

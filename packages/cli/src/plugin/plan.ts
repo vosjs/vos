@@ -319,6 +319,10 @@ export async function planTake(
     // author's choice: it carries as it is.
     if (prev.still !== undefined) doc.still = prev.still
     if (opts.still != null) doc.still = opts.still
+    // So are the ranges the cursor is off: they carry at their output
+    // times, like an unpinned layer (a style copy never carries them).
+    if (prev.cursor?.off?.length)
+      doc.cursor = { ...doc.cursor, off: structuredClone(prev.cursor.off) }
     await writeJson(take.paths.doc, doc, true)
     return {
       doc,

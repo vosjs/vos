@@ -237,6 +237,26 @@ const outputLength = (doc: ProjectDoc) =>
     return acc + (s.out - s.in) / rate
   }, 0)
 
+/**
+ * The end card's cursor-off range: the drawn cursor leaves where the card
+ * begins and stays off to the end of the film, so it never sits under the
+ * card's words. Stamped `from: 'endcard'`, it replaces an earlier one and
+ * goes wherever the end card goes; a person's own ranges are kept.
+ */
+function withEndCardCursorOff(doc: ProjectDoc, start: number): ProjectDoc {
+  const own = (doc.cursor.off ?? []).filter((r) => r.from !== END_CARD_FROM)
+  return {
+    ...doc,
+    cursor: {
+      ...doc.cursor,
+      off: [
+        ...own,
+        { in: +Math.max(0, start).toFixed(3), from: END_CARD_FROM },
+      ],
+    },
+  }
+}
+
 /** Where a template lands: the studio-core anchor, or a recorded step's settle. */
 export type MotionAnchor = TemplateAnchor | { step: string }
 
@@ -369,6 +389,7 @@ export function proposeMotion(
       skipped.push(`${t.from}: ${anchorWord(t.at)} was not recorded`)
       continue
     }
+    const before = outputLength(doc)
     const applied = applyTemplate(t.doc, doc, {
       at,
       from: t.from,
@@ -376,6 +397,15 @@ export function proposeMotion(
       keys,
     })
     doc = applied.doc
+    if (t.from === END_CARD_FROM) {
+      // The cursor leaves where the moving footage ends, as under the
+      // house card, or where the card's first clip begins if that is
+      // sooner.
+      const starts = (doc.overlays ?? [])
+        .filter((o) => o.from === END_CARD_FROM && o.start !== undefined)
+        .map((o) => o.start as number)
+      doc = withEndCardCursorOff(doc, Math.min(before, ...starts))
+    }
     notes.push(`${t.from} at ${anchorWord(t.at)}`)
     for (const n of applied.notes) skipped.push(`${t.from}: ${n}`)
   }
@@ -441,6 +471,7 @@ export function proposeMotion(
         ...(doc.frame.anim ?? {}),
         exit: { kind: 'recede', seconds: END_CARD_SECONDS },
       }
+      doc = withEndCardCursorOff(doc, endStart)
       notes.push('end card')
     } else {
       skipped.push(
@@ -544,7 +575,9 @@ export function proposeMotion(
  */
 export function destinationMechanics(
   d: Pick<Destination, 'id' | 'px' | 'text'>,
-  doc: Pick<ProjectDoc, 'overlays' | 'freeze'>,
+  doc: Pick<ProjectDoc, 'overlays' | 'freeze'> & {
+    cursor?: Pick<ProjectDoc['cursor'], 'off'>
+  },
 ): { set: string[]; unset: string[]; notes: string[] } {
   const set: string[] = []
   const unset: string[] = []
@@ -576,10 +609,16 @@ export function destinationMechanics(
     }
   }
   if (loop) {
-    // The freeze a template placed under its clips goes with the clips.
+    // The freeze a template placed under its clips goes with the clips,
+    // and so does the cursor-off range it placed (it would blink the
+    // cursor out at the wrap).
     const keptFreezes = (doc.freeze ?? []).filter((f) => !f.from)
     if (keptFreezes.length !== (doc.freeze ?? []).length)
       set.push(`freeze=${JSON.stringify(keptFreezes)}`)
+    const off = doc.cursor?.off ?? []
+    const keptOff = off.filter((r) => !r.from)
+    if (keptOff.length !== off.length)
+      set.push(`cursor.off=${JSON.stringify(keptOff)}`)
   }
   if (portrait) {
     // The vertical cut is a reframe, not a letterbox: the card is the tall

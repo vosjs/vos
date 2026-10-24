@@ -6,6 +6,7 @@ import {
 } from '../htmlLayer'
 import { OVERLAY_FONT_FACES } from '../overlayText'
 import { textLayoutCode } from '../richText/layoutCode'
+import { CURSOR_OFF_CODE } from './cursorOff'
 import { CARD_FOV, CARD_Z } from '../stage'
 import {
   LAYER_CARD_SHADOW,
@@ -464,6 +465,8 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
   var TL = globalThis.__vosTimeline
   var t = ctx.time || 0
   var s = H / 1080 // scale design-px controls to comp px
+  // The take's cursor-off ranges (a layer card's cursor reads them at t).
+  ${CURSOR_OFF_CODE}
   var ns = window.__vos__ || {}
   var playing = ns.isPaused === false
   // The styled-text layout (the engine's text/layout.ts, generated), installed once:
@@ -1532,10 +1535,14 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
         }
         var lcPts = lcCu.pts, lcPX = lcPts[0].x, lcPY = lcPts[0].y
         for (var lcp = 0; lcp < lcPts.length; lcp++) { if (lcPts[lcp].t <= lcT) { lcPX = lcPts[lcp].x; lcPY = lcPts[lcp].y } }
-        lcX.save()
-        lcX.fillStyle = 'rgba(255,255,255,0.95)'; lcX.strokeStyle = 'rgba(0,0,0,0.4)'; lcX.lineWidth = 2 * lcS
-        lcX.beginPath(); lcX.arc(lcX0 + (lcPX / (lcSp.w || lcNW)) * lcW, lcMY + (lcPY / (lcSp.h || lcNH)) * lcMH, lcSize, 0, Math.PI * 2); lcX.fill(); lcX.stroke()
-        lcX.restore()
+        // the take's cursor-off ranges, at OUTPUT time like the primary's
+        var lcOffA = cxoAlpha(lcCu.off, t)
+        if (lcOffA > 0.01) {
+          lcX.save()
+          lcX.fillStyle = 'rgba(255,255,255,' + (0.95 * lcOffA) + ')'; lcX.strokeStyle = 'rgba(0,0,0,' + (0.4 * lcOffA) + ')'; lcX.lineWidth = 2 * lcS
+          lcX.beginPath(); lcX.arc(lcX0 + (lcPX / (lcSp.w || lcNW)) * lcW, lcMY + (lcPY / (lcSp.h || lcNH)) * lcMH, lcSize, 0, Math.PI * 2); lcX.fill(); lcX.stroke()
+          lcX.restore()
+        }
       }
       lcX.restore()
       if (lcO.border && lcO.border.width > 0) {

@@ -325,6 +325,40 @@ describe('the card painter on its own plane', () => {
     expect((h.group.children[0] as MeshStub).visible).toBe(false)
   })
 
+  it("the layer's cursor dot honours the take's cursor-off ranges, at output time", () => {
+    const arcsAt = (
+      off: { in: number; out?: number }[] | undefined,
+      t: number,
+    ) => {
+      const h = harness(
+        doc({
+          cursor: { ...DEFAULT_CURSOR_STYLE, ...(off ? { off } : {}) },
+          overlays: [layer({ frame: { browserBar: { kind: 'mac-light' } } })],
+        }),
+      )
+      h.frame(t)
+      return h.calls.filter((c) => c === 'arc').length
+    }
+    // the facts carry the ranges only when there are any
+    const facts = (off?: { in: number }[]) =>
+      (
+        lowerToComposition(
+          doc({
+            cursor: { ...DEFAULT_CURSOR_STYLE, ...(off ? { off } : {}) },
+            overlays: [layer({ frame: {} })],
+          }),
+        ).stack[STUDIO_ENTRY_ID].overlays as { cur: Record<string, unknown> }[]
+      )[0].cur
+    expect('off' in facts()).toBe(false)
+    expect('off' in facts([])).toBe(false)
+    expect(facts([{ in: 2 }]).off).toEqual([{ in: 2 }])
+    // output 2 is clip-local 1: a range over output 1.5..2.5 takes the
+    // dot (one arc) and leaves the click ring
+    const shown = arcsAt(undefined, 2)
+    expect(arcsAt([{ in: 1.5, out: 2.5 }], 2)).toBe(shown - 1)
+    expect(arcsAt([{ in: 3, out: 4 }], 2)).toBe(shown)
+  })
+
   it('a flat layer never makes a plane', () => {
     const h = harness(doc({ overlays: [layer()] }))
     h.frame(2)

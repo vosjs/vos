@@ -583,6 +583,7 @@ export {
   cursorIdleFade,
 } from './lower/cursorIdle'
 export type { CursorFadeKey, CursorIdleOptions } from './lower/cursorIdle'
+export { CURSOR_OFF_FADE, cursorOffAlpha } from './lower/cursorOff'
 export {
   CLICK_FX_PRE,
   CLICK_HIGHLIGHT_FADE,

@@ -51,7 +51,11 @@ export const STYLE_EXPORT_KEYS = [
   'format',
 ] as const satisfies readonly (keyof ProjectDoc['export'])[]
 
-/** The style fields present on a doc, deep-cloned. */
+/**
+ * The style fields present on a doc, deep-cloned. The cursor's `off`
+ * ranges are left out: they are moments of one cut (output seconds), never
+ * a look another take can wear.
+ */
 export function pickStyle(
   doc: ProjectDoc,
 ): Partial<Pick<ProjectDoc, StyleField>> {
@@ -60,6 +64,7 @@ export function pickStyle(
     const v: unknown = doc[k]
     if (v !== undefined) out[k] = structuredClone(v)
   }
+  if (out.cursor) delete (out.cursor as { off?: unknown }).off
   return out as Partial<Pick<ProjectDoc, StyleField>>
 }
 
@@ -103,6 +108,11 @@ export function copyStyle(
     }
     next.export = merged
   }
+  // The target's own cursor-off ranges stay with its cut, under the
+  // seed's cursor style.
+  const ownOff = to.cursor?.off
+  if (ownOff && next.cursor)
+    next.cursor = { ...(next.cursor as object), off: structuredClone(ownOff) }
   const styled = next as unknown as ProjectDoc
   return opts.layout
     ? copyLayout(from, styled, { keys: opts.keys }).doc
@@ -371,18 +381,22 @@ export function clipsFrom(
 }
 
 /**
- * The document without the clips a template placed. The card's `anim` is
- * the card's own once set, so it stays; a caller that wants the card still
- * clears it. Returns the same object when nothing came from `from`.
+ * The document without the clips a template placed, its freezes, and the
+ * cursor-off ranges stamped with the same `from`. The card's `anim` is the
+ * card's own once set, so it stays; a caller that wants the card still
+ * clears it. A range a person wrote (no `from`) is never touched. Returns
+ * the same object when nothing came from `from`.
  */
 export function dropTemplate(doc: ProjectDoc, from: string): ProjectDoc {
   const has = clipsFrom(doc, from)
   const freezes = (doc.freeze ?? []).some((f) => f.from === from)
+  const cursorOff = (doc.cursor?.off ?? []).some((r) => r?.from === from)
   if (
     !has.overlays.length &&
     !has.objects.length &&
     !has.audio.length &&
-    !freezes
+    !freezes &&
+    !cursorOff
   )
     return doc
   const out: ProjectDoc = { ...doc }
@@ -390,6 +404,11 @@ export function dropTemplate(doc: ProjectDoc, from: string): ProjectDoc {
   if (doc.objects) out.objects = doc.objects.filter((o) => o.from !== from)
   out.audio = doc.audio.filter((a) => a.from !== from)
   if (doc.freeze) out.freeze = doc.freeze.filter((f) => f.from !== from)
+  if (cursorOff) {
+    const off = (doc.cursor.off ?? []).filter((r) => r?.from !== from)
+    const { off: _off, ...cursor } = doc.cursor
+    out.cursor = off.length ? { ...cursor, off } : cursor
+  }
   return out
 }
 

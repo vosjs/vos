@@ -672,6 +672,58 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
           )
       }
     }
+    // --- cursor-off ranges: OUTPUT seconds, an absent out runs to the end;
+    // overlapping ranges read as their union, so overlap is no finding ---
+    const cursorStyle = isObj(doc.cursor) ? doc.cursor : {}
+    if (recording && cursorStyle.off !== undefined) {
+      const off = cursorStyle.off
+      if (!Array.isArray(off)) {
+        problems.push(
+          'cursor.off must be an array of { in, out?, from? } ranges (OUTPUT seconds)',
+        )
+      } else {
+        let end: number | null = null
+        const filmEnd = (): number => {
+          if (end === null) {
+            const rated = ratedSegments(doc as unknown as ProjectDoc)
+            end = outputEnd(
+              resolveOverlayAnchors(doc as unknown as ProjectDoc, rated),
+              rated.reduce((a, s) => a + (s.out - s.in) / (s.rate ?? 1), 0),
+            )
+          }
+          return end
+        }
+        for (const [i, raw] of (off as unknown[]).entries()) {
+          const name = `cursor.off[${i}]`
+          if (!isObj(raw)) {
+            problems.push(
+              `${name} must be an object { in, out?, from? } (OUTPUT seconds)`,
+            )
+            continue
+          }
+          for (const k of Object.keys(raw))
+            if (k !== 'in' && k !== 'out' && k !== 'from')
+              problems.push(`${name}.${k}: not a range field (in, out, from)`)
+          lintFrom(name, raw.from, problems)
+          if (!isNum(raw.in) || raw.in < 0) {
+            problems.push(
+              `${name}.in=${String(raw.in)} must be a number ≥ 0 (OUTPUT seconds)`,
+            )
+            continue
+          }
+          if (raw.out !== undefined && (!isNum(raw.out) || raw.out <= raw.in)) {
+            problems.push(
+              `${name}.out=${String(raw.out)} must be a number past in (${raw.in}s); leave it out to hide the cursor to the end of the film`,
+            )
+            continue
+          }
+          if (raw.in > filmEnd() + 1e-6)
+            warnings.push(
+              `${name} starts at ${raw.in}s, past the film's end (${filmEnd().toFixed(2)}s): it hides nothing`,
+            )
+        }
+      }
+    }
     // --- freezes and the end card: a freeze is output seconds, never long ---
     for (const [i, seg] of (Array.isArray(doc.segments)
       ? (doc.segments as unknown[])

@@ -449,6 +449,12 @@ describe('ON_FRAME across a boundary', () => {
     expect(run.calls.filter((k) => k === 'arc').length).toBe(1)
   })
 
+  it('a cursor-off range hides the dot across the boundary too', () => {
+    const d = push()
+    d.cursor = { ...d.cursor, off: [{ in: 4, out: 5 }] }
+    expect(runFrame(d, 4.3).calls.filter((k) => k === 'arc').length).toBe(0)
+  })
+
   it('outside the window there is one card, at rest, and no ghost', () => {
     const run = runFrame(push(), 5.5)
     expect(run.b.drawn).toBe(1)

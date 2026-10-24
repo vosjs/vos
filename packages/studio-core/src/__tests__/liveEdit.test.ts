@@ -174,6 +174,13 @@ const EDITS: [string, ProjectDoc][] = [
   // --- Cursor --------------------------------------------------------------
   ['cursor hidden', { ...base, cursor: { ...base.cursor, visible: false } }],
   ['cursor size', { ...base, cursor: { ...base.cursor, size: 40 } }],
+  [
+    'cursor off over a range',
+    {
+      ...base,
+      cursor: { ...base.cursor, off: [{ in: 1, out: 2 }, { in: 2.5 }] },
+    },
+  ],
   ['cursor smoothing', { ...base, cursor: { ...base.cursor, smoothing: 0.6 } }],
   [
     'cursor hide-when-idle',

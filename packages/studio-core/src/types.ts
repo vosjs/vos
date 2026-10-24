@@ -807,6 +807,29 @@ export interface CursorStyle {
   style: 'default' | 'dot' | 'ring' | 'arrow'
   hideWhenIdle: boolean
   clickFx: ClickFxStyle
+  /**
+   * Time ranges in which the drawn cursor is off, in OUTPUT seconds (the
+   * timeline the viewer sees, like overlays: a hide stays where it was put
+   * through trims and speed changes). The track still drives cursor-follow
+   * zoom and click effects, as with `visible: false`. The dot fades out over
+   * a short beat before `in` and back in after `out`, so the range itself is
+   * fully hidden. Overlapping ranges read as their union. Absent = the cursor
+   * is never hidden by time.
+   */
+  off?: CursorOff[]
+}
+
+/**
+ * One range in which the drawn cursor is hidden (`CursorStyle.off`), in
+ * OUTPUT seconds. An absent `out` hides it to the end of the film. `from`
+ * marks a range something else placed (`'endcard'`: the end card's), which
+ * that thing replaces or removes on its next pass; a range without one is a
+ * person's and is never touched by a re-plan.
+ */
+export interface CursorOff {
+  in: number
+  out?: number
+  from?: string
 }
 
 /**

@@ -254,6 +254,20 @@ describe('copyStyle', () => {
     expect(next.frame).not.toBe(from.frame) // cloned
   })
 
+  it("never carries the seed's cursor-off ranges, and keeps the target's", () => {
+    const from = doc()
+    from.cursor = { ...from.cursor, size: 40, off: [{ in: 3, out: 4 }] }
+    expect(pickStyle(from).cursor).not.toHaveProperty('off')
+    const to = doc()
+    expect(copyStyle(from, to).cursor).toEqual({ ...to.cursor, size: 40 })
+    to.cursor = { ...to.cursor, off: [{ in: 9 }] }
+    expect(copyStyle(from, to).cursor).toEqual({
+      ...from.cursor,
+      off: [{ in: 9 }],
+    })
+    expect(from.cursor.off).toEqual([{ in: 3, out: 4 }]) // pure
+  })
+
   it('carries the export TASTE but leaves the target its own resolution', () => {
     const from = doc()
     from.export = { resolution: '720p', fps: 60, format: 'mp4' }

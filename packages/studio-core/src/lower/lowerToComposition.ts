@@ -116,6 +116,7 @@ import { followFocusEvents } from './cursorFollow'
 import { pinPlacement, pinReferent } from './pin'
 import { layerStart, placedOverlays, resolveOverlayAnchors } from './anchor'
 import { cursorIdleFade } from './cursorIdle'
+import { CURSOR_OFF_CODE } from './cursorOff'
 import {
   cameraRestWindows,
   cameraSpanExtents,
@@ -2234,6 +2235,11 @@ const ON_FRAME = `(ctx, content, dt) => {
     }
     cc.restore()
   }
+  // The ranges the cursor is off (cursorStyle.off), read at OUTPUT time:
+  // one factor for every place the dot is drawn below (the card, any media
+  // it plays, the dot across a boundary). 1 when nothing is off.
+  ${CURSOR_OFF_CODE}
+  var cxoF = cxoAlpha(d.cursorStyle && d.cursorStyle.off, t)
 
   // The card paints in PASSES: the ghost first (the outgoing clip's last
   // frame on its own canvas, while a boundary is crossing), then the live
@@ -2725,7 +2731,8 @@ const ON_FRAME = `(ctx, content, dt) => {
   // cursor (SOURCE-anchored samples, read at the on-screen source moment).
   // The dot is the only thing cursorStyle.visible hides — the track still drives
   // cursor-follow zoom, and click effects draw above on their own switch.
-  // Undefined reads as visible so pre-toggle docs are unchanged.
+  // Undefined reads as visible so pre-toggle docs are unchanged. The ranges
+  // in cursorStyle.off hide the dot the same way, by time (cxoF).
   var cur = (actM ? actM.cursor : d.cursor) || []
   if (cur.length && !(d.cursorStyle && d.cursorStyle.visible === false)) {
     var px = cur[0].x, py = cur[0].y
@@ -2760,8 +2767,8 @@ const ON_FRAME = `(ctx, content, dt) => {
       }
       if (tpG) trQa = [tqX, tqY]
       else { trQb = [tqX, tqY]; trQs = curSize * ckPress; trQw = s2 }
-    } else if (cuA > 0.01) {
-      drawCur(c, ax, ay, curSize * ckPress, cuA, 2 * s2)
+    } else if (cuA * cxoF > 0.01) {
+      drawCur(c, ax, ay, curSize * ckPress, cuA * cxoF, 2 * s2)
     }
   }
   if (fitCover) c.restore()
@@ -2923,7 +2930,7 @@ const ON_FRAME = `(ctx, content, dt) => {
       tqX2 = tqOut ? tqAx : tqBx; tqY2 = tqOut ? tqAy : tqBy
     }
     var tqR = trQs || (((d.cursorStyle && d.cursorStyle.size) || 24) * s * 0.5)
-    if (tqOn) drawCur(ovC, tqX2, tqY2, tqR, 1, 2 * (trQw || s))
+    if (tqOn && cxoF > 0.01) drawCur(ovC, tqX2, tqY2, tqR, cxoF, 2 * (trQw || s))
   }
   ov.sig = ovSig
   ov.active = camActiveNow || !!trOut || pqLive
@@ -3244,6 +3251,11 @@ export function studioLayerData(
                           space: { w: lm.meta.width, h: lm.meta.height },
                           size: rec!.cursor.size,
                           clicks,
+                          // The take's cursor-off ranges (OUTPUT time),
+                          // only when there are any.
+                          ...(rec!.cursor.off?.length
+                            ? { off: rec!.cursor.off }
+                            : {}),
                         },
                       }
                     })()
