@@ -15,12 +15,13 @@ import {
   docMediaList,
   findStep,
   mediaKey,
+  overlayPlainText,
   ratedSegments,
   resolveAnchor,
   segmentOutputExtents,
 } from '@vosjs/studio-core'
 import { totalDuration } from '@vosjs/timeline'
-import { CAPTION_MAX, CAPTION_MIN, fitCaptions } from './captionFit'
+import { CAPTION_MAX, CAPTION_MIN, fitCaptions, heldLine } from './captionFit'
 import { CAPTION_ID_PREFIX, houseCaption } from './motionPlan'
 import { scriptStepOf } from './scriptStep'
 import type {
@@ -46,6 +47,8 @@ export interface StepCaptionReport {
   landed: { id: string; step: string | number; media?: string; start: number }[]
   /** Steps with a caption that did not land, in words. */
   skipped: string[]
+  /** Landed captions kept past their step to be read, in words. */
+  held: string[]
   /** The media (`''` = the primary) that have steps and not one caption among them. */
   uncaptioned: string[]
 }
@@ -90,7 +93,12 @@ export function landStepCaptions(
   actions: ReadonlyMap<string, ActionsFile | null>,
   opts: { only?: ReadonlySet<string> } = {},
 ): StepCaptionReport {
-  const report: StepCaptionReport = { landed: [], skipped: [], uncaptioned: [] }
+  const report: StepCaptionReport = {
+    landed: [],
+    skipped: [],
+    held: [],
+    uncaptioned: [],
+  }
   // `only` (a re-join): land the captions of these media alone, and keep
   // every other media's step captions as they were edited.
   const mine = (o: OverlayClip) =>
@@ -123,6 +131,7 @@ export function landStepCaptions(
   }
   const ends = new Map<OverlayClip, number>()
   const labels = new Map<OverlayClip, string>()
+  const untils = new Map<OverlayClip, number>()
   /** Does a caption the run keeps already speak for this step? */
   const spoken = (media: string, step: StepSpan, steps: StepSpan[]) =>
     kept.some((o) => {
@@ -178,6 +187,9 @@ export function landStepCaptions(
         from: STEP_CAPTIONS_FROM,
       }
       ends.set(clip, end)
+      // Where the step ends in the cut: the caption leaves with it.
+      const stepEnd = resolveAnchor(doc, { ...anchor, at: 'end' }, rated)
+      if (stepEnd.start !== null) untils.set(clip, stepEnd.start)
       labels.set(clip, label)
       fresh.push(clip)
       report.landed.push({
@@ -189,17 +201,23 @@ export function landStepCaptions(
     }
     if (steps.length && !captioned) report.uncaptioned.push(media)
   }
-  // In playing order, each caption gives way to the next one and ends with
-  // the clip it starts in; one that cannot be read before the next is
-  // dropped and said, never left on screen beside it.
+  // In playing order, each caption leaves when its step ends (or once its
+  // words are read), gives way to the next one and ends with the clip it
+  // starts in; one that cannot be read before the next is dropped and said,
+  // never left on screen beside it.
   const fit = fitCaptions(fresh, (c) => ({
     start: c.start,
     end: ends.get(c) ?? footageEnd,
+    ...(untils.has(c) ? { until: untils.get(c) } : {}),
+    ...(c.kind === 'text' ? { text: overlayPlainText(c) } : {}),
   }))
   for (const { item, why } of fit.dropped) {
     report.skipped.push(`${labels.get(item) ?? item.id}: ${why}`)
     report.landed = report.landed.filter((l) => l.id !== item.id)
   }
+  for (const k of fit.kept)
+    if (k.held)
+      report.held.push(heldLine(labels.get(k.item) ?? k.item.id, k.held))
   const landedClips = fit.kept.map(({ item, duration }) => {
     item.duration = duration
     return item

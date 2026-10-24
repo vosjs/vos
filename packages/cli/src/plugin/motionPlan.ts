@@ -31,10 +31,11 @@ import {
   migrateMotion,
   momentOutputs,
   ratedSegments,
+  resolveAnchor as resolveLayerAnchor,
   sameMedia,
   spanOutputExtent,
 } from '@vosjs/studio-core'
-import { fitCaptions } from './captionFit'
+import { fitCaptions, heldLine } from './captionFit'
 import { STEP_SETTLE_SECONDS, stepOutputTime } from './moments'
 import type {
   Anim,
@@ -125,6 +126,8 @@ export interface MotionProposals {
   notes: string[]
   /** What could not be proposed, in words. */
   skipped: string[]
+  /** Captions kept past their step to be read, in words, with the room they need. */
+  held: string[]
 }
 
 const off = (v: string | undefined) =>
@@ -335,6 +338,7 @@ export function proposeMotion(
   const { words, launch, catalog } = opts
   const notes: string[] = []
   const skipped: string[] = []
+  const held: string[] = []
   const footage = outputLength(doc)
   const range: [number, number] = [0, footage]
 
@@ -483,8 +487,9 @@ export function proposeMotion(
     }
   }
 
-  // Captions per beat: a step's caption lands at the step's settled moment
-  // as a lower-third.
+  // Captions per beat: a step's caption is a lower-third that lands as the
+  // step BEGINS, so its words name the beat while it plays, and leaves when
+  // the step ends (landing after the step put its words over the next one).
   const kept = (doc.overlays ?? []).filter(
     (o) => !o.id.startsWith(CAPTION_ID_PREFIX),
   )
@@ -492,23 +497,50 @@ export function proposeMotion(
   if (opts.captions.length && !off(launch.captions)) {
     const rated = ratedSegments(doc)
     const steps = doc.source.meta.steps ?? []
-    const beats: { caption: (typeof opts.captions)[number]; t: number }[] = []
+    const beats: {
+      caption: (typeof opts.captions)[number]
+      t: number
+      until?: number
+    }[] = []
     for (const c of opts.captions) {
       const step = steps.find(
         (s) => (c.id !== undefined && s.id === c.id) || s.step === c.step,
       )
       if (!step || step.skipped) continue
-      const t = stepOutputTime(rated, step, 0.2)
+      const ref = step.id ?? step.step
+      const t = resolveLayerAnchor(doc, { step: ref, at: 'start' }, rated).start
       if (t === null || t < 0 || t >= footage) continue
-      beats.push({ caption: c, t: +t.toFixed(3) })
+      const until = resolveLayerAnchor(
+        doc,
+        { step: ref, at: 'end' },
+        rated,
+      ).start
+      beats.push({
+        caption: c,
+        t: +t.toFixed(3),
+        ...(until !== null ? { until } : {}),
+      })
     }
-    // Each gives way to the next and leaves before the footage ends, so a
-    // caption never sits beside another one or runs into the end card.
-    const fit = fitCaptions(beats, (b) => ({ start: b.t, end: footage }), {
-      max: CAPTION_BEAT_MAX,
-    })
+    // Each leaves with its step (or once its words are read), gives way to
+    // the next and leaves before the footage ends, so a caption never sits
+    // beside another one, over the next beat, or into the end card.
+    const fit = fitCaptions(
+      beats,
+      (b) => ({
+        start: b.t,
+        end: footage,
+        ...(b.until !== undefined ? { until: b.until } : {}),
+        text: b.caption.caption,
+      }),
+      { max: CAPTION_BEAT_MAX },
+    )
     for (const { item, why } of fit.dropped)
       skipped.push(`caption for step ${item.caption.step}: ${why}`)
+    for (const k of fit.kept)
+      if (k.held)
+        held.push(
+          heldLine(`the caption for step ${k.item.caption.step}`, k.held),
+        )
     for (const { item, duration } of fit.kept)
       captionClips.push(
         houseCaption(
@@ -579,7 +611,7 @@ export function proposeMotion(
   }
   doc.audio = clips
 
-  return { doc, notes, skipped }
+  return { doc, notes, skipped, held }
 }
 
 /**

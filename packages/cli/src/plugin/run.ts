@@ -1789,6 +1789,7 @@ async function cmdPlan(argvIn: string[]): Promise<number> {
       (captions.skipped.length
         ? `\n  not landed: ${captions.skipped.join('; ')}`
         : '') +
+      (captions.held.length ? `\n  ${captions.held.join('\n  ')}` : '') +
       (captions.uncaptioned.length
         ? `\n  no step in ${captions.uncaptioned.length === 1 && captions.uncaptioned[0] === '' ? 'this take' : captions.uncaptioned.map((m) => (m ? `media ${m}` : 'the primary')).join(', ')} carries a caption`
         : '')
@@ -1809,7 +1810,8 @@ async function cmdPlan(argvIn: string[]): Promise<number> {
         : '') +
       (s.motion.skipped.length
         ? `\n  not proposed: ${s.motion.skipped.join('; ')}`
-        : '')
+        : '') +
+      (s.motion.held.length ? `\n  ${s.motion.held.join('\n  ')}` : '')
     : ''
   const reuseLines = s.reuse
     ? `\n  reused ${s.reuse.from}: ${s.reuse.anchored} anchored + ${s.reuse.mapped} mapped span(s)` +
