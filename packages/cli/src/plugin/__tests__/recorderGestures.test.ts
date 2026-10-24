@@ -363,7 +363,10 @@ describe('drag holds modifiers and draws a path', () => {
     const t = result.events
       .filter((e) => e.type === 'move' && [140, 180].includes(e.x))
       .map((e) => e.t)
-    expect(t.at(-1)! - t[0]).toBeGreaterThanOrEqual(100)
+    // The path asks 120 ms between these moves. The pacer is clock-driven,
+    // so a first sample dispatched late on a loaded machine shortens the
+    // measured span, never the drag; a collapsed path would read ~0.
+    expect(t.at(-1)! - t[0]).toBeGreaterThanOrEqual(80)
   }, 60_000)
 
   it('draws with a pen when the points carry pressure', async () => {
