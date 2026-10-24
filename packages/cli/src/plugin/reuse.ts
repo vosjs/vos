@@ -518,6 +518,22 @@ function outputToSource(
  * and when the step under it moved by more than half a second the layer
  * is named with the step's new time, so the person pins it or moves it.
  */
+/**
+ * Where the FOOTAGE ends in output seconds: the cut's length without the
+ * freezes a template laid (an end card's, stamped `from`), which play
+ * after the footage and carry the card's clips.
+ */
+export function footageOutputEnd(doc: ProjectDoc): number {
+  const own: ProjectDoc = {
+    ...doc,
+    freeze: (doc.freeze ?? []).filter((f) => !f.from),
+  }
+  return ratedSegments(own).reduce((acc, s) => {
+    const rate = s.rate && s.rate > 0 ? s.rate : 1
+    return acc + (s.out - s.in) / rate
+  }, 0)
+}
+
 export function retimeOverlays(
   prev: ProjectDoc,
   next: ProjectDoc,
@@ -525,6 +541,11 @@ export function retimeOverlays(
 ): OverlayClip[] {
   const overlays = prev.overlays ?? []
   if (!overlays.length) return []
+  // A layer that played after the footage (an end card's words, a closing
+  // line) stays after it: it keeps its distance from the footage's end,
+  // which moves with the new recording's length.
+  const oldEnd = footageOutputEnd(prev)
+  const endShift = footageOutputEnd(next) - oldEnd
   const oldSteps = prev.source.meta.steps ?? []
   const newSteps = next.source.meta.steps ?? []
   const oldPieces = ratedSegments(prev)
@@ -589,6 +610,10 @@ export function retimeOverlays(
       }
       const moved = follow(o, at, pin.press, placed.at)
       return { ...moved, pin: { ...pin, press: +placed.at.toFixed(3) } }
+    }
+    if (at >= oldEnd - 1e-6) {
+      if (Math.abs(endShift) < 1e-6) return o
+      return { ...o, start: +Math.max(0, at + endShift).toFixed(3) }
     }
     // Unpinned (or pinned to a rect): the output-time contract holds, and
     // a layer that sat over a step which moved is named.

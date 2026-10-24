@@ -88,8 +88,7 @@ vos open take                                           # hand the take to the s
 When the product ships again, re-record the same script and keep the cut:
 
 ```bash
-vos record --actions actions.json --out take --strict   # footage replaced; the previous cut survives as doc.prev.json
-vos plan take --reuse                                   # re-time that cut onto the new recording; what could not follow is named
+vos record --actions actions.json --out take --strict --reuse   # footage replaced, the cut re-timed onto it; what could not follow is named
 ```
 
 Every manual span follows the step it was made on (the gesture whose window held it, or the one just before it), keeping its offset exactly; a span whose step is missing or skipped in the new recording is dropped and named with what it framed, never re-timed to a place with nothing under it. A layer pinned to a step (`pin: { step }`) plays when that step plays in the new cut; a layer that is not pinned keeps its output second, and when the step under it moved the report names it with the step's new time and the pin to write. A take fetched from vos.so can be recorded again: the script rides the document and `vos fetch --media` writes it back as `actions.json`.
@@ -170,12 +169,15 @@ What travels: the script, the viewport, every `--header` value (a preview's bypa
 vos session open https://app.acme.com --name acme   # a plain Chrome window opens; sign in, set the account up, close the window (or press Enter)
 vos session check acme --url https://app.acme.com/dashboard   # does it still open the page? exit 0, or 4
 vos record --actions actions.json --out take --session acme --strict
+vos session exec acme list-keys.mjs --url https://app.acme.com/settings   # your own Playwright code, inside the session
 vos session list · vos session rm acme
 ```
 
 `open` runs the SYSTEM Chrome as an ordinary child process on a profile under `~/.config/vos/sessions/<name>`, with no automation switch and no debugging pipe, so a sign-in that refuses automated browsers (Google's) goes through, and it waits for the person to finish, however they finish: the last window closed, Chrome quit (⌘Q), or Enter in the terminal. It never finishes on a sign-in it sees, because the person often is not done (a second factor or a single sign-on hop lands later, and the workspace picked and the demo data made in that window are what every take on the session finds). Chrome writes its cookie store when it quits, so a closed window or Enter quits that Chrome, by its process id (never by name: the everyday Chrome is the same app), and only then is the session read. The window is watched from outside the browser: a debugging endpoint, even one that only lists tabs, makes Chrome tell every page `navigator.webdriver === true`, which is what a sign-in that refuses automated browsers reads. So it counts the window's page renderers in the process table (they all exit when the last window closes, while a minimized window or one on another desktop keeps its own), and reads the profile's cookie store for counts only, saying `app.acme.com set 12 cookies (analytics not counted)` when the host's own cookies change, leaving out measurement cookies a stranger's visit sets too (`_ga*`, `_gid`, `ph_*`, `g_state`, `ajs_*`, `_fbp`, `_hj*`, `__stripe_*` and the like); Chrome commits that store about every thirty seconds, so the line lags a little, and it needs Node 22.5 or later, staying quiet before. A cookie count is never called a sign-in. Once the session is saved, `open` checks it the way `check --url` does: the URL opens headless on the saved profile AND for a stranger (a fresh, empty profile), through the wall check. Walled on the profile is `NOT signed in: https://app.acme.com/projects sends a stranger to /login …` with the command to try again (exit 4); open on the profile and walled for the stranger is `signed in: https://app.acme.com/projects opens as you`; open for both is `can't tell: … opens the same for a stranger`, a warning (exit 4 under `--strict`), because a public page proves nothing; and a sign-in page (`/login`, `/signin`, an identity provider) is not opened at all, since a stranger reaches it too. Name a page only a signed-in person sees. Only a session that passed is offered for recording. It also prints what the session holds as counts and dates (`holds cookies for app.acme.com (7), accounts.google.com (12); newest expires in 29 days`), never a value, and `--json` does not either. `check` reads the session through the same Chrome and, with `--url`, asks the wall check whether the page still opens signed in: a session that expired says so in words with the command to sign in again, and exits 4. `record --session` records in that profile; it is one door and `--storage-state` is the other, never both.
 
 Measured before this was written: a profile plain Chrome signed in reopens signed in ONLY under the system Chrome with the real keychain. Playwright's bundled Chromium keeps its own keychain entry and can never decrypt Chrome's cookies, so every reader of a session here is the system Chrome (`VOS_BROWSER_PATH` overrides it) with Playwright's `--use-mock-keychain` removed. Two things `check` says because they cost real runs: an app whose session cookie has no expiry leaves nothing to reuse once the window closes, and a Chrome that was killed rather than quit never wrote its store.
+
+**Never open a session's profile yourself.** A browser that cannot decrypt the profile's cookies does not merely fail to read them: it starts the cookie store over, and the session is signed out for good. Measured: a cookie the system Chrome kept through every reopen was gone after ONE launch of Playwright's bundled Chromium on the profile, for the system Chrome too. So a script that needs the signed-in browser (a state a step cannot reach yet, a list of what the account holds, cleaning up after a flow) runs inside the session with `vos session exec <name> <script.mjs>`: an ES module whose default export receives `{ context, page, url, name }` (the page already on `--url` when one is given), run on the profile exactly as `record` opens it, headless unless `--headed`, `--viewport WxH` when it matters. What the function returns is printed (`result` in the `--json` done event), the profile is closed cleanly whatever the script does, and a script that throws exits 1 with its error. `check` names a profile opened another way as a cause of a session that no longer opens signed in.
 
 A session never enters a take directory and never reaches vos.so: `vos push` refuses a take holding a storage-state-shaped JSON, naming the file.
 
@@ -261,7 +263,9 @@ take/
   meta.json        RecordingMeta (producer: "cli", per-step source extents)
   actions.json     the script that produced it, with the resolved url; pushed inside the document and written back by a fetch or pull with --media
   doc.json         ProjectDoc, the editable cut
-  doc.prev.json    the previous cut, kept by a re-record for `vos plan --reuse`
+  doc.prev.json    the previous cut, kept by a re-record for `--reuse`
+  .doc-planned     the hash of the plan the last recording wrote, so a re-record
+                   knows an unedited doc.json from a cut
   join.json        a joined take's inputs: each one's path, footage sha256 and media id, read by `vos join --keep-edits`
   outputs/         the files `download` steps kept, listed in meta.json's outputs
   page-sound/      the sound the page played during the take, listed in meta.json's media
@@ -279,7 +283,7 @@ claimed. Every verb resolves the name, and a push declares the container it
 finds in the bytes, so a file never reaches vos.so under the wrong type.
 `vos validate <take>` warns when an existing take holds one that does.
 
-A re-record replaces the footage, the cursor track, the frames, `outputs/` and everything derived from them, moves `doc.json` to `doc.prev.json`, and keeps `actions.json` and `vos.json`.
+A re-record replaces the footage, the cursor track, the frames, `outputs/` and everything derived from them, moves `doc.json` to `doc.prev.json`, and keeps `actions.json` and `vos.json`. With `--reuse` the cut goes onto the new footage in the same command (what `vos plan <take> --reuse` does afterwards); without it the take is planned fresh, and its last line and its done event (`previousCut`, `next_step`) say where the cut is and how to apply it. A plan nobody edited never takes the cut's place: recording again over a take whose `doc.json` is still the plan its recording wrote keeps the cut already in `doc.prev.json`.
 
 ## actions.json
 

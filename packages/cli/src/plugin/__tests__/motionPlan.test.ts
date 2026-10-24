@@ -453,6 +453,63 @@ describe('proposeMotion (the cut’s motion as data on the document)', () => {
     })
   })
 
+  it('never puts two beat captions on screen at once: one that cannot be read before the next is dropped and said', () => {
+    // Steps 1 and 2 settle 0.7 s apart (3.7 and 4.4): the first caption
+    // used to run 3.5 s, over the second.
+    const p = proposeMotion(doc(), {
+      words: { brand: 'vosso' },
+      launch: { music: 'none' },
+      captions: [
+        { step: 1, caption: 'Hover the card' },
+        { step: 2, caption: 'Open it' },
+        { step: 3, caption: 'It loads' },
+      ],
+      catalog,
+    })
+    const caps = (p.doc.overlays ?? []).filter((o) =>
+      o.id.startsWith('caption-'),
+    )
+    expect(caps.map((c) => c.id)).toEqual(['caption-2', 'caption-3'])
+    expect(caps[0].start).toBeCloseTo(4.4, 3)
+    expect(caps[0].duration).toBeCloseTo(2.7, 3) // gives way to step 3's, 0.1 s before
+    expect(caps[1].duration).toBeCloseTo(3.5, 3)
+    expect(p.skipped).toContainEqual(
+      expect.stringMatching(
+        /^caption for step 1: the next caption starts 0\.70s after it/,
+      ),
+    )
+    expect(lintDoc(p.doc).problems).toEqual([])
+  })
+
+  it('a beat caption late in the footage leaves before the end card arrives', () => {
+    const d = doc()
+    d.source.meta.steps!.push(
+      { step: 4, id: 'late', do: 'click', tStart: 31.5, tEnd: 32 },
+      { step: 5, id: 'last', do: 'click', tStart: 33.1, tEnd: 33.4 },
+    )
+    const p = proposeMotion(d, {
+      words: { headline: 'Ship it', brand: 'vosso' },
+      launch: { music: 'none' },
+      captions: [
+        { step: 4, caption: 'Almost there' },
+        { step: 5, caption: 'Too late to read' },
+      ],
+      catalog,
+    })
+    const late = p.doc.overlays!.find((o) => o.id === 'caption-4')!
+    // 32.2 s in a 34 s footage: it ends where the footage does, before the
+    // end card's words (34.35 s), never 2.5 s at the least as before.
+    expect(late.start).toBeCloseTo(32.2, 3)
+    expect((late.start ?? 0) + late.duration).toBeCloseTo(34, 3)
+    expect(p.doc.overlays!.some((o) => o.id === 'caption-5')).toBe(false)
+    expect(p.skipped).toContainEqual(
+      expect.stringMatching(
+        /^caption for step 5: it plays in the last 0\.40s of its clip/,
+      ),
+    )
+    expect(lintDoc(p.doc).problems).toEqual([])
+  })
+
   it('pickTrack and clickTimes', () => {
     expect(pickTrack(catalog, 'calm')!.slug).toBe('slow-tide')
     expect(pickTrack(catalog, 'none')).toBeNull()
