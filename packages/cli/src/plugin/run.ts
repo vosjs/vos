@@ -115,6 +115,8 @@ import {
   verdictLine,
 } from './session'
 import type { SessionVerdict } from './session'
+import { ExecScriptError, execInProfile, loadExecScript } from './sessionExec'
+import type { ExecScript } from './sessionExec'
 import type { Arrival, WallVerdict } from './wall'
 import type { Reporter } from './output'
 import {
@@ -260,6 +262,8 @@ Take pipeline
             see a page before scripting it, signed in the way vos record would be: <out>/look.png and every control in view with ONE proposed selector (test id, aria-label, role + name, then words in its dialog or landmark), UNIQUE or AMBIGUOUS as the recorder's own engine counts it, plus what the frame exposes. --click/--type run first, in order; a click on a spend or delete word is refused. Exit 4 at a sign-in wall
   vos session open <url> --name <app>   a plain Chrome window on a vos-owned profile; sign in, set the account up, close the window (or Enter)
   vos session check <name> [--url <url>] [--strict]   headless, against a stranger: does the page open as you? exit 0/4
+  vos session exec <name> <script.mjs> [--url <url>] [--headed] [--viewport WxH] [--json]
+            run your own Playwright code inside the session: the module's default export gets { context, page, url, name } and what it returns is printed (result under --json). The ONLY safe way to script a session: a profile opened by any other browser (Playwright's bundled one, a mock keychain) cannot read its cookies and is signed out
   vos session list | rm <name>          what exists and how old; delete one
   vos actions script <actions.json> [--json]
             the flow as numbered beats in words, for a person recording it by hand
@@ -3023,11 +3027,14 @@ function verdictExit(
  * origins and expiry only; no verb prints a cookie value, --json included.
  */
 async function cmdSession(argv: string[]): Promise<number> {
-  const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
+  const { positionals, flags } = parseArgs(
+    argv,
+    new Set([...BOOLEAN_FLAGS, 'headed']),
+  )
   const [sub, arg] = positionals
   const r = createReporter(flags.json === true)
   const usage =
-    'vos session open <url> --name <app> | check <name> [--url <url>] | list | rm <name>'
+    'vos session open <url> --name <app> | check <name> [--url <url>] | exec <name> <script.mjs> [--url <url>] [--headed] [--viewport WxH] | list | rm <name>'
   switch (sub) {
     case 'open': {
       if (!arg) throw new UsageError(usage)
@@ -3099,9 +3106,61 @@ async function cmdSession(argv: string[]): Promise<number> {
           origins: summary.origins,
           newestExpires: summary.newestExpires,
         },
-        `session "${arg}": ${verdictLine(verdict, url, arg)}${verdict.state === 'not-signed-in' ? `. It expired, or the sign-in never landed. Sign in again: vos session open ${url} --name ${arg}` : `. ${summaryLine(summary)}`}`,
+        `session "${arg}": ${verdictLine(verdict, url, arg)}${verdict.state === 'not-signed-in' ? `. It expired, the sign-in never landed, or the profile was opened by a browser that cannot read its cookies (a script launching it itself signs it out; run scripts with vos session exec). Sign in again: vos session open ${url} --name ${arg}` : `. ${summaryLine(summary)}`}`,
       )
       return verdictExit(verdict, flags.strict === true, EXIT_WALL)
+    }
+    case 'exec': {
+      const scriptPath = positionals[2]
+      if (!arg || !scriptPath) throw new UsageError(usage)
+      const bad = sessionNameVerdict(arg)
+      if (bad) throw new UsageError(bad)
+      if (!existsSync(sessionDir(arg)))
+        throw new UsageError(`no session "${arg}" (vos session list)`)
+      const url = strFlag(flags, 'url')
+      if (url && !/^https?:\/\//.test(url))
+        throw new UsageError('--url wants an http(s) URL')
+      const viewport = strFlag(flags, 'viewport')
+      const size = viewport ? /^(\d+)x(\d+)$/.exec(viewport) : null
+      if (viewport && !size)
+        throw new UsageError('--viewport wants WxH, e.g. 1280x720')
+      let script: ExecScript
+      try {
+        script = await loadExecScript(scriptPath)
+      } catch (e) {
+        if (e instanceof ExecScriptError) throw new UsageError(e.message)
+        throw new UsageError(
+          `${scriptPath} could not be loaded: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`,
+        )
+      }
+      let result: unknown
+      try {
+        result = await execInProfile(sessionDir(arg), script, {
+          name: arg,
+          ...(url ? { url } : {}),
+          headless: flags.headed !== true,
+          ...(size ? { viewport: { width: +size[1], height: +size[2] } } : {}),
+        })
+      } catch (e) {
+        r.done(
+          {
+            name: arg,
+            ok: false,
+            error: e instanceof Error ? e.message.split('\n')[0] : String(e),
+          },
+          `the script failed in session "${arg}": ${e instanceof Error ? e.message.split('\n')[0] : String(e)} (the session was closed cleanly)`,
+        )
+        return EXIT_ERROR
+      }
+      r.done(
+        { name: arg, ok: true, ...(result !== undefined ? { result } : {}) },
+        result === undefined
+          ? `ran ${scriptPath} in session "${arg}"`
+          : typeof result === 'string'
+            ? result
+            : JSON.stringify(result, null, 2),
+      )
+      return EXIT_OK
     }
     case 'list': {
       const rows = listSessions()
