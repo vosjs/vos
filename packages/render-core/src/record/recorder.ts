@@ -664,6 +664,7 @@ async function recordTakeSteps(
               },
             }
           : {}),
+        ...(result.skipped ? { skipped: result.skipped } : {}),
       }
     } catch (e) {
       teardown = {

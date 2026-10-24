@@ -1078,7 +1078,8 @@
       "properties": {
         "do": {
           "type": "string",
-          "enum": ["wait", "click", "type", "press", "goto"]
+          "enum": ["wait", "click", "type", "press", "goto", "if"],
+          "description": "if: a guard; when its selector is not on the page, the steps after it are skipped and the list ends there, which is not a failure"
         },
         "id": {
           "type": "string"
@@ -1114,7 +1115,7 @@
         },
         "ms": {
           "type": "number",
-          "description": "wait: the pause; click: the read after the page settled, held from its last visual change (default 150); type and scroll: the settle after (defaults 150/200)"
+          "description": "wait: the pause; click: the read after the page settled, held from its last visual change (default 150); type and scroll: the settle after (defaults 150/200); if: how long to look for its selector (default 3000)"
         }
       },
       "description": "One setup or teardown step: a plain action, with no cursor and no frames."

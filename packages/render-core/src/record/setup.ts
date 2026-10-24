@@ -20,6 +20,15 @@
  * context (a session's cookies apply), and also when the take stops early
  * or throws once its first step has run. A teardown that fails never fails
  * the take: the footage is fine, and what is left behind is reported.
+ *
+ * `if`: a guard, `{ "do": "if", "selector": "…" }`. When its selector is on
+ * the page the steps after it run as usual; when it is not, they are skipped
+ * and the list ends there, which is not a failure. A teardown that undoes
+ * what the take may already have removed on camera starts its undoing with
+ * one (`if` the new key's row is still listed), so a good take reports
+ * nothing to undo instead of a failure; a setup that signs in guards its
+ * sign-in the same way (`if` the email field shows), so a session that is
+ * already signed in passes. A failure AFTER a guard is still a failure.
  */
 import type { RecorderPage } from './driver'
 
@@ -31,9 +40,13 @@ export type SetupStep = (
   | { do: 'type'; selector: string; text: SetupText; ms?: number }
   | { do: 'press'; key: string; ms?: number }
   | { do: 'goto'; url: string }
+  | { do: 'if'; selector: string; ms?: number }
 ) & { id?: string }
 
-const VERBS = new Set(['wait', 'click', 'type', 'press', 'goto'])
+const VERBS = new Set(['wait', 'click', 'type', 'press', 'goto', 'if'])
+
+/** How long an `if` looks for its selector, when it names no `ms`. */
+export const IF_LOOK_MS = 3000
 
 /** Which list a step belongs to, as its messages and log lines name it. */
 export type StepPhase = 'setup' | 'teardown'
@@ -77,7 +90,10 @@ export function validateSetup(
       errors.push(`${at}: "do" must be one of ${[...VERBS].join(', ')}`)
       return
     }
-    if ((s.do === 'click' || s.do === 'type') && typeof s.selector !== 'string')
+    if (
+      (s.do === 'click' || s.do === 'type' || s.do === 'if') &&
+      typeof s.selector !== 'string'
+    )
       errors.push(`${at}: ${s.do} needs a selector`)
     if (s.do === 'wait' && typeof s.ms !== 'number')
       errors.push(`${at}: wait needs ms`)
@@ -182,6 +198,11 @@ export interface SetupResult {
    * is the driver's reason, one line, never a typed value.
    */
   failed?: { step: number; do: string; selector?: string; error?: string }
+  /**
+   * An `if` whose selector was not on the page: the list ended there, and
+   * `rest` steps after it were skipped. Not a failure.
+   */
+  skipped?: { step: number; selector: string; rest: number }
 }
 
 /** How long a whole teardown may take before it is stopped and reported. */
@@ -195,11 +216,16 @@ export interface TeardownReport {
   ran: number
   of: number
   failed?: { step: number; do: string; selector?: string; error: string }
+  /** An `if` whose selector was gone: nothing left to undo, never a failure. */
+  skipped?: { step: number; selector: string; rest: number }
 }
 
 /** The teardown in one line, for the end of a take or a rehearsal. */
 export function teardownLine(report: TeardownReport): string {
   const f = report.failed
+  const k = report.skipped
+  if (!f && k)
+    return `teardown: nothing to undo, ${k.selector} is not on the page (teardown[${k.step}] if); ${report.ran} step(s) ran, ${k.rest} skipped`
   if (!f) return `teardown: ${report.ran} step(s) ran`
   const reason = f.error.replace(/[.\s]+$/, '')
   return `TEARDOWN FAILED at teardown[${f.step}] (${f.do}${f.selector ? ` ${f.selector}` : ''}): ${reason}. What the take created may still be in the product; remove it by hand.`
@@ -236,6 +262,8 @@ export async function runSetup(
   const lines: string[] = []
   // The value a `type` step is filling, so a reason that quotes it is not used.
   let typed = ''
+  // Set by an `if` whose selector is not on the page: the list ends there.
+  let gone: { step: number; selector: string } | null = null
   const runStep = async (step: SetupStep, i: number): Promise<string> => {
     const settle = 'ms' in step && typeof step.ms === 'number' ? step.ms : 150
     switch (step.do) {
@@ -256,6 +284,17 @@ export async function runSetup(
         await page.keyboard.press(step.key)
         await opts.sleep(settle)
         return `${phase} #${i} press ${step.key}`
+      case 'if': {
+        const present = await page
+          .locator(step.selector)
+          .first()
+          .waitFor({ state: 'visible', timeout: step.ms ?? IF_LOOK_MS })
+          .then(() => true)
+          .catch(() => false)
+        if (present) return `${phase} #${i} if ${step.selector}: on the page`
+        gone = { step: i, selector: step.selector }
+        return `${phase} #${i} if ${step.selector}: not on the page, the ${steps.length - i - 1} step(s) after it skipped`
+      }
       case 'click': {
         const loc = page.locator(step.selector).first()
         await loc.waitFor({ state: 'visible', timeout: 8000 })
@@ -301,6 +340,14 @@ export async function runSetup(
         },
       }
     }
+    // Set inside runStep, which the compiler cannot see from here.
+    const ended = gone as { step: number; selector: string } | null
+    if (ended)
+      return {
+        ran: i + 1,
+        lines,
+        skipped: { ...ended, rest: steps.length - i - 1 },
+      }
   }
   return { ran: steps.length, lines }
 }
