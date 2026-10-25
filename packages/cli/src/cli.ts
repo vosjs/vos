@@ -1,4 +1,3 @@
-import { writeFile } from 'node:fs/promises'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join } from 'node:path'
 import { createServer } from 'node:http'
@@ -49,6 +48,7 @@ import {
   videoFormat,
 } from './outputs'
 import { platformOrigin, resolveCredential } from './plugin/platform'
+import { prepareOutput, writeOutput } from './plugin/safeWrite'
 
 const BOOLEAN_FLAGS = new Set(['json', 'help', 'version'])
 
@@ -175,6 +175,7 @@ async function cmdRender(argv: string[]): Promise<number> {
   }
 
   const assets = await assetsFor(source, config, (line) => r.log(line))
+  await prepareOutput(out)
 
   const browser = await launchBrowser()
   try {
@@ -192,7 +193,7 @@ async function cmdRender(argv: string[]): Promise<number> {
         r.event({ event: 'phase', phase })
       },
     })
-    await writeFile(out, result.bytes)
+    await writeOutput(out, result.bytes)
     const warnings = stillWarnings(
       { transparent: false, flat: false },
       result.pageErrors,
@@ -249,6 +250,7 @@ async function cmdStill(argv: string[]): Promise<number> {
       : [numFlag(flags, 'time', 0)]
   const many = times.length > 1
   const assets = await assetsFor(source, config, (line) => r.log(line))
+  await prepareOutput(out)
 
   // One browser for every time: each still is its own capture page.
   const browser = await launchBrowser()
@@ -277,7 +279,7 @@ async function cmdStill(argv: string[]): Promise<number> {
         encoding === 'webp'
           ? result.bytes
           : await reencodeStill(browser, result.bytes, encoding)
-      await writeFile(target, bytes)
+      await writeOutput(target, bytes)
       // A still is checked before anyone looks at it: a fully transparent
       // or flat frame is written, and said, never passed off as a picture.
       const warnings = stillWarnings(

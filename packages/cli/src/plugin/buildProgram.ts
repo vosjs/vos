@@ -19,6 +19,7 @@ import { parse } from 'acorn'
 import { fullAncestor } from 'acorn-walk'
 import { UsageError, parseArgs, strFlag } from './args'
 import { EXIT_ERROR, EXIT_OK, createReporter } from './output'
+import { writeOutputSync } from './safeWrite'
 
 /** The config keys whose values are functions on the wire. */
 export const FUNCTION_KEYS = [
@@ -312,7 +313,7 @@ export async function cmdBuild(argv: string[]): Promise<number> {
   const out = resolve(
     strFlag(flags, 'out') ?? join(dirname(file), 'config.json'),
   )
-  writeFileSync(out, JSON.stringify(built.config, null, 2) + '\n')
+  writeOutputSync(out, JSON.stringify(built.config, null, 2) + '\n')
   const sidecar = out.replace(/\.json$/, '') + '.sources.json'
   writeFileSync(sidecar, JSON.stringify(built.sources, null, 2) + '\n')
   for (const [fn, at] of Object.entries(built.sources)) {
