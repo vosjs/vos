@@ -21,9 +21,9 @@
  * the notes, never dropped silently: a recording that skips a step the
  * agent made is a different walk.
  */
-import { writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { validateActions } from './actions'
+import { writeOutput } from './safeWrite'
 import { UsageError, parseArgs, strFlag } from './args'
 import { EXIT_ERROR, EXIT_OK, createReporter } from './output'
 import type { ActionStep, ActionsFile } from './actions'
@@ -625,7 +625,7 @@ export async function cmdActions(argv: string[]): Promise<number> {
     )
     return EXIT_ERROR
   }
-  await writeFile(out, `${JSON.stringify(result.actions, null, 2)}\n`)
+  await writeOutput(out, `${JSON.stringify(result.actions, null, 2)}\n`)
   r.done(
     { ok: true, out, url: result.actions.url ?? null, ...summary(result) },
     `Wrote ${out}: ${result.steps} step${result.steps === 1 ? '' : 's'} from ${records.length} record${records.length === 1 ? '' : 's'} (${result.ignored} read/session, ${result.skipped} skipped)` +

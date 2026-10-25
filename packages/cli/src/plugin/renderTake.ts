@@ -5,7 +5,6 @@
  * as the studio's export; --parallel N shards the timeline into concurrent
  * chunk pages (see renderAnimation.ts).
  */
-import { writeFile } from 'node:fs/promises'
 import { compileVosConfig } from '@vosjs/core'
 import {
   audioProducerCode,
@@ -18,6 +17,7 @@ import {
   studioAudioPlan,
 } from '@vosjs/studio-core'
 import { loadTake } from './take'
+import { prepareOutput, writeOutput } from './safeWrite'
 import { renderAnimation } from './renderAnimation'
 import {
   applyAndValidate,
@@ -73,6 +73,7 @@ export async function renderTake(
   const take = await loadTake(dir)
   if (!take.doc) throw new Error(`${dir} has no doc.json — run plan first`)
   const doc = take.doc
+  await prepareOutput(outFile)
 
   // Product-surface overrides (--set/--frame/--background): patch the doc in
   // memory + lint before anything renders (doc.json on disk is untouched).
@@ -180,7 +181,7 @@ export async function renderTake(
       : undefined,
     onProgress: opts.onProgress,
   })
-  await writeFile(outFile, result.bytes)
+  await writeOutput(outFile, result.bytes)
 
   return {
     out: outFile,

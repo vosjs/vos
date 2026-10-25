@@ -23,13 +23,13 @@
  * so the composition is testable without a browser.
  */
 import { catalogFamily } from './fontName'
-import { writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { parseFrontmatter } from '@vosjs/shared/frontmatter'
 import { lookKindForGround } from '@vosjs/studio-core'
 import { UsageError, parseArgs, strFlag } from './args'
 import { fetchPublic, fetchRefusal } from './netAddress'
 import { createReporter } from './output'
+import { prepareOutput, writeOutput } from './safeWrite'
 import { launchBrowser } from '../browser'
 import type { Browser } from 'playwright'
 
@@ -552,6 +552,7 @@ export async function cmdBrand(argv: string[]): Promise<number> {
   if (refused) throw new UsageError(refused)
   const r = createReporter(flags.json === true)
   const out = resolve(strFlag(flags, 'out') ?? 'BRAND.md')
+  await prepareOutput(out)
 
   r.log(`reading ${origin}/design.md and /llms.txt…`)
   const [designText, llmsText] = await Promise.all([
@@ -588,7 +589,7 @@ export async function cmdBrand(argv: string[]): Promise<number> {
     composition,
     llms?.claim ?? design?.description ?? null,
   )
-  await writeFile(out, md)
+  await writeOutput(out, md)
   const k = composition.kit
   r.done(
     {

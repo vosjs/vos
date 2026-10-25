@@ -66,6 +66,8 @@ A program that declares `size: { width, height }` renders at that size with no f
 
 Configs can be local files or URLs; a platform `{ "config": … }` envelope is unwrapped. Rendering compiles the config with `@vosjs/core`, wraps it in the engine's capture template, and encodes frame by frame (WebCodecs) in headless Chromium. Same input, same video: locally, in CI, or on a server. Every engine verb takes a directory too: a take (its `doc.json` is a recording document) renders through the take pipeline, and a program directory (`config.json`, composed with the program document beside it when there is one) renders as what the studio plays. A deterministic sniff of the document, never a flag.
 
+An output path may name folders that do not exist yet (`vos render take out/cuts/demo.mp4`): every verb that writes a file you name makes them, and makes them BEFORE the work, so a folder that cannot be made (a file already at that name, no permission) is said in words before a render starts and nothing is written.
+
 ## The take pipeline
 
 A **take** is a directory: the recording of a scripted browser flow, its exact cursor track, and `doc.json`, the editable cut.
