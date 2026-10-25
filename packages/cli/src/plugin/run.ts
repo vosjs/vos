@@ -135,6 +135,7 @@ import {
   pullTake,
   pushTake,
   pushTakeClaimable,
+  descriptionProblem,
   takePushRefusal,
 } from './sync'
 import {
@@ -2794,16 +2795,19 @@ async function cmdPush(argv: string[]): Promise<number> {
   const dir = positionals[0]
   if (!dir)
     throw new UsageError(
-      'vos push <take> [--vos|--title|--label|--note|--prompt|--folder|--override|--yes|--key|--api|--bake|--claimable [--share]]',
+      'vos push <take> [--vos|--title|--desc|--label|--note|--prompt|--folder|--override|--yes|--key|--api|--bake|--claimable [--share]]',
     )
   const refusal = takePushRefusal({
     vos: strFlag(flags, 'vos'),
     trackedVosId: readSyncState(resolve(dir))?.vosId ?? null,
-    programOnly: ['slug', 'desc', 'tags', 'base', 'remix-of', 'still'].filter(
-      (name) => hasFlag(flags, name),
+    programOnly: ['slug', 'tags', 'base', 'remix-of', 'still'].filter((name) =>
+      hasFlag(flags, name),
     ),
   })
   if (refusal) throw new UsageError(refusal)
+  const description = strFlag(flags, 'desc')
+  const descProblem = descriptionProblem(description)
+  if (descProblem) throw new UsageError(descProblem)
   const r = createReporter(flags.json === true)
   if (flags.claimable === true) {
     // A claimable take creates a NEW vos and uploads nothing: the flags
@@ -2822,6 +2826,7 @@ async function cmdPush(argv: string[]): Promise<number> {
         origin: strFlag(flags, 'origin'),
         title: strFlag(flags, 'title'),
         prompt: strFlag(flags, 'prompt'),
+        description,
         share: flags.share === true,
         bake: flags.bake === true,
       },
@@ -2853,6 +2858,7 @@ async function cmdPush(argv: string[]): Promise<number> {
       folder: strFlag(flags, 'folder'),
       overrides,
       prompt: strFlag(flags, 'prompt'),
+      description,
       bake: flags.bake === true,
     },
     r,

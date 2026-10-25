@@ -122,6 +122,21 @@ describe('vos push <take> --claimable', () => {
     expect(body.title).toBe('Grafana tour remix')
     expect(JSON.stringify(body.config)).toContain(REF)
     expect(claim.claimUrl).toBe('https://vos.so/claim/t')
+    // No --desc, no description field.
+    expect('description' in body).toBe(false)
+  })
+
+  it('carries --desc as the description the watch page shows', async () => {
+    const seen: { url: string; body: Record<string, unknown> }[] = []
+    const origin = await serve(seen)
+    await pushTakeClaimable(
+      fetchedTake(),
+      { origin, description: 'Create a key, copy it once, revoke it.' },
+      createReporter(true),
+    )
+    expect(seen[0].body.description).toBe(
+      'Create a key, copy it once, revoke it.',
+    )
   })
 
   it('refuses footage that changed since the fetch, before sending anything', async () => {

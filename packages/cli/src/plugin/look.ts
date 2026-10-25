@@ -16,9 +16,10 @@
  * tested; the page probes are strings, because a function serialized out of
  * a bundle picks up the bundler's `__name` helper and dies in the page.
  */
-import { mkdir } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 import { headersFor, urlSchemeProblem } from '@vosjs/render-core/record'
 import type { BrowserContext, Page } from 'playwright'
 import { UsageError, parseArgs, strFlag } from './args'
@@ -29,10 +30,15 @@ import {
   EXPOSURE_PROBE,
 } from './exposure'
 import { exposureLine } from './exposure'
-import { WALL_PROBE, wallVerdict } from './wall'
-import { parseHeaders } from './setup'
+import { WALL_PROBE, WallError, wallVerdict } from './wall'
+import { parseHeaders, teardownLine } from './setup'
 import { sessionDir, sessionNameVerdict, withSession } from './session'
+import { jsSyntaxProblems, validateActions } from './actions'
+import { recordTake } from './recorder'
+import { takePaths } from './take'
 import { launchBrowser } from '../browser'
+import type { ActionsFile } from './actions'
+import type { RecordResult } from './recorder'
 import type { Exposure } from './exposure'
 import type { WallVerdict } from './wall'
 
@@ -631,7 +637,7 @@ export interface LookResult {
   exposures: Exposure[]
   wall: WallVerdict | null
   /** steps that ran before the look; none when a hard wall stopped them */
-  steps: { do: LookStep['do']; selector: string; note?: string }[]
+  steps: { do: string; selector: string; note?: string }[]
   /** false when the page never held still and was looked at anyway */
   settled: boolean
 }
@@ -763,6 +769,34 @@ export async function lookAt(
       settled = await settle(page)
     }
   }
+  return inspectPage(page, {
+    url,
+    outDir: opts.outDir,
+    waitMs: opts.waitMs,
+    wall,
+    steps: ran,
+    settled,
+  })
+}
+
+/**
+ * Look at a page as it stands: the screenshot, the exposure scan, the
+ * inventory and a proposal per control. `lookAt` calls it after its own
+ * steps; `vos look --until` calls it on the page a rehearsal walked to.
+ */
+export async function inspectPage(
+  page: Page,
+  opts: {
+    url: string
+    outDir: string
+    waitMs?: number
+    wall: WallVerdict | null
+    steps: LookResult['steps']
+    settled: boolean
+  },
+): Promise<LookResult> {
+  const { url, wall, settled } = opts
+  const ran = opts.steps
   if (opts.waitMs && opts.waitMs > 0) await page.waitForTimeout(opts.waitMs)
 
   await mkdir(opts.outDir, { recursive: true })
@@ -838,7 +872,46 @@ export async function lookAt(
 // ---------------------------------------------------------------------------
 
 const USAGE =
-  'vos look <url> [--session <name> | --storage-state <file>] [--viewport WxH] [--headed] [--click <selector>]... [--type <selector>=<text>]... [--wait <ms>] [--out <dir>] [--json]'
+  'vos look <url> [--session <name> | --storage-state <file>] [--viewport WxH] [--headed] [--click <selector>]... [--type <selector>=<text>]... [--wait <ms>] [--out <dir>] [--json]\n       vos look [url] --actions actions.json --until <step id> [--session <name> | --storage-state <file>] [--viewport WxH] [--headed] [--wait <ms>] [--out <dir>] [--json]'
+
+/**
+ * Why `--actions`/`--until` cannot walk, in words, or null. The step must be
+ * named by its `id`, the one name a step keeps when the script is edited.
+ */
+export function untilProblem(
+  given: { actions?: string; until?: string; clicks: number },
+  steps?: ActionsFile['steps'],
+): string | null {
+  if (given.until !== undefined && given.actions === undefined)
+    return '--until names a step of a script: pass the script with --actions actions.json'
+  if (given.actions === undefined) return null
+  if (given.clicks)
+    return '--actions walks the script; --click and --type walk by hand. Pass one'
+  if (given.until === undefined)
+    return '--actions needs --until <step id>: the step whose page you want to see'
+  if (!steps) return null
+  if (steps.some((s) => s.id === given.until)) return null
+  const ids = steps.map((s) => s.id).filter((id): id is string => !!id)
+  return `--until ${given.until}: no step in ${given.actions} has that id. ${ids.length ? `Its ids: ${ids.join(', ')}` : 'Its steps have no ids; give the step you want an "id"'}`
+}
+
+/**
+ * The steps a walk ran, as the look reports them: what each did and to
+ * what, and a note for one the page did not answer or a guard held back.
+ */
+export function walkedSteps(
+  steps: NonNullable<RecordResult['meta']['steps']>,
+): LookResult['steps'] {
+  return steps.map((s) => ({
+    do: s.id ? `${s.do} (${s.id})` : s.do,
+    selector: s.selector ?? '',
+    ...(s.skipped
+      ? { note: `SKIPPED: ${s.reason ?? 'not found'}` }
+      : s.guard
+        ? { note: `guarded (${s.guard}), hovered, not pressed` }
+        : {}),
+  }))
+}
 
 /** The human report: the picture, the controls, what the frame exposes. */
 export function lookReport(r: LookResult): string {
@@ -869,12 +942,35 @@ export async function cmdLook(argv: string[]): Promise<number> {
   // Read here so the flag check knows they were used; the order is lookSteps'.
   void multi.click
   void multi.type
-  const url = positionals[0]
+  const actionsArg = strFlag(flags, 'actions')
+  const untilId = strFlag(flags, 'until')
+  const early = untilProblem({
+    actions: actionsArg,
+    until: untilId,
+    clicks: steps.length,
+  })
+  if (early) throw new UsageError(early)
+  let actions: ActionsFile | undefined
+  if (actionsArg) {
+    actions = await loadLookActions(resolve(actionsArg))
+    const bad = untilProblem(
+      { actions: actionsArg, until: untilId, clicks: 0 },
+      actions.steps,
+    )
+    if (bad) throw new UsageError(bad)
+  }
+  const url = positionals[0] ?? actions?.url
   if (!url) throw new UsageError(USAGE)
   const scheme = urlSchemeProblem(url)
   if (scheme) throw new UsageError(scheme)
   const r = createReporter(flags.json === true)
-  const viewport = parseViewport(strFlag(flags, 'viewport'))
+  // A walked script keeps its own viewport unless one is asked for: the
+  // selectors and the layout it was written against.
+  const viewportFlag = strFlag(flags, 'viewport')
+  const viewport =
+    !viewportFlag && actions?.viewport
+      ? actions.viewport
+      : parseViewport(viewportFlag)
   const outDir = resolve(strFlag(flags, 'out') ?? 'look')
   const headed = flags.headed === true
   const waitRaw = strFlag(flags, 'wait')
@@ -908,6 +1004,23 @@ export async function cmdLook(argv: string[]): Promise<number> {
   const browserArgs = (
     (multi['browser-arg'] as string[] | undefined) ?? []
   ).filter(Boolean)
+
+  if (actions && untilId && actionsArg)
+    return lookUntil({
+      r,
+      url,
+      actions,
+      actionsPath: resolve(actionsArg),
+      untilId,
+      viewport,
+      outDir,
+      waitMs,
+      headed,
+      storageState,
+      sessionName,
+      headers,
+      browserArgs,
+    })
 
   const inContext = async (ctx: BrowserContext): Promise<LookResult> => {
     if (Object.keys(headers).length)
@@ -956,4 +1069,137 @@ export async function cmdLook(argv: string[]): Promise<number> {
     lookReport(result),
   )
   return result.wall?.level === 'hard' ? EXIT_WALL : EXIT_OK
+}
+
+/** An actions file read for a walk: the record verbs' own checks. */
+async function loadLookActions(file: string): Promise<ActionsFile> {
+  let raw: unknown
+  try {
+    raw = JSON.parse(await readFile(file, 'utf8'))
+  } catch (e) {
+    throw new UsageError(
+      `--actions ${file}: ${e instanceof Error ? e.message : String(e)}`,
+    )
+  }
+  const errors = validateActions(raw)
+  if (!errors.length) errors.push(...jsSyntaxProblems(raw as ActionsFile))
+  if (errors.length)
+    throw new UsageError(`invalid actions file:\n  ${errors.join('\n  ')}`)
+  return raw as ActionsFile
+}
+
+/**
+ * `vos look --actions <file> --until <id>`: the script walked the way a
+ * rehearsal walks it (its setup, its masks, its session; a guarded step
+ * hovered and never pressed), stopped after the step named, and the page
+ * looked at as that step left it. The steps after it never run. The walk
+ * clicks for real, so the script's teardown runs after the look.
+ */
+async function lookUntil(o: {
+  r: ReturnType<typeof createReporter>
+  url: string
+  actions: ActionsFile
+  actionsPath: string
+  untilId: string
+  viewport: { width: number; height: number }
+  outDir: string
+  waitMs: number
+  headed: boolean
+  storageState?: string
+  sessionName?: string
+  headers: Record<string, string>
+  browserArgs: string[]
+}): Promise<number> {
+  const { r } = o
+  const actions: ActionsFile = { ...o.actions, viewport: o.viewport }
+  let wall: WallVerdict | null = null
+  let looked: LookResult | null = null
+  // A rehearsal writes nothing, but the recorder is handed a take
+  // directory: a scratch one, removed after.
+  const scratch = await mkdtemp(join(tmpdir(), 'vos-look-'))
+  r.log(
+    `walking ${o.actionsPath} to step ${o.untilId} (a rehearsal: guarded steps hovered, never pressed)…`,
+  )
+  const browser = await launchBrowser(o.browserArgs, { headless: !o.headed })
+  let rec: RecordResult
+  try {
+    const walk = (context: BrowserContext | undefined) =>
+      recordTake(browser, o.url, actions, takePaths(scratch), r.log, {
+        actionsDir: dirname(o.actionsPath),
+        storageState: o.storageState,
+        headers: o.headers,
+        context,
+        dryRun: true,
+        stopOnHang: true,
+        onEvent: (e) => r.event(e),
+        onArrival: (arrival) => {
+          const verdict = wallVerdict(arrival)
+          // A hard wall is a missing or expired session: nothing behind it
+          // can be walked to (exit 4, the way record says it).
+          if (verdict && verdict.level === 'hard') throw new WallError(verdict)
+          if (verdict) r.log(`   WARNING: ${verdict.message}`)
+          wall = verdict
+          return verdict
+        },
+        until: {
+          id: o.untilId,
+          at: async (raw) => {
+            const page = raw as unknown as Page
+            const settled = await settle(page)
+            looked = await inspectPage(page, {
+              url: o.url,
+              outDir: o.outDir,
+              waitMs: o.waitMs,
+              wall,
+              steps: [],
+              settled,
+            })
+          },
+        },
+      })
+    rec = o.sessionName
+      ? await withSession(o.sessionName, (ctx) => walk(ctx), {
+          headless: !o.headed,
+          viewport: o.viewport,
+        })
+      : await walk(undefined)
+  } finally {
+    await browser.close()
+    await rm(scratch, { recursive: true, force: true })
+  }
+
+  const result = looked as LookResult | null
+  const ran = walkedSteps(rec.meta.steps ?? [])
+  const skipped = rec.skipped.length
+  const teardown = rec.teardown ? `\n  ${teardownLine(rec.teardown)}` : ''
+  if (!result) {
+    const why = rec.stopped
+      ? rec.stopped.reason
+      : 'the walk ended before it reached that step'
+    r.done(
+      {
+        ok: false,
+        until: o.untilId,
+        steps: ran,
+        skipped: rec.skipped,
+        ...(rec.teardown ? { teardown: rec.teardown } : {}),
+      },
+      `NOT LOOKED: step ${o.untilId} was never reached: ${why}.${ran.length ? `\n  walked: ${ran.map((s) => `${s.do}${s.selector ? ` ${s.selector}` : ''}${s.note ? ` (${s.note})` : ''}`).join(', then ')}` : ''}\n  Rehearse the script (vos record --actions ${o.actionsPath} --dry-run) to see where it stops.${teardown}`,
+    )
+    return EXIT_USAGE
+  }
+  const full: LookResult = { ...result, steps: ran }
+  const warn = skipped
+    ? `\n  WARNING: ${skipped} step${skipped === 1 ? ' was' : 's were'} SKIPPED on the way, so this may not be the page the script reaches. Fix ${skipped === 1 ? 'it' : 'them'}, then look again.`
+    : ''
+  r.done(
+    {
+      ok: skipped === 0 && (!full.wall || full.wall.level === 'soft'),
+      until: o.untilId,
+      ...full,
+      ...(rec.teardown ? { teardown: rec.teardown } : {}),
+    },
+    `${lookReport(full)}${warn}${teardown}`,
+  )
+  return skipped ? EXIT_USAGE : EXIT_OK
 }

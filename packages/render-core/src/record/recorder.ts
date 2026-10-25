@@ -413,6 +413,13 @@ export interface RecordOpts {
    * captured.
    */
   peerStorageState?: (name: string) => Promise<string> | string
+  /**
+   * In a rehearsal only: stop after the step with this `id` and hand the
+   * page, as that step left it, to `at` (`vos look --until`). The steps
+   * after it never run; the teardown still does, since the walk clicked
+   * for real. Ignored by a take.
+   */
+  until?: { id: string; at: (page: RecorderPage) => Promise<void> }
 }
 
 /** The longest any pause lasts in a rehearsal. */
@@ -1114,6 +1121,8 @@ async function recordTakeSteps(
   const outputNames = new Set<string>()
   const overruns: StepOverrun[] = []
   let stopped: StoppedTake | null = null
+  // Set when a rehearsal ended at `opts.until`'s step on purpose.
+  let untilReached = false
   // The last guarded step a rehearsal left unpressed: what follows it and
   // waits for its result (an expect, an await) cannot see that result.
   let unpressedGuard: number | null = null
@@ -1983,6 +1992,13 @@ async function recordTakeSteps(
     })
     // An await that timed out with onTimeout "fail": the take ends here.
     if (stopped) break
+    // `vos look --until`: the walk ends at this step, and the page is
+    // looked at as it left it, on the raw page (the step's bound is over).
+    if (dry && opts.until && step.id === opts.until.id) {
+      await opts.until.at(rawPage)
+      untilReached = true
+      break
+    }
   }
   // The take's steps are over: a peer step still waiting never runs, one
   // already running finishes (bounded) while the camera still rolls.
@@ -1999,7 +2015,7 @@ async function recordTakeSteps(
           ...(ps.reason ? { reason: ps.reason } : {}),
           peer: pr.id,
         })
-  if (!capped && !stopped) await sleep(TRAILING_HOLD_MS) // trailing hold
+  if (!capped && !stopped && !untilReached) await sleep(TRAILING_HOLD_MS) // trailing hold
   if (capped || capReached(now(), maxSeconds)) {
     capped = true
     log(`   ${cappedLine(maxSeconds)}`)
