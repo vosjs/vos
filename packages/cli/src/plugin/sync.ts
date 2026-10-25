@@ -122,6 +122,23 @@ function printChanges(
  * `vos pull`, which writes the hosted doc over the local one, and the take
  * that needs `--vos` is exactly the one re-recorded from scratch.
  */
+/** The longest description a vos keeps, the platform's own limit. */
+export const DESCRIPTION_MAX = 500
+
+/**
+ * Why a `--desc` cannot be sent, in words, or null. Asked before anything
+ * uploads: the platform refuses a longer one only after the recording has
+ * gone up.
+ */
+export function descriptionProblem(desc: string | undefined): string | null {
+  if (desc === undefined) return null
+  if (!desc.trim())
+    return '--desc is empty: give the sentence that says what the video shows'
+  if (desc.length > DESCRIPTION_MAX)
+    return `--desc is ${desc.length} characters and a vos keeps ${DESCRIPTION_MAX}: shorten it`
+  return null
+}
+
 export function takePushRefusal(ask: {
   /** `--vos`, when given. */
   vos?: string
@@ -132,7 +149,7 @@ export function takePushRefusal(ask: {
 }): string | null {
   if (ask.programOnly.length) {
     const list = ask.programOnly.map((f) => `--${f}`).join(', ')
-    return `${list} ${ask.programOnly.length > 1 ? 'belong' : 'belongs'} to a PROGRAM push (a config.json); a take push reads --vos, --title, --label, --note, --folder, --override and --yes`
+    return `${list} ${ask.programOnly.length > 1 ? 'belong' : 'belongs'} to a PROGRAM push (a config.json); a take push reads --vos, --title, --desc, --prompt, --label, --note, --folder, --override and --yes`
   }
   if (
     ask.vos !== undefined &&
@@ -236,6 +253,8 @@ export async function pushTake(
     overrides?: string[]
     /** The prompt that made it, shown on its watch page (the person's words). */
     prompt?: string
+    /** What the video shows, in a sentence: the watch page's description. */
+    description?: string
     /** Send fields the platform cannot play yet as what it reads (a copy). */
     bake?: boolean
   },
@@ -440,6 +459,7 @@ export async function pushTake(
         ...(flags.label ? { label: flags.label } : {}),
         ...(flags.note ? { note: flags.note } : {}),
         ...(flags.prompt ? { prompt: flags.prompt } : {}),
+        ...(flags.description ? { description: flags.description } : {}),
       },
     })
     if (created.status !== 201) {
@@ -496,14 +516,20 @@ export async function pushTake(
     )
   }
   serverWarnings(pushed.json, (l) => r.log(l))
-  if (flags.prompt) {
+  // The watch page's words ride the vos, never a version: a later push
+  // that names them replaces them, one that does not leaves them be.
+  const words = {
+    ...(flags.prompt ? { prompt: flags.prompt } : {}),
+    ...(flags.description ? { description: flags.description } : {}),
+  }
+  if (Object.keys(words).length) {
     const set = await api(ctx, `/vos/${state.vosId}`, {
       method: 'PATCH',
-      body: { prompt: flags.prompt },
+      body: words,
     })
     if (set.status !== 200)
       r.warn(
-        `could not set the prompt (${set.status}): ${String(set.json.error ?? '')}${detailLine(set.json)}`,
+        `could not set the ${Object.keys(words).join(' and ')} (${set.status}): ${String(set.json.error ?? '')}${detailLine(set.json)}`,
       )
   }
   const version = pushed.json.version as { id: string; versionNumber: number }
@@ -719,6 +745,7 @@ export async function pushTakeClaimable(
     origin?: string
     title?: string
     prompt?: string
+    description?: string
     share?: boolean
     bake?: boolean
   },
@@ -820,6 +847,7 @@ export async function pushTakeClaimable(
   const body: Record<string, unknown> = { title, config, doc: docForPush }
   if (state?.vosId) body.remixOfId = state.vosId
   if (flags.prompt) body.prompt = flags.prompt
+  if (flags.description) body.description = flags.description
   if (flags.share) body.share = true
   const origin = platformOrigin(flags)
   r.log(`creating a claimable push of ${title}…`)

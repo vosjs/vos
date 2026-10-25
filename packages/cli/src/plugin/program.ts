@@ -40,7 +40,7 @@ import {
   writeCredential,
   writeSyncState,
 } from './platform'
-import { programPushTarget } from './sync'
+import { descriptionProblem, programPushTarget } from './sync'
 import { hostedAssetId, manifestRefs } from '../programAssets'
 import { resolvePushFolder } from './folder'
 import {
@@ -611,9 +611,11 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
   if (pushTarget.kind === 'refuse') throw new UsageError(pushTarget.why)
   const vosId = pushTarget.kind === 'version' ? pushTarget.vosId : null
 
-  if (vosId && (desc || tagsFlag || folderRef)) {
+  const descProblem = descriptionProblem(desc)
+  if (descProblem) throw new UsageError(descProblem)
+  if (vosId && (tagsFlag || folderRef)) {
     throw new UsageError(
-      '--desc/--tags/--folder apply when CREATING a vos. On an existing one: vos folder move <id> --to <folder> for filing; edit title/description/tags on vos.so',
+      '--tags/--folder apply when CREATING a vos. On an existing one: vos folder move <id> --to <folder> for filing; edit tags on vos.so',
     )
   }
 
@@ -677,13 +679,19 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
     if (res.status !== 201)
       throw new Error(apiError(`push version to ${vosId}`, res))
     serverWarnings(res.body, say(r))
-    if (prompt) {
+    // The watch page's words ride the vos: a push that names them replaces them.
+    const words = {
+      ...(prompt ? { prompt } : {}),
+      ...(desc ? { description: desc } : {}),
+    }
+    if (Object.keys(words).length) {
       const set = await apiJson(origin, `/api/vos/${vosId}`, {
         method: 'PATCH',
         key,
-        body: { prompt },
+        body: words,
       })
-      if (set.status !== 200) r.warn(apiError('set the prompt', set))
+      if (set.status !== 200)
+        r.warn(apiError(`set the ${Object.keys(words).join(' and ')}`, set))
     }
     const version = (res.body.version ?? {}) as Record<string, unknown>
     // Track what we just made: the new version is the next push's base.
