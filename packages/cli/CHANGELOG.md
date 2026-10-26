@@ -1,5 +1,15 @@
 # @vosjs/cli
 
+## 0.86.0
+
+### Minor Changes
+
+- 935ee46: Many accounts on one machine (MA1): `vos login` is additive, so a second sign-in (the person picks the account on the approval page, themselves or an organization they act for) keeps the first, each stored by name under `~/.config/vos/accounts/<host>/<id>` with the one in use at `~/.config/vos/credentials`, whose first line is still the key every older reader expects. `vos switch [<handle>]` makes another stored account the one in use (with two stored, the other one), `vos whoami` says which account is in use, which rung of the ladder resolved it and what else is stored, `vos logout [<handle>] [--all]` forgets one or all, and `vos doctor` lists them. `--account <handle>` on every platform verb and `VOS_ACCOUNT` in the environment pick a stored account by name, and a name nothing is stored under is refused in words, never answered with another account. A key still acts for exactly the account it belongs to; switching is choosing a key.
+
+### Patch Changes
+
+- 65a7af4: The bundled skills are 0.29.0: `product-video`, `launch-kit` and `vos-cut` pick the bed with `vos music pick` (the library ranked against the cut's length, beats and voice), place it with `vos score --track best`, name the runner-up in the version note and ask the person to listen; `vos-score` tries the library first and composes only when the picture is choreographed or no bed reaches the beat fit it needs. `vos setup` installs skills that know this.
+
 ## 0.85.0
 
 ### Minor Changes
