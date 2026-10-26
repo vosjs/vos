@@ -44,6 +44,7 @@ describe('a stored credential and its origin', () => {
     expect(readStoredCredential(path)).toEqual({
       key: 'vos_sk_local',
       origin: 'http://localhost:6060',
+      account: null,
     })
   })
 
@@ -53,6 +54,7 @@ describe('a stored credential and its origin', () => {
     expect(readStoredCredential(path)).toEqual({
       key: 'vos_sk_old',
       origin: DEFAULT_ORIGIN,
+      account: null,
     })
   })
 

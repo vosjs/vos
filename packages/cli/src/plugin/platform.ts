@@ -12,10 +12,9 @@
  * - pushed configs travel as the MIGRATED object with params/presets
  *   untouched; the platform validates and compiles server-side
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { writeFileSafeSync } from './safeWrite'
-import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { join } from 'node:path'
 import { UsageError } from './args'
 import { detectHostAgent } from './hostAgent'
 import type { Env } from './hostAgent'
@@ -78,66 +77,170 @@ export function deriveSlug(title: string): string {
   )
 }
 
-export const CREDENTIALS_PATH = join(homedir(), '.config', 'vos', 'credentials')
-
-/** The origin a credential stored with none was minted for. */
-export const DEFAULT_ORIGIN = 'https://vos.so'
-
-/** An address's origin (`https://vos.so` for `https://vos.so/api/x`). */
-export function originOf(url: string): string {
-  try {
-    return new URL(url).origin
-  } catch {
-    return url.replace(/\/+$/, '')
-  }
-}
+/**
+ * The credential store (MA1) lives in `accounts.ts`; these are the ladder
+ * and the file every older reader knows, kept under their old names.
+ */
+export {
+  ACCOUNTS_DIR,
+  ACCOUNT_ENV,
+  CREDENTIALS_PATH,
+  DEFAULT_ORIGIN,
+  DEFAULT_STORE,
+  accountLabel,
+  originOf,
+} from './accounts'
+import {
+  ACCOUNT_ENV,
+  CREDENTIALS_PATH,
+  DEFAULT_ORIGIN,
+  DEFAULT_STORE,
+  accountLabel,
+  findStored,
+  listStored,
+  originOf,
+  parseCredential,
+  readActive,
+  storeCredential,
+} from './accounts'
+import type { Store, StoredAccount, StoredCredential } from './accounts'
 
 /**
- * The credential `vos login` stored: the key on the first line (every
- * reader of the file reads that line), then `origin=<the origin it was
- * minted for>`. A file written before the origin line is the default
- * origin's.
+ * The ACTIVE credential: the key on the first line (every reader of the
+ * file reads that line), `origin=<the origin it was minted for>`, and since
+ * MA1 `account=<id> <kind> <handle>`. A file written before the origin line
+ * is the default origin's.
  */
 export function readStoredCredential(
   path = CREDENTIALS_PATH,
-): { key: string; origin: string } | null {
+): StoredCredential | null {
   let text: string
   try {
     text = readFileSync(path, 'utf8')
   } catch {
     return null
   }
-  const [first, ...rest] = text.split('\n')
-  const key = first.trim()
-  if (!key) return null
-  const line = rest.map((l) => l.trim()).find((l) => l.startsWith('origin='))
-  const origin = line ? originOf(line.slice('origin='.length).trim()) : ''
-  return { key, origin: origin || DEFAULT_ORIGIN }
+  return parseCredential(text)
 }
 
-/** Keys read from the credentials file, and the origin each belongs to. */
+/** Keys read from the store, and the origin each belongs to. */
 const storedFor = new Map<string, string>()
 const warned = new Set<string>()
 
+/** How the last `resolveCredential` found its key, for `vos whoami`. */
+export type CredentialVia =
+  | 'flag'
+  | 'account-flag'
+  | 'env'
+  | 'account-env'
+  | 'stored'
+export interface Resolved {
+  key: string
+  via: CredentialVia
+  /** The stored account the key belongs to, when it came from the store. */
+  account: StoredAccount | null
+  origin: string | null
+}
+let lastResolved: Resolved | null = null
+export function lastCredential(): Resolved | null {
+  return lastResolved
+}
+
+export interface CredentialAsk {
+  /** `--key`: goes where the command goes. */
+  key?: string
+  /** `--account <handle|id>`: a stored credential for the origin, by name. */
+  account?: string
+  /** The origin in use; the store is read for it. Default: the platform origin. */
+  origin?: string
+  /** Tests hand in a scratch store. */
+  store?: Store
+}
+
+/** The credential flags every platform verb reads, in one place. */
+export function credentialFlags(
+  flags: Record<string, string | true>,
+): CredentialAsk {
+  const str = (name: string) =>
+    typeof flags[name] === 'string' ? (flags[name] as string) : undefined
+  return {
+    key: str('key'),
+    account: str('account'),
+    origin: platformOrigin({ origin: str('origin'), api: str('api') }),
+  }
+}
+
+function fromStore(
+  c: StoredCredential | null,
+  via: CredentialVia,
+): string | null {
+  if (!c) return null
+  storedFor.set(c.key, c.origin)
+  lastResolved = { key: c.key, via, account: c.account, origin: c.origin }
+  return c.key
+}
+
 /**
- * The full documented ladder: explicit --key → VOS_API_KEY → the
- * credential `vos login` stored. A vos_rg_ remix grant is just a key here.
- * Returns null when nothing resolves — callers decide whether auth is needed.
- * A stored key is remembered with its origin: it is only ever SENT there
- * (`bearerFor`).
+ * The full documented ladder: `--key` → `--account` → VOS_API_KEY →
+ * VOS_ACCOUNT → the active credential `vos login` stored. A vos_rg_ remix
+ * grant is just a key here. Returns null when nothing resolves — callers
+ * decide whether auth is needed. A stored key is remembered with its
+ * origin: it is only ever SENT there (`bearerFor`). A name that names no
+ * stored credential is an error in words, never a silent fall-through,
+ * because the person said which account and must not get another.
  */
 export function resolveCredential(
-  explicit?: string,
+  explicit?: string | CredentialAsk,
   path = CREDENTIALS_PATH,
 ): string | null {
-  const flag = explicit?.trim()
-  if (flag) return flag
+  const ask: CredentialAsk =
+    typeof explicit === 'string' || explicit === undefined
+      ? { key: explicit }
+      : explicit
+  const store: Store = ask.store ?? {
+    ...DEFAULT_STORE,
+    ...(path !== CREDENTIALS_PATH ? { credentialsPath: path } : {}),
+  }
+  const origin = ask.origin ?? platformOrigin()
+  const flag = ask.key?.trim()
+  if (flag) {
+    lastResolved = { key: flag, via: 'flag', account: null, origin: null }
+    return flag
+  }
+  const named = ask.account?.trim()
+  if (named) {
+    const found = findStored(store, origin, named)
+    if (!found)
+      throw new Error(noSuchAccount(store, origin, named, '--account'))
+    return fromStore(found, 'account-flag')
+  }
   const env = process.env.VOS_API_KEY?.trim()
-  if (env) return env
-  const stored = readStoredCredential(path)
-  if (!stored) return null
-  storedFor.set(stored.key, stored.origin)
-  return stored.key
+  if (env) {
+    lastResolved = { key: env, via: 'env', account: null, origin: null }
+    return env
+  }
+  const envName = process.env[ACCOUNT_ENV]?.trim()
+  if (envName) {
+    const found = findStored(store, origin, envName)
+    if (!found)
+      throw new Error(noSuchAccount(store, origin, envName, ACCOUNT_ENV))
+    return fromStore(found, 'account-env')
+  }
+  return fromStore(readActive(store), 'stored')
+}
+
+function noSuchAccount(
+  store: Store,
+  origin: string,
+  ref: string,
+  how: string,
+): string {
+  const have = listStored(store, origin).map((c) => accountLabel(c.account))
+  const name = ref.startsWith('@') ? ref : `@${ref}`
+  return (
+    `${how} names ${name}, and no credential for it is stored for ${origin}: run vos login and approve as ${name}` +
+    (have.length ? ` (stored: ${have.join(', ')})` : '')
+  )
 }
 
 /**
@@ -169,31 +272,54 @@ export function bearerFor(
 export const mintAt = (origin: string = DEFAULT_ORIGIN): string =>
   `${originOf(origin)}/app/api`
 
-export function requireCredential(explicit?: string, origin?: string): string {
+export function requireCredential(
+  explicit?: string | CredentialAsk,
+  origin?: string,
+): string {
   const key = resolveCredential(explicit)
   if (!key) {
+    const at =
+      origin ??
+      (typeof explicit === 'object' ? explicit.origin : undefined) ??
+      platformOrigin()
     throw new Error(
       'no credential found — pass --key, set VOS_API_KEY, or run `vos login` ' +
-        `(mint a content key at ${mintAt(origin ?? platformOrigin())}; a vos_rg_ remix grant works too)`,
+        `(mint a content key at ${mintAt(at)}; a vos_rg_ remix grant works too)`,
     )
   }
   return key
 }
 
 /**
- * `vos login` writes here: 0700 dir, 0600 file, the key on the first line
- * and the origin it was minted for on the next.
+ * `vos login` stores here: the credential's own file under
+ * `~/.config/vos/accounts/<host>/<id>` when its account is known, and the
+ * active file (0700 dir, 0600 file, the key on the first line, the origin
+ * and the account on the next lines). The credential that was active stays
+ * stored, so a second sign-in never discards the first.
  */
 export function writeCredential(
   key: string,
   origin: string = DEFAULT_ORIGIN,
   path = CREDENTIALS_PATH,
+  account: StoredAccount | null = null,
 ): string {
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
-  writeFileSync(path, `${key.trim()}\norigin=${originOf(origin)}\n`, {
-    mode: 0o600,
+  return storeLogin(key, origin, account, {
+    ...DEFAULT_STORE,
+    ...(path !== CREDENTIALS_PATH ? { credentialsPath: path } : {}),
+  }).path
+}
+
+export function storeLogin(
+  key: string,
+  origin: string,
+  account: StoredAccount | null,
+  store: Store = DEFAULT_STORE,
+): { path: string; setAside: StoredCredential | null } {
+  return storeCredential(store, {
+    key: key.trim(),
+    origin: originOf(origin),
+    account,
   })
-  return path
 }
 
 /**

@@ -14,7 +14,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  rmSync,
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
@@ -38,11 +37,26 @@ import type { AgentHome, BrowserProbe, DoctorFacts } from './machine'
 import { EXIT_ERROR, EXIT_NO_BROWSER, EXIT_OK, createReporter } from './output'
 import {
   CREDENTIALS_PATH,
+  accountLabel,
   apiError,
   apiJson,
+  lastCredential,
   platformOrigin,
   resolveCredential,
 } from './platform'
+import {
+  ACCOUNT_ENV,
+  DEFAULT_STORE,
+  activate,
+  findStored,
+  isActive,
+  listStored,
+  readActive,
+  removeAll,
+  removeStored,
+  switchTarget,
+} from './accounts'
+import type { Store, StoredCredential } from './accounts'
 import type { Reporter } from './output'
 
 const BOOLEAN_FLAGS = new Set([
@@ -54,6 +68,8 @@ const BOOLEAN_FLAGS = new Set([
   'no-rules',
   'no-browser',
 ])
+/** `vos logout --all` forgets every stored credential. */
+const LOGOUT_FLAGS = new Set([...BOOLEAN_FLAGS, 'all'])
 
 /** The skills catalog's repository, for the opt-in install through skills.sh. */
 export const SKILLS_SOURCE = 'vosjs/skills'
@@ -151,9 +167,30 @@ async function doctorFacts(opts: {
     browser: probe(),
     ffmpeg: ffmpegVersion(),
     skills: skillsFacts(opts.homes),
-    credential: resolveCredential() !== null,
+    credential: safeResolve() !== null,
+    accounts: storedAccounts(platformOrigin()),
     ...(opts.url ? { devServer: await devServerFact(opts.url) } : {}),
   }
+}
+
+/** The ladder, with a misnamed VOS_ACCOUNT read as "nothing resolves" here. */
+function safeResolve(): string | null {
+  try {
+    return resolveCredential()
+  } catch {
+    return null
+  }
+}
+
+/** The stored accounts for an origin, by name, for doctor and whoami. */
+function storedAccounts(
+  origin: string,
+  store: Store = DEFAULT_STORE,
+): { label: string; active: boolean }[] {
+  return listStored(store, origin).map((c) => ({
+    label: accountLabel(c.account),
+    active: isActive(c, store),
+  }))
 }
 
 /**
@@ -340,7 +377,9 @@ export async function cmdDoctor(argv: string[]): Promise<number> {
 
 /**
  * `vos whoami`: the key's name and the account it belongs to, from
- * `GET /user/whoami` (key- or session-readable on vos.so). Never the key.
+ * `GET /user/whoami` (key- or session-readable on vos.so), which rung of the
+ * ladder the key came from, and every other account stored for the origin
+ * (MA1). Never the key.
  */
 export async function cmdWhoami(argv: string[]): Promise<number> {
   const { flags } = parseArgs(argv, BOOLEAN_FLAGS)
@@ -349,19 +388,41 @@ export async function cmdWhoami(argv: string[]): Promise<number> {
     origin: strFlag(flags, 'origin'),
     api: strFlag(flags, 'api'),
   })
-  const key = resolveCredential(strFlag(flags, 'key'))
+  const stored = storedAccounts(origin)
+  const others = stored.filter((a) => !a.active).map((a) => a.label)
+  const alsoStored = others.length
+    ? ` Also stored: ${others.join(', ')}; vos switch <name> to use one.`
+    : ''
+  const key = resolveCredential({
+    key: strFlag(flags, 'key'),
+    account: strFlag(flags, 'account'),
+    origin,
+  })
   if (!key) {
     r.done(
       {
         signedIn: false,
         origin,
+        accounts: stored,
         next_step:
           'vos login (only needed for hosting, sharing or cloud rendering)',
       },
-      `Not signed in to ${origin}. Recording and rendering need no account; vos login when you want a link.`,
+      `Not signed in to ${origin}. Recording and rendering need no account; vos login when you want a link.${alsoStored}`,
     )
     return EXIT_ERROR
   }
+  const resolved = lastCredential()
+  const via = resolved?.via ?? 'stored'
+  const viaLine =
+    via === 'flag'
+      ? ' (the key passed as --key)'
+      : via === 'env'
+        ? ' (from VOS_API_KEY, which outranks the stored credential)'
+        : via === 'account-flag'
+          ? ' (--account)'
+          : via === 'account-env'
+            ? ` (${ACCOUNT_ENV})`
+            : ''
   const res = await apiJson(origin, '/api/user/whoami', { key })
   if (res.status === 404) {
     // An origin from before the route: the credential exists, that is all
@@ -370,11 +431,13 @@ export async function cmdWhoami(argv: string[]): Promise<number> {
       {
         signedIn: true,
         origin,
+        via,
         user: null,
         key: null,
+        accounts: stored,
         next_step: 'vos push when you want the work hosted',
       },
-      `A credential is present for ${origin} (this origin cannot say whose).`,
+      `A credential is present for ${origin}${viaLine} (this origin cannot say whose).${alsoStored}`,
     )
     return EXIT_OK
   }
@@ -383,15 +446,23 @@ export async function cmdWhoami(argv: string[]): Promise<number> {
       {
         signedIn: false,
         origin,
+        via,
         error: apiError('whoami', res),
+        accounts: stored,
         next_step: 'vos login',
       },
-      `The stored credential is refused by ${origin}: ${apiError('whoami', res)}. Run vos login.`,
+      `The stored credential is refused by ${origin}${viaLine}: ${apiError('whoami', res)}. Run vos login.${alsoStored}`,
     )
     return EXIT_ERROR
   }
   if (res.status !== 200) throw new Error(apiError('whoami', res))
   const user = res.body.user as {
+    id?: string
+    name?: string | null
+    username?: string | null
+    kind?: string
+  } | null
+  const actor = res.body.actor as {
     name?: string | null
     username?: string | null
   } | null
@@ -404,44 +475,176 @@ export async function cmdWhoami(argv: string[]): Promise<number> {
   const who = user?.username
     ? `@${user.username}`
     : (user?.name ?? 'an account')
+  const orgLine =
+    user?.kind === 'org'
+      ? ` (an organization${actor ? `, ${actor.username ? `@${actor.username}` : (actor.name ?? 'you')} recorded as the person behind it` : ''})`
+      : ''
   const keyLine = k
     ? `key "${k.name ?? ''}" (${k.prefix ?? '…'}, ${(k.scopes ?? []).join(', ') || 'no scopes'})`
     : 'a session, not a key'
+  // A stored credential from before the account line learns its name here,
+  // so `vos switch` can find it from now on.
+  if (via === 'stored' && resolved && !resolved.account && user?.id) {
+    const active = readActive(DEFAULT_STORE)
+    if (active && active.key === key) {
+      activate(DEFAULT_STORE, {
+        ...active,
+        account: {
+          id: user.id,
+          kind: user.kind === 'org' ? 'org' : 'person',
+          handle: user.username ?? null,
+        },
+      })
+    }
+  }
   r.done(
     {
       signedIn: true,
       origin,
+      via,
       user,
+      actor: actor ?? null,
       key: k,
+      accounts: storedAccounts(origin),
       next_step: 'vos push when you want the work hosted',
     },
-    `Signed in to ${origin} as ${who}, with ${keyLine}.`,
+    `Signed in to ${origin} as ${who}${orgLine}, with ${keyLine}${viaLine}.${alsoStored}`,
   )
   return EXIT_OK
 }
 
-/** `vos logout`: remove the credentials file. Idempotent. */
-export function cmdLogout(argv: string[]): number {
-  const { flags } = parseArgs(argv, BOOLEAN_FLAGS)
+/**
+ * `vos switch [<handle>]`: make another stored credential the active one
+ * (MA1). With exactly two stored for the origin and no name, the other one
+ * (gh's rule); otherwise the name is required and the stored ones are
+ * listed. Prints names, never a key.
+ */
+export function cmdSwitch(argv: string[]): number {
+  const { flags, positionals } = parseArgs(argv, BOOLEAN_FLAGS)
   const r = reporterFor(flags)
-  const had = existsSync(CREDENTIALS_PATH)
-  rmSync(CREDENTIALS_PATH, { force: true })
+  const origin = platformOrigin({
+    origin: strFlag(flags, 'origin'),
+    api: strFlag(flags, 'api'),
+  })
+  const store = DEFAULT_STORE
+  const stored = listStored(store, origin)
+  const active = readActive(store)
+  const target = switchTarget(
+    stored,
+    active?.key ?? null,
+    positionals[0],
+    origin,
+  )
+  if (!target.ok) throw new UsageError(target.error)
+  const to = target.to
+  if (active && active.key === to.key) {
+    r.done(
+      {
+        origin,
+        account: to.account,
+        changed: false,
+        accounts: storedAccounts(origin, store),
+        next_step: 'vos push when you want the work hosted',
+      },
+      `${accountLabel(to.account)} is already the account in use on ${origin}.`,
+    )
+    return EXIT_OK
+  }
+  activate(store, to)
   const envKey = Boolean(process.env.VOS_API_KEY?.trim())
   r.done(
     {
-      path: CREDENTIALS_PATH,
-      removed: had,
-      envCredential: envKey,
+      origin,
+      account: to.account,
+      changed: true,
+      accounts: storedAccounts(origin, store),
       next_step: envKey
-        ? 'unset VOS_API_KEY as well; it still resolves'
-        : 'vos login when you next need hosting',
+        ? 'unset VOS_API_KEY; it outranks the stored credential'
+        : 'vos push when you want the work hosted',
     },
-    (had
-      ? `Removed ${CREDENTIALS_PATH}.`
-      : `Nothing stored at ${CREDENTIALS_PATH}.`) +
-      (envKey
-        ? ' VOS_API_KEY is still set in this shell and still resolves.'
-        : ''),
+    `Now ${accountLabel(to.account)} on ${origin}${
+      active?.account ? ` (${accountLabel(active.account)} stays stored)` : ''
+    }.${envKey ? ' VOS_API_KEY is set in this shell and still outranks it.' : ''}`,
+  )
+  return EXIT_OK
+}
+
+/**
+ * `vos logout [<handle>] [--all]`: forget the active credential, a named
+ * one, or every stored one (MA1). Idempotent; says what remains.
+ */
+export function cmdLogout(argv: string[]): number {
+  const { flags, positionals } = parseArgs(argv, LOGOUT_FLAGS)
+  const r = reporterFor(flags)
+  const origin = platformOrigin({
+    origin: strFlag(flags, 'origin'),
+    api: strFlag(flags, 'api'),
+  })
+  const store = DEFAULT_STORE
+  const envKey = Boolean(process.env.VOS_API_KEY?.trim())
+  const envNote = envKey
+    ? ' VOS_API_KEY is still set in this shell and still resolves.'
+    : ''
+  const envStep = envKey
+    ? 'unset VOS_API_KEY as well; it still resolves'
+    : 'vos login when you next need hosting'
+  if (flags.all === true) {
+    const { had } = removeAll(store)
+    r.done(
+      {
+        path: CREDENTIALS_PATH,
+        removed: had,
+        all: true,
+        envCredential: envKey,
+        next_step: envStep,
+      },
+      (had ? 'Removed every stored credential.' : 'Nothing was stored.') +
+        envNote,
+    )
+    return EXIT_OK
+  }
+  const ref = positionals[0]
+  const target: StoredCredential | null = ref
+    ? findStored(store, origin, ref)
+    : readActive(store)
+  if (!target) {
+    const have = storedAccounts(origin, store)
+    r.done(
+      {
+        path: CREDENTIALS_PATH,
+        removed: false,
+        envCredential: envKey,
+        accounts: have,
+        next_step: envStep,
+      },
+      (ref
+        ? `Nothing stored for ${ref.startsWith('@') ? ref : `@${ref}`} on ${origin}.`
+        : `Nothing stored at ${CREDENTIALS_PATH}.`) +
+        (have.length
+          ? ` Stored: ${have.map((a) => a.label).join(', ')}.`
+          : '') +
+        envNote,
+    )
+    return EXIT_OK
+  }
+  const { wasActive } = removeStored(store, target)
+  const left = storedAccounts(origin, store)
+  const leftLine = left.length
+    ? wasActive
+      ? ` Still stored: ${left.map((a) => a.label).join(', ')}; vos switch <name> to use one.`
+      : ` ${left.find((a) => a.active)?.label ?? 'another account'} stays in use.`
+    : ''
+  r.done(
+    {
+      path: CREDENTIALS_PATH,
+      removed: true,
+      account: target.account,
+      wasActive,
+      envCredential: envKey,
+      accounts: left,
+      next_step: left.length && wasActive ? 'vos switch <name>' : envStep,
+    },
+    `Removed ${accountLabel(target.account)} (${target.origin}).${leftLine}${envNote}`,
   )
   return EXIT_OK
 }

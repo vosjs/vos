@@ -175,7 +175,7 @@ export const RULES_BODY = `## Product videos (vosso)
 - Hand back: vos open take serves the take into the studio at vos.so, doc.json intact
 - Local by default: vos push only when asked for a link, the shelf or a cloud render
 - Deleting: vos delete moves a vos to Trash and vos restore brings it back; if you deleted by mistake, restore it and say so. Only the person can delete forever, at vos.so/app/trash
-- Credentials: VOS_API_KEY, then ~/.config/vos/credentials, then vos login; never print one
+- Credentials: VOS_API_KEY, then the account in use at ~/.config/vos/credentials (vos whoami says which; vos switch <handle> changes it), then vos login; never print one
 - Reference: https://vos.so/llms-full.txt`
 
 export const RULES_BLOCK = `${RULES_BEGIN}\n${RULES_BODY}\n${RULES_END}`
@@ -313,6 +313,11 @@ export interface DoctorFacts {
   skills: { agent: AgentName; scope: AgentHome['scope']; names: string[] }[]
   /** A credential resolves (flag, env or file). Never the value. */
   credential: boolean
+  /**
+   * The accounts stored for the origin, by name (MA1), the active one
+   * first; absent on a build before the store. Never a key.
+   */
+  accounts?: { label: string; active: boolean }[]
   devServer?: {
     url: string
     ok: boolean
@@ -334,6 +339,26 @@ function major(version: string): number {
 }
 
 /** The report in words; the JSON is `facts` plus `ok` and `next_step`. */
+/**
+ * The doctor's credential line: the active account by name and the others
+ * stored beside it (`@hongbin ✓ (also vosso)`), or that a credential is
+ * present from a flag or the environment, or absent. Never a key.
+ */
+export function credentialLine(
+  facts: Pick<DoctorFacts, 'credential' | 'accounts'>,
+): string {
+  const accounts = facts.accounts ?? []
+  const active = accounts.find((a) => a.active)
+  const others = accounts.filter((a) => !a.active).map((a) => a.label)
+  if (active) {
+    return `${active.label} ✓${others.length ? ` (also ${others.join(', ')})` : ''}`
+  }
+  if (facts.credential) {
+    return `present ✓${others.length ? ` (stored: ${others.join(', ')}; vos switch to use one)` : ''}`
+  }
+  return `absent (vos login when you need hosting)${others.length ? `; stored: ${others.join(', ')}, vos switch to use one` : ''}`
+}
+
 export function doctorReport(facts: DoctorFacts): DoctorReport {
   const lines: string[] = []
   const nodeOk = major(facts.node) >= NODE_MIN_MAJOR
@@ -359,9 +384,7 @@ export function doctorReport(facts: DoctorFacts): DoctorReport {
   } else {
     lines.push('skills      none ✗  run: npx vos setup')
   }
-  lines.push(
-    `credential  ${facts.credential ? 'present ✓' : 'absent (vos login when you need hosting)'}`,
-  )
+  lines.push(`credential  ${credentialLine(facts)}`)
   if (facts.devServer) {
     const d = facts.devServer
     lines.push(

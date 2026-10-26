@@ -27,6 +27,7 @@ import {
   apiError,
   apiJson,
   platformOrigin,
+  credentialFlags,
   requireCredential,
 } from './platform'
 
@@ -58,7 +59,7 @@ async function cmdPush(argv: string[]): Promise<number> {
     origin: strFlag(flags, 'origin'),
     api: strFlag(flags, 'api'),
   })
-  const key = requireCredential(strFlag(flags, 'key'))
+  const key = requireCredential(credentialFlags(flags))
 
   if (assetId) {
     const res = await apiJson(origin, `/api/assets/${assetId}/file`, {

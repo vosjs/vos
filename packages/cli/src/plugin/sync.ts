@@ -65,15 +65,20 @@ export interface ApiContext {
   key: string
 }
 
-/** Auth + origin: flags win, then the documented ladder (platform.ts). */
+/**
+ * Auth + origin: flags win (`--key`, `--account`, `--origin`), then the
+ * documented ladder (platform.ts).
+ */
 export function apiContext(flags: {
   key?: string
+  account?: string
   api?: string
   origin?: string
 }): ApiContext {
+  const origin = platformOrigin(flags)
   return {
-    origin: platformOrigin(flags),
-    key: requireCredential(flags.key, platformOrigin(flags)),
+    origin,
+    key: requireCredential({ key: flags.key, account: flags.account, origin }),
   }
 }
 

@@ -10,7 +10,23 @@
  */
 import { hostname } from 'node:os'
 import { apiError, apiJson, mintAt, writeCredential } from './platform'
+import { accountFrom } from './accounts'
+import type { StoredAccount } from './accounts'
 import type { Reporter } from './output'
+
+/**
+ * Where a landed key goes: the store, with the account the answer named
+ * (MA1), so the credential is stored by name and `vos switch` can find it.
+ */
+export type StoreKey = (
+  key: string,
+  origin: string,
+  account: StoredAccount | null,
+) => string
+
+const storeWith = (store?: StoreKey): StoreKey =>
+  store ??
+  ((key, origin, account) => writeCredential(key, origin, undefined, account))
 
 /** The origin has no device-flow endpoints (older server) — caller falls
     back to the paste-a-key ladder. */
@@ -32,8 +48,8 @@ export interface BrowserLoginOptions {
   openBrowser: boolean
   /** Injected for tests. */
   sleep?: (ms: number) => Promise<void>
-  /** Injected for tests — defaults to the real credentials file. */
-  store?: (key: string, origin: string) => string
+  /** Injected for tests — defaults to the real credentials store. */
+  store?: StoreKey
 }
 
 /**
@@ -76,7 +92,7 @@ export async function browserLogin(
   origin: string,
   r: Reporter,
   opts: BrowserLoginOptions,
-): Promise<{ path: string; user: string }> {
+): Promise<{ path: string; user: string; account: StoredAccount | null }> {
   const create = await apiJson(origin, '/api/cli/login', {
     method: 'POST',
     body: {
@@ -133,15 +149,17 @@ export async function browserLogin(
     }
     if (res.status === 200 && status === 'ok') {
       // The one delivery — straight to disk, never through any output path.
-      const path = (opts.store ?? writeCredential)(
+      const account = accountFrom(res.body.user)
+      const path = storeWith(opts.store)(
         res.body.key as string,
         origin,
+        account,
       )
       const user =
         typeof res.body.user === 'object' && res.body.user !== null
           ? ((res.body.user as { name?: string }).name ?? '')
           : ''
-      return { path, user }
+      return { path, user, account }
     }
     if (res.status === 429) {
       // key_limit carries the fix in words and keeps the approval alive —
@@ -192,8 +210,14 @@ export function parseHandoffUrl(
 export async function handoffLogin(
   url: string,
   r: Reporter,
-  opts: { store?: (key: string, origin: string) => string } = {},
-): Promise<{ path: string; user: string; keyName: string; origin: string }> {
+  opts: { store?: StoreKey } = {},
+): Promise<{
+  path: string
+  user: string
+  keyName: string
+  origin: string
+  account: StoredAccount | null
+}> {
   const parsed = parseHandoffUrl(url)
   if (!parsed)
     throw new Error(
@@ -205,9 +229,11 @@ export async function handoffLogin(
     body: { token: parsed.token, hostname: hostname().slice(0, 64) },
   })
   if (res.status === 200 && res.body.status === 'ok') {
-    const path = (opts.store ?? writeCredential)(
+    const account = accountFrom(res.body.user)
+    const path = storeWith(opts.store)(
       res.body.key as string,
       parsed.origin,
+      account,
     )
     const user =
       typeof res.body.user === 'object' && res.body.user !== null
@@ -218,6 +244,7 @@ export async function handoffLogin(
       user,
       keyName: String(res.body.keyName ?? ''),
       origin: parsed.origin,
+      account,
     }
   }
   if (res.status === 404 && !res.body.status) {

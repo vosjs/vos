@@ -52,6 +52,7 @@ import {
   apiError,
   apiJson,
   platformOrigin,
+  credentialFlags,
   requireCredential,
 } from './platform'
 
@@ -68,7 +69,7 @@ async function cmdRename(argv: string[]): Promise<number> {
     origin: strFlag(flags, 'origin'),
     api: strFlag(flags, 'api'),
   })
-  const key = requireCredential(strFlag(flags, 'key'))
+  const key = requireCredential(credentialFlags(flags))
 
   const res = await apiJson(origin, `/api/assets/${assetId}`, {
     method: 'PATCH',
@@ -93,7 +94,7 @@ async function cmdPush(argv: string[]): Promise<number> {
     origin: strFlag(flags, 'origin'),
     api: strFlag(flags, 'api'),
   })
-  const key = requireCredential(strFlag(flags, 'key'))
+  const key = requireCredential(credentialFlags(flags))
   const folderRef = strFlag(flags, 'folder')
   const folder = folderRef
     ? resolveFolder(await listFolders(origin, key), folderRef)
@@ -209,7 +210,7 @@ async function cmdImport(argv: string[]): Promise<number> {
     origin: strFlag(flags, 'origin'),
     api: strFlag(flags, 'api'),
   })
-  const key = requireCredential(strFlag(flags, 'key'))
+  const key = requireCredential(credentialFlags(flags))
   const folderRef = strFlag(flags, 'folder')
   const folder = folderRef
     ? resolveFolder(await listFolders(origin, key), folderRef)
@@ -296,7 +297,7 @@ async function cmdList(argv: string[]): Promise<number> {
     origin: strFlag(flags, 'origin'),
     api: strFlag(flags, 'api'),
   })
-  const key = requireCredential(strFlag(flags, 'key'))
+  const key = requireCredential(credentialFlags(flags))
   const params = new URLSearchParams({
     limit: String(Math.min(200, Math.max(1, numFlag(flags, 'limit', 50)))),
   })
@@ -336,7 +337,7 @@ async function cmdUsage(argv: string[]): Promise<number> {
     origin: strFlag(flags, 'origin'),
     api: strFlag(flags, 'api'),
   })
-  const key = requireCredential(strFlag(flags, 'key'))
+  const key = requireCredential(credentialFlags(flags))
   const res = await apiJson(origin, '/api/user/usage', { key })
   if (res.status !== 200) throw new Error(apiError('read usage', res))
   const usage = (res.body.usage ?? {}) as Record<string, unknown>
@@ -372,7 +373,7 @@ async function cmdWhy(argv: string[]): Promise<number> {
     origin: strFlag(flags, 'origin'),
     api: strFlag(flags, 'api'),
   })
-  const key = requireCredential(strFlag(flags, 'key'))
+  const key = requireCredential(credentialFlags(flags))
   const res = await apiJson(origin, `/api/assets/${assetId}`, { key })
   if (res.status !== 200) throw new Error(apiError(`read ${assetId}`, res))
   const asset = hostedFile(res.body.asset) as HostedFile & {

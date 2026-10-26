@@ -64,6 +64,7 @@ import {
   platformOrigin,
   promptHint,
   readSyncState,
+  credentialFlags,
   requireCredential,
   resolveCredential,
   mintAt,
@@ -185,7 +186,13 @@ import { PlatformBehindError } from './platformEngine'
 import { bareCaptionsFlag, landStepCaptions } from './stepCaptions'
 import type { StepCaptionReport } from './stepCaptions'
 import { cmdLook } from './look'
-import { cmdDoctor, cmdLogout, cmdSetup, cmdWhoami } from './machineCmd'
+import {
+  cmdDoctor,
+  cmdLogout,
+  cmdSetup,
+  cmdSwitch,
+  cmdWhoami,
+} from './machineCmd'
 import type { Backdrop, ProjectDoc } from '@vosjs/studio-core'
 import type { ActionsFile } from './actions'
 import type { ParsedArgs } from './args'
@@ -295,15 +302,22 @@ This machine (no account)
             agent, a credential (present or absent, never printed), and the
             dev server when --url names one. Exit 3 when no browser
   vos whoami [--json]
-            the key's name and the account it belongs to, never the key
-  vos logout [--json]
-            remove ~/.config/vos/credentials (VOS_API_KEY still resolves)
+            the account in use (its key's name, which rung resolved it) and
+            every other account stored for the origin, never a key
+  vos switch [<handle>] [--json]
+            use another stored account (with two stored, the other one);
+            vos login once per account, approving as it, stores them all
+  vos logout [<handle>] [--all] [--json]
+            forget the account in use, a named one, or every stored
+            credential (VOS_API_KEY still resolves)
 
 Platform (vos.so) — fetch, edit, push, pull, repeat
   vos login [--key <vos_sk_…>] [--handoff <url>] [--label <name>] [--no-browser]
             sign in via the browser (approve at vos.so/cli/auth; works
             headless — print the URL, a human approves, the key stores
             itself). --key skips the browser (mint at vos.so/app/api).
+            Additive: the person picks the account on the approval page,
+            and every account signed in stays stored (vos switch).
             --handoff https://vos.so/h/… exchanges the setup link a
             signed-in person's line carries for a key, once, no click
   vos fetch <vosId|watch-url> [--out dir] [--media] [--json]
@@ -367,7 +381,8 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
             kept) or the take's doc.json. ALWAYS pull before editing pushed work.
             --media also downloads the recording (+ mic/cam sidecars) beside
             the doc and re-anchors it, so digest/frames/render run locally
-            auth: --key, VOS_API_KEY, or ~/.config/vos/credentials; keys can
+            auth: --key, --account <handle>, VOS_API_KEY, VOS_ACCOUNT, or the
+            stored account in use (~/.config/vos/credentials); keys can
             never publish (visibility stays private; humans publish on vos.so)
   vos folder list
   vos folder create <name> [--parent <folderId|slug>] [--desc <text>]
@@ -568,9 +583,10 @@ doc.json edits arrive intact; a human can drag every zoom span. Keeps
 serving until Ctrl-C. The studio is https://vos.so by default (VOS_ORIGIN
 moves it; --studio http://localhost:6060 for a dev server).
 
-push/pull — the hosted iteration loop (credentials: --key, VOS_API_KEY, or
-~/.config/vos/credentials via vos login; origin via VOS_ORIGIN, default
-https://vos.so). A take push uploads the recording ONCE (content-addressed),
+push/pull — the hosted iteration loop (credentials: --key, --account <handle>,
+VOS_API_KEY, VOS_ACCOUNT, or the account in use at ~/.config/vos/credentials
+via vos login, one sign-in per account and vos switch between them; origin
+via VOS_ORIGIN, default https://vos.so). A take push uploads the recording ONCE (content-addressed),
 lowers doc.json, and creates a private vos (first push asks; --yes for
 headless) or a new version against the base in vos.json — a stale base
 prints the human's typed changelog and exits 1 (run pull, re-apply, push
@@ -2878,7 +2894,7 @@ async function cmdPush(argv: string[]): Promise<number> {
     flags.wait === true
       ? await waitForLanded({
           origin: pushedTo,
-          key: requireCredential(strFlag(flags, 'key')),
+          key: requireCredential(credentialFlags(flags)),
           vosId: result.vosId,
           versionId: result.versionId ?? null,
           log: (l) => r.log(l),
@@ -3028,6 +3044,8 @@ export async function run(argv: string[]): Promise<number> {
         return await cmdWhoami(rest)
       case 'logout':
         return cmdLogout(rest)
+      case 'switch':
+        return cmdSwitch(rest)
       case 'push': {
         // Polymorphic by the deterministic sniff: a take DIRECTORY (doc.json)
         // pushes recording + doc; anything else is a program config push.

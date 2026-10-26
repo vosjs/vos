@@ -120,7 +120,11 @@ describe('browserLogin', () => {
         },
       }),
     )
-    expect(result).toEqual({ path: '/tmp/test-credentials', user: 'Ada' })
+    expect(result).toEqual({
+      path: '/tmp/test-credentials',
+      user: 'Ada',
+      account: null,
+    })
     expect(stored).toBe('vos_sk_' + 'a'.repeat(40))
     const await_ = events.find((e) => e.event === 'login_await')
     expect(await_?.code).toBe('ABCD-EFGH')
@@ -302,6 +306,7 @@ describe('handoffLogin', () => {
       path: '/tmp/creds',
       user: 'Robin',
       keyName: 'cli:laptop',
+      account: null,
       origin,
     })
     const everything = JSON.stringify({ logs, events, out })

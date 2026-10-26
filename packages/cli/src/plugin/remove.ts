@@ -29,6 +29,7 @@ import {
   parseVosId,
   platformOrigin,
   readSyncState,
+  credentialFlags,
   requireCredential,
 } from './platform'
 import { restoreDate } from './trash'
@@ -47,7 +48,7 @@ export async function cmdDelete(argv: string[]): Promise<number> {
     origin: strFlag(flags, 'origin'),
     api: strFlag(flags, 'api'),
   }).replace(/\/+$/, '')
-  const key = requireCredential(strFlag(flags, 'key'))
+  const key = requireCredential(credentialFlags(flags))
 
   const dir =
     existsSync(target) && statSync(target).isDirectory() ? target : null

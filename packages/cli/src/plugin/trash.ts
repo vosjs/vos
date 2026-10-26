@@ -17,6 +17,7 @@ import {
   apiJson,
   parseVosId,
   platformOrigin,
+  credentialFlags,
   requireCredential,
 } from './platform'
 
@@ -99,7 +100,7 @@ function context(flags: Record<string, string | true>) {
     origin: strFlag(flags, 'origin'),
     api: strFlag(flags, 'api'),
   }).replace(/\/+$/, '')
-  return { origin, key: requireCredential(strFlag(flags, 'key')) }
+  return { origin, key: requireCredential(credentialFlags(flags)) }
 }
 
 async function readTrash(ctx: {
