@@ -133,7 +133,13 @@ person before recording**; an answer that does neither was not an answer.
    heard, and a downloaded output's own sound rides as a clip through
    `vos join`. When the sound IS the point (a voice preview, a generated
    clip) and the product synthesizes it, say so before recording and plan
-   the download; when it is not, say the video is silent and score it.
+   the download; when it is not, say the video is silent and score it:
+   `vos music pick <take>` ranks the library against THIS cut (its length,
+   its captions and joins as the beats, its payoff, whether a voice plays)
+   and prints the `vos score` line that places each pick, so run
+   `vos score <take> --track best` (or the pick you prefer), name the
+   runner-up in the version note, and ask the person to listen, because
+   you cannot.
 
 ## The core loop (every destination)
 
@@ -309,8 +315,12 @@ person before recording**; an answer that does neither was not an answer.
      video needs `duration` (OUTPUT-anchored modulo loop); `dim` 0..1 scrim.
      Ambience, not a subject — dim it behind dense UI.
    - `audio`: OUTPUT-anchored clips; `key` may be a file dropped into the
-     take dir (`"/music.mp3"`); gain/fades/loop. Muxed on full renders
-     (Opus/AAC); `--range` stays silent; forces single-flight.
+     take dir (`"/music.mp3"`) or a library track; gain/fades/loop. Muxed
+     on full renders (Opus/AAC); `--range` stays silent; forces
+     single-flight. A library bed is picked by `vos music pick`, never by
+     a mood alone: the library knows each track's beat, intro, seam,
+     ending and vocals, and the ranking refuses what cannot cover the
+     cut, starts in a quiet intro, or sings under a voice.
    - export: `{"resolution": "720p|1080p|2k|4k", "fps": 30}` — never above
      the footage (validate warns).
    Then `vos validate take --json` — lints must pass.

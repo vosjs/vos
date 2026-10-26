@@ -58,7 +58,7 @@ Five facts before any recording:
   ```yaml
   headline: "Two to six words\nover up to three lines"   # the end card
   kicker: "PRODUCT  V2.1"       # absent = the wordmark plus --release
-  music: upbeat                 # a catalog slug or mood; none = silent
+  music: upbeat                 # a catalog slug, a mood or a few words (ranked against the cut by vos plan); none = silent
   entrance: tilt-in             # tilt-in | pull-out | rise | none
   endCard: on                   # the official End card template; none switches it off; a title, vos id or doc.json names another
   with: "<template>@start"      # optional: any template laid at an anchor (@end | @start | @step:<id> | @<seconds>)
@@ -132,7 +132,11 @@ arriving word by word, the release line and the URL settle on the ground;
 its clips are stamped `from: endcard`), any template `with:` names at its
 anchor, a caption per step, a music bed and a click sound on every press
 when the take has no mic; every proposal carries a stable id (`bed`,
-`click-<n>`, `caption-<step>`). On an existing cut `--motion` re-proposes;
+`click-<n>`, `caption-<step>`). The bed is RANKED against the cut, never
+the first track of a mood: `music: upbeat` (or a few words) goes through
+`vos music pick`'s ranking inside the plan, its report names the pick and
+the runner-up, and a slug stays that track; name the runner-up in the
+version note and ask the person to listen. On an existing cut `--motion` re-proposes;
 a refresh never does, so a deleted end card stays deleted. A template is a
 plain take on a shelf whose clips carry stable ids; a ref is a title on the
 official shelf (`"End card"`), a vos id, or a document on disk. Open the

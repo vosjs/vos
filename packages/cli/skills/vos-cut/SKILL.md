@@ -192,8 +192,12 @@ Per beat, against `plan` and the recipe:
   the last frame, with `still` on it and the one `"zoom": true` mark;
   a recap card listing the path in the captions' words on the plate after
   the card fades; an off-camera wait said in measured time (`{elapsed}`
-  in the caption after it); music scored `--at` the result's step. Never
-  a caption the footage does not show, never a second door.
+  in the caption after it); music picked for the cut (`vos music pick
+  <take> --at <result step>`: the library's beats, intros and vocals
+  against this cut's length, captions, joins and voice) and scored `--at`
+  the result's step (`vos score <take> --track best` places the first
+  pick there), the runner-up named in the version note, the person asked
+  to listen. Never a caption the footage does not show, never a second door.
 - **Style.** In a series, `vos plan --style <seed>` BEFORE you cut: it copies
   the seed's `zoomStyle`/`zoomParams`/`speedParams`/`tiltStyle`/`frame`/
   `cursor`/`cam`/`export` and re-plans the auto spans under them. Never
