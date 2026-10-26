@@ -31,12 +31,14 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { rankBeds } from '@vosjs/shared/music'
 import {
   NORMALIZE_MAX_LUFS,
   NORMALIZE_MIN_LUFS,
   clipGain,
   docMediaList,
   docOutputDuration,
+  filmSummaryOf,
   findStep,
   ratedSegments,
   resolveAnchor,
@@ -45,7 +47,7 @@ import { launchBrowser } from '../browser'
 import { UsageError, numFlag, parseArgs, strFlag } from './args'
 import { fetchMusicCatalog } from './music'
 import { EXIT_OK, createReporter } from './output'
-import { platformOrigin } from './platform'
+import { platformOrigin, readSyncState } from './platform'
 import {
   SUB_BLOCK_SECONDS,
   createLoudnessMeter,
@@ -706,7 +708,7 @@ async function resolveTrack(
 const BOOLEAN_FLAGS = new Set(['json', 'help', 'dry-run'])
 
 const USAGE =
-  'vos score <take> --track <slug|file> [--at <step id|output seconds>] [--gain 0..1] [--normalize <lufs|off>] [--fade-in <s>] [--fade-out <s>] [--dry-run] [--json]'
+  'vos score <take> --track <slug|file|best> [--at <step id|output seconds>] [--mood <slug|tag>] [--words "…"] [--gain 0..1] [--normalize <lufs|off>] [--fade-in <s>] [--fade-out <s>] [--dry-run] [--json]'
 
 export async function cmdScore(argv: string[]): Promise<number> {
   const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
@@ -740,9 +742,44 @@ export async function cmdScore(argv: string[]): Promise<number> {
     throw new UsageError(`${dir} has no doc.json; run vos plan first`)
   const doc = take.doc
   const atRaw = strFlag(flags, 'at')
-  const at = atRaw !== undefined ? resolveAt(doc, atRaw) : null
+  let at = atRaw !== undefined ? resolveAt(doc, atRaw) : null
 
-  const track = await resolveTrack(dir, trackRef, flags, dryRun)
+  // `--track best`: the ranking picks the bed for THIS film, and its
+  // payoff is where the swell lands unless --at says otherwise, so the
+  // common case is one command.
+  let chosen = trackRef
+  if (trackRef === 'best') {
+    const origin = platformOrigin({
+      origin: strFlag(flags, 'origin'),
+      api: strFlag(flags, 'api'),
+    })
+    const catalog = await fetchMusicCatalog(origin)
+    const film = filmSummaryOf(doc, {
+      seed: readSyncState(dir)?.vosId ?? basename(resolve(dir)),
+      ...(at ? { payoff: at.at } : {}),
+      mood: strFlag(flags, 'mood'),
+      words: strFlag(flags, 'words'),
+    })
+    const ranked = rankBeds(catalog.tracks, film).filter(
+      (x) => x.score !== null,
+    )
+    const best = ranked[0]
+    if (!best)
+      throw new UsageError(
+        `no bed in the library fits this ${film.duration.toFixed(1)}s film (every track refused); compose a score instead, or name a track with --track <slug>`,
+      )
+    chosen = best.slug
+    if (!at && film.payoff !== undefined)
+      at = {
+        at: film.payoff,
+        via: `the film's payoff (${film.payoff.toFixed(2)}s)`,
+      }
+    r.log(
+      `picked ${best.slug} (${best.reasons.join('; ') || 'ranked first'})${ranked[1] ? `; runner-up ${ranked[1].slug}` : ''}`,
+    )
+  }
+
+  const track = await resolveTrack(dir, chosen, flags, dryRun)
   let measured: Measured
   try {
     r.log(`measuring ${track.name}…`)

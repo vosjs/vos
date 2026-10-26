@@ -32,6 +32,10 @@
     "./timelineEdits": {
       "types": "./dist/timelineEdits.d.ts",
       "import": "./dist/timelineEdits.js"
+    },
+    "./music": {
+      "types": "./dist/music.d.ts",
+      "import": "./dist/music.js"
     }
   },
   "files": [

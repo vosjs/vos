@@ -17,12 +17,13 @@
  */
 import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import {
   DEFAULT_FRAME_STYLE,
   STYLE_FIELDS,
   copyLayout,
   copyStyle,
+  filmSummaryOf,
   isRejected,
   isStageClip,
   layoutOf,
@@ -439,7 +440,13 @@ export async function planTake(
   // The motion proposals ride a fresh document, or an explicit re-ask.
   let motion: PlanSummary['motion']
   if (opts.motion && (fresh || opts.motion.again)) {
-    const proposed = proposeMotion(doc, opts.motion)
+    // The bed is ranked against THIS film: its length, its beats,
+    // its voice, under the take's own name as the seed, so two takes
+    // asking for the same mood get different beds and one take keeps its.
+    const proposed = proposeMotion(doc, {
+      ...opts.motion,
+      film: filmSummaryOf(doc, { seed: basename(join(dir)) }),
+    })
     doc = proposed.doc
     motion = {
       notes: proposed.notes,

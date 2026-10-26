@@ -653,3 +653,10 @@ export {
   withoutRejected,
 } from './rejected'
 export type { RejectedLane, RejectedSpan } from './types'
+
+export {
+  filmSummaryOf,
+  musicSlugsOfDoc,
+  programSceneTimes,
+} from './filmSummary'
+export type { FilmSummary, FilmSummaryOptions } from './filmSummary'

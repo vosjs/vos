@@ -94,6 +94,11 @@ export const manifest: PluginManifest = {
         'measure: every audio clip’s loudness (integrated LUFS, sample peak) written beside it, which a clip’s normalize target plays it to',
     },
     {
+      name: 'music',
+      summary:
+        'ls: the library one line per track (tempo, vocals, loops, the sentence); pick: the beds that fit this film, best first, with reasons and the vos score line that places each',
+    },
+    {
       name: 'port',
       summary:
         'bring a page, a HyperFrames or a Remotion piece: inventory (its words, colours, faces, media, scenes) then scaffold (a data-first program.mjs to translate the motion into)',
