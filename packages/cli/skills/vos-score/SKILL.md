@@ -6,11 +6,21 @@ license: MIT
 
 # Compose a score for a vos program
 
-A catalog track (`GET https://vos.so/api/music`: CC0, a slug, a mood, a
-length) carries no tempo and no downbeats, and you cannot listen to it. Under
-an ambient picture that is fine. Under a picture that moves on a beat, it is
-wrong in ways you will not hear: the kick lands between the poses, the drop
-arrives two bars early, the loud part sits under the quiet scene.
+Try the library first: `vos music pick <take|config.json>` ranks every
+catalog track (`GET https://vos.so/api/music`: CC0, each with its beat grid
+and a confidence, its quiet intro, its loop seam, its ending, its sections,
+its vocals and a sentence a person wrote) against THIS film's length, cuts
+and payoff, and prints the `vos score` line that places each pick with its
+swell on the payoff and its beats under the cuts. Under an ambient picture,
+or a how-to that cuts on a few captions, the first pick is the answer:
+`vos score <take> --track best`.
+
+Compose when the picture is CHOREOGRAPHED: `pick` says no bed reaches the
+beat fit the picture needs (every cut a tenth of a beat off, an uncertain
+beat it would not score, every track refused), or the film dances, snaps
+poses or animates on a grid of its own. A catalog track cannot be bent to
+that grid, and you cannot listen to it: the kick lands between the poses,
+the drop arrives two bars early, the loud part sits under the quiet scene.
 
 So write the music instead. The score is a spec (tempo, chords, a riff, a
 hook, sections by bar) that `scripts/compose.py` synthesizes into a WAV at
