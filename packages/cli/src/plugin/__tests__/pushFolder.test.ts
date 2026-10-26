@@ -93,7 +93,8 @@ describe('resolvePushFolder', () => {
       'hblee/dances-in-paint',
     )
     expect(got).toEqual({ id: 'p1', note: 'continuing Dances in Paint' })
-    expect(seen[0]).toEqual({
+    // Whose the credential is comes first (MA2); the server still decides.
+    expect(seen.at(-1)).toEqual({
       method: 'POST',
       path: '/api/folders/public/hblee/dances-in-paint/push-target',
       auth: 'Bearer vos_key',
@@ -124,6 +125,46 @@ describe('resolvePushFolder', () => {
     expect(got.note).toBe(
       'starting your own Dances in Paint (dances-in-paint-2), its 4 recipes copied in',
     )
+  })
+
+  it('asks before STARTING a copy when the credential is known not to be the owner’s (MA2)', async () => {
+    const answer = (path: string) =>
+      path === '/api/user/whoami'
+        ? {
+            status: 200,
+            body: { user: { id: 'u_me', username: 'hongbin', kind: 'person' } },
+          }
+        : {
+            status: 201,
+            body: {
+              target: 'start_from',
+              created: true,
+              recipes: 1,
+              folder: { id: 'mine', slug: 'website-2', name: 'Website' },
+              source: { name: 'Website' },
+            },
+          }
+    const first = await serve(answer)
+    // Headless, no --yes: refused in words, and the server was never asked.
+    await expect(
+      resolvePushFolder(first.origin, 'vos_key', 'vosso/website'),
+    ).rejects.toThrow(
+      /would start your own copy of it, not continue it: run it as @vosso \(vos switch vosso, or --account vosso\), or pass --yes to start the copy/,
+    )
+    expect(first.seen.map((s) => s.path)).toEqual(['/api/user/whoami'])
+    // --yes: the copy is made, and said.
+    const got = await resolvePushFolder(
+      first.origin,
+      'vos_key',
+      'vosso/website',
+      {
+        yes: true,
+      },
+    )
+    expect(got).toEqual({
+      id: 'mine',
+      note: 'starting your own Website (website-2), its 1 recipe copied in',
+    })
   })
 
   it('fails in words when the project cannot be read', async () => {

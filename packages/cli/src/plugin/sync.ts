@@ -52,6 +52,7 @@ import {
   readSyncState,
   requireCredential,
   serverWarnings,
+  syncIdentity,
   writeSyncState,
   detailLine,
 } from './platform'
@@ -69,16 +70,25 @@ export interface ApiContext {
  * Auth + origin: flags win (`--key`, `--account`, `--origin`), then the
  * documented ladder (platform.ts).
  */
-export function apiContext(flags: {
-  key?: string
-  account?: string
-  api?: string
-  origin?: string
-}): ApiContext {
+export function apiContext(
+  flags: {
+    key?: string
+    account?: string
+    api?: string
+    origin?: string
+  },
+  /** The linked directory: its vos.json's account is resolved first (MA2). */
+  dir?: string,
+): ApiContext {
   const origin = platformOrigin(flags)
   return {
     origin,
-    key: requireCredential({ key: flags.key, account: flags.account, origin }),
+    key: requireCredential({
+      key: flags.key,
+      account: flags.account,
+      origin,
+      dir,
+    }),
   }
 }
 
@@ -292,7 +302,7 @@ export async function pushTake(
     dir,
   )
 
-  const ctx = apiContext(flags)
+  const ctx = apiContext(flags, dir)
   const tracked = readSyncState(dir)
   // The first push of this DIRECTORY uploads its recording either way, so
   // consent is asked of the directory, not of the vos it lands on, and
@@ -359,7 +369,9 @@ export async function pushTake(
     }
     // A project address asks the server where it lands (continue or
     // start from); a bare slug or id is the caller's own shelf.
-    const target = await resolvePushFolder(ctx.origin, ctx.key, flags.folder)
+    const target = await resolvePushFolder(ctx.origin, ctx.key, flags.folder, {
+      yes: flags.yes === true,
+    })
     folderId = target.id
     if (target.note) r.log(target.note)
   }
@@ -485,6 +497,7 @@ export async function pushTake(
       pushedAt: new Date().toISOString(),
       title,
       slug,
+      ...(await syncIdentity(ctx.origin, ctx.key)),
     })
     return { vosId: vos.id, versionId, versionNumber: 1 }
   }
@@ -542,6 +555,7 @@ export async function pushTake(
     vosId: state.vosId,
     versionId: version.id,
     pushedAt: new Date().toISOString(),
+    ...(await syncIdentity(ctx.origin, ctx.key)),
   })
   return {
     vosId: state.vosId,
@@ -578,7 +592,7 @@ export async function pullTake(
   changes?: unknown[]
   protected?: string[]
 }> {
-  const ctx = apiContext(flags)
+  const ctx = apiContext(flags, dir)
   const state = readSyncState(dir)
   const vosId = flags.vos ?? state?.vosId
   if (!vosId) {
@@ -717,6 +731,7 @@ export async function pullTake(
     vosId,
     versionId: head,
     pushedAt: state?.pushedAt ?? new Date().toISOString(),
+    ...(await syncIdentity(ctx.origin, ctx.key)),
   })
   return {
     vosId,
