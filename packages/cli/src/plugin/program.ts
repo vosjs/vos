@@ -52,6 +52,7 @@ import {
   resolveCredential,
   mintAt,
   serverWarnings,
+  syncIdentity,
   writeCredential,
   writeSyncState,
 } from './platform'
@@ -230,6 +231,7 @@ export async function cmdFetch(argv: string[]): Promise<number> {
     versionId: head,
     ...(title ? { title } : {}),
     slug,
+    ...(await syncIdentity(origin, key)),
   })
 
   // A TAKE vos carries a doc beside its program: write it (and, with
@@ -592,10 +594,11 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
     return EXIT_OK
   }
 
-  const key = requireCredential(credentialFlags(flags))
+  const key = requireCredential({ ...credentialFlags(flags), dir })
   // A take's first push asks; a program's never does (it holds no
-  // recording), so --yes is accepted and has nothing to answer.
-  void flags.yes
+  // recording). --yes answers the one question a program push can raise:
+  // a project address that would START the caller's own copy.
+  const yes = flags.yes === true
   // Every file the program names, still local: the document's layers
   // (picture and video overlays, 3D props, sound), the manifest, and what
   // elements, fonts and data name, lifted or rewritten so one upload
@@ -711,7 +714,11 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
     const version = (res.body.version ?? {}) as Record<string, unknown>
     // Track what we just made: the new version is the next push's base.
     if (typeof version.id === 'string') {
-      writeSyncState(dir, { vosId, versionId: version.id })
+      writeSyncState(dir, {
+        vosId,
+        versionId: version.id,
+        ...(await syncIdentity(origin, key)),
+      })
     }
     const watchUrl = `${origin}/vos/${vosId}`
     const studioUrl = `${origin}/studio?vos=${vosId}`
@@ -760,7 +767,7 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
   // A project address asks the server where it lands (continue or start
   // from); a bare slug or id is the caller's own shelf.
   const pushFolder = folderRef
-    ? await resolvePushFolder(origin, key, folderRef)
+    ? await resolvePushFolder(origin, key, folderRef, { yes })
     : undefined
   const folderId = pushFolder?.id
   if (pushFolder?.note) r.log(pushFolder.note)
@@ -796,6 +803,7 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
     title,
     slug: created.slug,
     ...(remixOfId ? { remixOfId } : {}),
+    ...(await syncIdentity(origin, key)),
   })
   const watchUrl = `${origin}/vos/${created.id}`
   const studioUrl = `${origin}/studio?vos=${created.id}`
@@ -873,7 +881,7 @@ export async function cmdPullProgram(argv: string[]): Promise<number> {
     )
   }
   // The changelog walk is owner-only (edits on private work).
-  const key = requireCredential(credentialFlags(flags))
+  const key = requireCredential({ ...credentialFlags(flags), dir })
 
   const res = await apiJson(
     origin,
@@ -962,6 +970,7 @@ export async function cmdPullProgram(argv: string[]): Promise<number> {
   writeSyncState(dir, {
     vosId,
     versionId: typeof head.id === 'string' ? head.id : since,
+    ...(await syncIdentity(origin, key)),
   })
 
   r.done(

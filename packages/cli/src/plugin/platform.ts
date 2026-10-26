@@ -95,6 +95,7 @@ import {
   CREDENTIALS_PATH,
   DEFAULT_ORIGIN,
   DEFAULT_STORE,
+  accountFrom,
   accountLabel,
   findStored,
   listStored,
@@ -133,6 +134,7 @@ export type CredentialVia =
   | 'account-flag'
   | 'env'
   | 'account-env'
+  | 'directory'
   | 'stored'
 export interface Resolved {
   key: string
@@ -153,8 +155,43 @@ export interface CredentialAsk {
   account?: string
   /** The origin in use; the store is read for it. Default: the platform origin. */
   origin?: string
+  /**
+   * The linked directory (MA2): when its vos.json names an account and no
+   * key or name was handed in, the stored credential FOR THAT ACCOUNT is
+   * the one used, before the active one.
+   */
+  dir?: string
   /** Tests hand in a scratch store. */
   store?: Store
+}
+
+/** What a linked directory asks of the ladder, pure: use, refuse, or ignore. */
+export function directoryVerdict(
+  state: Pick<SyncState, 'origin' | 'account'> | null,
+  origin: string,
+  stored: StoredCredential | null,
+  dir: string,
+):
+  | { kind: 'none' }
+  | { kind: 'use'; credential: StoredCredential }
+  | { kind: 'other-origin'; note: string }
+  | { kind: 'missing'; error: string } {
+  if (!state?.account) return { kind: 'none' }
+  if (state.origin && originOf(state.origin) !== originOf(origin)) {
+    return {
+      kind: 'other-origin',
+      note: `note: ${dir} was last pushed to ${state.origin}, and this command goes to ${originOf(origin)}`,
+    }
+  }
+  if (stored) return { kind: 'use', credential: stored }
+  const name = state.account.handle
+    ? `@${state.account.handle}`
+    : state.account.id
+  const ref = state.account.handle ?? state.account.id
+  return {
+    kind: 'missing',
+    error: `${dir} belongs to ${name}, and no credential for it is stored for ${originOf(origin)}. Run vos login and approve as ${name}, or vos switch ${ref} if it is stored under another name, or pass --account or --key.`,
+  }
 }
 
 /** The credential flags every platform verb reads, in one place. */
@@ -226,7 +263,65 @@ export function resolveCredential(
       throw new Error(noSuchAccount(store, origin, envName, ACCOUNT_ENV))
     return fromStore(found, 'account-env')
   }
+  if (ask.dir) {
+    const state = readSyncState(ask.dir)
+    const verdict = directoryVerdict(
+      state,
+      origin,
+      state?.account ? findStored(store, origin, state.account.id) : null,
+      ask.dir,
+    )
+    if (verdict.kind === 'use')
+      return fromStore(verdict.credential, 'directory')
+    if (verdict.kind === 'missing') throw new Error(verdict.error)
+    if (verdict.kind === 'other-origin' && !warned.has(verdict.note)) {
+      warned.add(verdict.note)
+      process.stderr.write(`${verdict.note}\n`)
+    }
+  }
   return fromStore(readActive(store), 'stored')
+}
+
+/** The account a key belongs to, asked of the platform once per key. */
+const accountOfKey = new Map<string, Promise<StoredAccount | null>>()
+
+/**
+ * The account behind the credential a verb is using (MA2): the store's
+ * answer when the key came from it, else one `whoami`, remembered for the
+ * process. Null when the platform cannot say (an older origin, a refused
+ * key); the sync state then names no account.
+ */
+export function credentialAccount(
+  origin: string,
+  key: string,
+): Promise<StoredAccount | null> {
+  const last = lastResolved
+  if (last && last.key === key && last.account)
+    return Promise.resolve(last.account)
+  const id = `${originOf(origin)} ${key}`
+  let pending = accountOfKey.get(id)
+  if (!pending) {
+    pending = apiJson(origin, '/api/user/whoami', { key })
+      .then((res) => (res.status === 200 ? accountFrom(res.body.user) : null))
+      .catch(() => null)
+    accountOfKey.set(id, pending)
+  }
+  return pending
+}
+
+/**
+ * What a push or fetch writes into vos.json beside the vos (MA2): the
+ * origin, and the account the credential belongs to.
+ */
+export async function syncIdentity(
+  origin: string,
+  key: string | null | undefined,
+): Promise<Pick<SyncState, 'origin' | 'account'>> {
+  const account = key ? await credentialAccount(origin, key) : null
+  return {
+    origin: originOf(origin),
+    ...(account ? { account: { id: account.id, handle: account.handle } } : {}),
+  }
 }
 
 function noSuchAccount(
@@ -467,6 +562,25 @@ export interface SyncState {
    * and only while the bytes are unchanged.
    */
   hostedMedia?: Record<string, { ref: string; sha256: string }>
+  /** The origin this directory was pushed to or fetched from (MA2). */
+  origin?: string
+  /**
+   * The ACCOUNT this directory's work belongs to (MA2): the credential's
+   * account at the last push or fetch. Every verb on the directory resolves
+   * a stored credential for it before the active one, so a take fetched as
+   * an organization pushes as it from any terminal that has it stored.
+   */
+  account?: { id: string; handle: string | null }
+}
+
+/** The `account` an answer or a file names, read defensively. */
+function syncAccountOf(
+  value: unknown,
+): { id: string; handle: string | null } | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const a = value as { id?: unknown; handle?: unknown }
+  if (typeof a.id !== 'string' || !a.id) return undefined
+  return { id: a.id, handle: typeof a.handle === 'string' ? a.handle : null }
 }
 
 /** The `hostedMedia` map, read defensively (a hand-edited vos.json). */
@@ -510,6 +624,12 @@ export function readSyncState(dir: string): SyncState | null {
         : {}),
       ...(hostedMediaOf(own.hostedMedia)
         ? { hostedMedia: hostedMediaOf(own.hostedMedia) }
+        : {}),
+      ...(typeof own.origin === 'string' && own.origin
+        ? { origin: originOf(own.origin) }
+        : {}),
+      ...(syncAccountOf(own.account)
+        ? { account: syncAccountOf(own.account) }
         : {}),
     }
   }

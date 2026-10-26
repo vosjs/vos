@@ -31,15 +31,20 @@ import { migrateHostedDoc } from '@vosjs/studio-core'
 import { UsageError, parseArgs, strFlag } from './args'
 import { pullMedia } from './media'
 import { EXIT_ERROR, EXIT_OK, createReporter } from './output'
+import { createInterface } from 'node:readline/promises'
 import {
+  accountLabel,
   apiError,
   apiJson,
+  credentialAccount,
   parseVosId,
   platformOrigin,
   credentialFlags,
   requireCredential,
+  syncIdentity,
   writeSyncState,
 } from './platform'
+import type { StoredAccount } from './accounts'
 import type { ProjectDoc } from '@vosjs/studio-core'
 
 const BOOLEAN_FLAGS = new Set(['json', 'help', 'media'])
@@ -92,6 +97,30 @@ export interface PushFolder {
 }
 
 /**
+ * Would a push to this project address START the caller's own copy? Pure:
+ * the address names the owner's handle, so a credential whose account
+ * carries another handle (or none the platform could say) is not the
+ * owner's. The server still decides; this is the question asked first.
+ */
+export function startFromVerdict(
+  at: { handle: string; slug: string },
+  mine: StoredAccount | null,
+): { asks: boolean; question: string; refusal: string } {
+  const owner = at.handle.toLowerCase()
+  // Unknown whose the credential is (an older origin, a refused read): the
+  // server decides, as before. Known and not the owner's: ask.
+  const asks =
+    mine !== null && (!mine.handle || mine.handle.toLowerCase() !== owner)
+  const who = mine ? accountLabel(mine) : 'this credential'
+  const address = `@${at.handle}/${at.slug}`
+  return {
+    asks,
+    question: `Pushing to ${address} as ${who} would START your own copy of it (its recipes copied in), not continue it. Continue?`,
+    refusal: `vos push --folder ${address} as ${who} would start your own copy of it, not continue it: run it as @${at.handle} (vos switch ${at.handle}, or --account ${at.handle}), or pass --yes to start the copy`,
+  }
+}
+
+/**
  * Where a CREATED vos is filed. A bare id or slug names a project on the
  * caller's own shelf, as it always has. A project address asks the server
  * where a push meant for that project lands, because the answer depends on
@@ -103,6 +132,7 @@ export async function resolvePushFolder(
   origin: string,
   key: string,
   ref: string,
+  opts: { yes?: boolean } = {},
 ): Promise<PushFolder> {
   const at = projectAddress(ref)
   if (!at) {
@@ -110,6 +140,18 @@ export async function resolvePushFolder(
       id: resolveFolder(await listFolders(origin, key), ref).id,
       note: null,
     }
+  }
+  // A push as anyone but the project's owner STARTS the caller's own copy
+  // (MA2): asked BEFORE the server makes it, because a start-from under
+  // the wrong account used to land silently in a private copy nobody meant.
+  const mine = await credentialAccount(origin, key)
+  const start = startFromVerdict(at, mine)
+  if (start.asks && !opts.yes) {
+    if (!process.stdin.isTTY) throw new UsageError(start.refusal)
+    const rl = createInterface({ input: process.stdin, output: process.stderr })
+    const answer = await rl.question(`${start.question} [y/N] `)
+    rl.close()
+    if (!/^y(es)?$/i.test(answer.trim())) throw new UsageError(start.refusal)
   }
   const r = await apiJson(
     origin,
@@ -410,6 +452,7 @@ async function cmdPull(argv: string[]): Promise<number> {
       versionId: v.currentVersionId ?? null,
       title: v.title,
       ...(v.slug ? { slug: v.slug } : {}),
+      ...(await syncIdentity(origin, key)),
     })
     members.push({ dir, id: v.id, title: v.title, take })
   }

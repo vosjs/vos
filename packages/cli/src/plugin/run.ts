@@ -590,7 +590,9 @@ via VOS_ORIGIN, default https://vos.so). A take push uploads the recording ONCE 
 lowers doc.json, and creates a private vos (first push asks; --yes for
 headless) or a new version against the base in vos.json — a stale base
 prints the human's typed changelog and exits 1 (run pull, re-apply, push
-again). A protected conflict means the human touched those nodes in the
+again). vos.json also names the ACCOUNT the directory belongs to, and a
+verb on it uses the stored credential for that account before the active
+one, so a take fetched as an organization pushes as it with no switch. A protected conflict means the human touched those nodes in the
 studio: keep their values, or --override <id> ONLY when the user asked for
 that exact change. ALWAYS pass --label (what you did, one line) and --note
 (why: the user's ask) — the version history reads as a conversation, and an
