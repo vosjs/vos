@@ -180,6 +180,7 @@ import {
 import type { PerBeatReport } from './beats'
 import { cmdScore } from './score'
 import { cmdAudio } from './audio'
+import { cmdMusic } from './musicCmd'
 import { PlatformBehindError } from './platformEngine'
 import { bareCaptionsFlag, landStepCaptions } from './stepCaptions'
 import type { StepCaptionReport } from './stepCaptions'
@@ -255,8 +256,12 @@ Take pipeline
   vos join <take> <take|file.mp4>... --out <dir> [--keep-edits|--force] [--captions] [--zooms per-beat] [--mute <file>]... [--json]
             several takes (and plain video files) as ONE take, cut in argument order: the first is the primary (its frame, cursor, export and sound), each next one a media m1, m2, … with its footage copied, its spans tagged and renamed, its layers moved to where it now starts; a file opens full-bleed and its own sound plays as an audio clip (--mute <file> leaves it out). --captions lands every step's caption anchored to its step, starting as the step begins (anchor.at "start"), each ending with its clip. --zooms per-beat keeps a beat's zoom on its steps marked "zoom": true (as vos plan --zooms per-beat). The result must pass vos validate before anything is written
             --keep-edits joins again over an edited joined take and keeps its edits: inputs are matched to their media by source file (join.json records each input's path and footage hash), a kept input keeps its id and everything on it (segments in their edited order, spans, rejections, anchored layers, its sound), the frame, export, styles and still stay, a new input is joined fresh under a new id (and only it is captioned or re-planned), a re-recorded input (changed footage at its path, or the same script at a new one) keeps its edits re-timed by its steps as vos plan --reuse does, and an input that is gone takes its edits with it, each named. A new input's segments go before the next kept input's; reordering the kept inputs regroups the segments in argument order. The first input must stay the primary. --force replaces the take instead
-  vos score <take> --track <slug|file> [--at <step id|output seconds>] [--gain 0..1] [--normalize <lufs|off>] [--fade-in <s>] [--fade-out <s>] [--dry-run] [--json]
-            the film's music as one audio clip (id score): reads the track's loudness, finds its strongest swell and offsets the track so the swell lands at --at (a step, resolved through the cut, or output seconds); without --at it starts where the track first rises above its median level. The clip carries its measured loudness and a target, --normalize (default -16 LUFS), with --gain (default 0.5) a trim on it; --normalize off plays it at --gain alone
+  vos music ls [--mood <slug>] [--vocals none|chops|lead] [--loops] [--bpm <lo>-<hi>] [--min-length <s>] [--q <words>] [--json]
+            the library as an agent reads it, one line per track: slug, genre, length, tempo (a ? on an uncertain beat), vocals, loops, the sentence a person wrote. The facts are GET /api/music's
+  vos music pick <take|config.json> [--at <step id|seconds>] [--mood <slug|tag>] [--words "…"] [--voice|--no-voice] [--like <vos id|slug>]... [--top 3] [--json]
+            the beds that fit THIS film, best first, each with its reasons and the vos score line that places it: the film's length, its cuts (captions, joins, page changes, zoom marks), its payoff (--at, else the last step marked "zoom": true, else the last cut) and its voice are read from the document and every track is scored (a swell on the payoff, cuts on the beat, the asked mood or words, calm under a voice, an ending that meets the film's) after the hard rules (covers the film or loops, no quiet intro under frame one, no sung lead under a voice). --json carries every track, the refused with their reason. Ties fall to the take, so two films asking the same thing get different beds
+  vos score <take> --track <slug|file|best> [--at <step id|output seconds>] [--mood <slug|tag>] [--words "…"] [--gain 0..1] [--normalize <lufs|off>] [--fade-in <s>] [--fade-out <s>] [--dry-run] [--json]
+            the film's music as one audio clip (id score): reads the track's loudness, finds its strongest swell and offsets the track so the swell lands at --at (a step, resolved through the cut, or output seconds); without --at it starts where the track first rises above its median level. --track best runs vos music pick and places its first pick, its payoff as --at unless one is given. The clip carries its measured loudness and a target, --normalize (default -16 LUFS), with --gain (default 0.5) a trim on it; --normalize off plays it at --gain alone
   vos audio measure <take> [--json]
             every audio clip's loudness (BS.1770 integrated LUFS and sample peak, the meter check-video reads a render with), written beside it in doc.json as loudness { lufs, peakDb, at, src }; a clip's normalize (a target in LUFS, -30..-6) plays it at the gain that reaches it, past 1 if need be, capped so its peak stays under -1 dBFS, and only once it is measured for its own key
   vos port inventory <page.html|project dir> [--render <their render.mp4>] [--out port] [--json]
@@ -3075,6 +3080,8 @@ export async function run(argv: string[]): Promise<number> {
         return await cmdScore(rest)
       case 'audio':
         return await cmdAudio(rest)
+      case 'music':
+        return await cmdMusic(rest)
       case 'look':
         return await cmdLook(rest)
       default:

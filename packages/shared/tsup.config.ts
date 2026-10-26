@@ -11,6 +11,7 @@ export default defineConfig({
     frontmatter: 'src/frontmatter.ts',
     params: 'src/params.ts',
     timelineEdits: 'src/timelineEdits.ts',
+    music: 'src/music.ts',
   },
   format: ['esm'],
   dts: true,

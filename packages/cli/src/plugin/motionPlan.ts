@@ -35,7 +35,9 @@ import {
   sameMedia,
   spanOutputExtent,
 } from '@vosjs/studio-core'
+import { rankBeds, trackBySlug } from '@vosjs/shared/music'
 import { fitCaptions, heldLine } from './captionFit'
+import type { BedTrack, FilmSummary, RankedBed } from '@vosjs/shared/music'
 import { STEP_SETTLE_SECONDS, stepOutputTime } from './moments'
 import type {
   Anim,
@@ -66,14 +68,13 @@ export const SOUND_DESTINATIONS = new Set([
 /** Destinations that must loop seamlessly: no entrance, no end card, no sound. */
 export const LOOP_DESTINATIONS = new Set(['github-readme-loop'])
 
+/**
+ * The catalog as `GET /api/music` answers it: each track with what the
+ * library measured and a person wrote about it (`BedTrack`, the ranking's
+ * input), plus the built-in effects.
+ */
 export interface MusicCatalog {
-  tracks: {
-    slug: string
-    title: string
-    mood?: string
-    duration: number
-    url: string
-  }[]
+  tracks: BedTrack[]
   sfx: { slug: string; title: string; duration: number; url: string }[]
 }
 
@@ -116,6 +117,12 @@ export interface MotionProposalInput {
   /** actions.json steps with their optional captions, by index. */
   captions: { step: number; id?: string; caption: string }[]
   catalog: MusicCatalog | null
+  /**
+   * The film as the music ranking reads it (`filmSummaryOf`), so a mood
+   * or a few words in `music:` pick the bed that fits THIS cut; absent,
+   * a mood picks the first track of that mood.
+   */
+  film?: FilmSummary
   /** The templates the recipe or the flags named, resolved, in order. */
   templates?: MotionTemplate[]
 }
@@ -194,21 +201,69 @@ export function proposeTransitions(
   return { doc, count, skipped }
 }
 
+/** A bed the plan picked: the track, how, and the runner-up when a ranking chose. */
+export interface PickedBed {
+  track: BedTrack
+  /** `slug`: named exactly; `ranked`: the ranking over the film; `first`: the first of the mood (no film to rank against). */
+  via: 'slug' | 'ranked' | 'first'
+  ranked: RankedBed | null
+  runnerUp: RankedBed | null
+}
+
 /**
- * The bed: LAUNCH.md names a track slug or a mood; a mood picks the first
- * track of that mood. Null when nothing was asked or nothing matched.
+ * The bed: LAUNCH.md names a track slug, a mood or a few words. A slug is
+ * that track. Anything else goes through the ranking over the film's
+ * summary (the asked word as the mood, the whole ask as the words),
+ * so every `music: upbeat` no longer gets the same song; with no film to
+ * rank against, the first track of that mood, as before. Null when nothing
+ * was asked or nothing matched.
  */
+export function pickBed(
+  catalog: MusicCatalog | null,
+  ask: string | undefined,
+  film?: FilmSummary,
+): PickedBed | null {
+  if (!catalog || !ask || off(ask)) return null
+  const want = ask.trim().toLowerCase()
+  const exact = trackBySlug(catalog.tracks, want)
+  if (exact) return { track: exact, via: 'slug', ranked: null, runnerUp: null }
+  if (film) {
+    const oneWord = !/\s/.test(want)
+    const ranked = rankBeds(catalog.tracks, {
+      ...film,
+      ...(oneWord ? { mood: want } : { words: want }),
+    }).filter((r) => r.score !== null)
+    // A single word that names neither a genre nor a tag is an ask the
+    // library cannot answer, not a ranking of everything.
+    const named = oneWord
+      ? catalog.tracks.some(
+          (t) =>
+            (t.mood ?? '').toLowerCase() === want ||
+            (t.tags ?? []).some((x) => x.toLowerCase() === want),
+        )
+      : ranked.some((r) => (r.scores?.fit ?? 0) > 0)
+    if (!named || !ranked.length) return null
+    return {
+      track: ranked[0].track,
+      via: 'ranked',
+      ranked: ranked[0],
+      runnerUp: ranked[1] ?? null,
+    }
+  }
+  const first =
+    catalog.tracks.find((t) => (t.mood ?? '').toLowerCase() === want) ?? null
+  return first
+    ? { track: first, via: 'first', ranked: null, runnerUp: null }
+    : null
+}
+
+/** The bed's track alone (the older read); see `pickBed`. */
 export function pickTrack(
   catalog: MusicCatalog | null,
   ask: string | undefined,
-): MusicCatalog['tracks'][number] | null {
-  if (!catalog || !ask || off(ask)) return null
-  const want = ask.trim().toLowerCase()
-  return (
-    catalog.tracks.find((t) => t.slug.toLowerCase() === want) ??
-    catalog.tracks.find((t) => (t.mood ?? '').toLowerCase() === want) ??
-    null
-  )
+  film?: FilmSummary,
+): BedTrack | null {
+  return pickBed(catalog, ask, film)?.track ?? null
 }
 
 /** Click instants of the take in OUTPUT seconds, inside the range. */
@@ -564,27 +619,41 @@ export function proposeMotion(
   const clips = (doc.audio ?? []).filter(
     (a) => a.id !== BED_ID && !a.id.startsWith(CLICK_ID_PREFIX),
   )
-  const track = pickTrack(catalog, launch.music)
-  if (track) {
+  const picked = pickBed(catalog, launch.music, opts.film)
+  if (picked) {
+    const { track } = picked
     const hasMic = !!doc.source.micKey
     const fadeOut = Math.min(2.5, length * 0.15)
+    // A ranked pick carries where the track starts under the film (its
+    // swell on the payoff, past a quiet intro, on a beat); a named one
+    // plays from its top as it always did.
+    const place = picked.ranked?.placement ?? null
+    const start = place ? place.in : 0
+    const covers = track.duration - start >= length
     clips.push({
       id: BED_ID,
       key: track.url,
       name: track.title,
       start: 0,
-      in: 0,
-      out: Math.min(track.duration, length),
+      in: start,
+      out: place ? place.out : Math.min(track.duration, length),
       duration: track.duration,
       gain: hasMic ? 0.35 : 0.5,
-      fadeIn: 0.6,
+      fadeIn: start > 0 ? 0.8 : 0.6,
       fadeOut,
-      loop: track.duration < length,
-      loopLen:
-        track.duration < length ? Math.round(length * 1000) / 1000 : undefined,
+      loop: place ? place.loop : !covers,
+      loopLen: place
+        ? place.loopLen
+        : !covers
+          ? Math.round(length * 1000) / 1000
+          : undefined,
       duck: hasMic,
     })
-    notes.push(`bed ${track.slug}`)
+    notes.push(
+      picked.via === 'ranked' && picked.ranked
+        ? `bed ${track.slug} (${picked.ranked.reasons.slice(0, 2).join(', ') || 'ranked'}${picked.runnerUp ? `; runner-up ${picked.runnerUp.slug}` : ''})`
+        : `bed ${track.slug}`,
+    )
   } else if (launch.music && !off(launch.music)) {
     skipped.push(
       `music "${launch.music}" is not a catalog track or mood${catalog ? '' : ' (the catalog could not be read)'}`,
