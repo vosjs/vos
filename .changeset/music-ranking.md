@@ -1,7 +1,0 @@
----
-'@vosjs/shared': minor
-'@vosjs/studio-core': minor
-'@vosjs/cli': minor
----
-
-Music picked for the film, not for a word. `@vosjs/shared/music` ranks a hosted music library (the facts `GET /api/music` carries at manifest version 2: the beat grid with its confidence, the intro, the seam, the ending, the sections, the busyness, and a person's vocals, tags, sentence and loops) against a FILM SUMMARY: hard rules first (the track covers the film or loops, its placement does not start inside a quiet intro, no sung lead under a voice), then a swell landing on the payoff, cuts on the beat (never scored on an uncertain beat), the asked mood or words, a calm bed under a voice, an ending that meets the film's; every track comes back scored with the placement it implies and reasons in words, the refused with their reason, ties falling to the film's seed. `@vosjs/studio-core` builds that summary from a document (`filmSummaryOf`: the output length, the cuts from layers, joins, page changes and zoom marks, the payoff, the voice; a program's scene labels). The CLI reads both: `vos music ls` lists the library one line per track, `vos music pick <take|config.json>` names the beds that fit with the `vos score` line that places each, `vos score --track best` places the first pick on the film's payoff, and `LAUNCH.md`'s `music: <mood or words>` goes through the ranking in `vos plan` (a slug stays that track), the report naming the pick and the runner-up.
