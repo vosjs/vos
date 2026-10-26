@@ -162,8 +162,18 @@ export const manifest: PluginManifest = {
     },
     {
       name: 'whoami',
-      summary: 'the key’s name and the account it belongs to, never the key',
+      summary:
+        'the account in use and every other one stored for the origin, never a key',
     },
-    { name: 'logout', summary: 'remove ~/.config/vos/credentials' },
+    {
+      name: 'switch',
+      summary:
+        'use another stored account (vos login once per account stores them all)',
+    },
+    {
+      name: 'logout',
+      summary:
+        'forget the account in use, a named one (vos logout <handle>), or all (--all)',
+    },
   ],
 }

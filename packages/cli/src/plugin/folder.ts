@@ -36,6 +36,7 @@ import {
   apiJson,
   parseVosId,
   platformOrigin,
+  credentialFlags,
   requireCredential,
   writeSyncState,
 } from './platform'
@@ -173,7 +174,7 @@ async function cmdList(argv: string[]): Promise<number> {
     origin: strFlag(flags, 'origin'),
     api: strFlag(flags, 'api'),
   })
-  const key = requireCredential(strFlag(flags, 'key'))
+  const key = requireCredential(credentialFlags(flags))
   const rows = await listFolders(origin, key)
   if (r.json) {
     r.done({ folders: rows }, '')
@@ -199,7 +200,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
     origin: strFlag(flags, 'origin'),
     api: strFlag(flags, 'api'),
   })
-  const key = requireCredential(strFlag(flags, 'key'))
+  const key = requireCredential(credentialFlags(flags))
 
   const parentRef = strFlag(flags, 'parent')
   let parentId: string | undefined
@@ -239,7 +240,7 @@ async function cmdMove(argv: string[]): Promise<number> {
     origin: strFlag(flags, 'origin'),
     api: strFlag(flags, 'api'),
   })
-  const key = requireCredential(strFlag(flags, 'key'))
+  const key = requireCredential(credentialFlags(flags))
 
   const folderId =
     toRef === 'none'
@@ -333,7 +334,7 @@ async function cmdPull(argv: string[]): Promise<number> {
     origin: strFlag(flags, 'origin'),
     api: strFlag(flags, 'api'),
   })
-  const key = requireCredential(strFlag(flags, 'key'))
+  const key = requireCredential(credentialFlags(flags))
   const folder = resolveFolder(await listFolders(origin, key), ref)
   const res = await apiJson(origin, `/api/folders/${folder.id}`, { key })
   if (res.status !== 200)

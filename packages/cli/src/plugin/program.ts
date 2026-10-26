@@ -22,7 +22,21 @@ import { lowerProgramDoc, migrateHostedDoc } from '@vosjs/studio-core'
 import { UsageError, parseArgs, strFlag } from './args'
 import { directoryKind } from '../loadConfig'
 import { EXIT_OK, createReporter } from './output'
-import { LoginUnsupportedError, browserLogin, handoffLogin } from './login'
+import {
+  LoginUnsupportedError,
+  browserLogin,
+  handoffLogin,
+  parseHandoffUrl,
+} from './login'
+import {
+  DEFAULT_STORE,
+  accountFrom,
+  accountLabel,
+  activate,
+  originOf,
+  readActive,
+} from './accounts'
+import type { StoredAccount, StoredCredential } from './accounts'
 import {
   apiError,
   apiJson,
@@ -33,6 +47,7 @@ import {
   platformOrigin,
   promptHint,
   readSyncState,
+  credentialFlags,
   requireCredential,
   resolveCredential,
   mintAt,
@@ -577,7 +592,7 @@ export async function cmdPushProgram(argv: string[]): Promise<number> {
     return EXIT_OK
   }
 
-  const key = requireCredential(strFlag(flags, 'key'))
+  const key = requireCredential(credentialFlags(flags))
   // A take's first push asks; a program's never does (it holds no
   // recording), so --yes is accepted and has nothing to answer.
   void flags.yes
@@ -858,7 +873,7 @@ export async function cmdPullProgram(argv: string[]): Promise<number> {
     )
   }
   // The changelog walk is owner-only (edits on private work).
-  const key = requireCredential(strFlag(flags, 'key'))
+  const key = requireCredential(credentialFlags(flags))
 
   const res = await apiJson(
     origin,
@@ -979,16 +994,21 @@ export async function cmdLogin(argv: string[]): Promise<number> {
   // a key, once, with no click. Its origin is the link's own.
   const handoffUrl = strFlag(flags, 'handoff')
   if (handoffUrl) {
+    const before = await nameActiveCredential(
+      parseHandoffUrl(handoffUrl)?.origin ?? origin,
+    )
     const done = await handoffLogin(handoffUrl, r)
     r.done(
       {
         path: done.path,
         origin: done.origin,
         user: done.user,
+        account: done.account,
         keyName: done.keyName,
+        ...setAsideFacts(before, done.account),
         next_step: 'the link is spent; vos push when you want the work hosted',
       },
-      `Signed in${done.user ? ` as ${done.user}` : ''} — key "${done.keyName}" stored at ${done.path} (used by every vos platform verb). The link is spent.`,
+      `Signed in${signedAs(done.user, done.account)} — key "${done.keyName}" stored at ${done.path} (used by every vos platform verb). The link is spent.${setAsideLine(before, done.account)}`,
     )
     return EXIT_OK
   }
@@ -1007,13 +1027,14 @@ export async function cmdLogin(argv: string[]): Promise<number> {
       !process.env.SSH_TTY &&
       flags.json !== true &&
       flags['no-browser'] !== true
-    const { path, user } = await browserLogin(origin, r, {
+    const before = await nameActiveCredential(origin)
+    const { path, user, account } = await browserLogin(origin, r, {
       label: strFlag(flags, 'label'),
       openBrowser,
     })
     r.done(
-      { path, origin, user },
-      `Signed in${user ? ` as ${user}` : ''} — key stored at ${path} (used by every vos platform verb)`,
+      { path, origin, user, account, ...setAsideFacts(before, account) },
+      `Signed in${signedAs(user, account)} — key stored at ${path} (used by every vos platform verb).${setAsideLine(before, account)}`,
     )
     return EXIT_OK
   } catch (e) {
@@ -1035,22 +1056,87 @@ export async function cmdLogin(argv: string[]): Promise<number> {
   return storeKey(key, origin, r)
 }
 
-/** Validate (cheapest key-readable read) and store a pasted/env key. */
+/**
+ * Validate a pasted/env key and store it BY NAME: `/user/whoami` says whose
+ * it is (an older origin without the route falls back to the cheapest
+ * key-readable read and stores it unnamed).
+ */
 async function storeKey(
   key: string,
   origin: string,
   r: Reporter,
 ): Promise<number> {
-  const probe = await apiJson(origin, '/api/folders', { key })
-  if (probe.status === 401 || probe.status === 403) {
-    throw new Error(apiError('validate key', probe))
+  const who = await apiJson(origin, '/api/user/whoami', { key })
+  if (who.status === 401 || who.status === 403) {
+    throw new Error(apiError('validate key', who))
   }
-  const path = writeCredential(key, origin)
+  let account: StoredAccount | null = null
+  if (who.status === 200) account = accountFrom(who.body.user)
+  else {
+    const probe = await apiJson(origin, '/api/folders', { key })
+    if (probe.status === 401 || probe.status === 403) {
+      throw new Error(apiError('validate key', probe))
+    }
+  }
+  const before = await nameActiveCredential(origin)
+  const path = writeCredential(key, origin, undefined, account)
   r.done(
-    { path, origin },
-    `Signed in — key stored at ${path} (used by every vos platform verb)`,
+    { path, origin, account, ...setAsideFacts(before, account) },
+    `Signed in${signedAs('', account)} — key stored at ${path} (used by every vos platform verb).${setAsideLine(before, account)}`,
   )
   return EXIT_OK
+}
+
+/** ` as @handle` from the account, else the display name the server gave. */
+function signedAs(user: string, account: StoredAccount | null): string {
+  if (account) return ` as ${accountLabel(account)}`
+  return user ? ` as ${user}` : ''
+}
+
+/**
+ * Before a sign-in lands, the credential that is active now (MA1): a
+ * stored one from before the account line is NAMED here through one
+ * `whoami`, so the new sign-in can set it aside instead of discarding it.
+ * Best effort: a refused or unreachable key stays as it is.
+ */
+async function nameActiveCredential(
+  origin: string,
+): Promise<StoredCredential | null> {
+  const active = readActive(DEFAULT_STORE)
+  if (!active || active.origin !== originOf(origin)) return active
+  if (active.account) return active
+  try {
+    const who = await apiJson(origin, '/api/user/whoami', { key: active.key })
+    const account = who.status === 200 ? accountFrom(who.body.user) : null
+    if (!account) return active
+    const named = { ...active, account }
+    activate(DEFAULT_STORE, named)
+    return named
+  } catch {
+    return active
+  }
+}
+
+/** What the sign-in did with the credential that was active, as facts. */
+function setAsideFacts(
+  before: StoredCredential | null,
+  account: StoredAccount | null,
+): { setAside?: StoredAccount | null; replaced?: boolean } {
+  if (!before || (account && before.account?.id === account.id)) return {}
+  return before.account ? { setAside: before.account } : { replaced: true }
+}
+
+/** …and in words: `vosso stays stored; vos switch vosso when you need it.` */
+function setAsideLine(
+  before: StoredCredential | null,
+  account: StoredAccount | null,
+): string {
+  const facts = setAsideFacts(before, account)
+  if (facts.setAside)
+    return ` ${accountLabel(facts.setAside)} stays stored; vos switch ${facts.setAside.handle ?? facts.setAside.id} when you need it.`
+  if (facts.replaced)
+    return ' The credential stored before had no name on file and was replaced.'
+  return ''
 }
 
 /**
