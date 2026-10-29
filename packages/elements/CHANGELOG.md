@@ -1,5 +1,11 @@
 # @vosjs/elements
 
+## 0.12.2
+
+### Patch Changes
+
+- c9afc7a: A frame-accurate video seeks one frame at a time. `FrameAccurateVideoSource.seekTo` decodes through one `VideoDecoder` and collects its frames through one handler, and nothing kept two calls from overlapping: a render loop that seeks every frame (live playback, which does not wait for a decode the way a capture does) started a decode before the last one ended, so the two stole or dropped each other's frames and the video showed frames out of order while the decoding piled up. Now decodes run one at a time, a seek made while one runs only replaces the target of the next run (the frames in between are skipped, never queued), every call still resolves once the canvas shows its frame or a newer one, and a seek to the frame already drawn decodes nothing. A capture, which awaits each seek before the next, decodes exactly as before. Measured on a live program seeking two 1080p videos every frame under 4x CPU throttling: wrong frames went from 5 in 40 samples to none.
+
 ## 0.12.1
 
 ### Patch Changes
