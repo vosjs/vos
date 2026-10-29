@@ -10,6 +10,7 @@
  * from esm.sh at runtime (consistent with vos's CDN addon strategy; keeps the
  * injectable elements bundle lean). Requires a secure context with WebCodecs.
  */
+import { latestOnly } from './latestOnly'
 import {
   buildSyncIndices,
   gopBounds,
@@ -57,6 +58,8 @@ export class FrameAccurateVideoSource {
   private syncIndices: number[] = []
   private onFrame: ((f: VideoFrame) => void) | null = null
   private lastError: unknown = null
+  /** Decode index of the frame on the canvas (-1: none yet). */
+  private drawnIndex = -1
   durationSec = 0
   fps = 30
   codedWidth = 0
@@ -175,13 +178,29 @@ export class FrameAccurateVideoSource {
   }
 
   /**
-   * Decode the exact frame at presentation time `t` and draw it to `canvas`.
-   * Decodes the whole GOP (keyframe → next keyframe) in decode order, then
-   * selects the output by PTS. Returns when the canvas is updated.
+   * Draw the exact frame at presentation time `t` to `canvas`. Resolves once
+   * the canvas shows it, or the frame of a seek made after this one.
+   *
+   * The decoder is ONE stateful resource and a decode collects its frames
+   * through it, so two decodes in flight at once steal or drop each other's
+   * frames. A render loop seeking every frame (live playback, which does not
+   * wait for a decode the way a capture does) used to overlap them and show
+   * frames out of order. So decodes run one at a time, a seek made while one
+   * runs only replaces the target the next run decodes, and a seek to the
+   * frame already drawn decodes nothing.
    */
-  async seekTo(tSec: number): Promise<void> {
+  readonly seekTo: (tSec: number) => Promise<void> = latestOnly((tSec) =>
+    this.decodeAt(tSec),
+  )
+
+  /**
+   * Decode the whole GOP (keyframe → next keyframe) holding `t` in decode
+   * order, select the output by PTS and draw it. Only `seekTo` calls this.
+   */
+  private async decodeAt(tSec: number): Promise<void> {
     if (!this.samples.length) return
     const targetDI = targetDecodeIndex(this.samples, tSec)
+    if (targetDI === this.drawnIndex) return
     const [ki, ni] = gopBounds(this.syncIndices, this.samples.length, targetDI)
     const targetTs = Math.round(this.samples[targetDI].cts * 1e6)
 
@@ -202,7 +221,10 @@ export class FrameAccurateVideoSource {
         best = f
       }
     }
-    if (best) this.ctx.drawImage(best, 0, 0)
+    if (best) {
+      this.ctx.drawImage(best, 0, 0)
+      this.drawnIndex = targetDI
+    }
     for (const f of collected) f.close()
   }
 
