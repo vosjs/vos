@@ -35,13 +35,20 @@
           "description": "decoded frame px (null with --no-frames)"
         },
         "frameHeight": { "type": ["number", "null"] },
-        "surface": { "type": "string", "enum": ["tab", "window", "monitor"] },
+        "surface": {
+          "type": "string",
+          "enum": ["tab", "window", "monitor", "app"]
+        },
         "producer": {
           "type": "string",
-          "enum": ["extension", "cli", "ingest"]
+          "enum": ["extension", "cli", "ingest", "desktop"]
         },
         "pageUrl": { "type": ["string", "null"] },
         "pageTitle": { "type": ["string", "null"] },
+        "app": {
+          "type": ["string", "null"],
+          "description": "the recorded application's name, on an app take"
+        },
         "hasMic": { "type": "boolean" },
         "hasSystemAudio": { "type": "boolean" },
         "hasCursor": {

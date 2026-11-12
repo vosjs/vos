@@ -62,16 +62,19 @@ export function projectFromArtifact(
   const unfocused =
     surface === 'window' &&
     (artifact.meta.windowFocusedFrac ?? 1) < WINDOW_FOCUS_MIN
+  // An app take's producer follows its window sample by sample, so its track
+  // stays the window's wherever the window went: the moved-window anchor rule
+  // is a browser capture's, and never drops an app take's cursor.
+  const movedAnchor =
+    surface !== 'app' && artifact.meta.windowMovedDuringTake === true
   const coverage =
-    surface === 'monitor' || artifact.meta.windowMovedDuringTake || unfocused
-      ? 0
-      : norm.coverage
+    surface === 'monitor' || movedAnchor || unfocused ? 0 : norm.coverage
   if (artifact.cursor.length > 0 && coverage < CAPTURE_COVERAGE_MIN) {
     console.warn(
       '[studio] dropping cursor track —',
       surface === 'monitor'
         ? 'entire-screen takes have no cursor effects (untrackable outside browser pages)'
-        : artifact.meta.windowMovedDuringTake
+        : movedAnchor
           ? 'window moved/resized during the take'
           : unfocused
             ? `browser window focused only ${Math.round((artifact.meta.windowFocusedFrac ?? 0) * 100)}% of the take — a different window was likely shared`
