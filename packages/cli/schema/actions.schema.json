@@ -12,6 +12,11 @@
       "format": "uri",
       "description": "Page to record (overridable with --url)."
     },
+    "app": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A desktop app to record in place of a page: its name or bundle id (overridable with --app; macOS). Selectors are then in the desktop dialect: a role, then what the element is called or its accessibility identifier, e.g. button[name='Save'], textfield[id='title'], toolbar > button[name*='Share'], button[name='Delete']:nth(1). vos look --app lists them. A desktop script takes no url, mask, setup, teardown, ready or peers, and its steps are wait, hover, click, type, press, scroll, move, drag and expect."
+    },
     "viewport": {
       "type": "object",
       "required": ["width", "height"],

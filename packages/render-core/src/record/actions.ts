@@ -25,7 +25,18 @@ import type { Peer } from './peers'
 export interface ActionsFile {
   /** Page to record. `--url` overrides. */
   url?: string
-  /** Recording viewport in CSS px (default 1280x720). */
+  /**
+   * A DESKTOP app to record in place of a page: its name or bundle id.
+   * `--app` overrides. The script's selectors are then in the desktop
+   * dialect (`button[name='Save']`, `textfield[id='title']`) and the page's
+   * fields have no meaning (`desktopProblems`).
+   */
+  app?: string
+  /**
+   * Recording viewport in CSS px (default 1280x720). For a desktop app, the
+   * size its window is given before the take, in points; absent, the window
+   * is recorded at the size it has.
+   */
   viewport?: { width: number; height: number }
   /**
    * Hidden BEFORE the first frame is captured and kept hidden across
@@ -352,6 +363,12 @@ export function validateActions(value: unknown): string[] {
       const problem = urlSchemeProblem(obj.url)
       if (problem) errors.push(`url ${problem}`)
     }
+  }
+  if (obj.app !== undefined) {
+    if (typeof obj.app !== 'string' || !obj.app.trim())
+      errors.push('app must be an app’s name or bundle id')
+    else if (obj.url !== undefined)
+      errors.push('a script records a url or an app, not both')
   }
   if (obj.viewport !== undefined) {
     const v: unknown = obj.viewport
