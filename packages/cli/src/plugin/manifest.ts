@@ -26,7 +26,8 @@ export const manifest: PluginManifest = {
     },
     {
       name: 'record',
-      summary: 'drive actions.json into a take (screencast + cursor track)',
+      summary:
+        "drive actions.json into a take (screencast + cursor track); --app <name> records a desktop app's window as you or your agent work it (macOS)",
     },
     {
       name: 'look',

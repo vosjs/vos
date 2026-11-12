@@ -150,6 +150,13 @@ export interface RecordingMeta {
    */
   resizedDuringTake?: boolean
   /**
+   * How round the footage's own corners are, in cursor-space units (a recorded
+   * window's points). Outside them the footage is opaque: a window recorded
+   * alone is black there. A card drawn around the footage is at least this
+   * round, or those corners show as notches. Absent or 0 = square footage.
+   */
+  cornerRadius?: number
+  /**
    * Page URL/title at record start (seeds the browser-bar mock's address pill).
    * Query/hash are stripped at capture for privacy.
    */

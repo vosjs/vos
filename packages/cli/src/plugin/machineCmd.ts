@@ -170,6 +170,29 @@ async function doctorFacts(opts: {
     credential: safeResolve() !== null,
     accounts: storedAccounts(platformOrigin()),
     ...(opts.url ? { devServer: await devServerFact(opts.url) } : {}),
+    desktop: await desktopFact(),
+  }
+}
+
+/** What `vos record --app` can do here: the helper's own answer, or why not. */
+async function desktopFact(): Promise<NonNullable<DoctorFacts['desktop']>> {
+  try {
+    const { check } = await import('@vosjs/driver')
+    const c = await check()
+    return {
+      available: true,
+      version: c.version,
+      screenRecording: c.screenRecording,
+      accessibility: c.accessibility,
+    }
+  } catch (error) {
+    // The driver's errors say why in a sentence (not macOS, macOS too old,
+    // the helper not installed).
+    const message = (error as { message?: string }).message
+    return {
+      available: false,
+      reason: (message ?? 'the helper is not installed').replace(/\.$/, ''),
+    }
   }
 }
 

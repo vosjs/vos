@@ -167,6 +167,7 @@ import {
 import { urlSchemeProblem } from '@vosjs/render-core/record'
 import { cmdActions } from './agentBrowser'
 import { cmdIngest } from './ingest'
+import { cmdRecordApp, isDesktopRecord } from './recordApp'
 import { cmdCheckVideo } from './checkVideo'
 import { cmdJoin } from './join'
 import { cmdTakeInfo } from './timeline'
@@ -242,6 +243,8 @@ Take pipeline
             --reuse, recording again into a take that has a cut: the cut (kept as doc.prev.json) goes onto the new footage as vos plan --reuse does; without it the take is planned fresh and its last line says where the cut is
   vos record --hosted --actions actions.json [--url <url>] [--out take] [--title "…"] [--folder <id>] [--header name=value]... [--json]
             the take recorded on vos.so's fleet (no browser here): lands as a private vos with its doc and digest, then fetched into --out with its media
+  vos record --app <name|bundle id> [--out take] [--seconds <n>] [--max-duration <s>] [--background <slug|url|none>] [--json]
+            a desktop app's window (macOS), performed by whoever is at the machine: you or your agent's computer use works the app, and the take has no system pointer in its pixels and the pointer's path beside it, planned like a page take; Ctrl-C ends it, or --seconds; --window <id> names one window, vos record --windows lists what can be recorded; needs Screen Recording for the app this runs from (vos doctor says)
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions|--captions none] [--clicks none] [--still <t>] [--release v2.1] [--zooms per-beat] [--json]
             --zooms per-beat keeps at most one zoom per beat: the beats are the captioned steps of actions.json (each runs until the next one starts, plus the opening before the first); a step marked "zoom": true in actions.json is its beat's payoff, and the beat keeps the proposal that overlaps it most (one per marked step, never two overlapping), promoted to manual; a beat with no marked step keeps no zoom; when no step of the take is marked, each beat's last click, drag, type or paste stands in (the opening keeps none) and the done line says so; a step marked "zoom": false is never zoomed on; the rest go into doc.rejected like a person deleting them, and a beat with a manual zoom keeps only its manual ones. A media with no captioned step keeps its zooms as planned, and the done line says so
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
@@ -632,7 +635,7 @@ async function loadActions(file: string): Promise<ActionsFile> {
  * key resolves); else the built-in number, said in words, because a take
  * longer than the platform's cap is refused at push time.
  */
-async function maxDuration(
+export async function maxDuration(
   flags: ParsedArgs['flags'],
   r: { log: (line: string) => void },
 ): Promise<number> {
@@ -1120,6 +1123,9 @@ function wallGate(
 }
 
 async function cmdRecord(argv: string[]): Promise<number> {
+  // A desktop app's window, performed by whoever is at the machine: no script,
+  // no browser, its own verb file.
+  if (isDesktopRecord(argv)) return cmdRecordApp(argv)
   const { positionals, flags, multi } = parseArgs(
     argv,
     BOOLEAN_FLAGS,
