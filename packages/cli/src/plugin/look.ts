@@ -16,6 +16,7 @@
  * tested; the page probes are strings, because a function serialized out of
  * a bundle picks up the bundler's `__name` helper and dies in the page.
  */
+import { cmdLookApp, isDesktopLook } from './lookApp'
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -933,6 +934,8 @@ export function lookReport(r: LookResult): string {
 }
 
 export async function cmdLook(argv: string[]): Promise<number> {
+  // A desktop app's window: no browser, its own verb file.
+  if (isDesktopLook(argv)) return cmdLookApp(argv)
   const steps = lookSteps(argv)
   const { positionals, flags, multi } = parseArgs(
     argv,

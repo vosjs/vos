@@ -1,19 +1,28 @@
 /**
- * `vos record --app <name>`: a take of a desktop app's window, performed by
- * whoever is at the machine. A person, or an agent's computer use, works the
+ * `vos record --app <name>`: a take of a desktop app's window.
+ *
+ * PERFORMED (no script): a person, or an agent's computer use, works the
  * app; `@vosjs/driver` records the window with no system pointer in the
  * pixels and the pointer's path beside it, in the window's own points. The
- * take directory is then what a page take's is (`recording.mp4`,
- * `cursor.json`, `meta.json`), planned the same way, so the planner zooms on
- * what was pressed and typed in.
+ * recording runs until Ctrl-C (or a signal), `--seconds`, or the cap.
  *
- * The recording runs until Ctrl-C (or a signal), `--seconds`, or the cap.
- * `vos record --windows` lists what can be recorded.
+ * SCRIPTED (`--actions actions.json`, or a script that names an `app`): the
+ * same script a page's take runs, in the desktop selector dialect. The
+ * driver brings the app forward and presses, types and scrolls through
+ * accessibility while it records; the step loop is render-core's
+ * (`runDesktopSteps`), and its step spans go into `meta.steps` as a page
+ * take's do. The take ends with its last step.
+ *
+ * Either way the take directory is what a page take's is (`recording.mp4`,
+ * `cursor.json`, `meta.json`), planned the same way, so the planner zooms on
+ * what was pressed and typed in. `vos record --windows` lists what can be
+ * recorded; `vos look --app` lists what a script can name.
  *
  * macOS only, and it needs Screen Recording granted to the app this was run
  * from (the terminal, the editor, the agent's host): macOS records the grant
  * against that app, not against this CLI. With Accessibility granted too, a
- * press carries the bounds of what was pressed, so its zoom fits the control.
+ * press carries the bounds of what was pressed, so its zoom fits the control;
+ * a scripted take needs it.
  *
  * This file owns the verb; the helper, its protocol and its permissions are
  * `@vosjs/driver`'s.
@@ -21,25 +30,38 @@
 import { existsSync } from 'node:fs'
 import { mkdir, readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
+import { desktopProblems, runDesktopSteps } from '@vosjs/render-core/record'
 import { UsageError, hasFlag, numFlag, parseArgs, strFlag } from './args'
-import { EXIT_OK, createReporter } from './output'
+import { EXIT_ERROR, EXIT_OK, EXIT_USAGE, createReporter } from './output'
 import { planTake } from './plan'
-import { MULTI_FLAGS, maxDuration, takeBackdrop } from './run'
-import { prepareReRecord, takePaths } from './take'
-import type { CursorEvent } from '@vosjs/studio-core'
+import {
+  MULTI_FLAGS,
+  loadActions,
+  maxDuration,
+  takeBackdrop,
+  takeConfirm,
+} from './run'
+import { prepareReRecord, readJson, takePaths, writeJson } from './take'
+import type {
+  ActionsFile,
+  DesktopRunResult,
+  SkippedStep,
+} from '@vosjs/render-core/record'
+import type { CursorEvent, RecordingMeta } from '@vosjs/studio-core'
 import type { DriverWindow, RecordRequest, StoppedEvent } from '@vosjs/driver'
 
-const BOOLEAN_FLAGS = new Set(['json', 'help', 'windows'])
+const BOOLEAN_FLAGS = new Set(['json', 'help', 'windows', 'strict', 'dry-run'])
 
 const USAGE =
   'vos record --app <name|bundle id> [--out take] [--seconds <n>] [--max-duration <s>] [--background <slug|url|none>] [--json]\n' +
+  '       vos record --app <name|bundle id> --actions actions.json [--out take] [--strict] [--confirm <id>]... …   scripted\n' +
   '       vos record --window <id> …   one window by its id\n' +
   '       vos record --windows         list the windows that can be recorded'
 
-/** The part of `@vosjs/driver` this verb uses; a test hands in its own. */
+/** The part of `@vosjs/driver` the desktop verbs use; a test hands in its own. */
 export type DesktopDriver = Pick<
   typeof import('@vosjs/driver'),
-  'check' | 'windows' | 'record'
+  'check' | 'windows' | 'record' | 'tree' | 'still'
 >
 
 /** True when the arguments ask for a desktop take and not a page's. */
@@ -54,7 +76,23 @@ export function isDesktopRecord(argv: string[]): boolean {
   )
 }
 
-async function loadDriver(): Promise<DesktopDriver> {
+/**
+ * True when the script a `vos record` names is a desktop one: it has an
+ * `app`. A file that cannot be read says no; the page path reports it.
+ */
+export async function scriptNamesApp(
+  file: string | undefined,
+): Promise<boolean> {
+  if (!file) return false
+  try {
+    const raw = await readJson<{ app?: unknown }>(resolve(file))
+    return typeof raw?.app === 'string' && raw.app.trim().length > 0
+  } catch {
+    return false
+  }
+}
+
+export async function loadDriver(): Promise<DesktopDriver> {
   try {
     return await import('@vosjs/driver')
   } catch {
@@ -65,7 +103,7 @@ async function loadDriver(): Promise<DesktopDriver> {
 }
 
 /** A failure of the driver, in its own words: every one says what to do. */
-function driverFailure(error: unknown): Error {
+export function driverFailure(error: unknown): Error {
   const e = error as { code?: string; message?: string }
   if (e.code === 'no-window')
     return new Error(
@@ -74,7 +112,25 @@ function driverFailure(error: unknown): Error {
   return new Error(e.message ?? String(error))
 }
 
-const SCREEN_RECORDING =
+export const ACCESSIBILITY_FOR_SCRIPT =
+  'Accessibility is not granted to the app this was run from (the terminal, the editor or the agent host). A script finds and presses the app’s controls through it. Switch it on in System Settings, Privacy & Security, Accessibility, then start that app again.'
+
+/** A skipped step in words: its reason, else the selector that named nothing. */
+function skippedLine(s: SkippedStep): string {
+  return `#${s.step}${s.id ? ` ${s.id}` : ''} ${s.do}${s.reason ? `: ${s.reason}` : ` ${s.selector}`}`
+}
+
+/** What `--strict` fails a scripted desktop take on, in words, or null. */
+function strictReason(run: DesktopRunResult): string | null {
+  const parts: string[] = []
+  if (run.skipped.length) parts.push(`${run.skipped.length} skipped step(s)`)
+  if (run.disabled.length)
+    parts.push(`${run.disabled.length} click(s) on a disabled control`)
+  if (run.capped) parts.push('stopped at --max-duration')
+  return parts.length ? parts.join(' + ') : null
+}
+
+export const SCREEN_RECORDING =
   'Screen Recording is not granted to the app this was run from (the terminal, the editor or the agent host). Switch it on in System Settings, Privacy & Security, Screen & System Audio Recording, then start that app again.'
 
 function windowLine(w: DriverWindow): string {
@@ -86,8 +142,34 @@ export async function cmdRecordApp(
   argv: string[],
   deps: { driver?: DesktopDriver } = {},
 ): Promise<number> {
-  const { flags } = parseArgs(argv, BOOLEAN_FLAGS, MULTI_FLAGS)
+  const { positionals, flags, multi } = parseArgs(
+    argv,
+    BOOLEAN_FLAGS,
+    MULTI_FLAGS,
+  )
   const r = createReporter(flags.json === true)
+
+  // The script, read and refused before anything on the machine is touched.
+  const actionsPath = strFlag(flags, 'actions') ?? positionals[0]
+  let actions: ActionsFile | undefined
+  let confirm: string[] = []
+  if (actionsPath && flags.windows !== true) {
+    actions = await loadActions(resolve(actionsPath))
+    const problems = desktopProblems(actions)
+    if (problems.length)
+      throw new UsageError(
+        `not a script a desktop take can run:\n  ${problems.join('\n  ')}`,
+      )
+    if (flags['dry-run'] === true)
+      throw new UsageError(
+        'a desktop script has no rehearsal: a dry run would press the app’s real controls. vos look --app lists what the script can name',
+      )
+    if (hasFlag(flags, 'seconds'))
+      throw new UsageError(
+        '--seconds is a performed take’s length; a scripted take ends with its last step (--max-duration caps it)',
+      )
+    confirm = takeConfirm(multi, actions, { dryRun: false, r })
+  }
   const driver = deps.driver ?? (await loadDriver())
 
   let granted: Awaited<ReturnType<DesktopDriver['check']>>
@@ -111,7 +193,9 @@ export async function cmdRecordApp(
     return EXIT_OK
   }
 
-  const app = strFlag(flags, 'app')
+  const app = strFlag(flags, 'app') ?? actions?.app
+  if (actions && !granted.accessibility)
+    throw new Error(ACCESSIBILITY_FOR_SCRIPT)
   const windowFlag = hasFlag(flags, 'window')
     ? numFlag(flags, 'window', NaN)
     : undefined
@@ -158,15 +242,33 @@ export async function cmdRecordApp(
     maxSeconds: seconds !== undefined ? Math.min(seconds, cap) : cap,
     pointer: true,
     frames: granted.accessibility,
+    ...(actions
+      ? {
+          drive: true,
+          ...(actions.viewport
+            ? {
+                size: {
+                  w: actions.viewport.width,
+                  h: actions.viewport.height,
+                },
+              }
+            : {}),
+        }
+      : {}),
   }
   r.event({ event: 'phase', phase: 'record' })
   const take = driver.record(request)
 
   // Ctrl-C ends the take; it does not end this process before the file is whole.
-  const end = () => void take.stop().catch(() => {})
+  let interrupted = false
+  const end = () => {
+    interrupted = true
+    void take.stop().catch(() => {})
+  }
   process.on('SIGINT', end)
   process.on('SIGTERM', end)
   let stopped: StoppedEvent
+  let run: DesktopRunResult | undefined
   try {
     const ready = await take.ready
     r.event({
@@ -178,12 +280,28 @@ export async function cmdRecordApp(
     })
     r.log(
       `recording ${ready.app || 'the window'} (${ready.captureWidth}×${ready.captureHeight})${
-        seconds !== undefined
-          ? ` for ${seconds}s`
-          : '. Use the app; Ctrl-C ends the take'
+        actions
+          ? `, ${actions.steps.length} step${actions.steps.length === 1 ? '' : 's'}. Leave the machine alone until it ends`
+          : seconds !== undefined
+            ? ` for ${seconds}s`
+            : '. Use the app; Ctrl-C ends the take'
       }…`,
     )
-    stopped = await take.done
+    if (actions) {
+      try {
+        run = await runDesktopSteps(take, actions, r.log, {
+          maxDurationSeconds: cap,
+          confirm,
+          onEvent: r.event,
+        })
+      } catch (error) {
+        // Interrupted: the take is ending and takes no more commands.
+        if (!interrupted) throw error
+      }
+      stopped = await take.stop()
+    } else {
+      stopped = await take.done
+    }
   } catch (error) {
     throw driverFailure(error)
   } finally {
@@ -199,6 +317,21 @@ export async function cmdRecordApp(
   const clicks = events.filter((e) => e.type === 'down').length
   const typing = events.filter((e) => e.type === 'key').length
 
+  // A scripted take keeps its script and its step spans, as a page's does:
+  // the planner groups presses by step, a pin finds its step, and recording
+  // again matches the new steps to the old.
+  if (actions) {
+    if (run) {
+      const meta = await readJson<RecordingMeta>(paths.meta)
+      await writeJson(paths.meta, { ...meta, steps: run.steps }, true)
+    }
+    await writeJson(
+      paths.actions,
+      { ...actions, ...(app ? { app } : {}) },
+      true,
+    )
+  }
+
   const plan = await planTake(outDir, { backdrop })
 
   const said = notes.length
@@ -213,7 +346,41 @@ export async function cmdRecordApp(
     notes.push(
       `another app's window was over this one for a moment: ${held} frame${held === 1 ? ' was' : 's were'} held back so it is not in the take`,
     )
+  if (actions && !run)
+    notes.push('the take was interrupted before the script finished')
   for (const n of notes.slice(said)) r.log(`note: ${n}`)
+
+  const strict = flags.strict === true && run ? strictReason(run) : null
+  const scriptFields = run
+    ? {
+        steps: run.steps.length,
+        skipped: run.skipped,
+        disabled: run.disabled,
+        confirmed: run.confirmed,
+        pace: run.pace,
+        capped: run.capped,
+        ...(run.stopped ? { ok: false, stopped: run.stopped } : {}),
+        ...(strict ? { strictFailed: true } : {}),
+      }
+    : {}
+  const scriptLines = run
+    ? [
+        ...(run.skipped.length
+          ? [`SKIPPED: ${run.skipped.map(skippedLine).join('; ')}`]
+          : []),
+        ...(run.disabled.length
+          ? [
+              `DISABLED when clicked: ${run.disabled.map((d) => `#${d.step}${d.id ? ` ${d.id}` : ''} ${d.selector}`).join(', ')} (it was reached and not pressed; an expect with enabled: true before it waits for the control)`,
+            ]
+          : []),
+        ...(run.confirmed.length
+          ? [`pressed, as --confirm said: ${run.confirmed.join(', ')}`]
+          : []),
+        ...(run.stopped ? [`STOPPED: ${run.stopped.reason}`] : []),
+      ]
+        .map((l) => `\n  ${l}`)
+        .join('')
+    : ''
 
   const length = (stopped.durationMs / 1000).toFixed(1)
   const cursorLine = events.length
@@ -231,8 +398,13 @@ export async function cmdRecordApp(
       zooms: plan.zoomAuto,
       backdrop: plan.backdrop ?? null,
       notes,
+      ...scriptFields,
     },
-    `Recorded ${app ?? `window ${windowFlag}`} → ${outDir}/recording.mp4 (${length}s, ${stopped.frames} frames)\n  ${cursorLine}\n  Next: vos digest ${outDir} — look before you cut; edit doc.json; vos open ${outDir} or vos push ${outDir}`,
+    run?.stopped
+      ? `FAILED: the take stopped at step #${run.stopped.step}: ${run.stopped.reason}${scriptLines}`
+      : strict
+        ? `STRICT: take recorded but incomplete: ${strict}; fix the script and record again.${scriptLines}`
+        : `Recorded ${app ?? `window ${windowFlag}`} → ${outDir}/recording.mp4 (${length}s, ${stopped.frames} frames${run ? `, ${run.steps.length} steps` : ''})\n  ${cursorLine}${scriptLines}\n  Next: vos digest ${outDir} — look before you cut; edit doc.json; vos open ${outDir} or vos push ${outDir}`,
   )
-  return EXIT_OK
+  return run?.stopped ? EXIT_ERROR : strict ? EXIT_USAGE : EXIT_OK
 }

@@ -1,0 +1,604 @@
+/**
+ * A scripted take of a DESKTOP app: the same `actions.json` a page's take
+ * runs, driven through a session that finds the app's controls by
+ * accessibility and presses, types and scrolls as a hand does.
+ *
+ * It is the step loop only. What records the window, moves the pointer and
+ * writes the cursor track is the session's (the CLI hands in
+ * `@vosjs/driver`); this module turns steps into the session's commands,
+ * paces them, and reports the take's step spans on the take's own clock.
+ *
+ * A step's `selector` is in the desktop dialect: a role, then what the
+ * element is called or its accessibility identifier:
+ *
+ *   button[name='Save']   textfield[id='title']   toolbar > button[name*='Share']
+ *   button[name='Delete']:nth(1)                   *[id='sidebar']
+ *
+ * What a desktop script cannot hold is refused before anything is recorded
+ * (`desktopProblems`): a page's fields (`url`, `mask`, `setup`, `teardown`,
+ * `ready`, `peers`), and the steps that read a page (`paste`, `download`,
+ * `await`, a `js` check, a drawn `path`).
+ */
+import type { Rect, StepSpan } from '@vosjs/studio-core'
+import type { ActionStep, ActionsFile } from './actions'
+import { EXPECT_TIMEOUT_S } from './actions'
+import { capReached, cappedLine, clampWait } from './cap'
+import type { RecorderClock } from './driver'
+import { realSleep } from './driver'
+import {
+  DRAG_HOLD_MS,
+  KEY_SEQUENCE_GAP_MS,
+  pressSequence,
+  splitChord,
+} from './gestures'
+import type { PaceReport, StepPace } from './pace'
+import {
+  TRAILING_HOLD_MS,
+  askedMs,
+  paceLine,
+  paceReport,
+  scrollTravelMs,
+  settleMs,
+} from './pace'
+import type { DisabledClick, SkippedStep, StoppedTake } from './recorder'
+
+/** What a command acts on: an element by selector, or a point in the window's own points. */
+export type DesktopTarget = { selector: string } | { x: number; y: number }
+
+/** A key held through a click or a drag. */
+export type DesktopModifier = 'Meta' | 'Control' | 'Alt' | 'Shift'
+
+/** One act the session performs. The shape is `@vosjs/driver`'s `Command`. */
+export type DesktopCommand =
+  | ({ do: 'locate' } & DesktopTarget)
+  | ({
+      do: 'click'
+      count?: number
+      button?: 'left' | 'right'
+      modifiers?: DesktopModifier[]
+    } & DesktopTarget)
+  | ({ do: 'hover' } & DesktopTarget)
+  | ({ do: 'type'; text: string; delayMs?: number } & Partial<DesktopTarget>)
+  | { do: 'press'; keys: string | string[] }
+  | ({
+      do: 'scroll'
+      dy?: number
+      dx?: number
+      ms?: number
+    } & Partial<DesktopTarget>)
+  | ({
+      do: 'drag'
+      to: DesktopTarget
+      ms?: number
+      modifiers?: DesktopModifier[]
+    } & DesktopTarget)
+  | ({ do: 'move'; ms?: number } & DesktopTarget)
+  | { do: 'now' }
+
+/** A command's answer. Times are milliseconds on the take's clock. */
+export type DesktopAnswer =
+  | {
+      ok: true
+      tStart: number
+      tEnd: number
+      count?: number
+      enabled?: boolean
+      name?: string
+      rect?: Rect
+      pressed?: boolean
+    }
+  | { ok: false; code: string; message: string }
+
+/** A take being recorded that takes commands, one at a time, each answered. */
+export interface DesktopSession {
+  send(command: DesktopCommand): Promise<DesktopAnswer>
+}
+
+/** How long a step waits for what it names to appear, as a page's take does: ms. */
+export const DESKTOP_FIND_MS = 8000
+/** How often a waiting step looks again: ms. */
+export const DESKTOP_POLL_MS = 100
+/** A typed character's pause when the step names none: ms. */
+export const DESKTOP_TYPE_DELAY_MS = 40
+
+/** Codes that mean the take cannot go on, not that one step missed. */
+const FATAL = new Set([
+  'not-frontmost',
+  'no-window',
+  'accessibility',
+  'no-tree',
+])
+
+const BROWSER_FIELDS: [keyof ActionsFile, string][] = [
+  ['url', 'a desktop script names an app, not a url'],
+  ['mask', 'masks cover a page’s elements'],
+  ['setup', 'setup runs against a page'],
+  ['teardown', 'teardown runs against a page'],
+  ['ready', 'ready is about a page’s first load'],
+  ['peers', 'peers are other browser pages'],
+]
+
+/**
+ * What a script holds that a desktop take cannot do, in the words of
+ * `validateActions`: an empty list when it can run. Run `validateActions`
+ * first; this reads a script that is already well formed.
+ */
+export function desktopProblems(actions: ActionsFile): string[] {
+  const out: string[] = []
+  for (const [field, why] of BROWSER_FIELDS)
+    if (actions[field] !== undefined)
+      out.push(`${field} is not part of a desktop script: ${why}`)
+  if (actions.settle === true)
+    out.push(
+      'settle reads a page’s DOM; on a desktop take give the step its ms',
+    )
+  actions.steps.forEach((step, i) => {
+    const at = `steps[${i}]`
+    const no = (what: string) => out.push(`${at}: ${what}`)
+    if (step.settle === true)
+      no('settle reads a page’s DOM; give the step its ms')
+    switch (step.do) {
+      case 'paste':
+        no('paste is not on a desktop take yet: type the text')
+        break
+      case 'download':
+        no('download saves a page’s file; a desktop take has none')
+        break
+      case 'await':
+        no(
+          'await cuts a page’s wait off camera; on a desktop take use expect with a timeout',
+        )
+        break
+      case 'expect':
+        if (step.js !== undefined)
+          no('expect js runs in a page; name a selector, text or gone')
+        break
+      case 'click':
+        if (step.button === 'middle')
+          no('click button is "left" or "right" on a desktop take')
+        break
+      case 'drag':
+        if (step.path !== undefined)
+          no('drag path is not on a desktop take yet: give tx and ty')
+        break
+      case 'press':
+        for (const chord of pressSequence(step)) {
+          const { key } = splitChord(chord)
+          if (key === '+')
+            no(`press "${chord}": the + key is not one a desktop take presses`)
+        }
+        break
+    }
+  })
+  return out
+}
+
+/** A page's chord as the desktop presses it: `Mod` and `ControlOrMeta` are Command. */
+export function desktopChord(chord: string): string {
+  const { mods, key } = splitChord(chord)
+  const one = (k: string) => (k === 'Mod' || k === 'ControlOrMeta' ? 'Meta' : k)
+  return [...mods.map(one), one(key)].join('+')
+}
+
+function desktopModifiers(
+  mods: readonly string[] | undefined,
+): DesktopModifier[] | undefined {
+  if (!mods?.length) return undefined
+  return mods.map((m) => (m === 'Mod' ? 'Meta' : m)) as DesktopModifier[]
+}
+
+/** Words on screen, as a selector: any element whose name contains them. */
+export function textSelector(text: string): string {
+  return `*[name*='${text.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}']`
+}
+
+export interface DesktopRunOpts {
+  /** Where the take stops, in seconds of footage. */
+  maxDurationSeconds?: number
+  /** The clock and the pauses; a test hands in its own. */
+  clock?: RecorderClock
+  /** Ids of guarded steps the command confirmed (`--confirm`). */
+  confirm?: readonly string[]
+  onEvent?: (event: Record<string, unknown>) => void
+}
+
+export interface DesktopRunResult {
+  /** What goes into `meta.steps`: each step's extent in the footage, in seconds. */
+  steps: StepSpan[]
+  skipped: SkippedStep[]
+  disabled: DisabledClick[]
+  confirmed: string[]
+  pace: PaceReport
+  capped: boolean
+  /** The step the take could not go on from, or null. */
+  stopped: StoppedTake | null
+}
+
+/**
+ * Runs a script's steps against a take that is being recorded. Call it after
+ * the take is ready; end the take when it returns.
+ */
+export async function runDesktopSteps(
+  session: DesktopSession,
+  actions: ActionsFile,
+  log: (msg: string) => void,
+  opts: DesktopRunOpts = {},
+): Promise<DesktopRunResult> {
+  const clock: RecorderClock = opts.clock ?? {
+    now: Date.now,
+    sleep: realSleep,
+  }
+  const maxSeconds = opts.maxDurationSeconds ?? Infinity
+  const confirm = new Set(opts.confirm ?? [])
+
+  const steps: StepSpan[] = []
+  const skipped: SkippedStep[] = []
+  const disabled: DisabledClick[] = []
+  const confirmed: string[] = []
+  const paces: StepPace[] = []
+  let capped = false
+  let stopped: StoppedTake | null = null
+
+  // The take's clock is the session's. Every answer says what it reads, so
+  // this side keeps the difference and can tell the take's time between acts.
+  let offset = 0
+  let gestureMs = 0
+  const send = async (command: DesktopCommand): Promise<DesktopAnswer> => {
+    const answer = await session.send(command)
+    if (answer.ok) {
+      offset = answer.tEnd - clock.now()
+      if (command.do !== 'locate' && command.do !== 'now')
+        gestureMs += answer.tEnd - answer.tStart
+    }
+    return answer
+  }
+  const now = () => clock.now() + offset
+  const first = await send({ do: 'now' })
+  if (!first.ok) throw new Error(first.message)
+
+  for (let i = 0; i < actions.steps.length; i++) {
+    const step = actions.steps[i]!
+    if (capReached(now(), maxSeconds)) {
+      capped = true
+      log(`   ${cappedLine(maxSeconds)}`)
+      break
+    }
+    const id = step.id
+    const tag = `#${i}${id ? ` ${id}` : ''} ${step.do}`
+    const stepStart = now()
+    const skippedBefore = skipped.length
+    gestureMs = 0
+    let rect: Rect | undefined
+    const extra: Partial<StepSpan> = {}
+    if (step.guard) extra.guard = step.guard
+    if (step.zoom !== undefined) extra.zoom = step.zoom
+    opts.onEvent?.({
+      event: 'step',
+      phase: 'start',
+      i,
+      ...(id ? { id } : {}),
+      do: step.do,
+    })
+
+    const skip = (selector: string, reason?: string) => {
+      skipped.push({
+        step: i,
+        ...(id ? { id } : {}),
+        do: step.do,
+        selector,
+        ...(reason ? { reason } : {}),
+      })
+      log(`   (${tag}: ${reason ?? `nothing matches ${selector}`}, skipping)`)
+    }
+    /** An answer that is not a hit: the take stops, or the step is skipped. */
+    const missed = (
+      answer: Extract<DesktopAnswer, { ok: false }>,
+      about: string,
+    ) => {
+      if (FATAL.has(answer.code)) {
+        stopped = { step: i, ...(id ? { id } : {}), reason: answer.message }
+        extra.reason = answer.message
+        return
+      }
+      skip(about, answer.code === 'not-found' ? undefined : answer.message)
+    }
+    /**
+     * Waits for a selector to name something, as a page's take waits for
+     * visibility. Null when it never did, or when the take cannot go on.
+     */
+    const find = async (
+      selector: string,
+      timeoutMs = DESKTOP_FIND_MS,
+    ): Promise<Extract<DesktopAnswer, { ok: true }> | null> => {
+      const deadline = clock.now() + timeoutMs
+      for (;;) {
+        const answer = await send({ do: 'locate', selector })
+        if (!answer.ok) {
+          missed(answer, selector)
+          return null
+        }
+        if ((answer.count ?? 0) > 0) return answer
+        if (clock.now() >= deadline) {
+          skip(selector)
+          return null
+        }
+        await clock.sleep(DESKTOP_POLL_MS)
+      }
+    }
+    /** A step's target: its selector, once it is there, or its point. */
+    const targetOf = async (s: {
+      selector?: string
+      x?: number
+      y?: number
+    }): Promise<DesktopTarget | null> => {
+      if (s.selector !== undefined) {
+        const found = await find(s.selector)
+        if (!found) return null
+        rect = found.rect
+        return { selector: s.selector }
+      }
+      return { x: s.x!, y: s.y! }
+    }
+    /** Sends an act; false when it missed (and the miss is recorded). */
+    const act = async (command: DesktopCommand, about: string) => {
+      const answer = await send(command)
+      if (!answer.ok) {
+        missed(answer, about)
+        return null
+      }
+      if (answer.rect) rect = answer.rect
+      return answer
+    }
+    const about = (s: { selector?: string; x?: number; y?: number }) =>
+      s.selector ?? `${s.x},${s.y}`
+
+    switch (step.do) {
+      case 'wait':
+        await clock.sleep(clampWait(step.ms, now(), maxSeconds))
+        break
+      case 'move':
+        await act({ do: 'move', x: step.x, y: step.y }, about(step))
+        break
+      case 'hover': {
+        const target = await targetOf(step)
+        if (!target) break
+        if (await act({ do: 'hover', ...target }, about(step)))
+          await clock.sleep(step.ms ?? 700)
+        break
+      }
+      case 'click': {
+        const target = await targetOf(step)
+        if (!target) break
+        const answer = await act(
+          {
+            do: 'click',
+            ...target,
+            ...(step.count ? { count: step.count } : {}),
+            ...(step.button === 'right' ? { button: 'right' as const } : {}),
+            ...(step.modifiers
+              ? { modifiers: desktopModifiers(step.modifiers) }
+              : {}),
+          },
+          about(step),
+        )
+        if (!answer) break
+        if (answer.pressed === false) {
+          disabled.push({
+            step: i,
+            ...(id ? { id } : {}),
+            selector: about(step),
+          })
+          log(`   (${tag}: ${about(step)} is disabled; it was not pressed)`)
+        }
+        await clock.sleep(settleMs(step))
+        break
+      }
+      case 'type': {
+        const found = await find(step.selector)
+        if (!found) break
+        rect = found.rect
+        if (step.focus !== false) {
+          const pressed = await act(
+            { do: 'click', selector: step.selector },
+            step.selector,
+          )
+          if (!pressed) break
+        }
+        const before = step.replace
+          ? ['Meta+A']
+          : step.at === 'end'
+            ? ['Meta+ArrowDown']
+            : step.at === 'start'
+              ? ['Meta+ArrowUp']
+              : []
+        if (
+          before.length &&
+          !(await act({ do: 'press', keys: before }, step.selector))
+        )
+          break
+        if (
+          !(await act(
+            {
+              do: 'type',
+              text: step.text,
+              delayMs: step.delayMs ?? DESKTOP_TYPE_DELAY_MS,
+            },
+            step.selector,
+          ))
+        )
+          break
+        await clock.sleep(settleMs(step))
+        break
+      }
+      case 'press': {
+        if (step.selector !== undefined) {
+          const found = await find(step.selector)
+          if (!found) break
+          rect = found.rect
+        }
+        const chords = pressSequence(step).map(desktopChord)
+        let pressedAll = true
+        for (let k = 0; k < chords.length; k++) {
+          if (k > 0) await clock.sleep(KEY_SEQUENCE_GAP_MS)
+          if (!(await act({ do: 'press', keys: chords[k]! }, chords[k]!))) {
+            pressedAll = false
+            break
+          }
+        }
+        if (pressedAll) await clock.sleep(settleMs(step))
+        break
+      }
+      case 'scroll':
+        if (
+          await act(
+            {
+              do: 'scroll',
+              dy: step.dy,
+              ms: scrollTravelMs(Math.abs(step.dy)),
+            },
+            'scroll',
+          )
+        )
+          await clock.sleep(settleMs(step))
+        break
+      case 'drag': {
+        const target = await targetOf(step)
+        if (!target) break
+        if (
+          await act(
+            {
+              do: 'drag',
+              ...target,
+              to: { x: step.tx!, y: step.ty! },
+              ms: step.ms ?? 700,
+              ...(step.modifiers
+                ? { modifiers: desktopModifiers(step.modifiers) }
+                : {}),
+            },
+            about(step),
+          )
+        )
+          await clock.sleep(DRAG_HOLD_MS)
+        break
+      }
+      case 'expect': {
+        const timeoutMs = (step.timeout ?? EXPECT_TIMEOUT_S) * 1000
+        const selector =
+          step.selector ??
+          step.gone ??
+          (step.text !== undefined ? textSelector(step.text) : '')
+        const said = step.text !== undefined ? `text "${step.text}"` : selector
+        const deadline = clock.now() + timeoutMs
+        for (;;) {
+          const answer = await send({ do: 'locate', selector })
+          if (!answer.ok) {
+            missed(answer, said)
+            break
+          }
+          const there = (answer.count ?? 0) > 0
+          const holds =
+            step.gone !== undefined
+              ? !there
+              : there &&
+                (step.enabled === undefined || answer.enabled === step.enabled)
+          if (holds) {
+            if (there) rect = answer.rect
+            break
+          }
+          if (clock.now() >= deadline) {
+            const secs = timeoutMs / 1000
+            skip(
+              said,
+              step.gone !== undefined
+                ? `${said} was still there after ${secs} s`
+                : there
+                  ? `${said} was ${step.enabled ? 'still disabled' : 'still enabled'} after ${secs} s`
+                  : `${said} did not appear within ${secs} s`,
+            )
+            break
+          }
+          await clock.sleep(DESKTOP_POLL_MS)
+        }
+        break
+      }
+      default:
+        // `desktopProblems` refuses these before a take begins.
+        skip(step.do, `${step.do} is not a step a desktop take runs`)
+    }
+
+    // What the step left on screen, when the script asks: an element's name.
+    let text: string | null = null
+    if (step.read !== undefined && !stopped) {
+      const read = await send({ do: 'locate', selector: step.read })
+      if (read.ok && read.name) text = read.name
+    }
+    const didSkip = skipped.length > skippedBefore
+    if (step.guard && !didSkip && !stopped && confirm.has(id ?? String(i))) {
+      confirmed.push(id ?? String(i))
+      extra.confirmed = true
+    }
+    const selector =
+      'selector' in step && step.selector !== undefined
+        ? step.selector
+        : step.do === 'expect'
+          ? (step.gone ?? step.text)
+          : undefined
+    const r = rect as Rect | undefined
+    steps.push({
+      step: i,
+      ...(id ? { id } : {}),
+      do: step.do,
+      ...(selector ? { selector } : {}),
+      tStart: +(stepStart / 1000).toFixed(3),
+      tEnd: +(now() / 1000).toFixed(3),
+      ...(didSkip ? { skipped: true } : {}),
+      ...(text !== null ? { text } : {}),
+      ...(r
+        ? {
+            rect: {
+              x: +r.x.toFixed(1),
+              y: +r.y.toFixed(1),
+              w: +r.w.toFixed(1),
+              h: +r.h.toFixed(1),
+            },
+          }
+        : {}),
+      ...extra,
+    })
+    paces.push({
+      step: i,
+      do: step.do,
+      askedMs: askedMs(step as { do: string; ms?: number }),
+      gestureMs: Math.round(gestureMs),
+      wallMs: Math.round(now() - stepStart),
+    })
+    opts.onEvent?.({
+      event: 'step',
+      phase: 'end',
+      i,
+      ...(id ? { id } : {}),
+      do: step.do,
+      ...(didSkip ? { skipped: true } : {}),
+    })
+    if (stopped) break
+  }
+
+  // The last step's result stays on screen a moment before the take ends.
+  if (!stopped && !capped) await clock.sleep(TRAILING_HOLD_MS)
+  const pace = paceReport(paces)
+  log(`   ${paceLine(pace)}`)
+  return { steps, skipped, disabled, confirmed, pace, capped, stopped }
+}
+
+/** The step verbs a desktop take runs. */
+export const DESKTOP_VERBS: readonly ActionStep['do'][] = [
+  'wait',
+  'hover',
+  'click',
+  'type',
+  'press',
+  'scroll',
+  'move',
+  'drag',
+  'expect',
+]

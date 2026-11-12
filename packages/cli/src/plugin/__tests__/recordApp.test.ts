@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -11,9 +11,9 @@ import {
   it,
   vi,
 } from 'vitest'
-import { cmdRecordApp, isDesktopRecord } from '../recordApp'
-import type { DesktopDriver } from '../recordApp'
-import type { RecordRequest } from '@vosjs/driver'
+import { cmdRecordApp, isDesktopRecord, scriptNamesApp } from '../recordApp'
+import { BUTTON, TRACK, fakeDriver } from './fakeDesktopDriver'
+import type { FakeOptions } from './fakeDesktopDriver'
 
 // `vos record --app`: the verb, over a driver handed in. The real helper is
 // @vosjs/driver's and is tested there against a real window; here the driver
@@ -31,149 +31,6 @@ afterAll(async () => {
 afterEach(() => {
   vi.restoreAllMocks()
 })
-
-const FIELD = { x: 16, y: 60, w: 320, h: 28 }
-const BUTTON = { x: 560, y: 6, w: 80, h: 22 }
-
-/** The track a person leaves: travel, a press, a sentence typed in a field, a press. */
-const TRACK = [
-  ...Array.from({ length: 40 }, (_, i) => ({
-    t: 1200 + i * 16,
-    x: 120 + i * 12,
-    y: 330 - i * 8,
-    type: 'move',
-  })),
-  { t: 2358, x: 600, y: 17, type: 'down', button: 0, rect: BUTTON },
-  { t: 2430, x: 600, y: 17, type: 'up', button: 0 },
-  { t: 3055, x: 176, y: 74, type: 'key', rect: FIELD },
-  { t: 3414, x: 176, y: 74, type: 'key', rect: FIELD },
-  { t: 3790, x: 176, y: 74, type: 'key', rect: FIELD },
-  { t: 5399, x: 600, y: 17, type: 'down', button: 0, rect: BUTTON },
-  { t: 5470, x: 600, y: 17, type: 'up', button: 0 },
-]
-
-interface FakeOptions {
-  screenRecording?: boolean
-  accessibility?: boolean
-  /** What `record` fails with, as the driver's errors are shaped. */
-  fail?: { code: string; message: string }
-  heldFrames?: number
-}
-
-/** A driver that records nothing and writes the take a real one writes. */
-function fakeDriver(o: FakeOptions = {}) {
-  const requests: RecordRequest[] = []
-  const driver: DesktopDriver = {
-    check: async () => ({
-      version: '0.1.2',
-      protocol: 1,
-      screenRecording: o.screenRecording ?? true,
-      accessibility: o.accessibility ?? true,
-      path: '/helper',
-      bundleId: '',
-      os: 'test',
-    }),
-    windows: async () => [
-      {
-        id: 41,
-        app: 'TextEdit',
-        appId: 'com.apple.TextEdit',
-        titled: true,
-        frame: { x: 185, y: 83, w: 656, h: 422 },
-      },
-      {
-        id: 42,
-        app: 'TextEdit',
-        appId: 'com.apple.TextEdit',
-        titled: false,
-        frame: { x: 394, y: 338, w: 520, h: 222 },
-      },
-    ],
-    record: (request) => {
-      requests.push(request)
-      if (o.fail) {
-        const error = Object.assign(new Error(o.fail.message), {
-          code: o.fail.code,
-        })
-        const failed = Promise.reject(error)
-        failed.catch(() => {})
-        return {
-          pid: undefined,
-          ready: failed,
-          done: failed,
-          stop: () => failed,
-        }
-      }
-      const write = async () => {
-        await mkdir(request.out, { recursive: true })
-        await writeFile(join(request.out, 'recording.mp4'), 'not a real video')
-        await writeFile(join(request.out, 'cursor.json'), JSON.stringify(TRACK))
-        await writeFile(
-          join(request.out, 'meta.json'),
-          JSON.stringify({
-            dpr: 2,
-            zoom: 1,
-            t0: 1794475400000,
-            durationMs: 6692,
-            width: 656,
-            height: 422,
-            fps: 60,
-            captureWidth: 1312,
-            captureHeight: 844,
-            captureSurface: 'app',
-            platform: 'mac',
-            producer: 'desktop',
-            cornerRadius: 18.2,
-            app: { name: 'TextEdit', id: 'com.apple.TextEdit' },
-          }),
-        )
-      }
-      const stopped = (reason: 'stop' | 'cap') =>
-        ({
-          event: 'stopped',
-          reason,
-          durationMs: 6692,
-          frames: 386,
-          idleFrames: 0,
-          droppedFrames: 0,
-          bytes: 16,
-          events: TRACK.length,
-          windowMoved: false,
-          resized: false,
-          sourceUpdates: 0,
-          filterRefreshes: 0,
-          heldFrames: o.heldFrames ?? 0,
-          files: {
-            recording: join(request.out, 'recording.mp4'),
-            cursor: join(request.out, 'cursor.json'),
-            meta: join(request.out, 'meta.json'),
-          },
-          clock: { t0Host: 0, arrivalLagMsMean: 0, arrivalLagMsMax: 0 },
-        }) as never
-      // A real take ends at its ceiling; the stand-in ends at once, as if it had.
-      const done = write().then(() => stopped('cap'))
-      return {
-        pid: 1,
-        ready: Promise.resolve({
-          event: 'ready',
-          protocol: 1,
-          window: request.window ?? 41,
-          app: 'TextEdit',
-          frame: { x: 185, y: 83, w: 656, h: 422 },
-          scale: 2,
-          captureWidth: 1312,
-          captureHeight: 844,
-          filter: 'others-out',
-          accessibility: true,
-          cornerRadius: 18.2,
-        } as never),
-        done,
-        stop: () => done,
-      }
-    },
-  }
-  return { driver, requests }
-}
 
 /** Runs the verb and gathers what it printed: the `done` object (it is run with --json) and its notes. */
 async function run(argv: string[], o: FakeOptions = {}) {
@@ -207,6 +64,7 @@ async function run(argv: string[], o: FakeOptions = {}) {
   return {
     code,
     requests: fake.requests,
+    commands: fake.commands,
     done: events.find((e) => e.event === 'done'),
     events,
     text: out.join(''),
@@ -397,5 +255,165 @@ describe('vos record --windows', () => {
     expect((done!.windows as { id: number }[]).map((w) => w.id)).toEqual([
       41, 42,
     ])
+  })
+})
+
+describe('vos record --app --actions: a scripted desktop take', () => {
+  const script = async (name: string, actions: unknown) => {
+    const file = join(dir, `${name}.actions.json`)
+    await writeFile(file, JSON.stringify(actions))
+    return file
+  }
+  const SAVE_AND_TYPE = {
+    viewport: { width: 900, height: 600 },
+    steps: [
+      { do: 'click', selector: "button[id='save']", id: 'save', ms: 0 },
+      { do: 'type', selector: "textfield[id='title']", text: 'hi', ms: 0 },
+      { do: 'press', keys: 'Mod+S', ms: 0 },
+    ],
+  }
+
+  it('drives the app the script names, at the size it asks for, and keeps its steps', async () => {
+    const out = join(dir, 's1')
+    const file = await script('s1', SAVE_AND_TYPE)
+    const { code, requests, commands, done } = await run([
+      '--app',
+      'TextEdit',
+      '--actions',
+      file,
+      '--out',
+      out,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    expect(requests[0]).toMatchObject({
+      app: 'TextEdit',
+      drive: true,
+      size: { w: 900, h: 600 },
+      pointer: true,
+    })
+    expect(commands.map((c) => c.do)).toEqual([
+      'now',
+      'locate',
+      'click',
+      'locate',
+      'click',
+      'type',
+      'press',
+    ])
+    expect(commands.at(-1)).toEqual({ do: 'press', keys: 'Meta+S' })
+
+    // The take keeps the step spans and the script, as a page's does.
+    const meta = JSON.parse(await readFile(join(out, 'meta.json'), 'utf8'))
+    expect(meta.captureSurface).toBe('app')
+    expect(meta.steps).toHaveLength(3)
+    expect(meta.steps[0]).toMatchObject({
+      step: 0,
+      id: 'save',
+      do: 'click',
+      selector: "button[id='save']",
+      rect: BUTTON,
+    })
+    expect(meta.steps[1].tStart).toBeGreaterThanOrEqual(meta.steps[0].tEnd)
+    const kept = JSON.parse(await readFile(join(out, 'actions.json'), 'utf8'))
+    expect(kept.app).toBe('TextEdit')
+    expect(kept.steps).toHaveLength(3)
+    expect(existsSync(join(out, 'doc.json'))).toBe(true)
+
+    expect(done).toMatchObject({ steps: 3, skipped: [], disabled: [] })
+    expect(done!.strictFailed).toBeUndefined()
+  })
+
+  it('a script that names its app needs no --app', async () => {
+    const file = await script('s2', {
+      app: 'TextEdit',
+      steps: [{ do: 'wait', ms: 10 }],
+    })
+    expect(await scriptNamesApp(file)).toBe(true)
+    expect(await scriptNamesApp(await script('s2b', SAVE_AND_TYPE))).toBe(false)
+    expect(await scriptNamesApp(join(dir, 'missing.json'))).toBe(false)
+    const { code, requests } = await run([file, '--out', join(dir, 's2')])
+    expect(code).toBe(0)
+    expect(requests[0]).toMatchObject({ app: 'TextEdit', drive: true })
+    expect(requests[0]!.size).toBeUndefined()
+  })
+
+  it('--strict fails a take with a step that did not hold, and says which', async () => {
+    const file = await script('s3', {
+      steps: [
+        { do: 'click', selector: "button[id='save']", ms: 0 },
+        { do: 'expect', text: 'Saved', timeout: 0.2, id: 'saved' },
+      ],
+    })
+    const args = [
+      '--app',
+      'TextEdit',
+      '--actions',
+      file,
+      '--out',
+      join(dir, 's3'),
+    ]
+    const loose = await run(args)
+    expect(loose.code).toBe(0)
+    expect(loose.text).toMatch(
+      /SKIPPED: #1 saved expect: text "Saved" did not appear within 0.2 s/,
+    )
+
+    const strict = await run([...args, '--strict', '--json'])
+    expect(strict.code).toBe(2)
+    expect(strict.done).toMatchObject({ strictFailed: true })
+    expect((strict.done!.skipped as unknown[]).length).toBe(1)
+  })
+
+  it('refuses, before anything is recorded, what a desktop take cannot run', async () => {
+    const page = await script('r1', {
+      url: 'https://example.com',
+      steps: [{ do: 'await', until: { selector: 'x' } }],
+    })
+    await expect(
+      run(['--app', 'TextEdit', '--actions', page, '--out', join(dir, 'r1')]),
+    ).rejects.toThrow(
+      /not a script a desktop take can run[\s\S]*url is not part[\s\S]*await/,
+    )
+
+    const ok = await script('r2', SAVE_AND_TYPE)
+    const base = [
+      '--app',
+      'TextEdit',
+      '--actions',
+      ok,
+      '--out',
+      join(dir, 'r2'),
+    ]
+    await expect(run([...base, '--dry-run'])).rejects.toThrow(/no rehearsal/)
+    await expect(run([...base, '--seconds', '5'])).rejects.toThrow(
+      /a scripted take ends with its last step/,
+    )
+    await expect(run(base, { accessibility: false })).rejects.toThrow(
+      /Accessibility is not granted[\s\S]*A script finds and presses/,
+    )
+
+    const guarded = await script('r3', {
+      steps: [
+        {
+          do: 'click',
+          selector: "button[id='save']",
+          id: 'buy',
+          guard: 'spend',
+        },
+      ],
+    })
+    const g = [
+      '--app',
+      'TextEdit',
+      '--actions',
+      guarded,
+      '--out',
+      join(dir, 'r3'),
+    ]
+    await expect(run(g)).rejects.toThrow(/--confirm buy/)
+    const confirmed = await run([...g, '--confirm', 'buy', '--json'])
+    expect(confirmed.code).toBe(0)
+    expect(confirmed.done!.confirmed).toEqual(['buy'])
   })
 })

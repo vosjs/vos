@@ -363,7 +363,7 @@ export function desktopLine(d: NonNullable<DoctorFacts['desktop']>): string {
   return `vos-driver ${d.version}; Screen Recording ✓; Accessibility ${
     d.accessibility
       ? '✓'
-      : 'not granted (a press then carries no bounds, so its zoom cannot fit the control)'
+      : 'not granted (a scripted take needs it; a performed one records, and a press carries no bounds, so its zoom cannot fit the control)'
   }`
 }
 
