@@ -38,6 +38,8 @@ export interface DigestTakeFacts {
   producer: string
   pageUrl: string | null
   pageTitle: string | null
+  /** The recorded application's name, on an `'app'` take. */
+  app: string | null
   hasMic: boolean
   hasSystemAudio: boolean
   hasCursor: boolean
@@ -155,6 +157,7 @@ export function buildDigest(input: BuildDigestInput): Digest {
       producer: meta.producer ?? 'extension',
       pageUrl: meta.pageUrl ?? null,
       pageTitle: meta.pageTitle ?? null,
+      app: meta.app?.name ?? null,
       hasMic: Boolean(doc.source.micKey) || meta.hasMic === true,
       hasSystemAudio: meta.hasAudio === true,
       hasCursor: doc.source.cursor.length > 0,

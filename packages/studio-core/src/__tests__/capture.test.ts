@@ -36,6 +36,36 @@ describe('normalizeCaptureSpace', () => {
     expect(out.coverage).toBe(1)
   })
 
+  it('is identity for an app window: the cursor is already in the frame', () => {
+    const cursor: CursorTrack = [
+      {
+        t: 0,
+        x: 330,
+        y: 78,
+        type: 'down',
+        rect: { x: 0, y: 32, w: 656, h: 384 },
+      },
+    ]
+    // A Retina window: points for the cursor, pixels for the video, and none
+    // of a browser capture's geometry.
+    const meta: RecordingMeta = {
+      ...baseMeta,
+      captureSurface: 'app',
+      producer: 'desktop',
+      dpr: 2,
+      width: 656,
+      height: 422,
+      captureWidth: 1312,
+      captureHeight: 844,
+      app: { name: 'TextEdit', id: 'com.apple.TextEdit' },
+    }
+    const out = normalizeCaptureSpace(cursor, meta)
+    expect(out.cursor).toBe(cursor)
+    expect(out.meta).toBe(meta)
+    expect(out.coverage).toBe(1)
+    expect(out.crop).toBeUndefined()
+  })
+
   it('drops (coverage 0) a non-tab capture whose geometry is unusable', () => {
     // Missing anchor rect: the raw viewport-space track must NEVER pass through
     // as frame space — the cursor would render at unrelated positions.

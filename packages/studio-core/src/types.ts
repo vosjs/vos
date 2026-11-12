@@ -156,12 +156,23 @@ export interface RecordingMeta {
   pageUrl?: string
   pageTitle?: string
   /**
-   * What the frame contains. Absent = 'tab' (back-compat). Non-tab surfaces use
-   * CursorEvent.sx/sy + the geometry rects below to map cursor → capture px
-   * (see normalizeCaptureSpace); tab-only studio features (browser-bar mock,
-   * letterbox notice) are gated off for them.
+   * The application an `'app'` take recorded, where a page take says
+   * `pageUrl`: its name as the OS shows it, and its bundle id or executable
+   * name. Never a window title, which carries document and account names.
    */
-  captureSurface?: 'tab' | 'window' | 'monitor'
+  app?: { name: string; id?: string }
+  /**
+   * What the frame contains. Absent = 'tab' (back-compat). `'window'` and
+   * `'monitor'` are a BROWSER's display captures: they use CursorEvent.sx/sy +
+   * the geometry rects below to map cursor → capture px (see
+   * normalizeCaptureSpace), and tab-only studio features (browser-bar mock,
+   * letterbox notice) are gated off for them. `'app'` is one application's
+   * window recorded by a desktop producer: the frame IS the window, the cursor
+   * is already in the frame's own space (`width × height` are the window's
+   * points, `captureWidth × captureHeight` its pixels), and the footage
+   * carries the window's own title bar, so no bar is drawn over it.
+   */
+  captureSurface?: 'tab' | 'window' | 'monitor' | 'app'
   /**
    * Target-tab browser-window bounds at record start, screen-coord CSS px
    * (window.screenX/Y + outerWidth/Height). Anchor for 'window' captures.
@@ -212,10 +223,12 @@ export interface RecordingMeta {
    * track from automation (exact coords, fresh rects, coverage 1 by
    * construction) and encode WebM; `ingest` is someone else's recording
    * brought in as a take (`vos ingest`, or a file dropped on the studio),
-   * whose cursor track, if any, came from a trace beside it; absent means
+   * whose cursor track, if any, came from a trace beside it; `desktop` is a
+   * capture helper recording an application's window, its cursor either
+   * sampled from the real pointer or synthesized from a script; absent means
    * the extension.
    */
-  producer?: 'extension' | 'cli' | 'ingest'
+  producer?: 'extension' | 'cli' | 'ingest' | 'desktop'
   /**
    * The step timeline: when each actions.json step ran, in SOURCE
    * seconds. This is what makes a cut re-anchorable across re-records — a
