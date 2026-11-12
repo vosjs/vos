@@ -324,6 +324,19 @@ export interface DoctorFacts {
     status: number | null
     error?: string
   }
+  /**
+   * Recording a desktop app (`vos record --app`): whether the helper runs
+   * here, and what macOS lets it do. The grants are the app's this was run
+   * from. Absent on a build before the verb.
+   */
+  desktop?:
+    | {
+        available: true
+        version: string
+        screenRecording: boolean
+        accessibility: boolean
+      }
+    | { available: false; reason: string }
 }
 
 export interface DoctorReport {
@@ -336,6 +349,22 @@ export interface DoctorReport {
 
 function major(version: string): number {
   return parseInt(version.split('.')[0] ?? '0', 10)
+}
+
+/**
+ * The doctor's desktop line: whether `vos record --app` can run. Recording a
+ * desktop app is an extra, so nothing here fails the doctor: a machine that
+ * records pages is ready.
+ */
+export function desktopLine(d: NonNullable<DoctorFacts['desktop']>): string {
+  if (!d.available) return `not available (${d.reason})`
+  if (!d.screenRecording)
+    return `vos-driver ${d.version}; Screen Recording not granted ✗  switch it on for the app this runs from: System Settings, Privacy & Security, Screen & System Audio Recording`
+  return `vos-driver ${d.version}; Screen Recording ✓; Accessibility ${
+    d.accessibility
+      ? '✓'
+      : 'not granted (a press then carries no bounds, so its zoom cannot fit the control)'
+  }`
 }
 
 /** The report in words; the JSON is `facts` plus `ok` and `next_step`. */
@@ -385,6 +414,7 @@ export function doctorReport(facts: DoctorFacts): DoctorReport {
     lines.push('skills      none ✗  run: npx vos setup')
   }
   lines.push(`credential  ${credentialLine(facts)}`)
+  if (facts.desktop) lines.push(`desktop     ${desktopLine(facts.desktop)}`)
   if (facts.devServer) {
     const d = facts.devServer
     lines.push(

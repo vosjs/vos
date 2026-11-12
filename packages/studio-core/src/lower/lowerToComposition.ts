@@ -168,6 +168,8 @@ import type {
   ObjectClip,
   OverlayClip,
   ProjectDoc,
+  RecordingMeta,
+  Rect,
   TiltSpan,
   ZoomSpan,
 } from '../types'
@@ -2344,6 +2346,11 @@ const ON_FRAME = `(ctx, content, dt) => {
     cardX = dx; cardY = dy - barH; cardW = dw; cardH = dh + barH
   }
   var radius = (cfr.radius || 0) * s2
+  // Footage of a window is round at its own corners and opaque outside them.
+  // The card is at least as round, or those corners show as notches. Under
+  // cover the card crops the footage and its corners are not the card's.
+  var ftR = (actM ? actM.footageRadius : d.footageRadius) || 0
+  if (ftR > 0 && !fitCover) radius = Math.max(radius, ftR * dw)
   var shadow = cfr.shadow || 0
   // The shadow's colour (a #rrggbb; the strengths are its alpha) and the
   // optional tight CONTACT layer that makes a light card sit on a light
@@ -3460,6 +3467,7 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
     })),
     cursorStyle: doc.cursor,
     cursorSpace: { w: doc.source.meta.width, h: doc.source.meta.height },
+    ...footageRadiusData(doc.source.meta, doc.source.crop),
     // The other media (concat): each with its element's source, its crop
     // and its own cursor in its own capture space; absent = one media.
     ...(doc.media && doc.media.length
@@ -3488,6 +3496,7 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
                 y: round(p.y),
               })),
               cursorSpace: { w: m.meta.width, h: m.meta.height },
+              ...footageRadiusData(m.meta, m.crop),
               // The card this media wears (its own placement, bar, corner,
               // shadow, border, fit and focus over the take's), resolved
               // here so ON_FRAME swaps one object and reads no document.
@@ -3863,6 +3872,22 @@ function pinsDataOf(
 
 function round4(v: number): number {
   return Math.round(v * 100000) / 100000
+}
+
+/**
+ * How round the footage's own corners are, as a fraction of its WIDTH (what
+ * ON_FRAME multiplies by the drawn width): `meta.cornerRadius` over the
+ * cursor space it is measured in. Nothing when the footage is square, or when
+ * a crop has taken its corners away. The key is absent then, so a document
+ * without it lowers to the data it always did.
+ */
+function footageRadiusData(
+  meta: RecordingMeta,
+  crop: Rect | null | undefined,
+): { footageRadius?: number } {
+  const r = meta.cornerRadius
+  if (!r || !(r > 0) || crop || !(meta.width > 0)) return {}
+  return { footageRadius: round4(r / meta.width) }
 }
 
 /**

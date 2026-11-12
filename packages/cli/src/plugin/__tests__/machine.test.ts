@@ -172,6 +172,78 @@ describe('installedSkills lists every <name>/SKILL.md', () => {
   })
 })
 
+describe('the doctor says whether a desktop app can be recorded', () => {
+  const base: DoctorFacts = {
+    node: '22.4.0',
+    browser: { kind: 'chrome', path: '/c', line: 'Chrome (system)' },
+    ffmpeg: null,
+    skills: [{ agent: 'claude', scope: 'project', names: ['product-video'] }],
+    credential: false,
+  }
+  const line = (desktop: DoctorFacts['desktop']) =>
+    doctorReport({ ...base, desktop }).lines.find((l) =>
+      l.startsWith('desktop'),
+    )
+
+  it('both grants: ready', () => {
+    expect(
+      line({
+        available: true,
+        version: '0.1.2',
+        screenRecording: true,
+        accessibility: true,
+      }),
+    ).toBe('desktop     vos-driver 0.1.2; Screen Recording ✓; Accessibility ✓')
+  })
+  it('no Accessibility: it records, and says what a press then lacks', () => {
+    const l = line({
+      available: true,
+      version: '0.1.2',
+      screenRecording: true,
+      accessibility: false,
+    })
+    expect(l).toContain('Screen Recording ✓')
+    expect(l).toContain('Accessibility not granted')
+    expect(l).toContain('zoom cannot fit the control')
+  })
+  it('no Screen Recording: whose grant it is, and where to switch it on', () => {
+    const l = line({
+      available: true,
+      version: '0.1.2',
+      screenRecording: false,
+      accessibility: false,
+    })
+    expect(l).toContain('Screen Recording not granted ✗')
+    expect(l).toContain('the app this runs from')
+    expect(l).toContain('Privacy & Security')
+  })
+  it("not a Mac: why, in the driver's words", () => {
+    expect(
+      line({
+        available: false,
+        reason: 'Desktop takes are recorded on macOS. This is linux',
+      }),
+    ).toBe(
+      'desktop     not available (Desktop takes are recorded on macOS. This is linux)',
+    )
+  })
+  it('never fails the doctor: a machine that records pages is ready', () => {
+    const rep = doctorReport({
+      ...base,
+      desktop: {
+        available: true,
+        version: '0.1.2',
+        screenRecording: false,
+        accessibility: false,
+      },
+    })
+    expect(rep.ok).toBe(true)
+  })
+  it('a build before the verb says nothing', () => {
+    expect(line(undefined)).toBeUndefined()
+  })
+})
+
 describe('doctorReport says what is ready and what to do next', () => {
   const browser: BrowserProbe = {
     kind: 'chrome',

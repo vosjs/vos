@@ -35,6 +35,9 @@ importers:
       '@vosjs/core':
         specifier: workspace:^
         version: link:../core
+      '@vosjs/driver':
+        specifier: ^0.1.2
+        version: 0.1.2
       '@vosjs/editor':
         specifier: workspace:^
         version: link:../editor
@@ -857,6 +860,17 @@ packages:
 
   '@vitest/utils@3.2.6':
     resolution: {integrity: sha512-lI23nIs4bnT3T8NIoh+vFaz5s2/DdP0Jgt2jxwgWljvwn82cLJtyi/If+fjFyoLMGIOz0U/fKvWE0d4jsNQEfg==}
+
+  '@vosjs/driver-darwin@0.1.2':
+    resolution: {integrity: sha512-SoqRlYxS7IoGBVJWgLaVD1YaRehUSgcMq9+N15X7xjiqnoFll0gMhUhOsajP9IaENDZQkQXN74g/jVl0Ka2p+Q==}
+    cpu: [arm64, x64]
+    os: [darwin]
+    hasBin: true
+
+  '@vosjs/driver@0.1.2':
+    resolution: {integrity: sha512-XB43x8cb0VGjBz1+IPudOArzJPDlSzU/G7Hfub/pfcjEvZjVzi1YWmTqm9y6lIq9PTvuPhAZiPQCik31LRtihA==}
+    engines: {node: '>=18'}
+    hasBin: true
 
   '@webgpu/types@0.1.70':
     resolution: {integrity: sha512-LFiNHHKMvmAEvwVew3JLJmTdShhbdwRFSImUshGhE2mGE8ybQzIo63l5uRp+YKnNx+8Qno8Kf6gN+DKMreIJCA==}
@@ -2392,6 +2406,13 @@ snapshots:
       '@vitest/pretty-format': 3.2.6
       loupe: 3.2.1
       tinyrainbow: 2.0.0
+
+  '@vosjs/driver-darwin@0.1.2':
+    optional: true
+
+  '@vosjs/driver@0.1.2':
+    optionalDependencies:
+      '@vosjs/driver-darwin': 0.1.2
 
   '@webgpu/types@0.1.70': {}
 
