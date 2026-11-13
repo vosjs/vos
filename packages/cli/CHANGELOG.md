@@ -1,5 +1,14 @@
 # @vosjs/cli
 
+## 0.92.1
+
+### Patch Changes
+
+- 9e2a585: The bundled skills are 0.30.1: `product-video`'s desktop door says a desktop script always names its `"app"` (it is what tells `vos validate` the script is a desktop one), that an `expect`'s timeout is seconds, that the push carries a title, a label and a note, and that pace is the cut's, never a second take's. `vos setup` installs skills that know this.
+- 9492605: `vos validate actions.json` knows a desktop app's script. One that names its `app` is held to what a desktop take can run (a page's fields and steps are named, as `vos record --app` names them), and `--app` or `--pid` says so for a script that does not name its app. A page's `type` with `focus: false` and no selector now says how a desktop script differs, where it used to say only "type needs a selector": a cold agent's valid desktop script was refused with those words and no way to tell why.
+- Updated dependencies [9492605]
+  - @vosjs/render-core@0.14.1
+
 ## 0.92.0
 
 ### Minor Changes
