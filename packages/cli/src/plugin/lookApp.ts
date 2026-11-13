@@ -21,6 +21,12 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { desktopProblems, runDesktopSteps } from '@vosjs/render-core/record'
 import { UsageError, parseArgs, strFlag } from './args'
+import {
+  desktopSetup,
+  desktopStageProblem,
+  desktopTeardown,
+  driverSelectorProblem,
+} from './desktopStage'
 import { EXIT_OK, EXIT_USAGE, createReporter } from './output'
 import {
   ACCESSIBILITY_FOR_SCRIPT,
@@ -31,8 +37,13 @@ import {
   targetWords,
 } from './recordApp'
 import { loadActions, takeConfirm } from './run'
+import { teardownLine } from './setup'
 import type { DesktopDriver } from './recordApp'
-import type { ActionsFile, DesktopRunResult } from '@vosjs/render-core/record'
+import type {
+  ActionsFile,
+  DesktopRunResult,
+  TeardownReport,
+} from '@vosjs/render-core/record'
 import type { TreeElement } from '@vosjs/driver'
 
 const USAGE =
@@ -136,11 +147,15 @@ export async function cmdLookApp(
         '--actions and --until go together: the script, and the id of the step to stop after',
       )
     actions = await loadActions(resolve(actionsArg), { desktop: true })
-    const problems = desktopProblems(actions)
+    const selectorProblem = await driverSelectorProblem(deps.driver)
+    const problems = desktopProblems(actions, { selectorProblem })
     if (problems.length)
       throw new UsageError(
         `not a script a desktop take can run:\n  ${problems.join('\n  ')}`,
       )
+    // A look records nothing, so a mask is not needed to walk the script.
+    const stage = desktopStageProblem(actions, true)
+    if (stage) throw new UsageError(stage)
     if (!actions.steps.some((s) => s.id === untilId))
       throw new UsageError(
         `--until ${untilId}: no step of the script has that id (a step is named by its "id")`,
@@ -168,7 +183,13 @@ export async function cmdLookApp(
   // of one screen at the same moment fail each other.
   let walked: DesktopRunResult | undefined
   let window: number | undefined
+  let teardown: TeardownReport | undefined
   if (actions && untilId) {
+    try {
+      await desktopSetup(driver, target, actions, r.log)
+    } catch (error) {
+      throw error instanceof UsageError ? error : driverFailure(error)
+    }
     const scratch = await mkdtemp(join(tmpdir(), 'vos-look-app-'))
     try {
       const take = driver.record({
@@ -216,6 +237,11 @@ export async function cmdLookApp(
     outline = await driver.tree({ window: shot.window })
   } catch (error) {
     throw driverFailure(error)
+  } finally {
+    // The walk pressed the real app: what it left is undone once the look
+    // is taken, and after a walk that stopped early too.
+    if (actions && untilId)
+      teardown = await desktopTeardown(driver, target, actions, r.log)
   }
 
   const all = outline.elements.map(appControl)
@@ -246,6 +272,7 @@ export async function cmdLookApp(
             reached: walked.reached === true && !walked.stopped,
             steps: walked.steps.length,
             ...(walked.stopped ? { stopped: walked.stopped } : {}),
+            ...(teardown ? { teardown } : {}),
           }
         : {}),
     },
@@ -255,6 +282,7 @@ export async function cmdLookApp(
         ? [`NOT REACHED: ${missed}. This is the window as the walk left it.`]
         : []),
       ...(!outline.built ? [unbuiltLine(outline.kind, outline.app)] : []),
+      ...(teardown ? [teardownLine(teardown)] : []),
       controls.length
         ? `${controls.length} control${controls.length === 1 ? '' : 's'}${more > 0 ? `, ${more} past the listing's limit` : ''}:`
         : 'The window offers nothing a script can name. Its app may not describe itself to accessibility; a step can still act on a point (x and y in the window’s points).',

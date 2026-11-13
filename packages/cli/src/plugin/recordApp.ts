@@ -28,10 +28,17 @@
  * `@vosjs/driver`'s.
  */
 import { existsSync } from 'node:fs'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readFile, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { desktopProblems, runDesktopSteps } from '@vosjs/render-core/record'
 import { UsageError, hasFlag, numFlag, parseArgs, strFlag } from './args'
+import {
+  desktopSetup,
+  desktopStageProblem,
+  desktopTeardown,
+  driverMasks,
+  driverSelectorProblem,
+} from './desktopStage'
 import { EXIT_ERROR, EXIT_OK, EXIT_USAGE, createReporter } from './output'
 import { planTake } from './plan'
 import {
@@ -41,11 +48,13 @@ import {
   takeBackdrop,
   takeConfirm,
 } from './run'
+import { teardownLine } from './setup'
 import { prepareReRecord, readJson, takePaths, writeJson } from './take'
 import type {
   ActionsFile,
   DesktopRunResult,
   SkippedStep,
+  TeardownReport,
 } from '@vosjs/render-core/record'
 import type { CursorEvent, RecordingMeta } from '@vosjs/studio-core'
 import type { DriverWindow, RecordRequest, StoppedEvent } from '@vosjs/driver'
@@ -63,7 +72,13 @@ const USAGE =
 export type DesktopDriver = Pick<
   typeof import('@vosjs/driver'),
   'check' | 'windows' | 'record' | 'tree' | 'still'
->
+> & {
+  /**
+   * Why a selector is not one, or null (`@vosjs/driver` 0.4.0 and later).
+   * A driver that has it also covers a script's masks.
+   */
+  selectorProblem?: (selector: string) => string | null
+}
 
 /** True when the arguments ask for a desktop take and not a page's. */
 export function isDesktopRecord(argv: string[]): boolean {
@@ -193,11 +208,14 @@ export async function cmdRecordApp(
   let confirm: string[] = []
   if (actionsPath && flags.windows !== true) {
     actions = await loadActions(resolve(actionsPath), { desktop: true })
-    const problems = desktopProblems(actions)
+    const selectorProblem = await driverSelectorProblem(deps.driver)
+    const problems = desktopProblems(actions, { selectorProblem })
     if (problems.length)
       throw new UsageError(
         `not a script a desktop take can run:\n  ${problems.join('\n  ')}`,
       )
+    const stage = desktopStageProblem(actions, selectorProblem !== undefined)
+    if (stage) throw new UsageError(stage)
     if (flags['dry-run'] === true)
       throw new UsageError(
         'a desktop script has no rehearsal: a dry run would press the app’s real controls. vos look --app lists what the script can name',
@@ -268,12 +286,24 @@ export async function cmdRecordApp(
     r.log(`note: ${notes[0]}`)
   }
 
-  const request: RecordRequest = {
+  // The app where the take starts: the script's own setup, off camera.
+  if (actions?.setup?.length) {
+    r.event({ event: 'phase', phase: 'setup' })
+    try {
+      await desktopSetup(driver, target, actions, r.log)
+    } catch (error) {
+      throw error instanceof UsageError ? error : driverFailure(error)
+    }
+  }
+
+  const masks = driverMasks(actions)
+  const request: RecordRequest & { mask?: { selector: string }[] } = {
     ...target,
     out: outDir,
     maxSeconds: seconds !== undefined ? Math.min(seconds, cap) : cap,
     pointer: true,
     frames: granted.accessibility,
+    ...(masks ? { mask: masks } : {}),
     ...(actions
       ? {
           drive: true,
@@ -301,8 +331,17 @@ export async function cmdRecordApp(
   process.on('SIGTERM', end)
   let stopped: StoppedEvent
   let run: DesktopRunResult | undefined
+  let teardown: TeardownReport | undefined
   try {
     const ready = await take.ready
+    // A helper that was not told of the masks would record what they name.
+    if (masks && !Array.isArray((ready as { masks?: number[] }).masks)) {
+      await take.stop().catch(() => {})
+      await rm(outDir, { recursive: true, force: true })
+      throw new Error(
+        'the helper that recorded this take does not cover masks, so the take was deleted. Install @vosjs/driver 0.4.0 or later.',
+      )
+    }
     r.event({
       event: 'recording',
       app: ready.app,
@@ -331,6 +370,12 @@ export async function cmdRecordApp(
         if (!interrupted) throw error
       }
       stopped = await take.stop()
+      // What the take left in the app, undone off camera: after a take that
+      // stopped early too, which is when a leftover is most likely.
+      if (actions.teardown?.length) {
+        r.event({ event: 'phase', phase: 'teardown' })
+        teardown = await desktopTeardown(driver, target, actions, r.log)
+      }
     } else {
       stopped = await take.done
     }
@@ -355,7 +400,26 @@ export async function cmdRecordApp(
   if (actions) {
     if (run) {
       const meta = await readJson<RecordingMeta>(paths.meta)
-      await writeJson(paths.meta, { ...meta, steps: run.steps }, true)
+      await writeJson(
+        paths.meta,
+        {
+          ...meta,
+          steps: run.steps,
+          // The helper's own report, in the shape a page take's masks have.
+          ...(masks
+            ? {
+                masks: masks.map((m, i) => ({
+                  selector: m.selector,
+                  as: 'blur' as const,
+                  hits:
+                    (stopped as { masks?: { matched: number }[] }).masks?.[i]
+                      ?.matched ?? 0,
+                })),
+              }
+            : {}),
+        },
+        true,
+      )
     }
     await writeJson(
       paths.actions,
@@ -380,6 +444,13 @@ export async function cmdRecordApp(
     )
   if (actions && !run)
     notes.push('the take was interrupted before the script finished')
+  const covered = (stopped as { masks?: { matched: number }[] }).masks ?? []
+  masks?.forEach((m, i) => {
+    if (!covered[i]?.matched)
+      notes.push(
+        `the mask ${m.selector} matched nothing during the take, so whatever it was for may be showing`,
+      )
+  })
   for (const n of notes.slice(said)) r.log(`note: ${n}`)
 
   const strict = flags.strict === true && run ? strictReason(run) : null
@@ -391,6 +462,8 @@ export async function cmdRecordApp(
         confirmed: run.confirmed,
         pace: run.pace,
         capped: run.capped,
+        ...(masks ? { masks: covered } : {}),
+        ...(teardown ? { teardown } : {}),
         ...(run.stopped ? { ok: false, stopped: run.stopped } : {}),
         ...(strict ? { strictFailed: true } : {}),
       }
@@ -409,6 +482,12 @@ export async function cmdRecordApp(
           ? [`pressed, as --confirm said: ${run.confirmed.join(', ')}`]
           : []),
         ...(run.stopped ? [`STOPPED: ${run.stopped.reason}`] : []),
+        ...(masks
+          ? [
+              `covered before encoding: ${masks.map((m, i) => `${m.selector} (${covered[i]?.matched ?? 0})`).join(', ')}`,
+            ]
+          : []),
+        ...(teardown ? [teardownLine(teardown)] : []),
       ]
         .map((l) => `\n  ${l}`)
         .join('')

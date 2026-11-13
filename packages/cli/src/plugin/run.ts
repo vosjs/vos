@@ -169,6 +169,7 @@ import { cmdActions } from './agentBrowser'
 import { cmdIngest } from './ingest'
 import { cmdRecordApp, isDesktopRecord, scriptNamesApp } from './recordApp'
 import { desktopProblems } from '@vosjs/render-core/record'
+import { driverSelectorProblem } from './desktopStage'
 import { cmdCheckVideo } from './checkVideo'
 import { cmdJoin } from './join'
 import { cmdTakeInfo } from './timeline'
@@ -2684,7 +2685,9 @@ async function cmdValidate(argv: string[]): Promise<number> {
     const actions = await loadActions(target, { desktop: said })
     const desktop = said || typeof actions.app === 'string'
     if (desktop) {
-      const problems = desktopProblems(actions)
+      const problems = desktopProblems(actions, {
+        selectorProblem: await driverSelectorProblem(),
+      })
       if (problems.length)
         throw new UsageError(
           `not a script a desktop take can run:\n  ${problems.join('\n  ')}`,

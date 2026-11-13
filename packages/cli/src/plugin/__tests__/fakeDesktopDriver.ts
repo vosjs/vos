@@ -40,7 +40,24 @@ export interface FakeOptions {
   focus?: { role: string; name?: string }
   /** Names for the outline's first element, to stand for a tree that says more than the picture. */
   firstName?: string
+  /**
+   * A driver from before 0.4.0: it has no selector check, and it does not
+   * know a record request's `mask` (it records what the mask names).
+   */
+  old?: boolean
 }
+
+/** The stand-in's selector check: it knows the one mistake the tests make. */
+const selectorProblem = (selector: string) =>
+  /\^=/.test(selector)
+    ? `The selector "${selector}" is not one: = or *= is expected (at character 11).`
+    : null
+
+/** How many elements a mask covers in the stand-in app. */
+const covered = (request: RecordRequest) =>
+  ((request as { mask?: { selector: string }[] }).mask ?? []).map((m) =>
+    ELEMENTS[m.selector] ? 1 : 0,
+  )
 
 /** What the stand-in app has that a script can name. */
 const ELEMENTS: Record<string, typeof FIELD> = {
@@ -84,6 +101,7 @@ export function fakeDriver(o: FakeOptions = {}) {
     }
   }
   const driver: DesktopDriver = {
+    ...(o.old ? {} : { selectorProblem }),
     tree: async () => ({
       app: 'TextEdit',
       kind: o.kind ?? ('native' as const),
@@ -220,6 +238,16 @@ export function fakeDriver(o: FakeOptions = {}) {
           sourceUpdates: 0,
           filterRefreshes: 0,
           heldFrames: o.heldFrames ?? 0,
+          ...(o.old
+            ? {}
+            : {
+                masks: covered(request).map((matched, i) => ({
+                  selector: (request as { mask?: { selector: string }[] })
+                    .mask![i]!.selector,
+                  matched,
+                })),
+                maskedFrames: covered(request).length ? 386 : 0,
+              }),
           files: {
             recording: join(request.out, 'recording.mp4'),
             cursor: join(request.out, 'cursor.json'),
@@ -243,6 +271,9 @@ export function fakeDriver(o: FakeOptions = {}) {
           filter: 'others-out',
           accessibility: true,
           cornerRadius: 18.2,
+          ...(!o.old && covered(request).length
+            ? { masks: covered(request) }
+            : {}),
         } as never),
         done,
         stop: () => done,

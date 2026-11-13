@@ -15,9 +15,15 @@
  *   button[name='Delete']:nth(1)                   *[id='sidebar']
  *
  * What a desktop script cannot hold is refused before anything is recorded
- * (`desktopProblems`): a page's fields (`url`, `mask`, `setup`, `teardown`,
- * `ready`, `peers`), and the steps that read a page (`paste`, `download`,
- * `await`, a `js` check, a drawn `path`).
+ * (`desktopProblems`): a page's fields (`url`, `ready`, `peers`), the steps
+ * that read a page (`paste`, `download`, `await`, a `js` check, a drawn
+ * `path`), and a selector that is not one in this dialect.
+ *
+ * `mask` covers what it names before a frame is encoded (the driver's
+ * work; `as: "text"` is a page's and is refused). `setup` and `teardown`
+ * are the page's verbs pressed through a session that is not the take
+ * (`runDesktopSetup`): the script's own way to put the app where the take
+ * starts and back where it was, since no rehearsal here is thrown away.
  */
 import type { Rect, StepSpan } from '@vosjs/studio-core'
 import type { ActionStep, ActionsFile } from './actions'
@@ -41,6 +47,8 @@ import {
   settleMs,
 } from './pace'
 import type { DisabledClick, SkippedStep, StoppedTake } from './recorder'
+import type { SetupResult, SetupStep, StepPhase } from './setup'
+import { IF_LOOK_MS, TEARDOWN_BOUND_MS, resolveSetupText } from './setup'
 
 /** What a command acts on: an element by selector, or a point in the window's own points. */
 export type DesktopTarget = { selector: string } | { x: number; y: number }
@@ -147,20 +155,36 @@ const FATAL = new Set([
 
 const BROWSER_FIELDS: [keyof ActionsFile, string][] = [
   ['url', 'a desktop script names an app, not a url'],
-  ['mask', 'masks cover a page’s elements'],
-  ['setup', 'setup runs against a page'],
-  ['teardown', 'teardown runs against a page'],
   ['ready', 'ready is about a page’s first load'],
   ['peers', 'peers are other browser pages'],
 ]
+
+export interface DesktopProblemOpts {
+  /**
+   * Why a selector is not one in the desktop dialect, or null
+   * (`@vosjs/driver`'s `selectorProblem`). The host hands it in; without it
+   * a selector is first read by the step that uses it, after the steps
+   * before it have pressed the real app.
+   */
+  selectorProblem?: (selector: string) => string | null
+}
 
 /**
  * What a script holds that a desktop take cannot do, in the words of
  * `validateActions`: an empty list when it can run. Run `validateActions`
  * first; this reads a script that is already well formed.
  */
-export function desktopProblems(actions: ActionsFile): string[] {
+export function desktopProblems(
+  actions: ActionsFile,
+  opts: DesktopProblemOpts = {},
+): string[] {
   const out: string[] = []
+  /** A selector the driver would refuse, said where the script names it. */
+  const named = (at: string, selector: unknown) => {
+    if (typeof selector !== 'string' || !opts.selectorProblem) return
+    const why = opts.selectorProblem(selector)
+    if (why) out.push(`${at}: ${why}`)
+  }
   for (const [field, why] of BROWSER_FIELDS)
     if (actions[field] !== undefined)
       out.push(`${field} is not part of a desktop script: ${why}`)
@@ -168,9 +192,26 @@ export function desktopProblems(actions: ActionsFile): string[] {
     out.push(
       'settle reads a page’s DOM; on a desktop take give the step its ms',
     )
+  actions.mask?.forEach((m, i) => {
+    if (m.as === 'text')
+      out.push(
+        `mask[${i}]: as "text" rewrites a page’s words; a desktop take covers what a mask names and puts nothing in its place`,
+      )
+    named(`mask[${i}]`, m.selector)
+  })
+  for (const phase of ['setup', 'teardown'] as const)
+    actions[phase]?.forEach((step, i) => {
+      const at = `${phase}[${i}]`
+      if (step.do === 'goto')
+        out.push(`${at}: goto opens a page; a desktop script has none`)
+      if ('selector' in step) named(at, step.selector)
+    })
   actions.steps.forEach((step, i) => {
     const at = `steps[${i}]`
     const no = (what: string) => out.push(`${at}: ${what}`)
+    const fields = step as { selector?: unknown; gone?: unknown }
+    named(at, fields.selector)
+    named(`${at} gone`, fields.gone)
     if (step.settle === true)
       no('settle reads a page’s DOM; give the step its ms')
     switch (step.do) {
@@ -226,6 +267,122 @@ function desktopModifiers(
 /** Words on screen, as a selector: any element whose name contains them. */
 export function textSelector(text: string): string {
   return `*[name*='${text.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}']`
+}
+
+/**
+ * Runs a desktop script's `setup` or `teardown` against a session that is
+ * not the take: the same verbs as a page's, pressed through the driver. A
+ * step that names something waits for it as a take's step does; an `if`
+ * whose selector is not there ends the list quietly (nothing to undo, or
+ * nothing to set up); the first step that misses ends it as a failure. A
+ * typed value is never logged.
+ */
+export async function runDesktopSetup(
+  session: DesktopSession,
+  steps: readonly SetupStep[],
+  phase: StepPhase,
+  log: (msg: string) => void,
+  opts: {
+    clock?: RecorderClock
+    /** Where a `{ env }` text is read from: the host's environment, handed in. */
+    env?: Record<string, string | undefined>
+    boundMs?: number
+  } = {},
+): Promise<SetupResult> {
+  const clock: RecorderClock = opts.clock ?? {
+    now: Date.now,
+    sleep: realSleep,
+  }
+  const deadline = clock.now() + (opts.boundMs ?? TEARDOWN_BOUND_MS)
+  const lines: string[] = []
+  let ran = 0
+  const say = (line: string) => {
+    lines.push(line)
+    log(`   ${phase}: ${line}`)
+  }
+  /** Whether the selector names something within `ms`, or why it cannot be asked. */
+  const there = async (
+    selector: string,
+    ms: number,
+  ): Promise<{ found: boolean; error?: string }> => {
+    const until = Math.min(clock.now() + ms, deadline)
+    for (;;) {
+      const answer = await session.send({ do: 'locate', selector })
+      if (!answer.ok) return { found: false, error: answer.message }
+      if ((answer.count ?? 0) > 0) return { found: true }
+      if (clock.now() >= until) return { found: false }
+      await clock.sleep(DESKTOP_POLL_MS)
+    }
+  }
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i]!
+    const selector = 'selector' in step ? step.selector : undefined
+    const failed = (error: string): SetupResult => ({
+      ran,
+      lines,
+      failed: {
+        step: i,
+        do: step.do,
+        ...(selector ? { selector } : {}),
+        error,
+      },
+    })
+    if (clock.now() >= deadline)
+      return failed(`the ${phase} ran past its ${Math.round((opts.boundMs ?? TEARDOWN_BOUND_MS) / 1000)}s`)
+    if (step.do === 'wait') {
+      await clock.sleep(step.ms)
+      say(`wait ${step.ms}ms`)
+      ran++
+      continue
+    }
+    if (step.do === 'goto') return failed('goto opens a page; a desktop script has none')
+    if (step.do === 'if') {
+      const { found, error } = await there(step.selector, step.ms ?? IF_LOOK_MS)
+      if (error) return failed(error)
+      if (!found) {
+        say(`if ${step.selector}: not there, the rest is skipped`)
+        return {
+          ran,
+          lines,
+          skipped: { step: i, selector: step.selector, rest: steps.length - i - 1 },
+        }
+      }
+      say(`if ${step.selector}: there`)
+      ran++
+      continue
+    }
+    if (selector) {
+      const { found, error } = await there(selector, DESKTOP_FIND_MS)
+      if (error) return failed(error)
+      if (!found) return failed(`nothing matches ${selector}`)
+    }
+    let answer: DesktopAnswer
+    if (step.do === 'click') {
+      answer = await session.send({ do: 'click', selector: step.selector })
+      if (answer.ok && answer.pressed === false)
+        return failed(`${step.selector} is disabled, so it was not pressed`)
+    } else if (step.do === 'type') {
+      let text: string
+      try {
+        text = resolveSetupText(step.text, opts.env ?? {}, phase).value
+      } catch (e) {
+        return failed(e instanceof Error ? e.message : String(e))
+      }
+      answer = await session.send({
+        do: 'type',
+        selector: step.selector,
+        text,
+        delayMs: 12,
+      })
+    } else {
+      answer = await session.send({ do: 'press', keys: desktopChord(step.key) })
+    }
+    if (!answer.ok) return failed(answer.message)
+    say(step.do === 'press' ? `press ${step.key}` : `${step.do} ${selector}`)
+    ran++
+    if (step.ms) await clock.sleep(step.ms)
+  }
+  return { ran, lines }
 }
 
 export interface DesktopRunOpts {
