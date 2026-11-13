@@ -393,11 +393,15 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
             never publish (visibility stays private; humans publish on vos.so)
   vos folder list
   vos folder create <name> [--parent <folderId|slug>] [--desc <text>]
+  vos folder describe <folderId|slug> <text> | --clear
   vos folder move <vosId|assetId|watch-url>... --to <folderId|slug|none>
             organize the shelf: folders nest (≤5 deep, slugs stable); move
             takes vos ids AND asset ids (recipes, uploads) and files them
-            into the folder (--to none unfiles). Add-only by design:
-            folder rename/delete/reorder stay human gestures on vos.so
+            into the folder (--to none unfiles). describe changes a
+            folder's description, one line of at most 200 characters, and
+            prints the words it replaced: the one thing about a folder a
+            key may change. Add-only otherwise, by design: folder
+            rename/delete/reorder stay human gestures on vos.so
   vos asset rename <assetId> <newname.ext>
             rename one of your assets (recipes included) in place — bytes
             and fileUrl untouched; the extension must keep matching the

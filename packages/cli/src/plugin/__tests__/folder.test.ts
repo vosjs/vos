@@ -4,14 +4,15 @@
  * --parent resolve slugs against the caller's own shelf, move tries the
  * vos route first and falls back to the asset route on its 404, and a
  * reference to a folder that is not on the shelf is a usage error that
- * names what IS there.
+ * names what IS there. describe sends the description and nothing else,
+ * and settles a malformed ask before any request.
  */
 import { createServer } from 'node:http'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { cmdFolder, recipeLine } from '../folder'
+import { cmdFolder, describeAsk, recipeLine } from '../folder'
 import { UsageError } from '../args'
 import type { Server } from 'node:http'
 
@@ -62,6 +63,18 @@ function serve(seen: Seen[]): Promise<string> {
             parentId: 'f-parent',
           },
         })
+      // describe: the words land, the ones they replaced come back; a line
+      // the platform refuses answers 400 in words.
+      if (url === '/api/folders/f-velour' && req.method === 'PATCH') {
+        const said = (JSON.parse(raw) as { description: string | null })
+          .description
+        return said?.includes('refuse me')
+          ? send(400, { error: 'Say what the project is, and try again.' })
+          : send(200, {
+              folder: { id: 'f-velour', description: said },
+              previous: { description: 'Soft sheets.' },
+            })
+      }
       // The move fallback: vos ids answer 200, anything else 404s here
       // and must land on the asset route.
       if (url.startsWith('/api/vos/') && req.method === 'PATCH')
@@ -264,6 +277,71 @@ describe('vos folder', () => {
     } finally {
       rmSync(out, { recursive: true, force: true })
     }
+  })
+
+  it('describe resolves the folder by slug and PATCHes its description alone', async () => {
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    const code = await cmdFolder([
+      'describe',
+      'velour',
+      'Soft sheets,',
+      'one a week.',
+      '--origin',
+      origin,
+      ...KEY,
+    ])
+    expect(code).toBe(0)
+    const patch = seen.find((s) => s.method === 'PATCH')
+    expect(patch?.url).toBe('/api/folders/f-velour')
+    expect(patch?.body).toEqual({ description: 'Soft sheets, one a week.' })
+  })
+
+  it('describe --clear sends null, and a refusal is an error in the platform’s words', async () => {
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    expect(
+      await cmdFolder([
+        'describe',
+        'f-velour',
+        '--clear',
+        '--origin',
+        origin,
+        ...KEY,
+      ]),
+    ).toBe(0)
+    expect(seen.at(-1)?.body).toEqual({ description: null })
+    await expect(
+      cmdFolder([
+        'describe',
+        'velour',
+        'refuse me',
+        '--origin',
+        origin,
+        ...KEY,
+      ]),
+    ).rejects.toThrow(/Say what the project is/)
+  })
+
+  it('describe asks for a folder and words, or --clear, before any request', async () => {
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    const tail = ['--origin', origin, ...KEY]
+    await expect(cmdFolder(['describe', ...tail])).rejects.toThrow(UsageError)
+    await expect(cmdFolder(['describe', 'velour', ...tail])).rejects.toThrow(
+      UsageError,
+    )
+    await expect(
+      cmdFolder(['describe', 'velour', 'words', '--clear', ...tail]),
+    ).rejects.toThrow(UsageError)
+    await expect(
+      cmdFolder(['describe', 'velour', 'x'.repeat(201), ...tail]),
+    ).rejects.toThrow(/at most 200 characters \(this is 201\)/)
+    expect(seen).toEqual([])
+    expect(describeAsk(['velour', '  two\n lines '], false)).toEqual({
+      ref: 'velour',
+      description: 'two lines',
+    })
   })
 
   it('recipeLine prints the hints a recipe declares, and only those', () => {

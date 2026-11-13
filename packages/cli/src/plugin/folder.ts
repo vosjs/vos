@@ -1,13 +1,14 @@
 /**
  * `vos folder` — the shelf verbs: list your folders, create one, move
- * work into one, PULL one (the folder contract on disk). The additive half
- * of the shelf rule: an agent may ADD organization
+ * work into one, DESCRIBE one, PULL one (the folder contract on disk). The
+ * additive half of the shelf rule: an agent may ADD organization
  * (create a folder, file voses and assets into it) but never reshape or
  * destroy what the human made — rename/delete/reorder have no CLI verb on
  * purpose; those stay session gestures on vos.so.
  *
  *   vos folder list [--json]
  *   vos folder create <name> [--parent <folderId|slug>] [--desc <text>] [--json]
+ *   vos folder describe <folderId|slug> <text> | --clear [--json]
  *   vos folder move <vosId|assetId|watch-url>... --to <folderId|slug|none> [--json]
  *   vos folder pull <folderId|slug> [--out dir] [--media] [--json]
  *
@@ -21,6 +22,12 @@
  * move accepts vos ids AND asset ids (recipes, uploads): it tries the vos
  * first and falls back to the asset route on 404, so the caller never has
  * to say which kind an id is.
+ *
+ * describe changes the one thing about a folder a key may change: its
+ * description, the line `create --desc` writes. It is content, not
+ * arrangement, so an agent that described a folder can correct what it
+ * wrote. The words it replaced are printed, because vos.so keeps no history
+ * of them.
  */
 import { mkdir } from 'node:fs/promises'
 import { safePathName } from './pathName'
@@ -47,7 +54,12 @@ import {
 import type { StoredAccount } from './accounts'
 import type { ProjectDoc } from '@vosjs/studio-core'
 
-const BOOLEAN_FLAGS = new Set(['json', 'help', 'media'])
+const BOOLEAN_FLAGS = new Set(['json', 'help', 'media', 'clear'])
+
+/** vos.so's cap on a folder's description, said before the round trip. */
+const DESCRIPTION_MAX = 200
+const DESCRIBE_USAGE =
+  'vos folder describe <folderId|slug> <one line of what it is> — or --clear to remove it'
 
 export interface FolderRow {
   id: string
@@ -266,6 +278,62 @@ async function cmdCreate(argv: string[]): Promise<number> {
   r.done(
     { id: created.id, slug: created.slug, parentId: created.parentId },
     `created ${created.name}  (${created.slug}, ${created.id})${parentRef ? ` inside ${parentRef}` : ''}`,
+  )
+  return EXIT_OK
+}
+
+/**
+ * What `vos folder describe` was asked: which folder, and the words (null
+ * clears them). Pure, so the ask is settled before a credential is read.
+ */
+export function describeAsk(
+  positionals: string[],
+  clear: boolean,
+): { ref: string; description: string | null } {
+  const ref = positionals[0]
+  const text = positionals.slice(1).join(' ').replace(/\s+/g, ' ').trim()
+  if (!ref || (clear ? text !== '' : text === '')) {
+    throw new UsageError(DESCRIBE_USAGE)
+  }
+  if (text.length > DESCRIPTION_MAX) {
+    throw new UsageError(
+      `a folder's description is one line of at most ${DESCRIPTION_MAX} characters (this is ${text.length})`,
+    )
+  }
+  return { ref, description: clear ? null : text }
+}
+
+async function cmdDescribe(argv: string[]): Promise<number> {
+  const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
+  const ask = describeAsk(positionals, flags.clear === true)
+  const r = createReporter(flags.json === true)
+  const origin = platformOrigin({
+    origin: strFlag(flags, 'origin'),
+    api: strFlag(flags, 'api'),
+  })
+  const key = requireCredential(credentialFlags(flags))
+  const folder = resolveFolder(await listFolders(origin, key), ask.ref)
+
+  const res = await apiJson(origin, `/api/folders/${folder.id}`, {
+    method: 'PATCH',
+    key,
+    body: { description: ask.description },
+  })
+  if (res.status !== 200) throw new Error(apiError('describe folder', res))
+  const previous =
+    (res.body.previous as { description?: string | null } | undefined)
+      ?.description ?? null
+  const now = ask.description
+    ? `described ${folder.name}  (${folder.slug}): ${ask.description}`
+    : `cleared the description of ${folder.name}  (${folder.slug})`
+  r.done(
+    {
+      id: folder.id,
+      slug: folder.slug,
+      description: ask.description,
+      previous,
+    },
+    previous ? `${now}\n  it said: ${previous}` : now,
   )
   return EXIT_OK
 }
@@ -505,13 +573,15 @@ export async function cmdFolder(argv: string[]): Promise<number> {
       return cmdList(rest)
     case 'create':
       return cmdCreate(rest)
+    case 'describe':
+      return cmdDescribe(rest)
     case 'move':
       return cmdMove(rest)
     case 'pull':
       return cmdPull(rest)
     default:
       throw new UsageError(
-        'vos folder <list|create|move|pull> — list your shelf, create a folder, move voses/assets into one, pull a folder to disk',
+        'vos folder <list|create|describe|move|pull> — list your shelf, create a folder, say what one is, move voses/assets into one, pull a folder to disk',
       )
   }
 }
