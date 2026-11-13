@@ -11,7 +11,12 @@ import {
   it,
   vi,
 } from 'vitest'
-import { appControlLine, cmdLookApp, isDesktopLook } from '../lookApp'
+import {
+  appControlLine,
+  cmdLookApp,
+  isDesktopLook,
+  withinLimit,
+} from '../lookApp'
 import { fakeDriver } from './fakeDesktopDriver'
 
 // `vos look --app`: the listing a script is written from, over a stand-in
@@ -188,12 +193,75 @@ describe('vos look --app', () => {
       steps: 1,
     })
 
+    // A guarded step PAST the one the walk stops at is not pressed, so it
+    // needs no --confirm; one the walk runs does, and a desktop refusal
+    // names the walk, not a rehearsal a desktop script has not got.
+    const guarded = join(dir, 'guarded.json')
+    await writeFile(
+      guarded,
+      JSON.stringify({
+        app: 'TextEdit',
+        steps: [
+          { do: 'click', selector: "button[id='save']", id: 'open', ms: 0 },
+          {
+            do: 'click',
+            selector: "button[id='save']",
+            id: 'send',
+            guard: 'spend',
+            ms: 0,
+          },
+        ],
+      }),
+    )
+    await expect(
+      look(['--actions', guarded, '--until', 'open']),
+    ).resolves.toBeDefined()
+    await expect(
+      look(['--actions', guarded, '--until', 'send']),
+    ).rejects.toThrow(
+      /guarded \(spend\)[\s\S]*--confirm send[\s\S]*vos look --actions … --until/,
+    )
+
     await expect(
       look(['--app', 'TextEdit', '--actions', file, '--until', 'nowhere']),
     ).rejects.toThrow(/no step of the script has that id/)
     await expect(
       look(['--app', 'TextEdit', '--until', 'open']),
     ).rejects.toThrow(/--actions and --until go together/)
+  })
+
+  it('past its limit, a listing keeps what can be acted on before words, in order', () => {
+    const control = (role: string, i: number) =>
+      ({
+        role,
+        name: `${role} ${i}`,
+        id: '',
+        selector: `${role}:nth(${i})`,
+        match: 'unique',
+        rect: { x: 0, y: i, w: 1, h: 1 },
+        disabled: false,
+      }) as Parameters<typeof withinLimit>[0][number]
+    // A document's lines, then the panel beside it.
+    const all = [
+      control('button', 0),
+      ...Array.from({ length: 8 }, (_, i) => control('text', i + 1)),
+      control('popup', 9),
+      control('checkbox', 10),
+    ]
+    const kept = withinLimit(all, 5)
+    expect(kept.map((c) => c.name)).toEqual([
+      'button 0',
+      'text 1',
+      'text 2',
+      'popup 9',
+      'checkbox 10',
+    ])
+    expect(withinLimit(all, 50)).toHaveLength(all.length)
+    // More controls than the limit: the first ones, and no words.
+    expect(withinLimit(all, 2).map((c) => c.name)).toEqual([
+      'button 0',
+      'popup 9',
+    ])
   })
 
   it('a control with no selector worth trusting still says where it is', () => {

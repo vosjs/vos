@@ -4,6 +4,7 @@ import {
   DESKTOP_FIND_MS,
   desktopChord,
   desktopProblems,
+  runDesktopSetup,
   runDesktopSteps,
   textSelector,
 } from '../desktop'
@@ -183,10 +184,64 @@ describe('desktopProblems', () => {
       ],
     } as unknown as ActionsFile
     const problems = desktopProblems(actions)
-    expect(problems).toHaveLength(12)
+    expect(problems).toHaveLength(11)
     expect(problems[0]).toMatch(/^url is not part of a desktop script/)
     expect(problems.join('\n')).toMatch(/steps\[2\]: await .* use expect/)
     expect(problems.join('\n')).toMatch(/steps\[3\]: expect js runs in a page/)
+  })
+
+  it('refuses a selector that is not one where the script names it, before a step runs', () => {
+    // The host hands in the driver's own check; this one knows one mistake.
+    const selectorProblem = (selector: string) =>
+      selector.includes('^=')
+        ? `The selector "${selector}" is not one: = or *= is expected (at character 11).`
+        : null
+    const actions = {
+      app: 'Claude',
+      mask: [{ selector: "popup[name^='Account']" }],
+      setup: [{ do: 'click', selector: "button[name^='New']" }],
+      teardown: [{ do: 'if', selector: "button[name='Stop']" }],
+      steps: [
+        { do: 'click', selector: "button[name='Artifacts']" },
+        { do: 'click', selector: "popup[name^='Folder']" },
+        { do: 'expect', gone: "button[name^='Send']" },
+      ],
+    } as unknown as ActionsFile
+    expect(desktopProblems(actions)).toEqual([])
+    const problems = desktopProblems(actions, { selectorProblem })
+    expect(problems.map((p) => p.split(':')[0])).toEqual([
+      'mask[0]',
+      'setup[0]',
+      'steps[1]',
+      'steps[2] gone',
+    ])
+    expect(problems[2]).toMatch(/= or \*= is expected \(at character 11\)/)
+  })
+
+  it('takes a mask, a setup and a teardown, and refuses what in them is a page’s', () => {
+    const ok = {
+      app: 'Claude',
+      mask: [{ selector: "popup[name*='Account']" }],
+      setup: [{ do: 'press', key: 'Escape' }],
+      teardown: [
+        { do: 'if', selector: "button[name='Send']" },
+        { do: 'click', selector: "textarea[name='Prompt']" },
+        { do: 'press', key: 'Meta+A' },
+      ],
+      steps: [{ do: 'wait', ms: 100 }],
+    } as unknown as ActionsFile
+    expect(validateActions(ok)).toEqual([])
+    expect(desktopProblems(ok)).toEqual([])
+    const no = {
+      app: 'Claude',
+      mask: [{ selector: 'text', as: 'text', text: 'someone' }],
+      setup: [{ do: 'goto', url: 'https://example.com' }],
+      steps: [{ do: 'wait', ms: 100 }],
+    } as unknown as ActionsFile
+    const problems = desktopProblems(no)
+    expect(problems).toHaveLength(2)
+    expect(problems[0]).toMatch(/^mask\[0\]: as "text" rewrites a page/)
+    expect(problems[1]).toMatch(/^setup\[0\]: goto opens a page/)
   })
 
   it("onSkip and a type with no field are a desktop script's", () => {
@@ -578,5 +633,112 @@ describe('runDesktopSteps', () => {
     )
     expect(result.confirmed).toEqual(['buy'])
     expect(result.steps[0]).toMatchObject({ guard: 'spend', confirmed: true })
+  })
+})
+
+describe('runDesktopSetup', () => {
+  const stage = (
+    elements: Record<string, Element>,
+    steps: Parameters<typeof runDesktopSetup>[1],
+    phase: 'setup' | 'teardown' = 'teardown',
+    env: Record<string, string | undefined> = {},
+  ) => {
+    const fake = fakeSession(elements)
+    const logs: string[] = []
+    return runDesktopSetup(fake.session, steps, phase, (m) => logs.push(m), {
+      clock: fake.clock,
+      env,
+    }).then((result) => ({ ...fake, logs, result }))
+  }
+
+  it('presses the page’s verbs through the session, in order', async () => {
+    const { result, sent } = await stage(
+      { "textarea[name='Prompt']": TITLE, "button[name='Send']": SAVE },
+      [
+        { do: 'if', selector: "button[name='Send']" },
+        { do: 'click', selector: "textarea[name='Prompt']" },
+        { do: 'press', key: 'Mod+A' },
+        { do: 'press', key: 'Backspace' },
+        { do: 'wait', ms: 200 },
+      ],
+    )
+    expect(result).toMatchObject({ ran: 5 })
+    expect(result.failed).toBeUndefined()
+    expect(sent.filter((c) => c.do !== 'locate')).toEqual([
+      { do: 'click', selector: "textarea[name='Prompt']" },
+      { do: 'press', keys: 'Meta+A' },
+      { do: 'press', keys: 'Backspace' },
+    ])
+  })
+
+  it('an if whose selector is not there ends the list quietly: nothing to undo', async () => {
+    const { result, sent } = await stage({}, [
+      { do: 'if', selector: "button[name='Send']", ms: 300 },
+      { do: 'press', key: 'Backspace' },
+      { do: 'press', key: 'Enter' },
+    ])
+    expect(result.failed).toBeUndefined()
+    expect(result.skipped).toEqual({
+      step: 0,
+      selector: "button[name='Send']",
+      rest: 2,
+    })
+    expect(sent.some((c) => c.do === 'press')).toBe(false)
+  })
+
+  it('stops at the first step that misses, and no key follows it', async () => {
+    const { result, sent } = await stage({}, [
+      { do: 'click', selector: "button[name='Delete']" },
+      { do: 'press', key: 'Enter' },
+    ])
+    expect(result.ran).toBe(0)
+    expect(result.failed).toMatchObject({
+      step: 0,
+      do: 'click',
+      selector: "button[name='Delete']",
+    })
+    expect(sent.every((c) => c.do === 'locate')).toBe(true)
+  })
+
+  it('does not press a disabled control and call it done', async () => {
+    const { result } = await stage(
+      { "button[name='Delete']": { ...SAVE, enabled: false } },
+      [{ do: 'click', selector: "button[name='Delete']" }],
+    )
+    expect(result.failed?.error).toMatch(/is disabled/)
+  })
+
+  it('types a value read from the environment and never says it', async () => {
+    const { result, sent, logs } = await stage(
+      { "textfield[id='title']": TITLE },
+      [
+        {
+          do: 'type',
+          selector: "textfield[id='title']",
+          text: { env: 'TITLE' },
+        },
+      ],
+      'setup',
+      { TITLE: 'the secret title' },
+    )
+    expect(result.ran).toBe(1)
+    expect(sent.find((c) => c.do === 'type')).toMatchObject({
+      text: 'the secret title',
+    })
+    expect(logs.join('\n')).not.toMatch(/secret/)
+    expect(result.lines.join('\n')).not.toMatch(/secret/)
+
+    const missing = await stage(
+      { "textfield[id='title']": TITLE },
+      [
+        {
+          do: 'type',
+          selector: "textfield[id='title']",
+          text: { env: 'TITLE' },
+        },
+      ],
+      'setup',
+    )
+    expect(missing.result.failed?.error).toMatch(/TITLE is not set/)
   })
 })

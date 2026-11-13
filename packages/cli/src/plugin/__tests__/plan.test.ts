@@ -133,6 +133,55 @@ describe('planTake', () => {
     expect(overlapping).toEqual([])
   })
 
+  it('re-planning a joined take keeps the manual spans of its other media', async () => {
+    const dir = await makeTake()
+    await planTake(dir)
+    const doc = await readJson<ProjectDoc>(join(dir, 'doc.json'))
+    // The same recording again as the take's media m1, as `vos join` leaves
+    // it, with a zoom and a speed span a person made on it.
+    doc.media = [{ ...doc.source, id: 'm1' }]
+    doc.segments = [...doc.segments, { in: 0, out: 8, media: 'm1' }]
+    const zoom = {
+      id: 'u1',
+      in: 1.8,
+      out: 3,
+      level: 2.4,
+      cx: 0.4,
+      cy: 0.3,
+      source: 'manual' as const,
+      media: 'm1',
+    }
+    const speed = {
+      id: 'us1',
+      in: 6.5,
+      out: 7.5,
+      rate: 2,
+      source: 'manual' as const,
+      media: 'm1',
+    }
+    doc.zoom = [...doc.zoom, zoom]
+    doc.speed = [...(doc.speed ?? []), speed]
+    await writeJson(join(dir, 'doc.json'), doc, true)
+
+    await planTake(dir)
+    const after = await readJson<ProjectDoc>(join(dir, 'doc.json'))
+    expect(after.zoom.find((z) => z.id === 'u1')).toEqual(zoom)
+    expect((after.speed ?? []).find((x) => x.id === 'us1')).toEqual(speed)
+    // The media's own proposals are still made, and none over the manual span.
+    const proposed = after.zoom.filter(
+      (z) => z.media === 'm1' && z.source === 'auto',
+    )
+    expect(proposed.length).toBeGreaterThan(0)
+    expect(proposed.filter((z) => z.in < zoom.out && zoom.in < z.out)).toEqual(
+      [],
+    )
+    // Once more: nothing piles up.
+    await planTake(dir)
+    const again = await readJson<ProjectDoc>(join(dir, 'doc.json'))
+    expect(again.zoom).toEqual(after.zoom)
+    expect(again.speed).toEqual(after.speed)
+  })
+
   it('typing pings plan a typing span framed on the field (TZ)', async () => {
     // The shape the recorder's `type` verb synthesizes: click into the field,
     // then throttled `key` pings while the characters land.

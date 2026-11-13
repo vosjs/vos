@@ -415,6 +415,164 @@ describe('vos record --app --actions: a scripted desktop take', () => {
     expect(isDesktopRecord(['--pid', '4100'])).toBe(true)
   })
 
+  it('records under the script’s masks, and says what each covered', async () => {
+    const file = await script('m1', {
+      ...SAVE_AND_TYPE,
+      mask: [
+        { selector: "textfield[id='title']" },
+        { selector: "popup[name*='Account']" },
+      ],
+    })
+    const out = join(dir, 'm1')
+    const { code, requests, done } = await run([
+      '--app',
+      'TextEdit',
+      '--actions',
+      file,
+      '--out',
+      out,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    expect((requests[0] as { mask?: unknown }).mask).toEqual([
+      { selector: "textfield[id='title']" },
+      { selector: "popup[name*='Account']" },
+    ])
+    expect(done).toMatchObject({
+      masks: [{ matched: 1 }, { matched: 0 }],
+    })
+    // The take records its masks in the shape a page take's have.
+    const meta = JSON.parse(await readFile(join(out, 'meta.json'), 'utf8'))
+    expect(meta.masks).toEqual([
+      { selector: "textfield[id='title']", as: 'blur', hits: 1 },
+      { selector: "popup[name*='Account']", as: 'blur', hits: 0 },
+    ])
+    expect((done as { notes: string[] }).notes.join('\n')).toMatch(
+      /the mask popup\[name\*='Account'\] matched nothing during the take/,
+    )
+  })
+
+  it('a driver that cannot cover a mask is refused before anything is recorded', async () => {
+    const file = await script('m2', {
+      ...SAVE_AND_TYPE,
+      mask: [{ selector: "textfield[id='title']" }],
+    })
+    const call = run(
+      ['--app', 'TextEdit', '--actions', file, '--out', join(dir, 'm2')],
+      { old: true },
+    )
+    await expect(call).rejects.toThrow(
+      /does not cover one: it would record what the mask names[\s\S]*0\.4\.0/,
+    )
+    expect(existsSync(join(dir, 'm2', 'recording.mp4'))).toBe(false)
+  })
+
+  it('refuses a selector that is not one when the script is read, not at its step', async () => {
+    const file = await script('s1', {
+      steps: [
+        { do: 'click', selector: "button[id='save']", ms: 0 },
+        { do: 'click', selector: "popup[name^='Folder']", ms: 0 },
+      ],
+    })
+    const { requests, commands, ...rest } = await run([
+      '--app',
+      'TextEdit',
+      '--actions',
+      file,
+      '--out',
+      join(dir, 's1'),
+    ]).then(
+      (r) => ({ ...r, threw: '' }),
+      (e: Error) => ({ requests: [], commands: [], threw: e.message }),
+    )
+    expect(rest.threw).toMatch(
+      /steps\[1\]: The selector "popup\[name\^='Folder'\]" is not one: = or \*= is expected/,
+    )
+    expect(requests).toHaveLength(0)
+    expect(commands).toHaveLength(0)
+  })
+
+  it('runs the script’s setup before the take and its teardown after, each off camera', async () => {
+    const file = await script('t1', {
+      ...SAVE_AND_TYPE,
+      setup: [{ do: 'press', key: 'Escape' }],
+      teardown: [
+        { do: 'if', selector: "textfield[id='title']" },
+        { do: 'click', selector: "textfield[id='title']" },
+        { do: 'press', key: 'Mod+A' },
+        { do: 'press', key: 'Backspace' },
+      ],
+    })
+    const out = join(dir, 't1')
+    const { code, requests, commands, done } = await run([
+      '--app',
+      'TextEdit',
+      '--actions',
+      file,
+      '--out',
+      out,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    // Three sessions: the setup, the take, the teardown. Only the take is kept.
+    expect(requests).toHaveLength(3)
+    expect(requests.map((q) => q.out === out)).toEqual([false, true, false])
+    expect(requests[0]).toMatchObject({ drive: true, pointer: false })
+    expect(existsSync(requests[0]!.out)).toBe(false)
+    expect(existsSync(requests[2]!.out)).toBe(false)
+    const presses = commands.filter((c) => c.do === 'press').map((c) => c.keys)
+    expect(presses[0]).toBe('Escape')
+    expect(presses.slice(-2)).toEqual(['Meta+A', 'Backspace'])
+    expect(done).toMatchObject({ teardown: { ran: 4, of: 4 } })
+  })
+
+  it('a teardown with nothing to undo says so, and one that misses is reported, not thrown', async () => {
+    const nothing = await script('t2', {
+      ...SAVE_AND_TYPE,
+      teardown: [
+        { do: 'if', selector: "button[name='Stop']", ms: 50 },
+        { do: 'click', selector: "button[name='Stop']" },
+      ],
+    })
+    const a = await run([
+      '--app',
+      'TextEdit',
+      '--actions',
+      nothing,
+      '--out',
+      join(dir, 't2'),
+    ])
+    expect(a.code).toBe(0)
+    expect(a.text).toMatch(/teardown: nothing to undo/)
+
+    const misses = await script('t3', {
+      ...SAVE_AND_TYPE,
+      teardown: [{ do: 'click', selector: "button[name='Delete']" }],
+    })
+    const b = await run([
+      '--app',
+      'TextEdit',
+      '--actions',
+      misses,
+      '--out',
+      join(dir, 't3'),
+    ])
+    expect(b.code).toBe(0)
+    expect(existsSync(join(dir, 't3', 'recording.mp4'))).toBe(true)
+    expect(b.text).toMatch(/TEARDOWN FAILED at teardown\[0\]/)
+  }, 20_000)
+
+  it('a setup that misses records nothing', async () => {
+    const file = await script('t4', {
+      ...SAVE_AND_TYPE,
+      setup: [{ do: 'click', selector: "button[name='Nope']" }],
+    })
+    await expect(
+      run(['--app', 'TextEdit', '--actions', file, '--out', join(dir, 't4')]),
+    ).rejects.toThrow(/setup stopped at setup\[0\][\s\S]*Nothing was recorded/)
+    expect(existsSync(join(dir, 't4', 'recording.mp4'))).toBe(false)
+  }, 20_000)
+
   it('refuses, before anything is recorded, what a desktop take cannot run', async () => {
     const page = await script('r1', {
       url: 'https://example.com',

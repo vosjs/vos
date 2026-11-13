@@ -169,6 +169,7 @@ import { cmdActions } from './agentBrowser'
 import { cmdIngest } from './ingest'
 import { cmdRecordApp, isDesktopRecord, scriptNamesApp } from './recordApp'
 import { desktopProblems } from '@vosjs/render-core/record'
+import { driverSelectorProblem } from './desktopStage'
 import { cmdCheckVideo } from './checkVideo'
 import { cmdJoin } from './join'
 import { cmdTakeInfo } from './timeline'
@@ -272,7 +273,7 @@ Take pipeline
   vos music ls [--mood <slug>] [--vocals none|chops|lead] [--loops] [--bpm <lo>-<hi>] [--min-length <s>] [--q <words>] [--json]
             the library as an agent reads it, one line per track: slug, genre, length, tempo (a ? on an uncertain beat), vocals, loops, the sentence a person wrote. The facts are GET /api/music's
   vos music pick <take|config.json> [--at <step id|seconds>] [--mood <slug|tag>] [--words "…"] [--voice|--no-voice] [--like <vos id|slug>]... [--top 3] [--json]
-            the beds that fit THIS film, best first, each with its reasons and the vos score line that places it: the film's length, its cuts (captions, joins, page changes, zoom marks), its payoff (--at, else the last step marked "zoom": true, else the last cut) and its voice are read from the document and every track is scored (a swell on the payoff, cuts on the beat, the asked mood or words, calm under a voice, an ending that meets the film's) after the hard rules (covers the film or loops, no quiet intro under frame one, no sung lead under a voice). --json carries every track, the refused with their reason. Ties fall to the take, so two films asking the same thing get different beds
+            the beds that fit THIS film, best first, each with its reasons and the vos score line that places it: the film's length, its cuts (captions, joins, page changes, zoom marks), its payoff (--at, else the step marked "payoff": true, else the last step marked "zoom": true, else the last cut before the end card) and its voice are read from the document and every track is scored (a swell on the payoff, cuts on the beat, the asked mood or words, calm under a voice, an ending that meets the film's) after the hard rules (covers the film or loops, no quiet intro under frame one, no sung lead under a voice). --json carries every track, the refused with their reason. Ties fall to the take, so two films asking the same thing get different beds
   vos score <take> --track <slug|file|best> [--at <step id|output seconds>] [--mood <slug|tag>] [--words "…"] [--gain 0..1] [--normalize <lufs|off>] [--fade-in <s>] [--fade-out <s>] [--dry-run] [--json]
             the film's music as one audio clip (id score): reads the track's loudness, finds its strongest swell and offsets the track so the swell lands at --at (a step, resolved through the cut, or output seconds); without --at it starts where the track first rises above its median level. --track best runs vos music pick and places its first pick, its payoff as --at unless one is given. The clip carries its measured loudness and a target, --normalize (default -16 LUFS), with --gain (default 0.5) a trim on it; --normalize off plays it at --gain alone
   vos audio measure <take> [--json]
@@ -2463,6 +2464,7 @@ async function cmdDigest(argv: string[]): Promise<number> {
         ...(d.take.exposures.length ? { exposures: d.take.exposures } : {}),
         tokensEstimate: d.images.tokensEstimate,
         bytes: result.bytes,
+        ...(result.inputs.length ? { inputs: result.inputs } : {}),
       },
       `Wrote ${result.file} — ${d.moments.length} moments (${Object.entries(
         kinds,
@@ -2479,6 +2481,9 @@ async function cmdDigest(argv: string[]): Promise<number> {
           : '') +
         (d.take.wall
           ? `\n  WALL: asked for ${d.take.wall.asked}, recorded ${d.take.wall.landed} — this footage may be the wrong page; re-record with a session before cutting it`
+          : '') +
+        (result.inputs.length
+          ? `\n  A joined take: that is its first input. ${result.inputs.map((i) => `${i.media} plays from ${i.outputFrom}s of the film: ${join(result.outDir, i.file)} (${i.moments} moments${i.sheet ? `, ${i.sheet}` : ''})`).join('; ')}. Its source times are that input's own footage; its output times are the film's.`
           : '') +
         `\n  Read digest.json, then the sheet, then a crop only where you must decide.`,
     )
@@ -2684,7 +2689,9 @@ async function cmdValidate(argv: string[]): Promise<number> {
     const actions = await loadActions(target, { desktop: said })
     const desktop = said || typeof actions.app === 'string'
     if (desktop) {
-      const problems = desktopProblems(actions)
+      const problems = desktopProblems(actions, {
+        selectorProblem: await driverSelectorProblem(),
+      })
       if (problems.length)
         throw new UsageError(
           `not a script a desktop take can run:\n  ${problems.join('\n  ')}`,

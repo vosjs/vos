@@ -3,7 +3,13 @@ import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { digestTake, parseTranscript } from '../digestTake'
+import {
+  digestTake,
+  joinedInputs,
+  mediaView,
+  outputBefore,
+  parseTranscript,
+} from '../digestTake'
 import { planTake } from '../plan'
 import { ensureTakeDir, writeJson } from '../take'
 import type { CursorEvent } from '@vosjs/studio-core'
@@ -80,6 +86,84 @@ describe('digestTake --no-frames', () => {
     expect(d.plan.zoom[0].id).toBe('z0')
     expect(d.plan.zoom[0].source).toBe('auto')
     expect(d.doc.manual).toEqual({ zoom: 0, speed: 0, tilt: 0, overlays: 0 })
+  })
+})
+
+describe('digestTake on a joined take', () => {
+  it('digests every input after the first beside it, in the film’s time', async () => {
+    const a = await makeTake()
+    const b = await makeTake()
+    const alone = await digestTake(null, a, { frames: false })
+    const first = alone.digest.take.outputDuration
+    expect(alone.inputs).toEqual([])
+
+    // The second take as the first one's media m1, as `vos join` leaves it.
+    const docA = JSON.parse(await readFile(join(a, 'doc.json'), 'utf8'))
+    const docB = JSON.parse(await readFile(join(b, 'doc.json'), 'utf8'))
+    const tagged = (list: { id: string }[]) =>
+      list.map((x) => ({ ...x, id: `m1-${x.id}`, media: 'm1' }))
+    const joined = {
+      ...docA,
+      segments: [...docA.segments, { in: 0, out: 16, media: 'm1' }],
+      zoom: [...docA.zoom, ...tagged(docB.zoom)],
+      speed: [...docA.speed, ...tagged(docB.speed)],
+      media: [{ ...docB.source, id: 'm1' }],
+      // A layer that outlasts the footage is the film's length, not where m1 begins.
+      overlays: [
+        {
+          id: 'end',
+          kind: 'text',
+          text: 'The end',
+          start: 100,
+          duration: 3,
+          transform: { x: 0.5, y: 0.5 },
+        },
+      ],
+    }
+    await writeJson(join(a, 'doc.json'), joined)
+
+    expect(joinedInputs(joined)).toEqual(['m1'])
+    expect(outputBefore(joined, 'm1')).toBeCloseTo(first, 3)
+    const view = mediaView(joined, 'm1')
+    expect(view.media).toBeUndefined()
+    expect(view.segments).toEqual([{ in: 0, out: 16 }])
+    expect(view.zoom.map((z) => z.id)).toEqual(
+      docB.zoom.map((z: { id: string }) => `m1-${z.id}`),
+    )
+    expect(view.overlays).toEqual([])
+
+    const res = await digestTake(null, a, { frames: false })
+    expect(res.inputs).toHaveLength(1)
+    expect(res.inputs[0]).toMatchObject({
+      media: 'm1',
+      file: 'm1/digest.json',
+    })
+    expect(res.inputs[0]!.outputFrom).toBeCloseTo(first, 3)
+    const top = JSON.parse(await readFile(res.file, 'utf8'))
+    expect(top.inputs).toEqual(res.inputs)
+    // The first input's moments are as they were alone.
+    expect(top.moments.map((m: { kind: string }) => m.kind)).toEqual(
+      alone.digest.moments.map((m) => m.kind),
+    )
+
+    const m1 = JSON.parse(
+      await readFile(join(res.outDir, 'm1', 'digest.json'), 'utf8'),
+    )
+    expect(m1.media).toBe('m1')
+    // A step's window in the cut moves with the input, as a moment's does.
+    for (const [i, st] of m1.steps.entries()) {
+      const was = alone.digest.steps[i]!
+      if (was.output) expect(st.output.in).toBeCloseTo(was.output.in + first, 3)
+    }
+    expect(m1.moments.length).toBe(alone.digest.moments.length)
+    for (const [i, m] of m1.moments.entries()) {
+      const was = alone.digest.moments[i]!
+      expect(m.media).toBe('m1')
+      // Source times are the input's own footage; output times are the film's.
+      expect(m.source).toEqual(was.source)
+      if (was.output) expect(m.output.in).toBeCloseTo(was.output.in + first, 3)
+      else expect(m.output).toBeNull()
+    }
   })
 })
 

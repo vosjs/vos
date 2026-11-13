@@ -278,6 +278,15 @@ export type ActionStep = (
    */
   zoom?: boolean
   /**
+   * `true` on the ONE step that is the film's payoff: the reveal, the
+   * result, the moment the music should open up on. `vos music pick` and
+   * `vos score` land the bed's swell where this step plays. Without it the
+   * payoff is the last step marked `zoom: true`, which is the right guess
+   * when the last zoom is the reveal and the wrong one when the reveal
+   * plays wide.
+   */
+  payoff?: boolean
+  /**
    * A selector whose words the recorder keeps once the step has settled
    * (`meta.steps[].text`: trimmed, whitespace collapsed, at most 2 KB), so
    * a layer quotes the take instead of a replay: the URL a share button
@@ -617,6 +626,8 @@ export function validateActions(
           `${at}: zoom marks a gesture (${ZOOM_MARK_VERBS.join(', ')}); a ${s.do} shows nothing to zoom on`,
         )
     }
+    if (s.payoff !== undefined && typeof s.payoff !== 'boolean')
+      errors.push(`${at}: payoff must be true or false`)
     if (s.guard !== undefined) {
       if (!(STEP_GUARDS as readonly unknown[]).includes(s.guard))
         errors.push(
@@ -850,7 +861,7 @@ export function guardedSteps(
  * anything is captured.
  */
 export function guardVerdict(
-  actions: Pick<ActionsFile, 'steps'>,
+  actions: Pick<ActionsFile, 'steps'> & Pick<Partial<ActionsFile>, 'app'>,
   confirm: readonly string[],
 ):
   | { ok: true }
@@ -863,7 +874,7 @@ export function guardVerdict(
   if (unconfirmed.length) {
     const one = unconfirmed.length === 1
     parts.push(
-      `${unconfirmed.map((g) => `#${g.step} ${g.id} (${g.do})`).join(', ')} ${one ? 'is' : 'are'} guarded (${unconfirmed[0].guard}): ${one ? 'it spends' : 'they spend'} something real, so the recorder presses ${one ? 'it' : 'them'} only when the command says so. Add ${unconfirmed.map((g) => `--confirm ${g.id}`).join(' ')} to record ${one ? 'it' : 'them'}, or rehearse with --dry-run, which hovers and never presses`,
+      `${unconfirmed.map((g) => `#${g.step} ${g.id} (${g.do})`).join(', ')} ${one ? 'is' : 'are'} guarded (${unconfirmed[0].guard}): ${one ? 'it spends' : 'they spend'} something real, so the recorder presses ${one ? 'it' : 'them'} only when the command says so. Add ${unconfirmed.map((g) => `--confirm ${g.id}`).join(' ')} to record ${one ? 'it' : 'them'}, ${actions.app !== undefined ? `or walk the script to the step before with vos look --actions … --until <id>, which stops there` : `or rehearse with --dry-run, which hovers and never presses`}`,
     )
   }
   if (unknown.length)

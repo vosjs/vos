@@ -12,9 +12,19 @@
  * Everything the agent reads lands in `digest/` beside the take; `vos push`
  * never uploads it.
  */
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import {
+  copyFile,
+  link,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
+import { extname, join, resolve } from 'node:path'
 import {
   CHANGE_GRID,
   CHANGE_LEAD,
@@ -73,6 +83,175 @@ export interface DigestResult {
   outDir: string
   digest: Digest
   bytes: number
+  /**
+   * A joined take's inputs after the first, each digested beside it: the
+   * media's id, its digest file, and where its footage begins in the film.
+   */
+  inputs: DigestInput[]
+}
+
+/** One input of a joined take, digested: `digest/<id>/digest.json`. */
+export interface DigestInput {
+  media: string
+  /** Relative to the digest directory. */
+  file: string
+  sheet: string | null
+  moments: number
+  /** OUTPUT seconds of the film where this input's footage begins. */
+  outputFrom: number
+  tokensEstimate: number
+}
+
+/**
+ * The ids of a joined take's inputs after the first: each a media that
+ * segments of the film play. A media nothing plays (an overlay's file) is
+ * not an input.
+ */
+export function joinedInputs(doc: ProjectDoc): string[] {
+  const played = new Set(
+    doc.segments.flatMap((s) => (s.media ? [s.media] : [])),
+  )
+  return (doc.media ?? []).flatMap((m) =>
+    m.id && played.has(m.id) ? [m.id] : [],
+  )
+}
+
+/**
+ * The document as one input alone has it: its footage as the source, and
+ * the segments and spans that are its own, untagged. Layers and sound are
+ * the film's (OUTPUT anchored), so a view has none.
+ */
+export function mediaView(doc: ProjectDoc, id: string): ProjectDoc {
+  const media = doc.media?.find((m) => m.id === id)
+  if (!media) throw new Error(`the take has no media "${id}"`)
+  const own = <T extends { media?: string }>(list: readonly T[] | undefined) =>
+    (list ?? [])
+      .filter((x) => x.media === id)
+      .map((x) => {
+        const { media: _media, ...rest } = x
+        return rest as T
+      })
+  const { id: _id, ...source } = media as typeof media & { script?: unknown }
+  delete (source as { script?: unknown }).script
+  return {
+    ...doc,
+    source: source as ProjectDoc['source'],
+    segments: own(doc.segments),
+    zoom: own(doc.zoom),
+    speed: own(doc.speed),
+    ...(doc.tilt ? { tilt: own(doc.tilt) } : {}),
+    ...(doc.freeze ? { freeze: own(doc.freeze) } : {}),
+    media: undefined,
+    overlays: [],
+    audio: [],
+    rejected: undefined,
+  } as ProjectDoc
+}
+
+/** OUTPUT seconds of the film before an input's first segment plays. */
+export function outputBefore(doc: ProjectDoc, id: string): number {
+  const first = doc.segments.findIndex((s) => s.media === id)
+  if (first <= 0) return 0
+  const before = doc.segments.slice(0, first)
+  const theirs = new Set(before.map((s) => s.media))
+  // The footage alone: a layer or a bed that outlasts it is the film's
+  // length, not where the next input begins. A freeze is footage time, and
+  // counts when it holds one of the inputs before this one.
+  return outputDurationOf({
+    ...doc,
+    segments: before,
+    overlays: [],
+    audio: [],
+    ...(doc.freeze
+      ? { freeze: doc.freeze.filter((f) => theirs.has(f.media)) }
+      : {}),
+  })
+}
+
+/**
+ * Digests one input of a joined take as the take it was: a scratch take
+ * directory holding its view of the document and a link to its footage,
+ * digested into `<outDir>/<id>/`, then its OUTPUT times moved to where the
+ * input plays in the film.
+ */
+async function digestInput(
+  browser: Browser | null,
+  dir: string,
+  doc: ProjectDoc,
+  id: string,
+  outDir: string,
+  opts: DigestOptions,
+): Promise<DigestInput> {
+  const view = mediaView(doc, id)
+  const offset = outputBefore(doc, id)
+  const footage = resolve(dir, view.source.videoKey.replace(/^\//, ''))
+  const scratch = await mkdtemp(join(tmpdir(), 'vos-digest-input-'))
+  try {
+    await writeFile(
+      join(scratch, 'meta.json'),
+      JSON.stringify(view.source.meta),
+    )
+    await writeFile(
+      join(scratch, 'cursor.json'),
+      JSON.stringify(view.source.cursor),
+    )
+    await writeFile(join(scratch, 'doc.json'), JSON.stringify(view))
+    // The take server serves its own directory and nothing a link points
+    // out of it: the footage is linked hard when the disk allows, else copied.
+    if (existsSync(footage)) {
+      const to = join(scratch, `recording${extname(footage) || '.mp4'}`)
+      await link(footage, to).catch(() => copyFile(footage, to))
+    }
+    const sub = await digestTake(browser, scratch, {
+      ...opts,
+      outDir: join(outDir, id),
+      transcript: null,
+    })
+    const shifted = {
+      ...sub.digest,
+      media: id,
+      take: { ...sub.digest.take, outputFrom: round3(offset) },
+      moments: sub.digest.moments.map((m) => ({
+        ...m,
+        media: id,
+        output: m.output
+          ? {
+              in: round3(m.output.in + offset),
+              out: round3(m.output.out + offset),
+            }
+          : null,
+        outputAt: m.outputAt === null ? null : round3(m.outputAt + offset),
+      })),
+      // A step's window in the cut is the film's too: a caption anchored to
+      // one is placed by it.
+      steps: sub.digest.steps.map((st) => ({
+        ...st,
+        output: st.output
+          ? {
+              in: round3(st.output.in + offset),
+              out: round3(st.output.out + offset),
+            }
+          : null,
+      })),
+    }
+    await writeFile(sub.file, JSON.stringify(shifted, null, 2))
+    return {
+      media: id,
+      file: `${id}/digest.json`,
+      sheet: sub.digest.images.sheet
+        ? `${id}/${sub.digest.images.sheet}`
+        : null,
+      moments: sub.digest.moments.length,
+      outputFrom: round3(offset),
+      tokensEstimate: sub.digest.images.tokensEstimate,
+    }
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}
+
+function round3(v: number): number {
+  return Math.round(v * 1000) / 1000
 }
 
 interface FrameSource {
@@ -604,10 +783,21 @@ export async function digestTake(
     style: opts.style ?? null,
     transcript,
   })
+  // A joined take is several recordings: each input after the first is
+  // digested as the take it was, beside this one, and this digest says
+  // where they are. Without it the cut of everything after the first input
+  // is made blind.
+  const inputs: DigestInput[] = []
+  for (const id of joinedInputs(doc))
+    inputs.push(await digestInput(browser, dir, doc, id, outDir, opts))
   const file = join(outDir, 'digest.json')
-  const body = JSON.stringify(digest, null, 2)
+  const body = JSON.stringify(
+    inputs.length ? { ...digest, inputs } : digest,
+    null,
+    2,
+  )
   await writeFile(file, body)
-  return { file, outDir, digest, bytes: Buffer.byteLength(body) }
+  return { file, outDir, digest, bytes: Buffer.byteLength(body), inputs }
 }
 
 /** `<take>/transcript.json` when present and well-formed; never throws. */
