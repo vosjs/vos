@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -107,6 +107,93 @@ describe('vos look --app', () => {
     await expect(look(['--out', join(dir, 'l3')])).rejects.toThrow(
       /vos look --app/,
     )
+  })
+
+  it('says so when an Electron app has not built its tree, and what to do', async () => {
+    const { code, text } = await look(
+      ['--app', 'Code', '--out', join(dir, 'l5')],
+      { kind: 'electron', built: false },
+    )
+    expect(code).toBe(0)
+    expect(text).toMatch(
+      /is an Electron app, and it has not built its accessibility tree/,
+    )
+    expect(text).toMatch(/--force-renderer-accessibility/)
+    const json = await look(
+      ['--pid', '4100', '--out', join(dir, 'l5b'), '--json'],
+      { kind: 'chromium', built: false },
+    )
+    expect(JSON.parse(json.text.trim().split('\n').at(-1)!)).toMatchObject({
+      kind: 'chromium',
+      built: false,
+    })
+  })
+
+  it('says when the outline carries a path the picture does not show', async () => {
+    const { text } = await look(['--app', 'Code', '--out', join(dir, 'l6')], {
+      firstName: '~/work/acme-client/src/launch.js',
+    })
+    expect(text).toMatch(
+      /note: 1 name above carries a file path the picture does not show/,
+    )
+    const clean = await look(['--app', 'Code', '--out', join(dir, 'l6b')])
+    expect(clean.text).not.toMatch(/carr(y|ies) a file path/)
+  })
+
+  it('--actions --until walks the script to a step, for real, and then looks', async () => {
+    const file = join(dir, 'walk.json')
+    await writeFile(
+      file,
+      JSON.stringify({
+        steps: [
+          { do: 'click', selector: "button[id='save']", id: 'open', ms: 0 },
+          { do: 'press', keys: 'Enter', id: 'after', ms: 0 },
+        ],
+      }),
+    )
+    const fake = fakeDriver()
+    const out: string[] = []
+    vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+      out.push(String(chunk))
+      return true
+    })
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+    const code = await cmdLookApp(
+      [
+        '--app',
+        'TextEdit',
+        '--actions',
+        file,
+        '--until',
+        'open',
+        '--out',
+        join(dir, 'l7'),
+        '--json',
+      ],
+      { driver: fake.driver },
+    )
+    expect(code).toBe(0)
+    expect(fake.requests[0]).toMatchObject({
+      app: 'TextEdit',
+      drive: true,
+      pointer: false,
+    })
+    // The step asked for ran; the one after it did not.
+    expect(fake.commands.map((c) => c.do)).toEqual(['now', 'locate', 'click'])
+    const done = JSON.parse(out.join('').trim().split('\n').at(-1)!)
+    expect(done).toMatchObject({
+      ok: true,
+      until: 'open',
+      reached: true,
+      steps: 1,
+    })
+
+    await expect(
+      look(['--app', 'TextEdit', '--actions', file, '--until', 'nowhere']),
+    ).rejects.toThrow(/no step of the script has that id/)
+    await expect(
+      look(['--app', 'TextEdit', '--until', 'open']),
+    ).rejects.toThrow(/--actions and --until go together/)
   })
 
   it('a control with no selector worth trusting still says where it is', () => {

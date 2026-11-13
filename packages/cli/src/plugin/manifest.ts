@@ -27,12 +27,12 @@ export const manifest: PluginManifest = {
     {
       name: 'record',
       summary:
-        "drive actions.json into a take (screencast + cursor track); --app <name> records a desktop app's window as you or your agent work it (macOS)",
+        "drive actions.json into a take (screencast + cursor track); --app <name> records a desktop app's window (macOS): performed as you or your agent work it, or scripted with --actions",
     },
     {
       name: 'look',
       summary:
-        'see a page before scripting it (signed in, like record): a screenshot + every control in view with one proposed stable selector',
+        "see a page before scripting it (signed in, like record): a screenshot + every control in view with one proposed stable selector; --app <name> does the same for a desktop app's window (macOS)",
     },
     {
       name: 'plan',

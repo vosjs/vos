@@ -39,6 +39,14 @@ export interface ActionsFile {
    */
   viewport?: { width: number; height: number }
   /**
+   * A DESKTOP script's answer to a step that missed (an element that never
+   * appeared, an expect that never held, a control that was disabled):
+   * `stop` ends the take there, `continue` goes on to the next step.
+   * Default `stop`: the keys of the steps after a miss would land wherever
+   * focus happens to be, and an app is not a page that can be thrown away.
+   */
+  onSkip?: 'stop' | 'continue'
+  /**
    * Hidden BEFORE the first frame is captured and kept hidden across
    * navigations: what a signed-in account shows that must not ship. `blur`
    * (default) blurs the element; `text` swaps its words for `text`, which is
@@ -121,7 +129,11 @@ export type ActionStep = (
    */
   | {
       do: 'type'
-      selector: string
+      /**
+       * The field. A page's type always names one. A desktop script's may
+       * leave it out with `focus: false`, to type where the keyboard is.
+       */
+      selector?: string
       text: string
       delayMs?: number
       focus?: boolean
@@ -351,12 +363,28 @@ export const PRESS_KEYS = [
 ] as const
 export type PressKey = (typeof PRESS_KEYS)[number]
 
-/** Structural validation with actionable messages. Returns [] when valid. */
-export function validateActions(value: unknown): string[] {
+/**
+ * Structural validation with actionable messages. Returns [] when valid.
+ * `desktop` says the script is a desktop app's when it does not name one
+ * itself (`vos record --app` with a script that has no `app`).
+ */
+export function validateActions(
+  value: unknown,
+  opts: { desktop?: boolean } = {},
+): string[] {
   const errors: string[] = []
   if (typeof value !== 'object' || value === null)
     return ['actions file must be a JSON object']
   const obj = value as Record<string, unknown>
+  const desktop = opts.desktop === true || typeof obj.app === 'string'
+  if (obj.onSkip !== undefined) {
+    if (obj.onSkip !== 'stop' && obj.onSkip !== 'continue')
+      errors.push('onSkip must be "stop" or "continue"')
+    else if (!desktop)
+      errors.push(
+        'onSkip is a desktop script’s (a page’s take goes on after a skipped step, and --strict fails it)',
+      )
+  }
   if (obj.url !== undefined) {
     if (typeof obj.url !== 'string') errors.push('url must be a string')
     else {
@@ -441,8 +469,16 @@ export function validateActions(value: unknown): string[] {
         seenIds.add(s.id)
       }
     }
-    if (s.do === 'type' && typeof s.selector !== 'string')
-      errors.push(`${at}: type needs a selector`)
+    if (s.do === 'type' && typeof s.selector !== 'string') {
+      // A desktop app may offer no field to name (an editor drawn by the
+      // app): with focus false the step types where the keyboard already is.
+      if (!(desktop && s.selector === undefined && s.focus === false))
+        errors.push(
+          desktop
+            ? `${at}: type needs a selector, or focus: false to type where the keyboard already is`
+            : `${at}: type needs a selector`,
+        )
+    }
     if (s.do === 'hover' || s.do === 'click') {
       const point = s.x !== undefined || s.y !== undefined
       if (point && s.selector !== undefined)

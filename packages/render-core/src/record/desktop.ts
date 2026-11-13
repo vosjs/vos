@@ -74,6 +74,7 @@ export type DesktopCommand =
     } & DesktopTarget)
   | ({ do: 'move'; ms?: number } & DesktopTarget)
   | { do: 'now' }
+  | { do: 'focused' }
 
 /** A command's answer. Times are milliseconds on the take's clock. */
 export type DesktopAnswer =
@@ -86,6 +87,10 @@ export type DesktopAnswer =
       name?: string
       rect?: Rect
       pressed?: boolean
+      /** `focused`: what a key would go to. */
+      focused?: { role: string; name?: string; rect?: Rect }
+      /** `focused`: whether the app has the keyboard. */
+      frontmost?: boolean
     }
   | { ok: false; code: string; message: string }
 
@@ -100,6 +105,37 @@ export const DESKTOP_FIND_MS = 8000
 export const DESKTOP_POLL_MS = 100
 /** A typed character's pause when the step names none: ms. */
 export const DESKTOP_TYPE_DELAY_MS = 40
+
+/**
+ * Roles on which a key is a COMMAND, not a character: typed text there
+ * renames, selects, activates. A `type` step whose keys would go to one of
+ * these is refused before the first key. Everything else is typed into: a
+ * field, or a surface the app draws itself and names no role for.
+ */
+export const KEYS_ARE_COMMANDS = new Set([
+  'row',
+  'outline',
+  'table',
+  'list',
+  'cell',
+  'column',
+  'browser',
+  'button',
+  'checkbox',
+  'radio',
+  'popup',
+  'menu',
+  'menubar',
+  'menuitem',
+  'menubutton',
+  'tab',
+  'tabgroup',
+  'toolbar',
+  'link',
+  'image',
+  'slider',
+  'disclosuretriangle',
+])
 
 /** Codes that mean the take cannot go on, not that one step missed. */
 const FATAL = new Set([
@@ -199,6 +235,11 @@ export interface DesktopRunOpts {
   clock?: RecorderClock
   /** Ids of guarded steps the command confirmed (`--confirm`). */
   confirm?: readonly string[]
+  /**
+   * Stop after the step with this id, with no closing hold: a look at the
+   * state a script reaches (`vos look --app --actions … --until <id>`).
+   */
+  until?: string
   onEvent?: (event: Record<string, unknown>) => void
 }
 
@@ -212,6 +253,8 @@ export interface DesktopRunResult {
   capped: boolean
   /** The step the take could not go on from, or null. */
   stopped: StoppedTake | null
+  /** With `until`: whether that step was reached and ran. */
+  reached?: boolean
 }
 
 /**
@@ -238,6 +281,8 @@ export async function runDesktopSteps(
   const paces: StepPace[] = []
   let capped = false
   let stopped: StoppedTake | null = null
+  let reached = false
+  const goesOn = actions.onSkip === 'continue'
 
   // The take's clock is the session's. Every answer says what it reads, so
   // this side keeps the difference and can tell the take's time between acts.
@@ -351,6 +396,28 @@ export async function runDesktopSteps(
     }
     const about = (s: { selector?: string; x?: number; y?: number }) =>
       s.selector ?? `${s.x},${s.y}`
+    /**
+     * What the keys of a `type` would go to, asked before the first one.
+     * False when they would be commands there (a row of a tree, a button):
+     * the take stops, because the text would rename or press, not write.
+     * A session that cannot say (an older helper) is taken at its word.
+     */
+    const keysWrite = async (): Promise<boolean> => {
+      const answer = await send({ do: 'focused' })
+      if (!answer.ok) return true
+      const on = answer.focused
+      if (!on || !KEYS_ARE_COMMANDS.has(on.role)) {
+        if (!rect && on?.rect) rect = on.rect
+        return true
+      }
+      const article = /^[aeiou]/.test(on.role) ? 'an' : 'a'
+      const what = `${article} ${on.role}${on.name ? ` ("${on.name}")` : ''}`
+      const reason = `the keyboard is on ${what}, where typed keys are commands, not text: nothing was typed. Click the field first, or name it in the step`
+      stopped = { step: i, ...(id ? { id } : {}), reason }
+      extra.reason = reason
+      log(`   (${tag}: ${reason})`)
+      return false
+    }
 
     switch (step.do) {
       case 'wait':
@@ -394,16 +461,20 @@ export async function runDesktopSteps(
         break
       }
       case 'type': {
-        const found = await find(step.selector)
-        if (!found) break
-        rect = found.rect
-        if (step.focus !== false) {
+        if (step.selector !== undefined) {
+          const found = await find(step.selector)
+          if (!found) break
+          rect = found.rect
+        }
+        const typedInto = step.selector ?? 'where the keyboard is'
+        if (step.focus !== false && step.selector !== undefined) {
           const pressed = await act(
             { do: 'click', selector: step.selector },
             step.selector,
           )
           if (!pressed) break
         }
+        if (!(await keysWrite())) break
         const before = step.replace
           ? ['Meta+A']
           : step.at === 'end'
@@ -413,7 +484,7 @@ export async function runDesktopSteps(
               : []
         if (
           before.length &&
-          !(await act({ do: 'press', keys: before }, step.selector))
+          !(await act({ do: 'press', keys: before }, typedInto))
         )
           break
         if (
@@ -423,7 +494,7 @@ export async function runDesktopSteps(
               text: step.text,
               delayMs: step.delayMs ?? DESKTOP_TYPE_DELAY_MS,
             },
-            step.selector,
+            typedInto,
           ))
         )
           break
@@ -581,13 +652,46 @@ export async function runDesktopSteps(
       ...(didSkip ? { skipped: true } : {}),
     })
     if (stopped) break
+    // A step that missed ends a desktop take: the steps after it were written
+    // for a state the app is not in, and their keys would land wherever focus
+    // is. `"onSkip": "continue"` in the script goes on, as a page's take does.
+    const last = skipped[skipped.length - 1]
+    const off = disabled[disabled.length - 1]
+    const why = didSkip
+      ? (last?.reason ?? `nothing matches ${last?.selector ?? 'its target'}`)
+      : off && off.step === i
+        ? `${off.selector} is disabled, so it was not pressed`
+        : null
+    if (why && !goesOn) {
+      stopped = {
+        step: i,
+        ...(id ? { id } : {}),
+        reason: `${tag} missed (${why}), and a desktop take stops at the first miss so that no later key lands where the script did not mean. "onSkip": "continue" in the script goes on`,
+      }
+      steps[steps.length - 1]!.reason = stopped.reason
+      break
+    }
+    if (opts.until !== undefined && id === opts.until) {
+      reached = true
+      break
+    }
   }
 
   // The last step's result stays on screen a moment before the take ends.
-  if (!stopped && !capped) await clock.sleep(TRAILING_HOLD_MS)
+  if (!stopped && !capped && opts.until === undefined)
+    await clock.sleep(TRAILING_HOLD_MS)
   const pace = paceReport(paces)
   log(`   ${paceLine(pace)}`)
-  return { steps, skipped, disabled, confirmed, pace, capped, stopped }
+  return {
+    steps,
+    skipped,
+    disabled,
+    confirmed,
+    pace,
+    capped,
+    stopped,
+    ...(opts.until !== undefined ? { reached } : {}),
+  }
 }
 
 /** The step verbs a desktop take runs. */

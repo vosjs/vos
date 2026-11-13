@@ -40,7 +40,13 @@ interface Element {
 
 function fakeSession(
   elements: Record<string, Element>,
-  o: { fail?: Record<string, { code: string; message: string }> } = {},
+  o: {
+    fail?: Record<string, { code: string; message: string }>
+    /** What the keyboard is on, as the session reports it. Default: a text area. */
+    focus?: { role: string; name?: string } | null
+    /** A helper from before the question existed: it does not know the command. */
+    noFocusCommand?: boolean
+  } = {},
 ) {
   const clock = fakeClock()
   // The take began 250 ms before this side's clock read 1000.
@@ -72,6 +78,22 @@ function fakeSession(
       const tStart = take()
       const selector = 'selector' in command ? command.selector : undefined
       const e = selector !== undefined ? there(selector) : undefined
+      if (command.do === 'focused') {
+        if (o.noFocusCommand)
+          return {
+            ok: false,
+            code: 'bad-request',
+            message: '"focused" is not a command.',
+          }
+        const on = o.focus === undefined ? { role: 'textarea' } : o.focus
+        return {
+          ok: true,
+          tStart,
+          tEnd: take(),
+          frontmost: true,
+          ...(on ? { focused: { ...on, rect: TITLE.rect } } : {}),
+        }
+      }
       if (command.do === 'locate') {
         clock.spend(COST.locate!)
         return e
@@ -167,6 +189,36 @@ describe('desktopProblems', () => {
     expect(problems.join('\n')).toMatch(/steps\[3\]: expect js runs in a page/)
   })
 
+  it("onSkip and a type with no field are a desktop script's", () => {
+    const steps = [{ do: 'type', text: 'x', focus: false }]
+    expect(validateActions({ app: 'Code', onSkip: 'continue', steps })).toEqual(
+      [],
+    )
+    expect(validateActions({ steps }, { desktop: true })).toEqual([])
+    expect(validateActions({ steps })).toEqual([
+      'steps[0]: type needs a selector',
+    ])
+    expect(
+      validateActions({ app: 'Code', steps: [{ do: 'type', text: 'x' }] }),
+    ).toEqual([
+      'steps[0]: type needs a selector, or focus: false to type where the keyboard already is',
+    ])
+    expect(
+      validateActions({
+        url: 'https://example.com',
+        onSkip: 'stop',
+        steps: [{ do: 'wait', ms: 1 }],
+      })[0],
+    ).toMatch(/^onSkip is a desktop script’s/)
+    expect(
+      validateActions({
+        app: 'Code',
+        onSkip: 'maybe',
+        steps: [{ do: 'wait', ms: 1 }],
+      }),
+    ).toEqual(['onSkip must be "stop" or "continue"'])
+  })
+
   it('a script names a url or an app, never both', () => {
     expect(
       validateActions({
@@ -218,14 +270,15 @@ describe('runDesktopSteps', () => {
       'click',
       'locate', // the type waits for its field
       'click', // focus
+      'focused', // what the keys would go to, asked before the first one
       'press', // replace: select all
       'type',
       'press',
       'press',
     ])
-    expect(sent[5]).toEqual({ do: 'press', keys: ['Meta+A'] })
-    expect(sent[6]).toEqual({ do: 'type', text: 'hello', delayMs: 40 })
-    expect(sent[7]).toEqual({ do: 'press', keys: 'Meta+S' })
+    expect(sent[6]).toEqual({ do: 'press', keys: ['Meta+A'] })
+    expect(sent[7]).toEqual({ do: 'type', text: 'hello', delayMs: 40 })
+    expect(sent[8]).toEqual({ do: 'press', keys: 'Meta+S' })
 
     const [click, type, press, wait] = result.steps
     expect(click).toMatchObject({
@@ -262,25 +315,122 @@ describe('runDesktopSteps', () => {
     expect(result.steps[0]!.tEnd).toBeGreaterThan(1.5)
   })
 
-  it('skips a step whose element never comes, and goes on', async () => {
-    const { result, logs } = await run(
+  it('stops at the first step that misses: nothing after it runs', async () => {
+    const { result, sent, logs } = await run(
       { "button[id='save']": SAVE },
       {
         steps: [
           { do: 'click', selector: "button[name='Nope']", id: 'nope' },
           { do: 'click', selector: "button[id='save']" },
+          { do: 'press', keys: 'Enter' },
         ],
       },
     )
     expect(result.skipped).toEqual([
       { step: 0, id: 'nope', do: 'click', selector: "button[name='Nope']" },
     ])
+    expect(result.steps).toHaveLength(1)
     expect(result.steps[0]).toMatchObject({ skipped: true })
     expect(result.steps[0]!.tEnd - result.steps[0]!.tStart).toBeGreaterThan(
       DESKTOP_FIND_MS / 1000,
     )
-    expect(result.steps[1]!.skipped).toBeUndefined()
+    expect(result.stopped).toMatchObject({ step: 0, id: 'nope' })
+    expect(result.stopped!.reason).toMatch(
+      /missed \(nothing matches button\[name='Nope'\]\), and a desktop take stops at the first miss/,
+    )
+    // No click and no key after the miss: that is the whole point.
+    expect(sent.some((c) => c.do === 'click' || c.do === 'press')).toBe(false)
     expect(logs.join('\n')).toMatch(/nothing matches button\[name='Nope'\]/)
+  })
+
+  it('goes on past a miss when the script says onSkip: continue', async () => {
+    const { result } = await run(
+      { "button[id='save']": SAVE },
+      {
+        onSkip: 'continue',
+        steps: [
+          { do: 'click', selector: "button[name='Nope']", id: 'nope' },
+          { do: 'click', selector: "button[id='save']" },
+        ],
+      },
+    )
+    expect(result.stopped).toBeNull()
+    expect(result.steps).toHaveLength(2)
+    expect(result.steps[1]!.skipped).toBeUndefined()
+  })
+
+  it('refuses to type where keys are commands, before the first key', async () => {
+    const { result, sent } = await run(
+      {},
+      {
+        steps: [
+          { do: 'type', text: 'await preflight([', focus: false, id: 'write' },
+          { do: 'press', keys: 'Enter' },
+        ],
+      },
+      {},
+      { focus: { role: 'row', name: 'src' } },
+    )
+    expect(sent.some((c) => c.do === 'type' || c.do === 'press')).toBe(false)
+    expect(result.stopped).toMatchObject({ step: 0, id: 'write' })
+    expect(result.stopped!.reason).toMatch(
+      /the keyboard is on a row \("src"\), where typed keys are commands, not text: nothing was typed/,
+    )
+    expect(result.steps).toHaveLength(1)
+  })
+
+  it('types where the keyboard is when the step names no field', async () => {
+    const { result, sent } = await run(
+      {},
+      {
+        steps: [{ do: 'type', text: 'one\ntwo', focus: false, id: 'write' }],
+      },
+    )
+    expect(sent.map((c) => c.do)).toEqual(['now', 'focused', 'type'])
+    expect(sent[2]).toEqual({ do: 'type', text: 'one\ntwo', delayMs: 40 })
+    expect(result.stopped).toBeNull()
+    // The step's bounds are the focused element's, not the whole window's.
+    expect(result.steps[0]!.rect).toEqual(TITLE.rect)
+
+    // A surface the app draws itself names no role a field has: it is typed into.
+    const canvas = await run(
+      {},
+      { steps: [{ do: 'type', text: 'x', focus: false }] },
+      {},
+      { focus: { role: 'group' } },
+    )
+    expect(canvas.result.stopped).toBeNull()
+    // A helper from before the question existed is taken at its word.
+    const old = await run(
+      {},
+      { steps: [{ do: 'type', text: 'x', focus: false }] },
+      {},
+      { noFocusCommand: true },
+    )
+    expect(old.result.stopped).toBeNull()
+    expect(old.sent.at(-1)).toMatchObject({ do: 'type' })
+  })
+
+  it('with until, stops after that step and says it was reached', async () => {
+    const { result, sent } = await run(
+      { "button[id='save']": SAVE },
+      {
+        steps: [
+          { do: 'click', selector: "button[id='save']", id: 'open' },
+          { do: 'press', keys: 'Enter', id: 'after' },
+        ],
+      },
+      { until: 'open' },
+    )
+    expect(result.reached).toBe(true)
+    expect(result.steps).toHaveLength(1)
+    expect(sent.some((c) => c.do === 'press')).toBe(false)
+    const never = await run(
+      { "button[id='save']": SAVE },
+      { steps: [{ do: 'click', selector: "button[id='save']", id: 'open' }] },
+      { until: 'nowhere' },
+    )
+    expect(never.result.reached).toBe(false)
   })
 
   it('reaches a disabled control and says it was not pressed', async () => {
@@ -292,6 +442,10 @@ describe('runDesktopSteps', () => {
       { step: 0, id: 'off', selector: 'button.off' },
     ])
     expect(result.skipped).toEqual([])
+    // A press that did not happen is a miss too: the take stops on it.
+    expect(result.stopped!.reason).toMatch(
+      /button\.off is disabled, so it was not pressed/,
+    )
   })
 
   it('an expect holds when the words appear, and is a skip with a reason when they do not', async () => {

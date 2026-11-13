@@ -245,7 +245,7 @@ describe('vos record --windows', () => {
     expect(requests).toHaveLength(0)
     expect(text).toMatch(/41\s+TextEdit\s+656×422/)
     expect(text).toMatch(
-      /42\s+TextEdit\s+520×222\s+\(untitled: an alert or a panel\)/,
+      /42\s+TextEdit\s+520×222\s+pid 4100\s+\(untitled: an alert or a panel\)/,
     )
     expect(text).toMatch(/vos record --app/)
   })
@@ -298,6 +298,7 @@ describe('vos record --app --actions: a scripted desktop take', () => {
       'click',
       'locate',
       'click',
+      'focused',
       'type',
       'press',
     ])
@@ -338,31 +339,80 @@ describe('vos record --app --actions: a scripted desktop take', () => {
     expect(requests[0]!.size).toBeUndefined()
   })
 
-  it('--strict fails a take with a step that did not hold, and says which', async () => {
-    const file = await script('s3', {
-      steps: [
-        { do: 'click', selector: "button[id='save']", ms: 0 },
-        { do: 'expect', text: 'Saved', timeout: 0.2, id: 'saved' },
-      ],
-    })
-    const args = [
+  it('stops at the first step that misses, and --strict fails what onSkip: continue lets through', async () => {
+    const steps = [
+      { do: 'click', selector: "button[id='save']", ms: 0 },
+      { do: 'expect', text: 'Saved', timeout: 0.2, id: 'saved' },
+      { do: 'press', keys: 'Enter', id: 'after', ms: 0 },
+    ]
+    const stops = await script('s3', { steps })
+    const base = (file: string, out: string) => [
       '--app',
       'TextEdit',
       '--actions',
       file,
       '--out',
-      join(dir, 's3'),
+      join(dir, out),
     ]
-    const loose = await run(args)
+    // By default the take ends at the miss: the key after it is never pressed.
+    const stopped = await run([...base(stops, 's3'), '--json'])
+    expect(stopped.code).toBe(1)
+    expect(stopped.done).toMatchObject({ ok: false, steps: 2 })
+    expect((stopped.done!.stopped as { reason: string }).reason).toMatch(
+      /#1 saved expect missed \(text "Saved" did not appear within 0.2 s\), and a desktop take stops at the first miss/,
+    )
+    expect(stopped.commands.some((c) => c.do === 'press')).toBe(false)
+    const said = await run(base(stops, 's3b'))
+    expect(said.text).toMatch(/^FAILED: the take stopped at step #1/)
+
+    // A script that says so goes on; the miss is then --strict's to fail.
+    const goes = await script('s3c', { onSkip: 'continue', steps })
+    const loose = await run(base(goes, 's3c'))
     expect(loose.code).toBe(0)
     expect(loose.text).toMatch(
       /SKIPPED: #1 saved expect: text "Saved" did not appear within 0.2 s/,
     )
-
-    const strict = await run([...args, '--strict', '--json'])
+    expect(loose.commands.some((c) => c.do === 'press')).toBe(true)
+    const strict = await run([...base(goes, 's3d'), '--strict', '--json'])
     expect(strict.code).toBe(2)
     expect(strict.done).toMatchObject({ strictFailed: true })
-    expect((strict.done!.skipped as unknown[]).length).toBe(1)
+  })
+
+  it('refuses to type onto a row, and types where the keyboard is when no field is named', async () => {
+    const blind = await script('s4', {
+      steps: [{ do: 'type', text: 'hello', focus: false, id: 'write', ms: 0 }],
+    })
+    const args = ['--app', 'TextEdit', '--actions', blind, '--json']
+    const ok = await run([...args, '--out', join(dir, 's4')])
+    expect(ok.code).toBe(0)
+    expect(ok.commands.map((c) => c.do)).toEqual(['now', 'focused', 'type'])
+
+    const onRow = await run([...args, '--out', join(dir, 's4b')], {
+      focus: { role: 'row', name: 'src' },
+    })
+    expect(onRow.code).toBe(1)
+    expect(onRow.commands.some((c) => c.do === 'type')).toBe(false)
+    expect((onRow.done!.stopped as { reason: string }).reason).toMatch(
+      /the keyboard is on a row \("src"\), where typed keys are commands/,
+    )
+  })
+
+  it('--pid names a process, the one way to tell two instances apart', async () => {
+    const { code, requests } = await run([
+      '--pid',
+      '4100',
+      '--seconds',
+      '3',
+      '--out',
+      join(dir, 'p1'),
+    ])
+    expect(code).toBe(0)
+    expect(requests[0]).toMatchObject({ pid: 4100 })
+    expect(requests[0]!.app).toBeUndefined()
+    await expect(run(['--pid', 'x', '--out', join(dir, 'p2')])).rejects.toThrow(
+      /--pid expects/,
+    )
+    expect(isDesktopRecord(['--pid', '4100'])).toBe(true)
   })
 
   it('refuses, before anything is recorded, what a desktop take cannot run', async () => {
