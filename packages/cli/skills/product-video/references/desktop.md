@@ -121,13 +121,18 @@ for it to be, and four things change.
    delete it. A step that spends (a generation, a send) carries
    `"guard": "spend"`, and the command names it with `--confirm <id>`:
    once, in the take, never in a walk.
-4. **A result that arrives later is two takes.** A desktop take cannot
-   stop its camera and wait. Take A ends a few seconds into the wait, on
-   the product working. Wait off camera with `vos look --pid <n> --json`,
-   which acts on nothing, until what only a running job has is gone (a
-   Stop button). Look at the result, script take B from that state, and
-   make them one film: `vos join take-a take-b --out film`. Say the wait
-   in a caption with the time you measured.
+4. **A result that arrives later is two takes, or one long one.** A
+   desktop take cannot stop its camera and wait. Two takes: take A ends a
+   few seconds into the wait, on the product working. Wait off camera
+   with `vos look --pid <n> --json`, which acts on nothing, until what
+   only a running job has is gone (a Stop button). Look at the result,
+   script take B from that state, and make them one film:
+   `vos join take-a take-b --out film`. Say the wait in a caption with
+   the time you measured. One take (0.94 and later), when the working is
+   worth showing and the machine can be left alone for the whole wait:
+   an `expect` with `gone` and a `timeout` above the wait, cut down with
+   `segments` and a `speed` span. `references/multi-app.md`, "A long
+   task".
 
 **Quit what you launched, and only that**: end the process you started
 (`pkill -x <Name>` for an app that was not running before, `kill <pid>` for
@@ -202,6 +207,10 @@ window:
   stage).
 - **`Mod` is Command.** A menu-bar menu is not in the window: reach it with
   its key chord.
+- **A wide field that is typed into** (a terminal's text, an address
+  bar) has its words at the left. Frame the words; from 0.94 `vos
+  validate` holds such a zoom to the typed line and not to the field's
+  centre.
 
 ## What stops a take, and why you want it to
 
@@ -277,6 +286,9 @@ A bare push lands on the shelf as "Take take <date>".
   nothing said and nothing masked.
 - A hand-written undo script after every walk: it is the script's
   `teardown`.
-- One long take of a result that arrives in minutes: two takes, joined.
+- Clips of a long task taken on a clock: two takes joined, or one take
+  that waits inside itself (0.94 and later).
+- Scripting what answers back (a game, a live chart) with guessed
+  coordinates: that is a play, `references/multi-app.md`.
 - Pasting the full outline of a real window into your context.
 - Recording while the person is using the machine, without saying so.

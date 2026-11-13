@@ -83,6 +83,16 @@ is no rehearsal, and three rules come before any take.
   behind, and record a result that arrives later as two takes joined
   (`@vosjs/cli` 0.93 and later).
 
+- **A story across several apps is one take per app, joined.** A prompt
+  in a chat app, a command in a terminal, the result in a browser: each
+  window is its own take with its own stage, and `vos join` makes the
+  film. `references/multi-app.md` has the stages (a terminal, a browser,
+  a server), the join and the cut.
+- **What answers back is played by a program, never scripted.** A game,
+  a chart that moves, a drag that depends on where something landed:
+  `vos record --app <name> --play play.mjs` (`@vosjs/cli` 0.94 and
+  later), in `references/multi-app.md`.
+
 Everything below about destinations, the pre-flight, the cut and the push
 applies. Sessions, `--hosted` and `--dry-run` do not; a desktop `mask`
 covers and never rewrites words.
