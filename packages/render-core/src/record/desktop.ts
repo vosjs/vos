@@ -392,6 +392,226 @@ export async function runDesktopSetup(
   return { ran, lines }
 }
 
+/** What a play names a stretch of itself with. */
+export interface PlayMarks {
+  /** `false`: the planner proposes no zoom over this stretch (it is play, watched whole). */
+  zoom?: boolean
+  /** `true`: this stretch begins the film's payoff. */
+  payoff?: boolean
+  /** A beat's caption, as a script step's. */
+  caption?: string
+}
+
+/**
+ * What a PLAY is handed: the take that is being recorded, as a program
+ * can work it. A script is a list, and a list cannot play what answers
+ * back (a game, a chart that moves, a drag that depends on where
+ * something landed). A play is a loop: it looks, decides and acts, as
+ * often as it likes.
+ *
+ * `click`, `type` and `press` keep a scripted step's rules: an element is
+ * waited for, a disabled control is not pressed and says so, and nothing
+ * is typed where keys are commands. A miss throws, and the take ends
+ * there. `send` is the driver's command as it is, checked by nothing.
+ */
+export interface DesktopPlay {
+  send(command: DesktopCommand): Promise<DesktopAnswer>
+  /** Waits for a selector to name something. Throws when it never does. */
+  find(
+    selector: string,
+    timeoutMs?: number,
+  ): Promise<Extract<DesktopAnswer, { ok: true }>>
+  /**
+   * Waits for a selector to name nothing: a Stop button that leaves when
+   * the work is done. Throws when it is still there after `timeoutMs`.
+   */
+  gone(selector: string, timeoutMs?: number): Promise<void>
+  click(
+    target: string | { x: number; y: number },
+    opts?: {
+      count?: number
+      button?: 'left' | 'right'
+      modifiers?: DesktopModifier[]
+      /** How long a selector is waited for. */
+      timeoutMs?: number
+    },
+  ): Promise<void>
+  /** Types where the keyboard is, or into the field `selector` names (pressed first). */
+  type(
+    text: string,
+    opts?: { selector?: string; delayMs?: number; timeoutMs?: number },
+  ): Promise<void>
+  press(keys: string | string[]): Promise<void>
+  /** Moves the pointer to a point of the window, over `ms`. */
+  move(x: number, y: number, ms?: number): Promise<void>
+  sleep(ms: number): Promise<void>
+  /** Seconds on the take's clock, as of the last answer. */
+  now(): number
+  /** Names what `fn` does as ONE step of the take (`meta.steps`), and returns what it returns. */
+  step<T>(id: string, fn: () => Promise<T>, marks?: PlayMarks): Promise<T>
+}
+
+/**
+ * The window's tree could not be read just now: it moved, changed size or
+ * was covered as the helper looked. It passes, so a wait looks again.
+ */
+const treeIsAway = (answer: DesktopAnswer): boolean =>
+  !answer.ok && answer.code === 'no-tree'
+
+/** A play's miss: the step it was in, and why. */
+export class DesktopPlayError extends Error {
+  constructor(
+    message: string,
+    readonly step?: string,
+  ) {
+    super(message)
+  }
+}
+
+/**
+ * The helpers a play is handed, over a take that is being recorded, and
+ * what it left: the steps it named, in the footage's seconds, each with
+ * its marks (which `vos plan` and the music's ranking read off the step).
+ */
+export function desktopPlay(
+  session: DesktopSession,
+  log: (msg: string) => void,
+  opts: { clock?: RecorderClock } = {},
+): {
+  play: DesktopPlay
+  result(): { steps: StepSpan[] }
+} {
+  const clock: RecorderClock = opts.clock ?? {
+    now: Date.now,
+    sleep: realSleep,
+  }
+  const steps: StepSpan[] = []
+  let offset = 0
+  let current: string | undefined
+  const fail = (message: string): never => {
+    throw new DesktopPlayError(message, current)
+  }
+  const send = async (command: DesktopCommand): Promise<DesktopAnswer> => {
+    const answer = await session.send(command)
+    if (answer.ok) offset = answer.tEnd - clock.now()
+    return answer
+  }
+  const now = () => (clock.now() + offset) / 1000
+  const acted = async (command: DesktopCommand) => {
+    const answer = await send(command)
+    if (!answer.ok) return fail(answer.message)
+    return answer
+  }
+  const find: DesktopPlay['find'] = async (
+    selector,
+    timeoutMs = DESKTOP_FIND_MS,
+  ) => {
+    const deadline = clock.now() + timeoutMs
+    for (;;) {
+      const answer = await send({ do: 'locate', selector })
+      if (!answer.ok) {
+        if (!treeIsAway(answer) || clock.now() >= deadline)
+          return fail(answer.message)
+      } else if ((answer.count ?? 0) > 0) return answer
+      if (clock.now() >= deadline) return fail(`nothing matches ${selector}`)
+      await clock.sleep(DESKTOP_POLL_MS)
+    }
+  }
+  const gone: DesktopPlay['gone'] = async (
+    selector,
+    timeoutMs = DESKTOP_FIND_MS,
+  ) => {
+    const deadline = clock.now() + timeoutMs
+    for (;;) {
+      const answer = await send({ do: 'locate', selector })
+      if (!answer.ok) {
+        if (!treeIsAway(answer) || clock.now() >= deadline)
+          return fail(answer.message)
+      } else if ((answer.count ?? 0) === 0) return
+      if (clock.now() >= deadline)
+        return fail(
+          `${selector} is still there after ${+(timeoutMs / 1000).toFixed(1)} s`,
+        )
+      await clock.sleep(DESKTOP_POLL_MS)
+    }
+  }
+  const play: DesktopPlay = {
+    send,
+    find,
+    gone,
+    now,
+    sleep: (ms) => clock.sleep(ms),
+    click: async (target, o = {}) => {
+      const to: DesktopTarget =
+        typeof target === 'string' ? { selector: target } : target
+      const { timeoutMs, ...how } = o
+      if (typeof target === 'string') await find(target, timeoutMs)
+      const answer = await acted({ do: 'click', ...to, ...how })
+      if (answer.pressed === false)
+        fail(
+          `${typeof target === 'string' ? target : `${target.x},${target.y}`} is disabled, so it was not pressed`,
+        )
+    },
+    type: async (text, o = {}) => {
+      if (o.selector) {
+        await find(o.selector, o.timeoutMs)
+        await acted({ do: 'click', selector: o.selector })
+      }
+      // The same question a script's step asks before its first key.
+      const focus = await send({ do: 'focused' })
+      const on = focus.ok ? focus.focused : undefined
+      if (on && KEYS_ARE_COMMANDS.has(on.role)) {
+        const article = /^[aeiou]/.test(on.role) ? 'an' : 'a'
+        fail(
+          `the keyboard is on ${article} ${on.role}${on.name ? ` ("${on.name}")` : ''}, where typed keys are commands, not text: nothing was typed`,
+        )
+      }
+      await acted({
+        do: 'type',
+        text,
+        delayMs: o.delayMs ?? DESKTOP_TYPE_DELAY_MS,
+      })
+    },
+    press: async (keys) => {
+      const list = (Array.isArray(keys) ? keys : [keys]).map(desktopChord)
+      await acted({ do: 'press', keys: list.length === 1 ? list[0]! : list })
+    },
+    move: async (x, y, ms) => {
+      await acted({ do: 'move', x, y, ...(ms !== undefined ? { ms } : {}) })
+    },
+    step: async (id, fn, marks = {}) => {
+      if (current !== undefined)
+        fail(
+          `step "${id}" begins inside step "${current}": a step is not nested`,
+        )
+      if (steps.some((x) => x.id === id))
+        fail(`step "${id}" is named twice: a step's id is its own`)
+      current = id
+      const begun = await send({ do: 'now' })
+      const tStart = begun.ok ? begun.tEnd / 1000 : now()
+      log(`   play: ${id}`)
+      try {
+        return await fn()
+      } finally {
+        const ended = await send({ do: 'now' })
+        const tEnd = ended.ok ? ended.tEnd / 1000 : now()
+        steps.push({
+          step: steps.length,
+          id,
+          do: 'play',
+          tStart,
+          tEnd,
+          ...(marks.zoom !== undefined ? { zoom: marks.zoom } : {}),
+          ...(marks.payoff ? { payoff: true } : {}),
+          ...(marks.caption?.trim() ? { caption: marks.caption.trim() } : {}),
+        } as StepSpan)
+        current = undefined
+      }
+    },
+  }
+  return { play, result: () => ({ steps }) }
+}
+
 export interface DesktopRunOpts {
   /** Where the take stops, in seconds of footage. */
   maxDurationSeconds?: number
@@ -481,6 +701,7 @@ export async function runDesktopSteps(
     const extra: Partial<StepSpan> = {}
     if (step.guard) extra.guard = step.guard
     if (step.zoom !== undefined) extra.zoom = step.zoom
+    if (step.payoff === true) extra.payoff = true
     opts.onEvent?.({
       event: 'step',
       phase: 'start',
@@ -727,6 +948,12 @@ export async function runDesktopSteps(
         for (;;) {
           const answer = await send({ do: 'locate', selector })
           if (!answer.ok) {
+            // A window's tree can be unreadable for a moment (it moved, it
+            // was covered): a wait waits through that, to its own deadline.
+            if (treeIsAway(answer) && clock.now() < deadline) {
+              await clock.sleep(DESKTOP_POLL_MS)
+              continue
+            }
             missed(answer, said)
             break
           }

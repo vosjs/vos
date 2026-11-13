@@ -436,6 +436,12 @@ export interface StepSpan {
   /** SOURCE seconds the gesture occupied, [tStart, tEnd]. */
   tStart: number
   tEnd: number
+  /**
+   * `true` on the ONE step that is the film's payoff (the script's
+   * `"payoff": true`, or a play's mark), kept on the step so the film
+   * summary reads it whether or not the script travelled with the take.
+   */
+  payoff?: boolean
   /** the selector never became visible — the gesture did not run. */
   skipped?: boolean
   /**

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { validateActions } from '../actions'
 import {
   DESKTOP_FIND_MS,
+  DesktopPlayError,
   desktopChord,
+  desktopPlay,
   desktopProblems,
   runDesktopSetup,
   runDesktopSteps,
@@ -47,6 +49,8 @@ function fakeSession(
     focus?: { role: string; name?: string } | null
     /** A helper from before the question existed: it does not know the command. */
     noFocusCommand?: boolean
+    /** The window's tree cannot be read between these ms of the take. */
+    noTree?: [number, number]
   } = {},
 ) {
   const clock = fakeClock()
@@ -97,6 +101,13 @@ function fakeSession(
       }
       if (command.do === 'locate') {
         clock.spend(COST.locate!)
+        if (o.noTree && take() >= o.noTree[0] && take() < o.noTree[1])
+          return {
+            ok: false,
+            code: 'no-tree',
+            message:
+              'The window offers no accessibility tree to find elements in.',
+          }
         return e
           ? {
               ok: true,
@@ -740,5 +751,181 @@ describe('runDesktopSetup', () => {
       'setup',
     )
     expect(missing.result.failed?.error).toMatch(/TITLE is not set/)
+  })
+})
+
+describe('desktopPlay: a take driven by a program', () => {
+  const start = (
+    elements: Record<string, Element> = { "button[name='Save']": SAVE },
+    o: Parameters<typeof fakeSession>[1] = {},
+  ) => {
+    const fake = fakeSession(elements, o)
+    const logs: string[] = []
+    const made = desktopPlay(fake.session, (m) => logs.push(m), {
+      clock: fake.clock,
+    })
+    return { ...fake, logs, ...made }
+  }
+
+  it('names what the program does as steps, in the footage’s seconds, with their marks', async () => {
+    const { play, result, clock } = start()
+    await play.step('open', async () => {
+      await play.click("button[name='Save']")
+    })
+    const score = await play.step(
+      'fly',
+      async () => {
+        for (let i = 0; i < 3; i++) {
+          await play.move(100 + i * 40, 200, 80)
+          await play.sleep(100)
+        }
+        return 11250
+      },
+      { zoom: false, payoff: true, caption: ' It plays. ' },
+    )
+    expect(score).toBe(11250)
+    const { steps } = result()
+    expect(steps.map((x) => [x.step, x.id, x.do])).toEqual([
+      [0, 'open', 'play'],
+      [1, 'fly', 'play'],
+    ])
+    // The take's clock, not this side's: it began 750 ms before 1000.
+    expect(steps[0]!.tStart).toBeCloseTo(0.25, 3)
+    expect(steps[0]!.tEnd).toBeGreaterThan(steps[0]!.tStart)
+    expect(steps[1]!.tStart).toBeGreaterThanOrEqual(steps[0]!.tEnd)
+    expect(steps[1]!.tEnd - steps[1]!.tStart).toBeCloseTo(1.05, 2)
+    expect(steps[0]).not.toHaveProperty('zoom')
+    expect(steps[1]).toMatchObject({
+      zoom: false,
+      payoff: true,
+      caption: 'It plays.',
+    })
+    expect(play.now()).toBeCloseTo((clock.now() - 750) / 1000, 3)
+  })
+
+  it('waits for what it presses, and a miss throws with the step it was in', async () => {
+    const late = start({ "button[name='Save']": { ...SAVE, from: 900 } })
+    await late.play.click("button[name='Save']")
+    expect(late.sent.filter((c) => c.do === 'locate').length).toBeGreaterThan(1)
+    expect(late.sent.at(-1)).toMatchObject({ do: 'click' })
+
+    const none = start({})
+    const miss = none.play.step('save', () =>
+      none.play.click("button[name='Save']"),
+    )
+    await expect(miss).rejects.toBeInstanceOf(DesktopPlayError)
+    await expect(miss).rejects.toMatchObject({
+      step: 'save',
+      message: "nothing matches button[name='Save']",
+    })
+    // The step is kept up to where it stopped, and nothing was pressed.
+    expect(none.result().steps.map((x) => x.id)).toEqual(['save'])
+    expect(none.sent.some((c) => c.do === 'click')).toBe(false)
+    expect(none.clock.now() - 1000).toBeGreaterThanOrEqual(DESKTOP_FIND_MS)
+  })
+
+  it('does not press a disabled control, and says so', async () => {
+    const { play } = start({
+      "button[name='Save']": { ...SAVE, enabled: false },
+    })
+    await expect(play.click("button[name='Save']")).rejects.toThrow(
+      /is disabled, so it was not pressed/,
+    )
+  })
+
+  it('types nothing where keys are commands, and clicks a named field first', async () => {
+    const row = start({}, { focus: { role: 'row', name: 'notes' } })
+    await expect(row.play.type('hello')).rejects.toThrow(
+      /the keyboard is on a row \("notes"\), where typed keys are commands, not text: nothing was typed/,
+    )
+    expect(row.sent.some((c) => c.do === 'type')).toBe(false)
+
+    const field = start({ textfield: TITLE })
+    await field.play.type('hello', { selector: 'textfield' })
+    expect(field.sent.map((c) => c.do)).toEqual([
+      'locate',
+      'click',
+      'focused',
+      'type',
+    ])
+  })
+
+  it('writes a chord the way a script does, and send is the driver’s own command', async () => {
+    const { play, sent } = start()
+    await play.press('Mod+S')
+    await play.press(['Mod+A', 'Backspace'])
+    expect(sent[0]).toEqual({ do: 'press', keys: desktopChord('Mod+S') })
+    expect(sent[1]).toEqual({
+      do: 'press',
+      keys: [desktopChord('Mod+A'), 'Backspace'],
+    })
+    const answer = await play.send({ do: 'locate', selector: 'nothing' })
+    expect(answer).toMatchObject({ ok: true, count: 0 })
+  })
+
+  it('waits for something to go: the long task that ends when its Stop button leaves', async () => {
+    const stop = { rect: SAVE.rect, name: 'Stop' }
+    const done = start({ "button[name='Stop']": { ...stop, until: 60_000 } })
+    await done.play.step('wait', () =>
+      done.play.gone("button[name='Stop']", 20 * 60_000),
+    )
+    const [wait] = done.result().steps
+    expect(wait!.tEnd).toBeGreaterThanOrEqual(60)
+    expect(wait!.tEnd).toBeLessThan(61)
+
+    // The window's tree is unreadable for a moment mid-wait (it moved, it
+    // was covered): the wait looks again instead of ending the take.
+    const moved = start(
+      { "button[name='Stop']": { ...stop, until: 60_000 } },
+      { noTree: [8000, 9500] },
+    )
+    await moved.play.gone("button[name='Stop']", 20 * 60_000)
+    expect(moved.take()).toBeGreaterThanOrEqual(60_000)
+    // A tree that never comes back is said, at the wait's own deadline.
+    const blind = start({}, { noTree: [0, 1e9] })
+    await expect(blind.play.find('button', 900)).rejects.toThrow(
+      /offers no accessibility tree/,
+    )
+    expect(blind.take()).toBeGreaterThanOrEqual(900)
+
+    const stuck = start({ "button[name='Stop']": stop })
+    await expect(stuck.play.gone("button[name='Stop']", 1500)).rejects.toThrow(
+      "button[name='Stop'] is still there after 1.5 s",
+    )
+  })
+
+  it('a step is not nested, and its id is its own', async () => {
+    const { play } = start()
+    await expect(
+      play.step('a', () => play.step('b', async () => {})),
+    ).rejects.toThrow(/step "b" begins inside step "a"/)
+    await expect(play.step('a', async () => {})).rejects.toThrow(
+      /step "a" is named twice/,
+    )
+  })
+})
+
+describe('a scripted wait and a window that cannot be read for a moment', () => {
+  it('an expect waits through it, to its own deadline', async () => {
+    const stop = { rect: SAVE.rect, name: 'Stop' }
+    const actions: ActionsFile = {
+      app: 'TextEdit',
+      steps: [
+        { do: 'expect', gone: "button[name='Stop']", timeout: 120, id: 'done' },
+      ],
+    }
+    const waited = await run(
+      { "button[name='Stop']": { ...stop, until: 30_000 } },
+      actions,
+      {},
+      { noTree: [8000, 9500] },
+    )
+    expect(waited.result.stopped).toBeNull()
+    expect(waited.result.skipped).toEqual([])
+    expect(waited.take()).toBeGreaterThanOrEqual(30_000)
+
+    const never = await run({}, actions, {}, { noTree: [0, 1e9] })
+    expect(never.result.stopped?.reason).toMatch(/offers no accessibility tree/)
+    expect(never.take()).toBeGreaterThanOrEqual(120_000)
   })
 })

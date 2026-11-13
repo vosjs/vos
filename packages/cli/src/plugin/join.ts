@@ -60,7 +60,7 @@ import {
 } from './media'
 import { EXIT_ERROR, EXIT_OK, createReporter } from './output'
 import { loudnessFact, measureTrack } from './score'
-import { landStepCaptions } from './stepCaptions'
+import { landStepCaptions, raisedLine } from './stepCaptions'
 import { publicScript } from './takeScript'
 import { scriptDrift, scriptDriftLine } from './scriptStep'
 import { oneZoomPerBeat, perBeatLine, zoomModeOf } from './beats'
@@ -724,6 +724,7 @@ export async function cmdJoin(argv: string[]): Promise<number> {
   if (withCaptions) {
     captions = landStepCaptions(plan.doc, plan.actions, { only })
     for (const line of captions.held) plan.notes.push(line)
+    if (captions.raised.length) plan.notes.push(raisedLine(captions))
     for (const k of captions.uncaptioned)
       plan.notes.push(
         `no step in ${labelOf.get(k) ?? `media ${k}`} carries a caption`,

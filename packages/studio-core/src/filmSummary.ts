@@ -140,6 +140,13 @@ export function filmSummaryOf(
         if (r.start !== null && (said === null || r.start > said))
           said = r.start
       }
+      // The same mark, kept on the recorded step: a take whose script did
+      // not travel with it (a joined film's first input, a play) still says.
+      for (const st of source.meta.steps ?? []) {
+        if (st.payoff !== true || typeof st.tStart !== 'number') continue
+        const out = sourceMomentToOutput(rated, st.tStart, id || undefined)
+        if (out !== null && (said === null || out > said)) said = out
+      }
       for (const step of source.meta.steps ?? []) {
         if (step.navigated && typeof step.tEnd === 'number') {
           const out = sourceMomentToOutput(rated, step.tEnd, id || undefined)

@@ -78,6 +78,7 @@ describe('isDesktopRecord: which `vos record` is a desktop take', () => {
     expect(isDesktopRecord(['--app=TextEdit', '--out', 'take'])).toBe(true)
     expect(isDesktopRecord(['--window', '41'])).toBe(true)
     expect(isDesktopRecord(['--windows'])).toBe(true)
+    expect(isDesktopRecord(['--play', 'play.mjs'])).toBe(true)
   })
   it('is not a page take', () => {
     expect(isDesktopRecord(['--actions', 'actions.json'])).toBe(false)
@@ -623,5 +624,131 @@ describe('vos record --app --actions: a scripted desktop take', () => {
     const confirmed = await run([...g, '--confirm', 'buy', '--json'])
     expect(confirmed.code).toBe(0)
     expect(confirmed.done!.confirmed).toEqual(['buy'])
+  })
+})
+
+describe('vos record --app --play: a take played by a program', () => {
+  const program = async (name: string, source: string) => {
+    const file = join(dir, `${name}.play.mjs`)
+    await writeFile(file, source)
+    return file
+  }
+  const FLY = `
+export const take = { app: 'TextEdit', viewport: { width: 900, height: 600 } }
+export default async function (play, { window }) {
+  await play.step('start', async () => {
+    await play.click("button[id='save']")
+  })
+  await play.step(
+    'fly',
+    async () => {
+      for (let i = 0; i < 4; i++) {
+        await play.move(window.w / 2 + i * 10, window.h / 2, 40)
+        await play.sleep(5)
+      }
+    },
+    { zoom: false, payoff: true },
+  )
+}
+`
+
+  it('runs the program over the take, and keeps the steps it named', async () => {
+    const out = join(dir, 'p1')
+    const file = await program('p1', FLY)
+    const { code, requests, commands, done } = await run([
+      '--play',
+      file,
+      '--out',
+      out,
+      '--json',
+    ])
+    expect(code).toBe(0)
+    // The play's own take: the app it names, at the size it asks for.
+    expect(requests[0]).toMatchObject({
+      app: 'TextEdit',
+      drive: true,
+      size: { w: 900, h: 600 },
+      pointer: true,
+    })
+    expect(commands.filter((c) => c.do === 'move')).toHaveLength(4)
+    expect(commands.find((c) => c.do === 'move')).toMatchObject({
+      x: 328,
+      y: 211,
+    })
+
+    const meta = JSON.parse(await readFile(join(out, 'meta.json'), 'utf8'))
+    expect(meta.play).toBe('p1.play.mjs')
+    expect(meta.steps.map((s: { id: string }) => s.id)).toEqual([
+      'start',
+      'fly',
+    ])
+    expect(meta.steps[1]).toMatchObject({
+      do: 'play',
+      zoom: false,
+      payoff: true,
+    })
+    // No script is written for a played take: the program is the script.
+    expect(existsSync(join(out, 'actions.json'))).toBe(false)
+    expect(existsSync(join(out, 'doc.json'))).toBe(true)
+    expect(done).toMatchObject({ steps: 2, played: ['start', 'fly'] })
+  })
+
+  it('a program that throws fails the take, in the step it was in', async () => {
+    const file = await program(
+      'p3',
+      `export default async (play) => {
+  await play.step('open', () => play.click("button[id='gone']", { timeoutMs: 50 }))
+  await play.press('Enter')
+}`,
+    )
+    const base = ['--app', 'TextEdit', '--play', file, '--out']
+    const failed = await run([...base, join(dir, 'p3'), '--json'])
+    expect(failed.code).toBe(1)
+    expect(failed.done).toMatchObject({ ok: false, played: ['open'] })
+    expect((failed.done!.stopped as { reason: string }).reason).toMatch(
+      /^in step "open": nothing matches button\[id='gone'\]/,
+    )
+    expect(failed.commands.some((c) => c.do === 'press')).toBe(false)
+    const said = await run([...base, join(dir, 'p3b')])
+    expect(said.text).toMatch(/^FAILED: the play stopped in step "open"/)
+  })
+
+  it('refuses what is not a play, before anything is recorded', async () => {
+    const refuse = async (argv: string[], words: RegExp) => {
+      const before = vi.fn()
+      await expect(
+        run(argv).then((r) => {
+          before(r.requests.length)
+          return r
+        }),
+      ).rejects.toThrow(words)
+      expect(before).not.toHaveBeenCalled()
+    }
+    const ok = await program('p4', FLY)
+    await refuse(['--play', join(dir, 'nowhere.mjs')], /no such file/)
+    await refuse(
+      ['--play', await program('p4a', 'export const take = {}')],
+      /its default export is the program/,
+    )
+    await refuse(
+      [
+        '--play',
+        await program(
+          'p4b',
+          `export const take = { app: 'TextEdit', steps: [] }\nexport default async () => {}`,
+        ),
+      ],
+      /Steps are the program's/,
+    )
+    await refuse(
+      ['--play', await program('p4c', 'export default async () => {}')],
+      /vos record --app/,
+    )
+    await refuse(['--play', ok, '--actions', ok], /two ways to drive a take/)
+    await refuse(['--play', ok, '--dry-run'], /a play has no rehearsal/)
+    await refuse(
+      ['--play', ok, '--seconds', '5'],
+      /ends when its program returns/,
+    )
   })
 })

@@ -29,8 +29,15 @@
  */
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, rm } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
-import { desktopProblems, runDesktopSteps } from '@vosjs/render-core/record'
+import { basename, join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import {
+  DesktopPlayError,
+  desktopPlay,
+  desktopProblems,
+  runDesktopSteps,
+  validateActions,
+} from '@vosjs/render-core/record'
 import { UsageError, hasFlag, numFlag, parseArgs, strFlag } from './args'
 import {
   desktopSetup,
@@ -52,10 +59,12 @@ import { teardownLine } from './setup'
 import { prepareReRecord, readJson, takePaths, writeJson } from './take'
 import type {
   ActionsFile,
+  DesktopPlay,
   DesktopRunResult,
   SkippedStep,
   TeardownReport,
 } from '@vosjs/render-core/record'
+import type { StepSpan } from '@vosjs/studio-core'
 import type { CursorEvent, RecordingMeta } from '@vosjs/studio-core'
 import type { DriverWindow, RecordRequest, StoppedEvent } from '@vosjs/driver'
 
@@ -64,6 +73,7 @@ const BOOLEAN_FLAGS = new Set(['json', 'help', 'windows', 'strict', 'dry-run'])
 const USAGE =
   'vos record --app <name|bundle id> [--out take] [--seconds <n>] [--max-duration <s>] [--background <slug|url|none>] [--json]\n' +
   '       vos record --app <name|bundle id> --actions actions.json [--out take] [--strict] [--confirm <id>]... …   scripted\n' +
+  '       vos record --app <name|bundle id> --play play.mjs [--out take] …   played by a program\n' +
   '       vos record --window <id> …   one window by its id\n' +
   '       vos record --pid <n> …       a process’s window: two instances of one app share a name\n' +
   '       vos record --windows         list the windows that can be recorded'
@@ -88,6 +98,8 @@ export function isDesktopRecord(argv: string[]): boolean {
       a === '--window' ||
       a === '--windows' ||
       a === '--pid' ||
+      a === '--play' ||
+      a.startsWith('--play=') ||
       a.startsWith('--app=') ||
       a.startsWith('--pid=') ||
       a.startsWith('--window='),
@@ -143,6 +155,62 @@ export async function scriptNamesApp(
   } catch {
     return false
   }
+}
+
+/** What a play's file exports: the program, and the take it is recorded as. */
+export interface PlayModule {
+  /** The program: handed the take as a program can work it, and the window's size in points. */
+  run: (
+    play: DesktopPlay,
+    info: { window: { w: number; h: number } },
+  ) => Promise<unknown>
+  /**
+   * The take, in a desktop script's own words: `app`, `viewport`, `mask`,
+   * `setup`, `teardown`. It has no steps; the program is the steps.
+   */
+  take: ActionsFile
+}
+
+/**
+ * Loads a play: a module whose default export is the program and whose
+ * `take` export (optional) says what a desktop script's head says. The
+ * program is the person's own code and runs with their permissions, as a
+ * test they wrote would.
+ */
+export async function loadPlay(file: string): Promise<PlayModule> {
+  if (!existsSync(file)) throw new UsageError(`--play ${file}: no such file`)
+  let mod: Record<string, unknown>
+  try {
+    mod = (await import(/* @vite-ignore */ pathToFileURL(file).href)) as Record<
+      string,
+      unknown
+    >
+  } catch (error) {
+    throw new UsageError(
+      `--play ${file} could not be loaded: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+  if (typeof mod.default !== 'function')
+    throw new UsageError(
+      `--play ${file}: its default export is the program, an async function (play, info) => …`,
+    )
+  const head =
+    mod.take && typeof mod.take === 'object'
+      ? (mod.take as Record<string, unknown>)
+      : {}
+  if ('steps' in head || 'url' in head)
+    throw new UsageError(
+      `--play ${file}: its take names an app, a viewport, a mask, a setup and a teardown. Steps are the program's, and a url is a page's`,
+    )
+  // Read as a script with one placeholder step, so what a desktop script
+  // refuses is refused here in the same words.
+  const take = { ...head, steps: [{ do: 'wait', ms: 1 }] }
+  const errors = validateActions(take)
+  if (errors.length)
+    throw new UsageError(
+      `--play ${file}: its take is not well formed:\n  ${errors.join('\n  ')}`,
+    )
+  return { run: mod.default as PlayModule['run'], take: take as ActionsFile }
 }
 
 export async function loadDriver(): Promise<DesktopDriver> {
@@ -206,7 +274,32 @@ export async function cmdRecordApp(
   const actionsPath = strFlag(flags, 'actions') ?? positionals[0]
   let actions: ActionsFile | undefined
   let confirm: string[] = []
-  if (actionsPath && flags.windows !== true) {
+  const playPath = strFlag(flags, 'play')
+  let play: PlayModule | undefined
+  if (playPath && flags.windows !== true) {
+    if (actionsPath)
+      throw new UsageError(
+        '--play and --actions are two ways to drive a take: a program, or a list of steps. Give one',
+      )
+    if (flags['dry-run'] === true)
+      throw new UsageError(
+        'a play has no rehearsal: a dry run would press the app’s real controls',
+      )
+    if (hasFlag(flags, 'seconds'))
+      throw new UsageError(
+        '--seconds is a performed take’s length; a played take ends when its program returns (--max-duration caps it)',
+      )
+    play = await loadPlay(resolve(playPath))
+    actions = play.take
+    const selectorProblem = await driverSelectorProblem(deps.driver)
+    const problems = desktopProblems(actions, { selectorProblem })
+    if (problems.length)
+      throw new UsageError(
+        `not a take a desktop play can be recorded as:\n  ${problems.join('\n  ')}`,
+      )
+    const stage = desktopStageProblem(actions, selectorProblem !== undefined)
+    if (stage) throw new UsageError(stage)
+  } else if (actionsPath && flags.windows !== true) {
     actions = await loadActions(resolve(actionsPath), { desktop: true })
     const selectorProblem = await driverSelectorProblem(deps.driver)
     const problems = desktopProblems(actions, { selectorProblem })
@@ -331,6 +424,7 @@ export async function cmdRecordApp(
   process.on('SIGTERM', end)
   let stopped: StoppedEvent
   let run: DesktopRunResult | undefined
+  let played: { steps: StepSpan[]; failed?: string } | undefined
   let teardown: TeardownReport | undefined
   try {
     const ready = await take.ready
@@ -351,14 +445,43 @@ export async function cmdRecordApp(
     })
     r.log(
       `recording ${ready.app || 'the window'} (${ready.captureWidth}×${ready.captureHeight})${
-        actions
-          ? `, ${actions.steps.length} step${actions.steps.length === 1 ? '' : 's'}. Leave the machine alone until it ends`
-          : seconds !== undefined
-            ? ` for ${seconds}s`
-            : '. Use the app; Ctrl-C ends the take'
+        play
+          ? ', played by a program. Leave the machine alone until it ends'
+          : actions
+            ? `, ${actions.steps.length} step${actions.steps.length === 1 ? '' : 's'}. Leave the machine alone until it ends`
+            : seconds !== undefined
+              ? ` for ${seconds}s`
+              : '. Use the app; Ctrl-C ends the take'
       }…`,
     )
-    if (actions) {
+    if (play && actions) {
+      // The program is the steps. What it throws ends the take where it
+      // was, as a scripted step that misses does; the steps it named up to
+      // there are the take's.
+      const session = desktopPlay(take, r.log)
+      let failed: string | undefined
+      try {
+        await play.run(session.play, {
+          window: { w: ready.frame.w, h: ready.frame.h },
+        })
+      } catch (error) {
+        if (!interrupted)
+          failed =
+            (error instanceof DesktopPlayError && error.step
+              ? `in step "${error.step}": `
+              : '') +
+            (error instanceof Error ? error.message : String(error)).replace(
+              /\.+$/,
+              '',
+            )
+      }
+      played = { ...session.result(), ...(failed ? { failed } : {}) }
+      stopped = await take.stop()
+      if (actions.teardown?.length) {
+        r.event({ event: 'phase', phase: 'teardown' })
+        teardown = await desktopTeardown(driver, target, actions, r.log)
+      }
+    } else if (actions) {
       try {
         run = await runDesktopSteps(take, actions, r.log, {
           maxDurationSeconds: cap,
@@ -397,7 +520,31 @@ export async function cmdRecordApp(
   // A scripted take keeps its script and its step spans, as a page's does:
   // the planner groups presses by step, a pin finds its step, and recording
   // again matches the new steps to the old.
-  if (actions) {
+  const maskMeta = (matched: { matched: number }[] | undefined) =>
+    masks
+      ? {
+          masks: masks.map((m, i) => ({
+            selector: m.selector,
+            as: 'blur' as const,
+            hits: matched?.[i]?.matched ?? 0,
+          })),
+        }
+      : {}
+  if (played) {
+    // A played take keeps the steps its program named, marks and all: the
+    // planner, a pin and the music's ranking read them off the take.
+    const meta = await readJson<RecordingMeta>(paths.meta)
+    await writeJson(
+      paths.meta,
+      {
+        ...meta,
+        steps: played.steps,
+        play: basename(playPath ?? ''),
+        ...maskMeta((stopped as { masks?: { matched: number }[] }).masks),
+      },
+      true,
+    )
+  } else if (actions) {
     if (run) {
       const meta = await readJson<RecordingMeta>(paths.meta)
       await writeJson(
@@ -429,7 +576,6 @@ export async function cmdRecordApp(
   }
 
   const plan = await planTake(outDir, { backdrop })
-
   const said = notes.length
   if (stopped.reason === 'cap' && seconds === undefined)
     notes.push('stopped at --max-duration')
@@ -442,7 +588,7 @@ export async function cmdRecordApp(
     notes.push(
       `another app's window was over this one for a moment: ${held} frame${held === 1 ? ' was' : 's were'} held back so it is not in the take`,
     )
-  if (actions && !run)
+  if (actions && !run && !played)
     notes.push('the take was interrupted before the script finished')
   const covered = (stopped as { masks?: { matched: number }[] }).masks ?? []
   masks?.forEach((m, i) => {
@@ -493,6 +639,29 @@ export async function cmdRecordApp(
         .join('')
     : ''
 
+  const playFields = played
+    ? {
+        steps: played.steps.length,
+        played: played.steps.map((s) => s.id),
+        ...(masks ? { masks: covered } : {}),
+        ...(teardown ? { teardown } : {}),
+        ...(played.failed
+          ? { ok: false, stopped: { reason: played.failed } }
+          : {}),
+      }
+    : {}
+  const playLines = played
+    ? [
+        ...(masks
+          ? [
+              `covered before encoding: ${masks.map((m, i) => `${m.selector} (${covered[i]?.matched ?? 0})`).join(', ')}`,
+            ]
+          : []),
+        ...(teardown ? [teardownLine(teardown)] : []),
+      ]
+        .map((l) => `\n  ${l}`)
+        .join('')
+    : ''
   const length = (stopped.durationMs / 1000).toFixed(1)
   const cursorLine = events.length
     ? `${events.length} cursor events (${clicks} click${clicks === 1 ? '' : 's'}, ${typing} typing ping${typing === 1 ? '' : 's'}); ${plan.zoomAuto} zoom${plan.zoomAuto === 1 ? '' : 's'} planned`
@@ -510,12 +679,19 @@ export async function cmdRecordApp(
       backdrop: plan.backdrop ?? null,
       notes,
       ...scriptFields,
+      ...playFields,
     },
-    run?.stopped
-      ? `FAILED: the take stopped at step #${run.stopped.step}: ${run.stopped.reason}${scriptLines}`
-      : strict
-        ? `STRICT: take recorded but incomplete: ${strict}; fix the script and record again.${scriptLines}`
-        : `Recorded ${targetWords(target)} → ${outDir}/recording.mp4 (${length}s, ${stopped.frames} frames${run ? `, ${run.steps.length} steps` : ''})\n  ${cursorLine}${scriptLines}\n  Next: vos digest ${outDir} — look before you cut; edit doc.json; vos open ${outDir} or vos push ${outDir}`,
+    played?.failed
+      ? `FAILED: the play stopped${played.failed.startsWith('in step') ? ' ' : ': '}${played.failed}. The take holds what was recorded up to there; it is not one to cut.${playLines}`
+      : run?.stopped
+        ? `FAILED: the take stopped at step #${run.stopped.step}: ${run.stopped.reason}${scriptLines}`
+        : strict
+          ? `STRICT: take recorded but incomplete: ${strict}; fix the script and record again.${scriptLines}`
+          : `Recorded ${targetWords(target)} → ${outDir}/recording.mp4 (${length}s, ${stopped.frames} frames${run ? `, ${run.steps.length} steps` : played ? `, ${played.steps.length} named step${played.steps.length === 1 ? '' : 's'}` : ''})\n  ${cursorLine}${scriptLines}${playLines}\n  Next: vos digest ${outDir} — look before you cut; edit doc.json; vos open ${outDir} or vos push ${outDir}`,
   )
-  return run?.stopped ? EXIT_ERROR : strict ? EXIT_USAGE : EXIT_OK
+  return run?.stopped || played?.failed
+    ? EXIT_ERROR
+    : strict
+      ? EXIT_USAGE
+      : EXIT_OK
 }
