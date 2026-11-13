@@ -228,6 +228,53 @@ describe('planAutoZoom', () => {
     expect(dwells[0].in).toBeGreaterThanOrEqual(1.4)
   })
 
+  it('proposes nothing over a stretch a program marked as play, and no span reaches into it', () => {
+    const btn = { x: 900, y: 500, w: 120, h: 80 }
+    const press = (t: number, x = 960, y = 540) =>
+      [
+        { t, x, y, type: 'down', rect: btn },
+        { t: t + 80, x, y, type: 'up', rect: btn },
+      ] as CursorTrack
+    const track: CursorTrack = [
+      { t: 0, x: 10, y: 10, type: 'move' },
+      // Two presses that start the thing.
+      ...press(1000),
+      ...press(1600),
+      // Play, 3 s to 12 s: presses all over, and a long rest mid-flight.
+      ...press(4000, 300, 200),
+      ...press(4600, 1500, 800),
+      { t: 6000, x: 700, y: 400, type: 'move' },
+      { t: 9000, x: 702, y: 401, type: 'move' },
+      { t: 9100, x: 200, y: 900, type: 'move' },
+      ...press(11000, 1200, 300),
+      // Two presses after it.
+      ...press(13000),
+      ...press(13600),
+      { t: 16000, x: 960, y: 540, type: 'move' },
+    ]
+    const opts = { width: W, height: H, style: 'glide' as const }
+    const fly = { step: 1, id: 'fly', do: 'play', tStart: 3, tEnd: 12 }
+    const unmarked = planAutoZoom(track, { ...opts, steps: [fly] })
+    expect(unmarked.some((z) => z.in < 12 && z.out > 3.01)).toBe(true)
+
+    const marked = planAutoZoom(track, {
+      ...opts,
+      steps: [{ ...fly, zoom: false }],
+    })
+    // Nothing shares a moment with the play; what frames the presses on
+    // either side is still there, ending where the play begins.
+    for (const z of marked) expect(z.out <= 3 || z.in >= 12).toBe(true)
+    expect(marked.some((z) => z.out <= 3)).toBe(true)
+    expect(marked.some((z) => z.in >= 12)).toBe(true)
+    // The mark is a play's: a scripted step's `zoom: false` is still the
+    // plan verb's to reject, said in its report.
+    const scripted = planAutoZoom(track, {
+      ...opts,
+      steps: [{ ...fly, do: 'click', zoom: false }],
+    })
+    expect(scripted).toEqual(unmarked)
+  })
+
   it('never dwells on the opening run (the parked cursor before the first move)', () => {
     // A CLI take's synthetic cursor rests at the corner until the first
     // step; six of eight real takes opened on a corner zoom at the ceiling.

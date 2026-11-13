@@ -11,9 +11,11 @@ import {
 } from '@vosjs/studio-core'
 import { FULL_BLEED_FRAME, cmdJoin, joinDocs } from '../join'
 import {
+  CAPTION_TOP_Y,
   STEP_CAPTIONS_FROM,
   bareCaptionsFlag,
   landStepCaptions,
+  raisedLine,
 } from '../stepCaptions'
 import { lintDoc } from '../validateDoc'
 import { writeFixtureMp4 } from './fixtureMedia'
@@ -497,6 +499,80 @@ describe('step captions', () => {
       'step-open',
     ])
     expect(lintDoc(doc).problems).toEqual([])
+  })
+
+  it('an input pressed in its lower third has its captions at the top, each input for itself', () => {
+    const a = takeA()
+    const h = a.source.meta.height
+    const w = a.source.meta.width
+    const press = (t: number, y: number, rh = 40) =>
+      ({
+        t,
+        x: w / 2,
+        y,
+        type: 'down',
+        rect: { x: w / 4, y: y - rh / 2, w: w / 2, h: rh },
+      }) as ProjectDoc['source']['cursor'][number]
+    const say = (doc: ProjectDoc) =>
+      landStepCaptions(
+        doc,
+        new Map([
+          [
+            '',
+            {
+              steps: [
+                {
+                  do: 'click' as const,
+                  selector: '#open',
+                  id: 'open',
+                  caption: 'Ask for it',
+                },
+                {
+                  do: 'click' as const,
+                  selector: '#save',
+                  id: 'save',
+                  caption: 'Keep it',
+                },
+              ],
+            },
+          ],
+        ]),
+      )
+    const ys = (doc: ProjectDoc) =>
+      doc
+        .overlays!.filter((o) => o.from === STEP_CAPTIONS_FROM)
+        .map((o) => o.transform.y)
+
+    // A composer at the foot of the window: the lower third is the app's.
+    const chat = takeA()
+    chat.source.cursor = [press(2000, h * 0.9), press(6000, h * 0.9)]
+    const raised = say(chat)
+    expect(raised.raised).toEqual([''])
+    expect(ys(chat)).toEqual([CAPTION_TOP_Y, CAPTION_TOP_Y])
+    expect(raisedLine(raised)).toMatch(
+      /^captions over this take sit at the top: the lower third is where that take was pressed/,
+    )
+    expect(lintDoc(chat).problems).toEqual([])
+
+    // Pressed mid-window, or at both ends, or not at all: the house place.
+    const mid = takeA()
+    mid.source.cursor = [press(2000, h * 0.5)]
+    expect(say(mid).raised).toEqual([])
+    expect(ys(mid).every((y) => y > 0.8)).toBe(true)
+    const both = takeA()
+    both.source.cursor = [press(2000, h * 0.9), press(6000, h * 0.08)]
+    expect(say(both).raised).toEqual([])
+    expect(say(takeA()).raised).toEqual([])
+    expect(raisedLine(say(takeA()))).toBe('')
+
+    // A terminal: one element as tall as the window, pressed at its top
+    // line. It counts as that line, not as the whole window.
+    const term = takeA()
+    term.source.cursor = [press(2000, h * 0.5, h * 0.96)]
+    expect(say(term).raised).toEqual([])
+    const low = takeA()
+    low.source.cursor = [{ ...press(2000, h * 0.5, h * 0.96), y: h * 0.9 }]
+    expect(say(low).raised).toEqual([''])
   })
 
   it('a bare --captions on plan asks for them; --captions none keeps its meaning', () => {

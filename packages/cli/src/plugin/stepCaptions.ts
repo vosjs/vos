@@ -12,6 +12,7 @@
  * alone. Pure: the caller hands in each media's actions.json.
  */
 import {
+  docCardLayout,
   docMediaList,
   findStep,
   mediaKey,
@@ -51,6 +52,71 @@ export interface StepCaptionReport {
   held: string[]
   /** The media (`''` = the primary) that have steps and not one caption among them. */
   uncaptioned: string[]
+  /**
+   * The media (`''` = the primary) whose captions were put at the top:
+   * the lower third is where that take was pressed or typed into.
+   */
+  raised: string[]
+}
+
+/** Where a house caption sits when the lower third is the app's own. */
+export const CAPTION_TOP_Y = 0.14
+/** Half the height a caption's band is taken to have, as a frame fraction. */
+const CAPTION_BAND = 0.07
+/** How tall a typed line, or a press on a surface, is taken to be, in the take's points. */
+const PRESS_LINE = 44
+
+/**
+ * Whether one input's captions belong at the top of the frame: its
+ * presses reach the lower third (a chat's composer, a status bar's
+ * control) and leave the top alone. One answer per input, so the words do
+ * not move about within an app. An input pressed in both bands, or in
+ * neither, keeps the lower third.
+ *
+ * A press is its element, except where the element says little about
+ * where the work is: a field that was typed into counts as the line at
+ * the press, and so does an element taller than half the window (a
+ * terminal's text, a canvas).
+ */
+export function captionsBelongOnTop(
+  doc: ProjectDoc,
+  media: string,
+  source: ProjectDoc['source'],
+  lowerY: number,
+): boolean {
+  const h = source.meta.height
+  if (!(h > 0)) return false
+  let layout
+  try {
+    layout = docCardLayout(doc, media || null)
+  } catch {
+    return false
+  }
+  if (!(layout.H > 0) || !(layout.dh > 0)) return false
+  const typed = (source.meta.steps ?? []).filter(
+    (st) => st.do === 'type' && !st.skipped,
+  )
+  // A span of the take's height, as a span of the frame's (the card at rest).
+  const inFrame = (y0: number, y1: number): [number, number] => [
+    (layout.dy + (y0 / h) * layout.dh) / layout.H,
+    (layout.dy + (y1 / h) * layout.dh) / layout.H,
+  ]
+  let lower = false
+  let upper = false
+  for (const e of source.cursor) {
+    if (e.type !== 'down') continue
+    const t = e.t / 1000
+    const r = e.rect
+    const line =
+      !r || r.h > h / 2 || typed.some((st) => t >= st.tStart && t <= st.tEnd)
+    const [a, b] = line
+      ? inFrame(e.y - PRESS_LINE / 2, e.y + PRESS_LINE / 2)
+      : inFrame(r.y, r.y + r.h)
+    if (a < lowerY + CAPTION_BAND && b > lowerY - CAPTION_BAND) lower = true
+    if (a < CAPTION_TOP_Y + CAPTION_BAND && b > CAPTION_TOP_Y - CAPTION_BAND)
+      upper = true
+  }
+  return lower && !upper
 }
 
 /**
@@ -98,6 +164,7 @@ export function landStepCaptions(
     skipped: [],
     held: [],
     uncaptioned: [],
+    raised: [],
   }
   // `only` (a re-join): land the captions of these media alone, and keep
   // every other media's step captions as they were edited.
@@ -147,6 +214,7 @@ export function landStepCaptions(
     if (opts.only && !opts.only.has(media)) continue
     const steps = source.meta.steps ?? []
     let captioned = 0
+    let onTop: boolean | undefined
     for (const step of steps) {
       const caption = captionOf(step, actions.get(media), source.script, steps)
       if (!caption) continue
@@ -186,6 +254,13 @@ export function landStepCaptions(
         anchor,
         from: STEP_CAPTIONS_FROM,
       }
+      // The lower third is the house place; an input pressed there (and
+      // not at the top) has its words at the top instead.
+      onTop ??= captionsBelongOnTop(doc, media, source, clip.transform.y)
+      if (onTop) {
+        clip.transform = { ...clip.transform, y: CAPTION_TOP_Y }
+        if (!report.raised.includes(media)) report.raised.push(media)
+      }
       ends.set(clip, end)
       // Where the step ends in the cut: the caption leaves with it.
       const stepEnd = resolveAnchor(doc, { ...anchor, at: 'end' }, rated)
@@ -215,6 +290,9 @@ export function landStepCaptions(
     report.skipped.push(`${labels.get(item) ?? item.id}: ${why}`)
     report.landed = report.landed.filter((l) => l.id !== item.id)
   }
+  report.raised = report.raised.filter((m) =>
+    report.landed.some((l) => mediaKey(l.media) === m),
+  )
   for (const k of fit.kept)
     if (k.held)
       report.held.push(heldLine(labels.get(k.item) ?? k.item.id, k.held))
@@ -233,6 +311,13 @@ export function landStepCaptions(
  * `--captions=steps`: land the step captions. `--captions none` keeps its
  * meaning (the plan proposes no captions).
  */
+/** What a plan says of captions it put at the top, or '' when it put none there. */
+export function raisedLine(report: StepCaptionReport): string {
+  if (!report.raised.length) return ''
+  const whose = report.raised.map((m) => m || 'this take').join(', ')
+  return `captions over ${whose} sit at the top: the lower third is where ${report.raised.length === 1 ? 'that take was' : 'those takes were'} pressed (move one with transform.y)`
+}
+
 export function bareCaptionsFlag(argv: readonly string[]): string[] {
   return argv.map((a, i) =>
     a === '--captions' && (i + 1 >= argv.length || argv[i + 1].startsWith('--'))

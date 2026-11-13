@@ -186,7 +186,7 @@ import { cmdScore } from './score'
 import { cmdAudio } from './audio'
 import { cmdMusic } from './musicCmd'
 import { PlatformBehindError } from './platformEngine'
-import { bareCaptionsFlag, landStepCaptions } from './stepCaptions'
+import { bareCaptionsFlag, landStepCaptions, raisedLine } from './stepCaptions'
 import type { StepCaptionReport } from './stepCaptions'
 import { cmdLook } from './look'
 import {
@@ -249,6 +249,8 @@ Take pipeline
             a desktop app's window (macOS), performed by whoever is at the machine: you or your agent's computer use works the app, and the take has no system pointer in its pixels and the pointer's path beside it, planned like a page take; Ctrl-C ends it, or --seconds; --window <id> names one window, vos record --windows lists what can be recorded; needs Screen Recording for the app this runs from (vos doctor says)
   vos record --app <name|bundle id> --actions actions.json [--out take] [--strict] [--confirm <id>]... [--max-duration <s>] [--background <slug|url|none>] [--json]
             the same, SCRIPTED: actions.json drives the app through accessibility (a script that names "app" needs no --app). Selectors are a role and a name or identifier, button[name='Save'], textfield[id='title'], as vos look --app lists them; steps are wait, hover, click, type, press, scroll, move, drag and expect, and a page's fields and steps are refused in words. The app comes forward and the real pointer and keyboard are used: leave the machine alone until it ends. No --dry-run. Needs Accessibility too. It STOPS at the first step that misses (exit 1), so no later key lands where the script did not mean ("onSkip": "continue" goes on); a type refuses to type onto a row or a button, and may leave selector out with focus: false to type where the keyboard is. --pid <n> names one process's window (vos record --windows lists them): film a throwaway instance, never an app someone has open with real work
+  vos record --app <name|bundle id> --play play.mjs [--out take] [--max-duration <s>] [--background <slug|url|none>] [--json]
+            the same, PLAYED BY A PROGRAM: for what answers back (a game, a chart that moves), which a list of steps cannot play. play.mjs exports default async (play, { window }) => …, and optionally take = { app, viewport, mask, setup, teardown }. play has click, type, press, move, find, gone, sleep, now and send; click and type keep a script's rules (waited for, never onto a disabled control, never typed where keys are commands), and what the program throws ends the take (exit 1). play.step(id, fn, { zoom: false, payoff: true, caption }) names a stretch as a step of the take: zoom: false is play, watched whole, and the planner proposes nothing over it. The module is your own code and runs as you. No --dry-run, no --seconds
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions|--captions none] [--clicks none] [--still <t>] [--release v2.1] [--zooms per-beat] [--json]
             --zooms per-beat keeps at most one zoom per beat: the beats are the captioned steps of actions.json (each runs until the next one starts, plus the opening before the first); a step marked "zoom": true in actions.json is its beat's payoff, and the beat keeps the proposal that overlaps it most (one per marked step, never two overlapping), promoted to manual; a beat with no marked step keeps no zoom; when no step of the take is marked, each beat's last click, drag, type or paste stands in (the opening keeps none) and the done line says so; a step marked "zoom": false is never zoomed on; the rest go into doc.rejected like a person deleting them, and a beat with a manual zoom keeps only its manual ones. A media with no captioned step keeps its zooms as planned, and the done line says so
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
@@ -1841,6 +1843,7 @@ async function cmdPlan(argvIn: string[]): Promise<number> {
         ? `\n  not landed: ${captions.skipped.join('; ')}`
         : '') +
       (captions.held.length ? `\n  ${captions.held.join('\n  ')}` : '') +
+      (captions.raised.length ? `\n  ${raisedLine(captions)}` : '') +
       (captions.uncaptioned.length
         ? `\n  no step in ${captions.uncaptioned.length === 1 && captions.uncaptioned[0] === '' ? 'this take' : captions.uncaptioned.map((m) => (m ? `media ${m}` : 'the primary')).join(', ')} carries a caption`
         : '')

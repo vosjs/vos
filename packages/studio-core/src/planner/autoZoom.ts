@@ -415,6 +415,20 @@ export function planAutoZoom(
           .map((z) => ({ ...z, out: Math.min(z.out, round(duration)) }))
           .filter((z) => z.out - z.in >= 0.3)
 
+  // A stretch a program marked as PLAY (`do: 'play'`, `zoom: false`) is
+  // watched whole: the pointer there is steering, not pointing, so its
+  // presses, keys and rests plan nothing, and no span from either side
+  // reaches into it.
+  const play = playStretches(options.steps)
+  const inPlay = (t: number): boolean =>
+    play.some((q) => t >= q.in && t <= q.out)
+  const allTrack = track
+  if (play.length)
+    track = track.filter((e) => e.type === 'move' || !inPlay(e.t / 1000))
+  const outsidePlay = <T extends { in: number; out: number }>(
+    spans: T[],
+  ): T[] => (play.length ? spans.flatMap((z) => clearOf(z, play)) : spans)
+
   const grouped = groupTrack(track, {
     width,
     height,
@@ -615,11 +629,47 @@ export function planAutoZoom(
   // arriving (the recorder parks it on the page's first target, often the
   // logo, until the flow begins), not a thing being read.
   const firstStep = options.steps?.find((st) => !st.skipped)?.tStart
-  const dwells = dwellSpans(track, width, height, maxLevel, [
+  const dwells = dwellSpans(allTrack, width, height, maxLevel, [
     ...spans,
     ...dragReserved,
-  ]).filter((d) => firstStep === undefined || d.out > firstStep)
-  return within([...spans, ...dwells]).sort((a, b) => a.in - b.in)
+  ])
+    .filter((d) => firstStep === undefined || d.out > firstStep)
+    .filter((d) => !play.some((q) => d.in < q.out && d.out > q.in))
+  return outsidePlay(within([...spans, ...dwells])).sort((a, b) => a.in - b.in)
+}
+
+/** The stretches of a take a program marked as play: nothing is proposed over one. */
+function playStretches(
+  steps: readonly StepSpan[] | null | undefined,
+): { in: number; out: number }[] {
+  return (steps ?? [])
+    .filter(
+      (st) =>
+        st.do === 'play' &&
+        st.zoom === false &&
+        !st.skipped &&
+        st.tEnd > st.tStart,
+    )
+    .map((st) => ({ in: st.tStart, out: st.tEnd }))
+}
+
+/**
+ * A span kept clear of every stretch: it ends where one begins, or begins
+ * where one ends. Nothing is left of a span a stretch holds whole, or of
+ * one cut too short to read.
+ */
+function clearOf<T extends { in: number; out: number }>(
+  span: T,
+  stretches: readonly { in: number; out: number }[],
+): T[] {
+  let { in: a, out: b } = span
+  for (const q of stretches) {
+    if (b <= q.in || a >= q.out) continue
+    if (a < q.in) b = q.in
+    else if (b > q.out) a = q.out
+    else return []
+  }
+  return b - a >= 0.3 ? [{ ...span, in: round(a), out: round(b) }] : []
 }
 
 /**
