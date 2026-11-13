@@ -96,10 +96,14 @@ runs the script up to that step FOR REAL, then looks, and keeps no take.
 Rewrite the stage afterwards: the app is no longer at the start.
 
 The script is the same `actions.json`, with `"app"` where a page has
-`"url"` (or `--pid` on the command line, which wins):
+`"url"`. Always write `"app"`: it is what tells `vos validate` and the
+recorder that this is a desktop script (without it a `type` with no field
+is refused as a page's). `--pid` on the command line still decides WHICH
+window:
 
 ```json
 {
+  "app": "Code",
   "viewport": { "width": 1280, "height": 800 },
   "steps": [
     { "do": "click", "selector": "row[name='src']", "id": "src" },
@@ -122,7 +126,7 @@ The script is the same `actions.json`, with `"app"` where a page has
 - **Refused, in words, before anything runs**: `url`, `mask`, `setup`,
   `teardown`, `ready`, `peers`, and the steps `paste`, `download`, `await`,
   an `expect` on `js`, a drag `path`. Where a page would `await`, give an
-  `expect` a `timeout`.
+  `expect` a `timeout`, which is in SECONDS (`"timeout": 10`), not ms.
 - **`type` with `"focus": false` and no selector** types where the keyboard
   already is: an editor the app draws itself offers no field to name. A new
   line in `text` is the Return key, so several lines are ONE step. Typing
@@ -163,6 +167,14 @@ skill's loop), with what a desktop take gets wrong by itself:
   has stepped back, not over it.
 - A window has its own title bar and corners; the take wears no browser
   bar, and the card is rounded to the window.
+- **Pace is the cut's, not a second take's.** A film that runs short or
+  long is a speed span or a longer hold in `doc.json`. Recording again
+  takes the person's pointer and keyboard again; do it for a script that
+  was wrong, never for timing.
+
+Push it as any take, named: `vos push take --title "…" --label "…" --note
+"…"` (the first push of a take uploads its recording and asks for `--yes`).
+A bare push lands on the shelf as "Take take <date>".
 
 ## Avoid
 
