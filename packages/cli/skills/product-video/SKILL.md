@@ -1,6 +1,6 @@
 ---
 name: product-video
-description: Record and produce the demo video of a website, app, or feature with the vos CLI — the agent scripts the click path (actions.json), the recording auto-plans zooms, and every editing decision is data in doc.json, so fixes are edits and re-renders, never re-recordings. Renders are deterministic; export is free up to 4K with no watermark. Use when asked to make a product video, demo video, screen recording of a URL or feature, or a marketing clip, including a product behind a login (the session ladder: mint one from the project's own test auth before asking anyone), or when a feature was verified in agent-browser and that walk should become a take. A whole release's video set (the launch demo and its social cuts) is the launch-kit skill, which records through this one.
+description: Record and produce the demo video of a website, app, or feature with the vos CLI — the agent scripts the click path (actions.json), the recording auto-plans zooms, and every editing decision is data in doc.json, so fixes are edits and re-renders, never re-recordings. Renders are deterministic; export is free up to 4K with no watermark. Use when asked to make a product video, demo video, screen recording of a URL or feature, or a marketing clip, including a product behind a login (the session ladder: mint one from the project's own test auth before asking anyone), or when a feature was verified in agent-browser and that walk should become a take. Also a DESKTOP app (a Mac app, an Electron app such as VS Code, a terminal): the same script drives it through accessibility with vos record --app, from a throwaway instance. A whole release's video set (the launch demo and its social cuts) is the launch-kit skill, which records through this one.
 license: MIT
 ---
 
@@ -55,6 +55,29 @@ Per-channel dimensions and byte budgets: `references/destinations.md`.
 A **how-to** (one flow in a product, from a door to its result, for a docs
 page or a changelog) takes the quick demo's viewport or the launch video's,
 and its own grammar: `references/how-to.md`.
+
+## A desktop app, not a page
+
+When the product is an app on the Mac and not a URL, the take, the cut and
+the push are the same and the recorder is `vos record --app` (`@vosjs/cli`
+0.90+, macOS). Read `references/desktop.md` BEFORE the first command: the
+script presses the real app with the real pointer and keyboard, so there
+is no rehearsal, and three rules come before any take.
+
+- **Film a throwaway instance, never the app the person has open.** Start
+  a second instance with its own profile and a scratch project, and aim at
+  its process: `vos record --windows`, then `--pid <n>` on `look` and
+  `record`.
+- **An Electron or Chromium app is launched with
+  `--force-renderer-accessibility`**, or `vos look` finds a window frame
+  and no controls.
+- **`vos look --pid <n>` before the script, an `expect` between a beat that
+  opens something and a beat that types into it, and `--strict` always.**
+  A desktop take stops at the first step that misses; that is the guard,
+  not a failure to route around.
+
+Everything below about destinations, the pre-flight, the cut and the push
+applies. Sessions, masks, `--hosted` and `--dry-run` do not.
 
 ## Pre-flight: six answers before the first take
 
@@ -400,6 +423,8 @@ when the ask is a release, not one video.
 
 ## Avoid (the traps that shipped)
 
+- `vos record --app <name>` on an app someone has open with real work, or
+  keys after a click that might miss: `references/desktop.md`.
 - A zoom that opens before the click it frames: `validate` names it ("points
   beside what was clicked"); start the span after the click, or aim at it.
 - A focus point in pixels: `cx`/`cy` are fractions of the frame.

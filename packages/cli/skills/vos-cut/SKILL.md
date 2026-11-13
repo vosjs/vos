@@ -99,6 +99,14 @@ Two things the crops say that the click list does not: a click cluster whose
 not a target; and an "idle" gap whose `activity` stays above ~0.1 is the
 video PLAYING, not idle. Neither wants the planner's proposal.
 
+A take whose digest says `surface: "app"` is a DESKTOP app's window
+(`vos record --app`): it wears no browser bar and its card is rounded to
+the window. Its typing proposals need the most exception: an editor can
+report a stale caret, so the planner's typing zooms may aim at one empty
+column, and its one speed span can run over a terminal command that is
+the payoff's setup. Replace them with one held zoom per beat framed on the
+text, 2× over typing and 1× over what runs.
+
 If a folder is involved, read EVERY `.md` in it (own and inherited) before
 you decide anything.
 
