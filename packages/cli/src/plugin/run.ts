@@ -394,14 +394,19 @@ Platform (vos.so) — fetch, edit, push, pull, repeat
   vos folder list
   vos folder create <name> [--parent <folderId|slug>] [--desc <text>]
   vos folder describe <folderId|slug> <text> | --clear
+  vos folder order <vosId|watch-url> --top | --bottom | --before <vos> | --after <vos>
   vos folder move <vosId|assetId|watch-url>... --to <folderId|slug|none>
             organize the shelf: folders nest (≤5 deep, slugs stable); move
             takes vos ids AND asset ids (recipes, uploads) and files them
             into the folder (--to none unfiles). describe changes a
             folder's description, one line of at most 200 characters, and
-            prints the words it replaced: the one thing about a folder a
-            key may change. Add-only otherwise, by design: folder
-            rename/delete/reorder stay human gestures on vos.so
+            prints the words it replaced. order places ONE of your videos
+            within its folder's own order (its page's order; the cover is
+            the first four): a video filed into an arranged folder goes
+            last, and this says so when it belongs elsewhere. Those two
+            are what a key may change about a folder. Add-only otherwise,
+            by design: renaming or deleting a folder and reordering the
+            shelf stay human gestures on vos.so
   vos asset rename <assetId> <newname.ext>
             rename one of your assets (recipes included) in place — bytes
             and fileUrl untouched; the extension must keep matching the

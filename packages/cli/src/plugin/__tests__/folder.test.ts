@@ -5,14 +5,15 @@
  * vos route first and falls back to the asset route on its 404, and a
  * reference to a folder that is not on the shelf is a usage error that
  * names what IS there. describe sends the description and nothing else,
- * and settles a malformed ask before any request.
+ * order sends the one place a video goes, and both settle a malformed ask
+ * before any request.
  */
 import { createServer } from 'node:http'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { cmdFolder, describeAsk, recipeLine } from '../folder'
+import { cmdFolder, describeAsk, orderAsk, recipeLine } from '../folder'
 import { UsageError } from '../args'
 import type { Server } from 'node:http'
 
@@ -74,6 +75,30 @@ function serve(seen: Seen[]): Promise<string> {
               folder: { id: 'f-velour', description: said },
               previous: { description: 'Soft sheets.' },
             })
+      }
+      // order: the folder's whole order comes back with the video placed;
+      // a video in no folder answers 400 in words.
+      if (/^\/api\/vos\/[^/]+\/position$/.test(url) && req.method === 'POST') {
+        if (url.includes('loose-1'))
+          return send(400, {
+            error: 'Only a video in a project has a place in its order.',
+          })
+        const ask = JSON.parse(raw) as {
+          to?: string
+          before?: string
+          after?: string
+        }
+        const rest = ['vos-2', 'vos-3']
+        return send(200, {
+          order:
+            ask.to === 'top'
+              ? ['vos-1', ...rest]
+              : ask.to === 'bottom'
+                ? [...rest, 'vos-1']
+                : ask.before === 'vos-3' || ask.after === 'vos-2'
+                  ? ['vos-2', 'vos-1', 'vos-3']
+                  : rest,
+        })
       }
       // The move fallback: vos ids answer 200, anything else 404s here
       // and must land on the asset route.
@@ -341,6 +366,65 @@ describe('vos folder', () => {
     expect(describeAsk(['velour', '  two\n lines '], false)).toEqual({
       ref: 'velour',
       description: 'two lines',
+    })
+  })
+
+  it('order POSTs the one place a video goes, by id or watch URL', async () => {
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    const tail = ['--origin', origin, ...KEY]
+    expect(await cmdFolder(['order', 'vos-1', '--top', ...tail])).toBe(0)
+    expect(await cmdFolder(['order', 'vos-1', '--bottom', ...tail])).toBe(0)
+    expect(
+      await cmdFolder([
+        'order',
+        'https://vos.so/vos/vos-1',
+        '--before',
+        'https://vos.so/vos/vos-3',
+        ...tail,
+      ]),
+    ).toBe(0)
+    expect(
+      await cmdFolder(['order', 'vos-1', '--after', 'vos-2', ...tail]),
+    ).toBe(0)
+    expect(seen.map((s) => `${s.method} ${s.url}`)).toEqual(
+      Array.from({ length: 4 }, () => 'POST /api/vos/vos-1/position'),
+    )
+    expect(seen.map((s) => s.body)).toEqual([
+      { to: 'top' },
+      { to: 'bottom' },
+      { before: 'vos-3' },
+      { after: 'vos-2' },
+    ])
+  })
+
+  it('order surfaces a refusal in the platform’s words', async () => {
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    await expect(
+      cmdFolder(['order', 'loose-1', '--top', '--origin', origin, ...KEY]),
+    ).rejects.toThrow(/Only a video in a project has a place/)
+  })
+
+  it('order asks for one video and ONE place, before any request', async () => {
+    const seen: Seen[] = []
+    const origin = await serve(seen)
+    const tail = ['--origin', origin, ...KEY]
+    for (const ask of [
+      ['order'],
+      ['order', 'vos-1'],
+      ['order', 'vos-1', '--top', '--bottom'],
+      ['order', 'vos-1', '--top', '--before', 'vos-2'],
+      ['order', 'vos-1', 'vos-2', '--top'],
+      ['order', 'vos-1', '--before', 'vos-1'],
+    ]) {
+      await expect(cmdFolder([...ask, ...tail])).rejects.toThrow(UsageError)
+    }
+    expect(seen).toEqual([])
+    expect(orderAsk(['vos-1'], { after: 'https://vos.so/vos/vos-2' })).toEqual({
+      vosId: 'vos-1',
+      placement: { after: 'vos-2' },
+      words: 'after vos-2',
     })
   })
 
