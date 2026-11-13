@@ -121,6 +121,37 @@ describe('filmSummaryOf, a recording', () => {
     expect(filmSummaryOf(d, { seed: 'x', payoff: 99 }).payoff).toBeUndefined()
   })
 
+  it('takes the payoff the script says over its last zoom mark', () => {
+    // The reveal plays wide, and a later step is zoomed on: the last zoom
+    // mark is the wrong guess, and the script can say so.
+    const d = take(
+      [],
+      {},
+      {
+        script: {
+          steps: [
+            { id: 'open', do: 'click' },
+            { id: 'save', do: 'click', payoff: true },
+            { id: 'go', do: 'click' },
+            { id: 'share', do: 'click', zoom: true },
+          ],
+        },
+      },
+    )
+    expect(filmSummaryOf(d, { seed: 'x' }).payoff).toBe(6)
+    expect(filmSummaryOf(d, { seed: 'x', payoff: 3 }).payoff).toBe(3)
+  })
+
+  it('never takes an end card for the payoff: the film leaves there', () => {
+    const card = caption('endcard-title', { start: 20.35, from: 'endcard' })
+    const d = take([caption('b', { start: 2 }), card])
+    const s = filmSummaryOf(d, { seed: 'x' })
+    // The end card's clip is still a cut a beat may land on.
+    expect(s.cuts).toContain(20.35)
+    // The last cut of the footage: the page change at the end of `go`.
+    expect(s.payoff).toBe(12)
+  })
+
   it('hears a voice from the mic, from a voiceover clip, never from music', () => {
     expect(filmSummaryOf(take([]), { seed: 'x' }).voice).toBe(false)
     expect(

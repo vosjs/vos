@@ -636,7 +636,6 @@ describe('runDesktopSteps', () => {
   })
 })
 
-
 describe('runDesktopSetup', () => {
   const stage = (
     elements: Record<string, Element>,
@@ -712,7 +711,13 @@ describe('runDesktopSetup', () => {
   it('types a value read from the environment and never says it', async () => {
     const { result, sent, logs } = await stage(
       { "textfield[id='title']": TITLE },
-      [{ do: 'type', selector: "textfield[id='title']", text: { env: 'TITLE' } }],
+      [
+        {
+          do: 'type',
+          selector: "textfield[id='title']",
+          text: { env: 'TITLE' },
+        },
+      ],
       'setup',
       { TITLE: 'the secret title' },
     )
@@ -725,7 +730,13 @@ describe('runDesktopSetup', () => {
 
     const missing = await stage(
       { "textfield[id='title']": TITLE },
-      [{ do: 'type', selector: "textfield[id='title']", text: { env: 'TITLE' } }],
+      [
+        {
+          do: 'type',
+          selector: "textfield[id='title']",
+          text: { env: 'TITLE' },
+        },
+      ],
       'setup',
     )
     expect(missing.result.failed?.error).toMatch(/TITLE is not set/)

@@ -328,14 +328,17 @@ export async function runDesktopSetup(
       },
     })
     if (clock.now() >= deadline)
-      return failed(`the ${phase} ran past its ${Math.round((opts.boundMs ?? TEARDOWN_BOUND_MS) / 1000)}s`)
+      return failed(
+        `the ${phase} ran past its ${Math.round((opts.boundMs ?? TEARDOWN_BOUND_MS) / 1000)}s`,
+      )
     if (step.do === 'wait') {
       await clock.sleep(step.ms)
       say(`wait ${step.ms}ms`)
       ran++
       continue
     }
-    if (step.do === 'goto') return failed('goto opens a page; a desktop script has none')
+    if (step.do === 'goto')
+      return failed('goto opens a page; a desktop script has none')
     if (step.do === 'if') {
       const { found, error } = await there(step.selector, step.ms ?? IF_LOOK_MS)
       if (error) return failed(error)
@@ -344,7 +347,11 @@ export async function runDesktopSetup(
         return {
           ran,
           lines,
-          skipped: { step: i, selector: step.selector, rest: steps.length - i - 1 },
+          skipped: {
+            step: i,
+            selector: step.selector,
+            rest: steps.length - i - 1,
+          },
         }
       }
       say(`if ${step.selector}: there`)

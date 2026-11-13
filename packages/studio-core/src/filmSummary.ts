@@ -8,15 +8,17 @@
  *
  * A recording's cuts are its layers' starts (a caption landed on a step,
  * a callout), its segment boundaries (a join, a page change, a freeze) and
- * the page changes the recorder marked; its payoff is the last step the
- * script marks `"zoom": true`, else the last cut. A program's cuts are its
- * scene labels (`tl.addLabel`), its payoff the last scene. Pure.
+ * the page changes the recorder marked; its payoff is the step the script
+ * marks `"payoff": true`, else the last step it marks `"zoom": true`, else
+ * the last cut before the end card. A program's cuts are its scene labels
+ * (`tl.addLabel`), its payoff the last scene. Pure.
  */
 import type { FilmSummary } from '@vosjs/shared/music'
 import { docOutputDuration, voiceKey } from './audioBeds'
 import { isRecordingDoc } from './doc/studioDoc'
 import { layerStart, resolveAnchor, sourceMomentToOutput } from './lower/anchor'
 import { ratedSegments } from './lower/lowerToComposition'
+import { END_CARD_FROM } from './lower/motion'
 import { docMediaList } from './media'
 import type { StudioDoc } from './doc/studioDoc'
 import type { ProjectDoc } from './types'
@@ -61,14 +63,17 @@ export function programSceneTimes(config: Record<string, unknown>): number[] {
 }
 
 /** The steps the embedded script marks `"zoom": true`, by id or index. */
-function markedSteps(source: ProjectDoc['source']): (string | number)[] {
+function markedSteps(
+  source: ProjectDoc['source'],
+  mark: 'zoom' | 'payoff' = 'zoom',
+): (string | number)[] {
   const steps = (source.script as { steps?: unknown } | undefined)?.steps
   if (!Array.isArray(steps)) return []
   const out: (string | number)[] = []
   steps.forEach((s, i) => {
     if (!s || typeof s !== 'object') return
-    const step = s as { zoom?: unknown; id?: unknown }
-    if (step.zoom === true) out.push(typeof step.id === 'string' ? step.id : i)
+    const step = s as { zoom?: unknown; payoff?: unknown; id?: unknown }
+    if (step[mark] === true) out.push(typeof step.id === 'string' ? step.id : i)
   })
   return out
 }
@@ -107,15 +112,34 @@ export function filmSummaryOf(
       t += (s.out - s.in) / rate
       cuts.push(t)
     }
-    // Every layer's start, an anchored one where its step plays.
+    // Every layer's start, an anchored one where its step plays. An end
+    // card's clips are cuts a beat may land on, and never the payoff: the
+    // film leaves there, it does not open up there.
+    let endCardFrom: number | null = null
     for (const clip of doc.overlays ?? []) {
       const start = layerStart(clip, doc, rated)
-      if (start !== null) cuts.push(start)
+      if (start === null) continue
+      cuts.push(start)
+      if (clip.from === END_CARD_FROM)
+        endCardFrom =
+          endCardFrom === null ? start : Math.min(endCardFrom, start)
     }
     // The page changes the recorder marked, and the steps the script marks
     // as a beat's payoff.
     let lastMarked: number | null = null
+    let said: number | null = null
     for (const { id, source } of docMediaList(doc)) {
+      // The one step the script says is the film's payoff (the last, when
+      // a joined film's inputs each say one).
+      for (const step of markedSteps(source, 'payoff')) {
+        const r = resolveAnchor(
+          doc,
+          { step, ...(id ? { media: id } : {}) },
+          rated,
+        )
+        if (r.start !== null && (said === null || r.start > said))
+          said = r.start
+      }
       for (const step of source.meta.steps ?? []) {
         if (step.navigated && typeof step.tEnd === 'number') {
           const out = sourceMomentToOutput(rated, step.tEnd, id || undefined)
@@ -134,7 +158,20 @@ export function filmSummaryOf(
         }
       }
     }
+    if (payoff === undefined && said !== null) payoff = said
     if (payoff === undefined && lastMarked !== null) payoff = lastMarked
+    if (payoff === undefined) {
+      // No mark: the last cut that is still the footage's (the end of the
+      // footage is where an end card begins, so it is not one either).
+      const footageEnd = t
+      const before = tidy(cuts, r3(docOutputDuration(doc))).filter(
+        (c) =>
+          c < footageEnd - CUT_MERGE &&
+          (endCardFrom === null || c < endCardFrom - CUT_MERGE),
+      )
+      if (endCardFrom !== null && before.length)
+        payoff = before[before.length - 1]
+    }
     if (opts.voice === undefined) {
       voice =
         voiceKey(doc) !== null ||
