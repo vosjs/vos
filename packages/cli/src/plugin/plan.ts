@@ -361,6 +361,16 @@ export async function planTake(
       doc = take.doc
     }
     fresh = false
+    // The other media's proposals are read off the document as it stands:
+    // their manual spans and rejections hold their own proposals off, so
+    // they are planned BEFORE the primary's lists are rebuilt below (which
+    // dropped every span that was another media's, the manual ones with
+    // them, and then proposed over the hole).
+    const others = planOtherMedia(doc, activity)
+    const otherZoom = doc.zoom.filter((z) => z.media && z.source === 'manual')
+    const otherSpeed = (doc.speed ?? []).filter(
+      (x) => x.media && x.source !== 'auto',
+    )
     const manual = doc.zoom.filter((z) => z.source === 'manual' && !z.media)
     const auto = planAutoZoom(doc.source.cursor, {
       width: doc.source.meta.width,
@@ -387,17 +397,12 @@ export async function planTake(
       .filter((s) => !manualSpeed.some((m) => s.in < m.out && s.out > m.in))
       .filter((s) => !isRejected('speed', s, doc.rejected))
     doc.speed = [...manualSpeed, ...autoSpeed].sort((a, b) => a.in - b.in)
-    {
-      const others = planOtherMedia(doc, activity)
-      doc.zoom = [
-        ...doc.zoom.filter((z) => !z.media || z.source === 'manual'),
-        ...others.zoom,
-      ].sort((a, b) => a.in - b.in)
-      doc.speed = [
-        ...(doc.speed ?? []).filter((x) => !x.media || x.source !== 'auto'),
-        ...others.speed,
-      ].sort((a, b) => a.in - b.in)
-    }
+    doc.zoom = [...doc.zoom, ...otherZoom, ...others.zoom].sort(
+      (a, b) => a.in - b.in,
+    )
+    doc.speed = [...doc.speed, ...otherSpeed, ...others.speed].sort(
+      (a, b) => a.in - b.in,
+    )
   } else {
     const artifact: RecordingArtifact = {
       videoKey: take.paths.recordingName,

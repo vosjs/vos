@@ -861,7 +861,7 @@ export function guardedSteps(
  * anything is captured.
  */
 export function guardVerdict(
-  actions: Pick<ActionsFile, 'steps'>,
+  actions: Pick<ActionsFile, 'steps'> & Pick<Partial<ActionsFile>, 'app'>,
   confirm: readonly string[],
 ):
   | { ok: true }
@@ -874,7 +874,7 @@ export function guardVerdict(
   if (unconfirmed.length) {
     const one = unconfirmed.length === 1
     parts.push(
-      `${unconfirmed.map((g) => `#${g.step} ${g.id} (${g.do})`).join(', ')} ${one ? 'is' : 'are'} guarded (${unconfirmed[0].guard}): ${one ? 'it spends' : 'they spend'} something real, so the recorder presses ${one ? 'it' : 'them'} only when the command says so. Add ${unconfirmed.map((g) => `--confirm ${g.id}`).join(' ')} to record ${one ? 'it' : 'them'}, or rehearse with --dry-run, which hovers and never presses`,
+      `${unconfirmed.map((g) => `#${g.step} ${g.id} (${g.do})`).join(', ')} ${one ? 'is' : 'are'} guarded (${unconfirmed[0].guard}): ${one ? 'it spends' : 'they spend'} something real, so the recorder presses ${one ? 'it' : 'them'} only when the command says so. Add ${unconfirmed.map((g) => `--confirm ${g.id}`).join(' ')} to record ${one ? 'it' : 'them'}, ${actions.app !== undefined ? `or walk the script to the step before with vos look --actions … --until <id>, which stops there` : `or rehearse with --dry-run, which hovers and never presses`}`,
     )
   }
   if (unknown.length)

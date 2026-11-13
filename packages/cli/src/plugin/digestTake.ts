@@ -222,6 +222,17 @@ async function digestInput(
           : null,
         outputAt: m.outputAt === null ? null : round3(m.outputAt + offset),
       })),
+      // A step's window in the cut is the film's too: a caption anchored to
+      // one is placed by it.
+      steps: sub.digest.steps.map((st) => ({
+        ...st,
+        output: st.output
+          ? {
+              in: round3(st.output.in + offset),
+              out: round3(st.output.out + offset),
+            }
+          : null,
+      })),
     }
     await writeFile(sub.file, JSON.stringify(shifted, null, 2))
     return {

@@ -125,6 +125,27 @@ export function unbuiltLine(kind: string, app: string): string {
   return `${app || 'This'} is ${made}, and it has not built its accessibility tree: such an app builds it only when asked, and a running one can take a while. What is listed is its window frame, not its interface. Run this again in a moment; or quit it and start it with --force-renderer-accessibility, which builds the tree from the first frame.`
 }
 
+/**
+ * The controls a listing shows when the window has more than its limit: in
+ * the window's own order, with what can be pressed or typed into kept
+ * before words. An open document is hundreds of lines of static text, and
+ * cutting the list where it stood left out the panel beside the document,
+ * which is what a script was looking for.
+ */
+export function withinLimit(
+  all: readonly AppLookControl[],
+  limit = APP_CONTROL_LIMIT,
+): AppLookControl[] {
+  if (all.length <= limit) return [...all]
+  const acted = all.filter((c) => c.role !== 'text').length
+  let words = Math.max(0, limit - acted)
+  let others = limit
+  return all.filter((c) => {
+    if (c.role === 'text') return words-- > 0
+    return others-- > 0
+  })
+}
+
 export async function cmdLookApp(
   argv: string[],
   deps: { driver?: DesktopDriver } = {},
@@ -160,7 +181,14 @@ export async function cmdLookApp(
       throw new UsageError(
         `--until ${untilId}: no step of the script has that id (a step is named by its "id")`,
       )
-    confirm = takeConfirm(multi, actions, { dryRun: false, r })
+    // The walk stops after `until`: a guarded step past it is not pressed,
+    // so it is not this command's to confirm.
+    const last = actions.steps.findIndex((s) => s.id === untilId)
+    confirm = takeConfirm(
+      multi,
+      { ...actions, steps: actions.steps.slice(0, last + 1) },
+      { dryRun: false, r },
+    )
   }
 
   const target = desktopTarget(flags, actions?.app)
@@ -245,7 +273,7 @@ export async function cmdLookApp(
   }
 
   const all = outline.elements.map(appControl)
-  const controls = all.slice(0, APP_CONTROL_LIMIT)
+  const controls = withinLimit(all)
   const more = all.length - controls.length
   const paths = pathNames(outline.elements)
   const size = `${Math.round(outline.window.w)}×${Math.round(outline.window.h)}`

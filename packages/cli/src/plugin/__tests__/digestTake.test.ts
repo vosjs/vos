@@ -150,6 +150,11 @@ describe('digestTake on a joined take', () => {
       await readFile(join(res.outDir, 'm1', 'digest.json'), 'utf8'),
     )
     expect(m1.media).toBe('m1')
+    // A step's window in the cut moves with the input, as a moment's does.
+    for (const [i, st] of m1.steps.entries()) {
+      const was = alone.digest.steps[i]!
+      if (was.output) expect(st.output.in).toBeCloseTo(was.output.in + first, 3)
+    }
     expect(m1.moments.length).toBe(alone.digest.moments.length)
     for (const [i, m] of m1.moments.entries()) {
       const was = alone.digest.moments[i]!
