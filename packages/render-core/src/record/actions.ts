@@ -476,7 +476,9 @@ export function validateActions(
         errors.push(
           desktop
             ? `${at}: type needs a selector, or focus: false to type where the keyboard already is`
-            : `${at}: type needs a selector`,
+            : s.selector === undefined && s.focus === false
+              ? `${at}: type needs a selector (a desktop app's script may leave it out with focus: false, and says so by naming "app"; vos validate --app checks one that does not)`
+              : `${at}: type needs a selector`,
         )
     }
     if (s.do === 'hover' || s.do === 'click') {

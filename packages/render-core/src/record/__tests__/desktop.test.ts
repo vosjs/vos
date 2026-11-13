@@ -195,7 +195,12 @@ describe('desktopProblems', () => {
       [],
     )
     expect(validateActions({ steps }, { desktop: true })).toEqual([])
-    expect(validateActions({ steps })).toEqual([
+    // A page's refusal says how a desktop script differs: a right script was
+    // once refused with three words and no way to tell why.
+    expect(validateActions({ steps })[0]).toMatch(
+      /^steps\[0\]: type needs a selector \(a desktop app's script may leave it out with focus: false, and says so by naming "app"/,
+    )
+    expect(validateActions({ steps: [{ do: 'type', text: 'x' }] })).toEqual([
       'steps[0]: type needs a selector',
     ])
     expect(
