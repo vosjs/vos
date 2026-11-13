@@ -14,4 +14,3 @@ A desktop script: selectors refused when it is read, masks, and its own setup an
 - `vos plan` on a joined take keeps the manual spans of its other inputs. A refresh rebuilt the first input's lists and dropped every span that was another media's, the manual ones with them, then proposed over the hole: a cut of the second input did not survive `vos plan --motion`.
 - `vos look --actions --until <id>` asks for `--confirm` only for the guarded steps the walk runs. A guarded step after `<id>` is not pressed, and it used to refuse the walk; a desktop script's refusal no longer names `--dry-run`, which it has not got.
 - `vos look --app` past its 150 controls keeps what can be pressed or typed into before static text, in the window's order. An open document's lines used to fill the listing and cut off the panel beside it.
-
