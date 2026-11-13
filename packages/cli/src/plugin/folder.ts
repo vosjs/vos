@@ -1,14 +1,16 @@
 /**
  * `vos folder` — the shelf verbs: list your folders, create one, move
- * work into one, DESCRIBE one, PULL one (the folder contract on disk). The
- * additive half of the shelf rule: an agent may ADD organization
- * (create a folder, file voses and assets into it) but never reshape or
- * destroy what the human made — rename/delete/reorder have no CLI verb on
- * purpose; those stay session gestures on vos.so.
+ * work into one, DESCRIBE one, ORDER a video within one, PULL one (the
+ * folder contract on disk). The additive half of the shelf rule: an agent
+ * may ADD organization (create a folder, file voses and assets into it) but
+ * never reshape or destroy what the human made — renaming a folder,
+ * deleting one and reordering the shelf have no CLI verb on purpose; those
+ * stay session gestures on vos.so.
  *
  *   vos folder list [--json]
  *   vos folder create <name> [--parent <folderId|slug>] [--desc <text>] [--json]
  *   vos folder describe <folderId|slug> <text> | --clear [--json]
+ *   vos folder order <vosId|watch-url> --top | --bottom | --before <vos> | --after <vos> [--json]
  *   vos folder move <vosId|assetId|watch-url>... --to <folderId|slug|none> [--json]
  *   vos folder pull <folderId|slug> [--out dir] [--media] [--json]
  *
@@ -28,6 +30,13 @@
  * arrangement, so an agent that described a folder can correct what it
  * wrote. The words it replaced are printed, because vos.so keeps no history
  * of them.
+ *
+ * order places ONE video within its folder's own order, the order the
+ * folder's page shows and its cover is the first four of. A video filed
+ * into an arranged folder goes last; this says so when it belongs
+ * elsewhere. One video a call, never a whole order: the agent that makes
+ * the next one of a series knows where it goes, and the rest of the
+ * arrangement is the person's.
  */
 import { mkdir } from 'node:fs/promises'
 import { safePathName } from './pathName'
@@ -54,7 +63,17 @@ import {
 import type { StoredAccount } from './accounts'
 import type { ProjectDoc } from '@vosjs/studio-core'
 
-const BOOLEAN_FLAGS = new Set(['json', 'help', 'media', 'clear'])
+const BOOLEAN_FLAGS = new Set([
+  'json',
+  'help',
+  'media',
+  'clear',
+  'top',
+  'bottom',
+])
+
+const ORDER_USAGE =
+  'vos folder order <vosId|watch-url> --top | --bottom | --before <vosId|watch-url> | --after <vosId|watch-url> — say ONE place'
 
 /** vos.so's cap on a folder's description, said before the round trip. */
 const DESCRIPTION_MAX = 200
@@ -338,6 +357,77 @@ async function cmdDescribe(argv: string[]): Promise<number> {
   return EXIT_OK
 }
 
+/** Where a video goes: what `POST /api/vos/:id/position` takes. */
+export type Placement =
+  | { to: 'top' | 'bottom' }
+  | { before: string }
+  | { after: string }
+
+/**
+ * What `vos folder order` was asked: which video, and the ONE place it
+ * goes. Pure, so a malformed ask is settled before a credential is read.
+ */
+export function orderAsk(
+  positionals: string[],
+  flags: Record<string, string | true>,
+): { vosId: string; placement: Placement; words: string } {
+  const top = flags.top === true
+  const bottom = flags.bottom === true
+  const before = strFlag(flags, 'before')
+  const after = strFlag(flags, 'after')
+  if (positionals.length !== 1) throw new UsageError(ORDER_USAGE)
+  const vosId = parseVosId(positionals[0])
+  if ([top, bottom, !!before, !!after].filter(Boolean).length !== 1) {
+    throw new UsageError(ORDER_USAGE)
+  }
+  if (top) {
+    return {
+      vosId,
+      placement: { to: 'top' },
+      words: 'at the top of its folder',
+    }
+  }
+  if (bottom) {
+    return {
+      vosId,
+      placement: { to: 'bottom' },
+      words: 'at the bottom of its folder',
+    }
+  }
+  const other = parseVosId((before ?? after) as string)
+  if (other === vosId) {
+    throw new UsageError('a video cannot go before or after itself')
+  }
+  return before
+    ? { vosId, placement: { before: other }, words: `before ${other}` }
+    : { vosId, placement: { after: other }, words: `after ${other}` }
+}
+
+async function cmdOrder(argv: string[]): Promise<number> {
+  const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
+  const ask = orderAsk(positionals, flags)
+  const r = createReporter(flags.json === true)
+  const origin = platformOrigin({
+    origin: strFlag(flags, 'origin'),
+    api: strFlag(flags, 'api'),
+  })
+  const key = requireCredential(credentialFlags(flags))
+
+  const res = await apiJson(origin, `/api/vos/${ask.vosId}/position`, {
+    method: 'POST',
+    key,
+    body: ask.placement,
+  })
+  if (res.status !== 200) throw new Error(apiError('order video', res))
+  const order = (res.body.order ?? []) as string[]
+  const position = order.indexOf(ask.vosId) + 1
+  r.done(
+    { id: ask.vosId, position, of: order.length, order },
+    `placed ${ask.vosId} ${ask.words}  (${position} of ${order.length})`,
+  )
+  return EXIT_OK
+}
+
 async function cmdMove(argv: string[]): Promise<number> {
   const { positionals, flags } = parseArgs(argv, BOOLEAN_FLAGS)
   const toRef = strFlag(flags, 'to')
@@ -575,13 +665,15 @@ export async function cmdFolder(argv: string[]): Promise<number> {
       return cmdCreate(rest)
     case 'describe':
       return cmdDescribe(rest)
+    case 'order':
+      return cmdOrder(rest)
     case 'move':
       return cmdMove(rest)
     case 'pull':
       return cmdPull(rest)
     default:
       throw new UsageError(
-        'vos folder <list|create|describe|move|pull> — list your shelf, create a folder, say what one is, move voses/assets into one, pull a folder to disk',
+        'vos folder <list|create|describe|order|move|pull> — list your shelf, create a folder, say what one is, place a video within one, move voses/assets into one, pull a folder to disk',
       )
   }
 }

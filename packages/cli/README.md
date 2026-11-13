@@ -611,6 +611,7 @@ vos pull bright-loop [--since <versionId>] [--check]   # what changed on vos.so 
 vos duplicate <vosId>                                  # a private sibling of your OWN vos (someone else's is remixed: fetch, then push --remix-of)
 vos folder list | create <name> [--parent] [--desc] | move <ids…> --to <folder|none> | pull <ref> [--media]
 vos folder describe <ref> "<one line>" | --clear       # change a folder's description; prints the words it replaced
+vos folder order <vos> --top | --bottom | --before <vos> | --after <vos>   # place one of your videos within its folder's own order
 vos asset push <file…> [--folder <slug>] | rename <id> <name.ext>   # any kind the platform takes (GET /api/limits); prints asset:<id>, the url, and the manifest line
 vos asset import <url> [--license <text>] [--attribution <text>]   # fetch a file from an address and add it, with where it came from kept beside it
 vos assets ls [--kind <kind>] [--q <text>] [--sort size] | usage | why <id>   # what is in the library, what holds the storage, what uses a file
@@ -629,7 +630,9 @@ Both paths share the same base tracking and the same two 409 shapes. `stale_base
 
 `vos folder pull <ref>` writes a folder's context package to disk (its recipes, the inherited ones, the exemplar programs and assets), which is what an agent reads to create in the owner's style. Recipes are `.md` files named in capitals (`CUT.md`, `BRAND.md`): the server uppercases an agent-filed name.
 
-`vos folder describe <ref> "<one line>"` changes a folder's description, the line `create --desc` writes, and `--clear` removes it. It is the one thing about a folder a key may change: the name, the place on the shelf and who can read it stay the person's, on vos.so. The description is at most 200 characters, checked before anything is sent, and the words it replaced are printed, because vos.so keeps no history of them. On a folder other people can read, the description is shown to their agents, so it says what the folder is: vos.so refuses a line that reads as an instruction to an agent, and says why.
+`vos folder order <vos> --top | --bottom | --before <vos> | --after <vos>` places one of your videos within its folder's own order, which is the order the folder's page shows; its cover is the first four. A video is named by its id or its watch URL. A video filed into an arranged folder goes last, and this says so when it belongs elsewhere: the agent that makes the next one of a series knows where it goes. It takes one video and one place a call, checked before anything is sent, and prints where the video landed (`position`, `of` and the folder's whole `order` under `--json`). There is no verb for a whole order: the rest of the arrangement is the person's, on vos.so.
+
+`vos folder describe <ref> "<one line>"` changes a folder's description, the line `create --desc` writes, and `--clear` removes it. With `order`, it is what a key may change about a folder: the name, the place on the shelf and who can read it stay the person's, on vos.so. The description is at most 200 characters, checked before anything is sent, and the words it replaced are printed, because vos.so keeps no history of them. On a folder other people can read, the description is shown to their agents, so it says what the folder is: vos.so refuses a line that reads as an instruction to an agent, and says why.
 
 ## CI
 
