@@ -67,7 +67,7 @@ export const manifest: PluginManifest = {
     {
       name: 'validate',
       summary:
-        'lint actions.json, a take dir (doc.json semantics), or re-measure a kit.json against the channel specs',
+        "lint actions.json (--app for a desktop app's script that does not name its app), a take dir (doc.json semantics), or re-measure a kit.json against the channel specs",
     },
     {
       name: 'actions',

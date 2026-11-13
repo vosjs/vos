@@ -168,6 +168,7 @@ import { urlSchemeProblem } from '@vosjs/render-core/record'
 import { cmdActions } from './agentBrowser'
 import { cmdIngest } from './ingest'
 import { cmdRecordApp, isDesktopRecord, scriptNamesApp } from './recordApp'
+import { desktopProblems } from '@vosjs/render-core/record'
 import { cmdCheckVideo } from './checkVideo'
 import { cmdJoin } from './join'
 import { cmdTakeInfo } from './timeline'
@@ -2676,8 +2677,25 @@ async function cmdValidate(argv: string[]): Promise<number> {
     return EXIT_OK
   }
   if (target.endsWith('.json')) {
-    await loadActions(target)
-    r.done({ valid: true, target }, `${target}: valid actions file`)
+    // A desktop app's script is one that names its app, or that the command
+    // says is one (--app, --pid: how vos record is told when the script does
+    // not say). It is held to what a desktop take can run, as record holds it.
+    const said = hasFlag(flags, 'app') || hasFlag(flags, 'pid')
+    const actions = await loadActions(target, { desktop: said })
+    const desktop = said || typeof actions.app === 'string'
+    if (desktop) {
+      const problems = desktopProblems(actions)
+      if (problems.length)
+        throw new UsageError(
+          `not a script a desktop take can run:\n  ${problems.join('\n  ')}`,
+        )
+    }
+    r.done(
+      { valid: true, target, ...(desktop ? { desktop: true } : {}) },
+      desktop
+        ? `${target}: valid actions file for a desktop app${actions.app ? ` (${actions.app})` : ''}`
+        : `${target}: valid actions file`,
+    )
     return EXIT_OK
   }
   // A PROGRAM directory: config.json plus, optionally, a program
