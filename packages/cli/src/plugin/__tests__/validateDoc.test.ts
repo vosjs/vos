@@ -40,6 +40,105 @@ function makeDoc(over: Partial<ProjectDoc> = {}): ProjectDoc {
   } as unknown as ProjectDoc
 }
 
+describe('lintDoc on a joined take', () => {
+  // The first input is 20 s; the second, m1, is 35 s.
+  const joined = (over: Partial<ProjectDoc> = {}) => {
+    const base = makeDoc()
+    return makeDoc({
+      segments: [
+        { in: 0, out: 20 },
+        { in: 0, out: 35, media: 'm1' },
+      ],
+      media: [
+        {
+          ...base.source,
+          id: 'm1',
+          meta: { ...base.source.meta, durationMs: 35000 },
+        },
+      ],
+      ...over,
+    } as Partial<ProjectDoc>)
+  }
+
+  it('measures a rejection against its own input, not the first', () => {
+    // A proposal at 32 s of the 35 s input is one that can be rejected.
+    const ok = lintDoc(
+      joined({
+        rejected: [{ id: 'd9', lane: 'zoom', in: 32, out: 33.7, media: 'm1' }],
+      } as Partial<ProjectDoc>),
+    )
+    expect(ok.problems).toEqual([])
+    // Past ITS input's end it is still refused, with that input's length.
+    const past = lintDoc(
+      joined({
+        rejected: [{ id: 'd9', lane: 'zoom', in: 36, out: 37, media: 'm1' }],
+      } as Partial<ProjectDoc>),
+    )
+    expect(past.problems.join('\n')).toMatch(/past the footage \(35\.00s\)/)
+    // The first input's own bound is unchanged.
+    const first = lintDoc(
+      joined({
+        rejected: [{ id: 'z1', lane: 'zoom', in: 32, out: 33 }],
+      } as Partial<ProjectDoc>),
+    )
+    expect(first.problems.join('\n')).toMatch(/past the footage \(20\.00s\)/)
+    const nowhere = lintDoc(
+      joined({
+        rejected: [{ id: 'z1', lane: 'zoom', in: 1, out: 2, media: 'm9' }],
+      } as Partial<ProjectDoc>),
+    )
+    expect(nowhere.problems.join('\n')).toMatch(
+      /media "m9" is not one of media/,
+    )
+  })
+})
+
+describe('lintDoc: a zoom over a field that was typed into', () => {
+  // An address bar as wide as the window, pressed at its middle to type into
+  // it. The words start at its left edge.
+  const bar = { x: 95, y: 40, w: 1090, h: 34 }
+  const typedDoc = (zoom: unknown, steps: unknown) =>
+    makeDoc({
+      source: {
+        ...makeDoc().source,
+        cursor: [
+          { t: 1500, x: 640, y: 57, type: 'down', button: 0, rect: bar },
+          { t: 1560, x: 640, y: 57, type: 'up', button: 0 },
+        ],
+        meta: { ...makeDoc().source.meta, steps },
+      },
+      zoom: [zoom],
+    } as unknown as Partial<ProjectDoc>)
+  const leftOfBar = {
+    id: 'u1',
+    in: 1,
+    out: 4,
+    level: 1.7,
+    cx: 0.25,
+    cy: 0.08,
+    source: 'manual',
+  }
+
+  it('is held to the typed line, from the field’s left edge to the press', () => {
+    const typed = [{ step: 0, id: 'url', do: 'type', tStart: 1.2, tEnd: 3.6 }]
+    expect(lintDoc(typedDoc(leftOfBar, typed)).warnings).toEqual([])
+    // Framed on the field's far end, the words are out of the picture.
+    const far = { ...leftOfBar, cx: 0.85 }
+    expect(lintDoc(typedDoc(far, typed)).warnings.join('\n')).toMatch(
+      /points beside what was clicked/,
+    )
+  })
+
+  it('a press that is not a typed step’s is held to the whole element, as before', () => {
+    const clicked = [
+      { step: 0, id: 'bar', do: 'click', tStart: 1.2, tEnd: 3.6 },
+    ]
+    expect(lintDoc(typedDoc(leftOfBar, clicked)).warnings.join('\n')).toMatch(
+      /points beside what was clicked/,
+    )
+  })
+})
+
 describe('lintDoc', () => {
   it('passes a clean doc', () => {
     const r = lintDoc(

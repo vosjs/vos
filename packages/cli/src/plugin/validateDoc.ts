@@ -1066,11 +1066,19 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
           `${name}: lane must be "zoom" | "tilt" | "speed" (got ${String(r.lane)})`,
         )
       }
-      if (!isNum(r.in) || !isNum(r.out) || r.out <= r.in) {
+      // A rejection is of ONE input's proposal: its seconds are that
+      // input's footage, so its length is the one that bounds it. Held to
+      // the first input's, a proposal late in a longer take could not be
+      // rejected, and every re-plan proposed it again.
+      const rm = typeof r.media === 'string' ? r.media : ''
+      const own = rm ? (mediaLen.get(rm) ?? duration) : duration
+      if (rm && !mediaLen.has(rm)) {
+        problems.push(`${name}: media "${rm}" is not one of media[].id`)
+      } else if (!isNum(r.in) || !isNum(r.out) || r.out <= r.in) {
         problems.push(`${name}: needs SOURCE seconds in < out`)
-      } else if (r.in >= duration) {
+      } else if (r.in >= own) {
         problems.push(
-          `${name}: starts at ${r.in}s, past the footage (${duration.toFixed(2)}s) — nothing to reject there`,
+          `${name}: starts at ${r.in}s, past the footage (${own.toFixed(2)}s) — nothing to reject there`,
         )
       }
     }
@@ -2219,6 +2227,40 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
   return { problems, warnings, ...(notes.length ? { notes } : {}) }
 }
 
+/** The footage seconds of a take's `type` steps: a press inside one focused a field. */
+function typedSpans(meta: Json): [number, number][] {
+  const steps = Array.isArray(meta.steps) ? meta.steps : []
+  return steps.flatMap((st) =>
+    isObj(st) && st.do === 'type' && isNum(st.tStart) && isNum(st.tEnd)
+      ? [[st.tStart, st.tEnd] as [number, number]]
+      : [],
+  )
+}
+
+/** How tall one typed line is taken to be, in the take's points. */
+const TYPED_LINE = 44
+
+/**
+ * What a zoom must hold of a press that focused a field to type into it:
+ * the line that is typed, from the field's left edge to where it was
+ * pressed. A field is as wide as its window (an address bar, a terminal)
+ * and its words start at the left: held to the whole field, a zoom that
+ * frames the words was told it points beside them.
+ */
+function typedLine(c: DownEvent): {
+  x: number
+  y: number
+  w: number
+  h: number
+} {
+  const r = c.rect
+  const px = Math.min(Math.max(c.x, r.x), r.x + r.w)
+  const py = Math.min(Math.max(c.y, r.y), r.y + r.h)
+  const h = Math.min(r.h, TYPED_LINE)
+  const y = Math.min(Math.max(py - h / 2, r.y), r.y + r.h - h)
+  return { x: r.x, y, w: Math.max(1, px - r.x), h }
+}
+
 /**
  * Where a layer anchored to a step of one media starts over ANOTHER
  * media's footage: the segment it lands in and where its own media's
@@ -2370,6 +2412,9 @@ function checkOverlayAnchor(
 
 interface DownEvent {
   t: number
+  /** Where it was pressed, in the take's points. */
+  x: number
+  y: number
   rect: { x: number; y: number; w: number; h: number }
 }
 
@@ -2382,7 +2427,12 @@ function clicksWithRects(source: Json): DownEvent[] {
       continue
     const r = e.rect
     if (!isNum(r.x) || !isNum(r.y) || !isNum(r.w) || !isNum(r.h)) continue
-    out.push({ t: e.t / 1000, rect: { x: r.x, y: r.y, w: r.w, h: r.h } })
+    out.push({
+      t: e.t / 1000,
+      x: isNum(e.x) ? e.x : r.x + r.w / 2,
+      y: isNum(e.y) ? e.y : r.y + r.h / 2,
+      rect: { x: r.x, y: r.y, w: r.w, h: r.h },
+    })
   }
   return out
 }
@@ -2537,7 +2587,13 @@ function framingWarnings(
     // something that media never showed.
     const evidence = new Map<
       string,
-      { w: number; h: number; clicks: DownEvent[]; layout: CardLayout }
+      {
+        w: number
+        h: number
+        clicks: DownEvent[]
+        layout: CardLayout
+        typed: [number, number][]
+      }
     >()
     const others = Array.isArray(doc.media) ? doc.media : []
     for (const [key, src] of [
@@ -2557,7 +2613,7 @@ function framingWarnings(
       } catch {
         continue
       }
-      evidence.set(key, { w, h, clicks, layout })
+      evidence.set(key, { w, h, clicks, layout, typed: typedSpans(meta) })
     }
     if (!evidence.size) return
     const layout = docCardLayout(docIn)
@@ -2565,7 +2621,7 @@ function framingWarnings(
     for (const z of zoom) {
       const ev = evidence.get(typeof z.media === 'string' ? z.media : '')
       if (!ev) continue
-      const { w, h, clicks } = ev
+      const { w, h, clicks, typed } = ev
       if (
         !isNum(z.in) ||
         !isNum(z.out) ||
@@ -2584,10 +2640,13 @@ function framingWarnings(
       let x1 = -Infinity
       let y1 = -Infinity
       for (const c of under) {
-        x0 = Math.min(x0, c.rect.x / w)
-        y0 = Math.min(y0, c.rect.y / h)
-        x1 = Math.max(x1, (c.rect.x + c.rect.w) / w)
-        y1 = Math.max(y1, (c.rect.y + c.rect.h) / h)
+        const r = typed.some(([a, b]) => c.t >= a && c.t <= b)
+          ? typedLine(c)
+          : c.rect
+        x0 = Math.min(x0, r.x / w)
+        y0 = Math.min(y0, r.y / h)
+        x1 = Math.max(x1, (r.x + r.w) / w)
+        y1 = Math.max(y1, (r.y + r.h) / h)
       }
       const rect = { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
       if (
