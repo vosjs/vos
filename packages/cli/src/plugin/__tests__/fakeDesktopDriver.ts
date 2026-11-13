@@ -33,6 +33,13 @@ export interface FakeOptions {
   /** What `record` fails with, as the driver's errors are shaped. */
   fail?: { code: string; message: string }
   heldFrames?: number
+  /** What the stand-in app is made of, and whether its tree is there. */
+  kind?: 'native' | 'electron' | 'chromium'
+  built?: boolean
+  /** What the keyboard is on, as the helper reports it. */
+  focus?: { role: string; name?: string }
+  /** Names for the outline's first element, to stand for a tree that says more than the picture. */
+  firstName?: string
 }
 
 /** What the stand-in app has that a script can name. */
@@ -52,6 +59,12 @@ export function fakeDriver(o: FakeOptions = {}) {
     const t = Date.now() - started
     const at = { ok: true as const, tStart: t, tEnd: t }
     if (command.do === 'now') return at
+    if (command.do === 'focused')
+      return {
+        ...at,
+        frontmost: true,
+        focused: o.focus ?? { role: 'textarea' },
+      }
     const selector = 'selector' in command ? command.selector : undefined
     const rect = selector !== undefined ? ELEMENTS[selector] : undefined
     if (command.do === 'locate')
@@ -73,11 +86,13 @@ export function fakeDriver(o: FakeOptions = {}) {
   const driver: DesktopDriver = {
     tree: async () => ({
       app: 'TextEdit',
+      kind: o.kind ?? ('native' as const),
+      built: o.built ?? true,
       window: { w: 656, h: 422 },
       elements: [
         {
           role: 'button',
-          name: 'Save',
+          name: o.firstName ?? 'Save',
           id: 'save',
           selector: "button[id='save']",
           unique: true,
@@ -137,6 +152,7 @@ export function fakeDriver(o: FakeOptions = {}) {
         id: 41,
         app: 'TextEdit',
         appId: 'com.apple.TextEdit',
+        pid: 4100,
         titled: true,
         frame: { x: 185, y: 83, w: 656, h: 422 },
       },
@@ -144,6 +160,7 @@ export function fakeDriver(o: FakeOptions = {}) {
         id: 42,
         app: 'TextEdit',
         appId: 'com.apple.TextEdit',
+        pid: 4100,
         titled: false,
         frame: { x: 394, y: 338, w: 520, h: 222 },
       },

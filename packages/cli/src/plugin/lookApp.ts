@@ -6,26 +6,40 @@
  *
  * It reads what the interface calls its elements (titles, labels, a field's
  * placeholder) and where they are. What a person typed into a field is never
- * read. Nothing is pressed.
+ * read. A plain look presses nothing.
+ *
+ * `--actions actions.json --until <step id>` looks at the state a script
+ * REACHES: it runs the script's steps up to and including that one, for
+ * real (there is no rehearsal of a desktop app), and then looks. It is how
+ * the second screen's selectors are learned without recording a take.
  *
  * macOS only. It needs Screen Recording (the picture) and Accessibility (the
  * outline) granted to the app this was run from.
  */
-import { mkdir } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { UsageError, hasFlag, numFlag, parseArgs, strFlag } from './args'
-import { EXIT_OK, createReporter } from './output'
+import { desktopProblems, runDesktopSteps } from '@vosjs/render-core/record'
+import { UsageError, parseArgs, strFlag } from './args'
+import { EXIT_OK, EXIT_USAGE, createReporter } from './output'
 import {
   ACCESSIBILITY_FOR_SCRIPT,
   SCREEN_RECORDING,
+  desktopTarget,
   driverFailure,
   loadDriver,
+  targetWords,
 } from './recordApp'
+import { loadActions, takeConfirm } from './run'
 import type { DesktopDriver } from './recordApp'
+import type { ActionsFile, DesktopRunResult } from '@vosjs/render-core/record'
 import type { TreeElement } from '@vosjs/driver'
 
 const USAGE =
-  'vos look --app <name|bundle id> [--out <dir>] [--json]\n       vos look --window <id> …   one window by its id (vos record --windows lists them)'
+  'vos look --app <name|bundle id> [--out <dir>] [--json]\n' +
+  '       vos look --window <id> …   one window by its id (vos record --windows lists them)\n' +
+  '       vos look --pid <n> …       a process’s window: two instances of one app share a name\n' +
+  '       vos look --app <name> --actions actions.json --until <step id> [--confirm <id>]...   the state a script reaches'
 
 /** The most controls one look lists, as a page's look. */
 export const APP_CONTROL_LIMIT = 150
@@ -36,7 +50,9 @@ export function isDesktopLook(argv: string[]): boolean {
     (a) =>
       a === '--app' ||
       a === '--window' ||
+      a === '--pid' ||
       a.startsWith('--app=') ||
+      a.startsWith('--pid=') ||
       a.startsWith('--window='),
   )
 }
@@ -82,21 +98,58 @@ export function appControlLine(c: AppLookControl): string {
   }  ${where}`
 }
 
+/**
+ * How many of an outline's names carry a file path: a home directory, a
+ * project's folder. The tree says more than the picture shows (a file row
+ * is named by its full path), and a look prints it.
+ */
+export function pathNames(elements: readonly TreeElement[]): number {
+  const PATH = /(^|[\s"'(])(~\/|\/Users\/[^/\s]+\/|\/home\/[^/\s]+\/)/
+  return elements.filter((e) => PATH.test(e.name ?? '')).length
+}
+
+/** What to do about a Chromium app whose tree is not there, in words. */
+export function unbuiltLine(kind: string, app: string): string {
+  const made = kind === 'electron' ? 'an Electron app' : 'a Chromium app'
+  return `${app || 'This'} is ${made}, and it has not built its accessibility tree: such an app builds it only when asked, and a running one can take a while. What is listed is its window frame, not its interface. Run this again in a moment; or quit it and start it with --force-renderer-accessibility, which builds the tree from the first frame.`
+}
+
 export async function cmdLookApp(
   argv: string[],
   deps: { driver?: DesktopDriver } = {},
 ): Promise<number> {
-  const { flags } = parseArgs(argv, new Set(['json', 'help']), new Set())
+  const { flags, multi } = parseArgs(
+    argv,
+    new Set(['json', 'help']),
+    new Set(['confirm']),
+  )
   const r = createReporter(flags.json === true)
-  const app = strFlag(flags, 'app')
-  const windowFlag = hasFlag(flags, 'window')
-    ? numFlag(flags, 'window', NaN)
-    : undefined
-  if (windowFlag !== undefined && !Number.isInteger(windowFlag))
-    throw new UsageError(
-      '--window expects a window id from vos record --windows',
-    )
-  if (!app && windowFlag === undefined) throw new UsageError(USAGE)
+
+  // The script to walk, read and refused before anything is touched.
+  const actionsArg = strFlag(flags, 'actions')
+  const untilId = strFlag(flags, 'until')
+  let actions: ActionsFile | undefined
+  let confirm: string[] = []
+  if (actionsArg || untilId) {
+    if (!actionsArg || !untilId)
+      throw new UsageError(
+        '--actions and --until go together: the script, and the id of the step to stop after',
+      )
+    actions = await loadActions(resolve(actionsArg), { desktop: true })
+    const problems = desktopProblems(actions)
+    if (problems.length)
+      throw new UsageError(
+        `not a script a desktop take can run:\n  ${problems.join('\n  ')}`,
+      )
+    if (!actions.steps.some((s) => s.id === untilId))
+      throw new UsageError(
+        `--until ${untilId}: no step of the script has that id (a step is named by its "id")`,
+      )
+    confirm = takeConfirm(multi, actions, { dryRun: false, r })
+  }
+
+  const target = desktopTarget(flags, actions?.app)
+  if (!target) throw new UsageError(USAGE)
   const driver = deps.driver ?? (await loadDriver())
 
   const granted = await driver.check().catch((error) => {
@@ -107,13 +160,58 @@ export async function cmdLookApp(
 
   const outDir = resolve(strFlag(flags, 'out') ?? 'look')
   await mkdir(outDir, { recursive: true })
-  const target =
-    windowFlag !== undefined ? { window: windowFlag } : { app: app! }
   const screenshot = join(outDir, 'look.png')
+
+  // Walk the script to the step asked for. The steps are real: the app is
+  // brought forward and pressed, and the take that carries them is thrown
+  // away. The look is taken once that take has ended, because two captures
+  // of one screen at the same moment fail each other.
+  let walked: DesktopRunResult | undefined
+  let window: number | undefined
+  if (actions && untilId) {
+    const scratch = await mkdtemp(join(tmpdir(), 'vos-look-app-'))
+    try {
+      const take = driver.record({
+        ...target,
+        out: scratch,
+        drive: true,
+        pointer: false,
+        maxSeconds: 300,
+        ...(actions.viewport
+          ? {
+              size: {
+                w: actions.viewport.width,
+                h: actions.viewport.height,
+              },
+            }
+          : {}),
+      })
+      try {
+        window = (await take.ready).window
+        r.log(
+          `walking the script to step "${untilId}": its steps are real. Leave the machine alone until it ends…`,
+        )
+        walked = await runDesktopSteps(take, actions, r.log, {
+          until: untilId,
+          confirm,
+        })
+      } finally {
+        await take.stop().catch(() => {})
+      }
+    } catch (error) {
+      throw driverFailure(error)
+    } finally {
+      await rm(scratch, { recursive: true, force: true })
+    }
+  }
+
   let outline: Awaited<ReturnType<DesktopDriver['tree']>>
   let shot: Awaited<ReturnType<DesktopDriver['still']>>
   try {
-    shot = await driver.still({ ...target, out: screenshot })
+    shot = await driver.still({
+      ...(window !== undefined ? { window } : target),
+      out: screenshot,
+    })
     // The picture names the window, so the outline is of that same one.
     outline = await driver.tree({ window: shot.window })
   } catch (error) {
@@ -123,26 +221,52 @@ export async function cmdLookApp(
   const all = outline.elements.map(appControl)
   const controls = all.slice(0, APP_CONTROL_LIMIT)
   const more = all.length - controls.length
+  const paths = pathNames(outline.elements)
   const size = `${Math.round(outline.window.w)}×${Math.round(outline.window.h)}`
-  const named = outline.app || app || `window ${windowFlag}`
+  const named = outline.app || targetWords(target)
+  const missed =
+    walked && (walked.stopped || walked.reached === false)
+      ? (walked.stopped?.reason ??
+        `the script ended before step "${untilId}" ran`)
+      : null
   r.done(
     {
-      ok: true,
+      ok: !missed,
       app: outline.app,
+      kind: outline.kind,
+      built: outline.built,
       window: outline.window,
       screenshot,
       controls,
       more,
+      paths,
+      ...(walked
+        ? {
+            until: untilId,
+            reached: walked.reached === true && !walked.stopped,
+            steps: walked.steps.length,
+            ...(walked.stopped ? { stopped: walked.stopped } : {}),
+          }
+        : {}),
     },
     [
-      `Looked at ${named} (${size} points): ${screenshot}`,
+      `Looked at ${named} (${size} points)${walked && !missed ? `, after step "${untilId}"` : ''}: ${screenshot}`,
+      ...(missed
+        ? [`NOT REACHED: ${missed}. This is the window as the walk left it.`]
+        : []),
+      ...(!outline.built ? [unbuiltLine(outline.kind, outline.app)] : []),
       controls.length
         ? `${controls.length} control${controls.length === 1 ? '' : 's'}${more > 0 ? `, ${more} past the listing's limit` : ''}:`
         : 'The window offers nothing a script can name. Its app may not describe itself to accessibility; a step can still act on a point (x and y in the window’s points).',
       ...controls.map(appControlLine),
       '',
-      `Take a UNIQUE selector into actions.json as it is; an AMBIGUOUS one names by position, and moves when the interface does. Then record: vos record --app "${outline.app || app || '<name>'}" --actions actions.json`,
+      ...(paths > 0
+        ? [
+            `note: ${paths} name${paths === 1 ? '' : 's'} above carr${paths === 1 ? 'ies' : 'y'} a file path the picture does not show (a home directory, a project’s folder). The outline says more than the pixels do.`,
+          ]
+        : []),
+      `Take a UNIQUE selector into actions.json as it is; an AMBIGUOUS one names by position, and moves when the interface does. Then record: vos record --app "${outline.app || '<name>'}" --actions actions.json`,
     ].join('\n'),
   )
-  return EXIT_OK
+  return missed ? EXIT_USAGE : EXIT_OK
 }

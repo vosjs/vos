@@ -188,8 +188,13 @@ function gestureBeat(step: ActionStep): string | null {
         : verb
       return `${named}${holding} ${target}${button}`
     }
-    case 'type':
-      return `${named}${step.replace ? 'Replace what is in' : 'Type'}${step.replace ? ` ${sayStepTarget(step)} with "${step.text}"` : ` "${step.text}" into ${sayStepTarget(step)}`}${step.at === 'end' ? ', at the end' : step.at === 'start' ? ', at the start' : ''}`
+    case 'type': {
+      const typeTarget =
+        step.selector !== undefined
+          ? sayStepTarget(step as { selector: string; id?: string })
+          : 'where the keyboard is'
+      return `${named}${step.replace ? 'Replace what is in' : 'Type'}${step.replace ? ` ${typeTarget} with "${step.text}"` : ` "${step.text}" into ${typeTarget}`}${step.at === 'end' ? ', at the end' : step.at === 'start' ? ', at the start' : ''}`
+    }
     case 'press':
       return `${named}Press ${thenList(pressSequence(step).map(sayChord))}${step.selector ? ` in ${sayStepTarget(step as { selector: string; id?: string })}` : ''}`
     case 'paste': {

@@ -246,7 +246,7 @@ Take pipeline
   vos record --app <name|bundle id> [--out take] [--seconds <n>] [--max-duration <s>] [--background <slug|url|none>] [--json]
             a desktop app's window (macOS), performed by whoever is at the machine: you or your agent's computer use works the app, and the take has no system pointer in its pixels and the pointer's path beside it, planned like a page take; Ctrl-C ends it, or --seconds; --window <id> names one window, vos record --windows lists what can be recorded; needs Screen Recording for the app this runs from (vos doctor says)
   vos record --app <name|bundle id> --actions actions.json [--out take] [--strict] [--confirm <id>]... [--max-duration <s>] [--background <slug|url|none>] [--json]
-            the same, SCRIPTED: actions.json drives the app through accessibility (a script that names "app" needs no --app). Selectors are a role and a name or identifier, button[name='Save'], textfield[id='title'], as vos look --app lists them; steps are wait, hover, click, type, press, scroll, move, drag and expect, and a page's fields and steps are refused in words. The app comes forward and the real pointer and keyboard are used: leave the machine alone until it ends. No --dry-run. Needs Accessibility too
+            the same, SCRIPTED: actions.json drives the app through accessibility (a script that names "app" needs no --app). Selectors are a role and a name or identifier, button[name='Save'], textfield[id='title'], as vos look --app lists them; steps are wait, hover, click, type, press, scroll, move, drag and expect, and a page's fields and steps are refused in words. The app comes forward and the real pointer and keyboard are used: leave the machine alone until it ends. No --dry-run. Needs Accessibility too. It STOPS at the first step that misses (exit 1), so no later key lands where the script did not mean ("onSkip": "continue" goes on); a type refuses to type onto a row or a button, and may leave selector out with focus: false to type where the keyboard is. --pid <n> names one process's window (vos record --windows lists them): film a throwaway instance, never an app someone has open with real work
   vos plan <take> [--fresh] [--reuse [--from <doc.json>]] [--style <doc.json|vosId>] [--with <doc.json|vosId>[@end|@start|@step:<id>|@<s>]]... [--background <slug|url|none>] [--motion] [--headline "…"] [--kicker "…"] [--launch LAUNCH.md] [--brand BRAND.md] [--music <slug|mood|none>] [--entrance tilt-in|pull-out|rise|fade|slide|none] [--transitions slide|fade|scale|none] [--end-card on|none|<doc.json|vosId>] [--captions|--captions none] [--clicks none] [--still <t>] [--release v2.1] [--zooms per-beat] [--json]
             --zooms per-beat keeps at most one zoom per beat: the beats are the captioned steps of actions.json (each runs until the next one starts, plus the opening before the first); a step marked "zoom": true in actions.json is its beat's payoff, and the beat keeps the proposal that overlaps it most (one per marked step, never two overlapping), promoted to manual; a beat with no marked step keeps no zoom; when no step of the take is marked, each beat's last click, drag, type or paste stands in (the opening keeps none) and the done line says so; a step marked "zoom": false is never zoomed on; the rest go into doc.rejected like a person deleting them, and a beat with a manual zoom keeps only its manual ones. A media with no captioned step keeps its zooms as planned, and the done line says so
   vos render <take> [out.webm] [--width] [--height] [--fps] [--format webm|mp4] [--parallel N] [--range a..b] [--draft] [--frame <kind>] [--background <url|slug>] [--set <path=value>]... [--json]
@@ -287,7 +287,7 @@ Take pipeline
   vos look <url> [--session <name>|--storage-state <file>] [--viewport WxH] [--headed] [--click <selector>]... [--type <selector>=<text>]... [--wait <ms>] [--header name=value]... [--browser-arg=<switch>]... [--out look] [--json]
             see a page before scripting it, signed in the way vos record would be: <out>/look.png and every control in view with ONE proposed selector (test id, aria-label, role + name, then words in its dialog or landmark), UNIQUE or AMBIGUOUS as the recorder's own engine counts it, plus what the frame exposes. --click/--type run first, in order; a click on a spend or delete word is refused. Exit 4 at a sign-in wall
   vos look --app <name|bundle id> [--out look] [--json]
-            see a desktop app's window before scripting it (macOS): <out>/look.png and every control with ONE proposed selector (its accessibility identifier, else what the interface calls it), UNIQUE or AMBIGUOUS. Nothing is pressed, and what was typed into a field is never read. --window <id> names one window. Needs Screen Recording and Accessibility
+            see a desktop app's window before scripting it (macOS): <out>/look.png and every control with ONE proposed selector (its accessibility identifier, else what the interface calls it), UNIQUE or AMBIGUOUS. Nothing is pressed, and what was typed into a field is never read. --window <id> names one window, --pid <n> a process's. An Electron or Chromium app builds its tree only when asked: the look waits and says so when it is not there (launch the app with --force-renderer-accessibility). With --actions actions.json --until <step id> it runs the script to that step, for real, then looks, and keeps no take. Needs Screen Recording and Accessibility
   vos session open <url> --name <app>   a plain Chrome window on a vos-owned profile; sign in, set the account up, close the window (or Enter)
   vos session check <name> [--url <url>] [--strict]   headless, against a stranger: does the page open as you? exit 0/4
   vos session exec <name> <script.mjs> [--url <url>] [--headed] [--viewport WxH] [--json]
@@ -620,9 +620,12 @@ lint-gated, so a bad override fails like a bad doc.json):
                        first ready loop (the house backdrop the studio opens on), or a flat ground offline
 `
 
-export async function loadActions(file: string): Promise<ActionsFile> {
+export async function loadActions(
+  file: string,
+  opts: { desktop?: boolean } = {},
+): Promise<ActionsFile> {
   const raw = JSON.parse(await readFile(file, 'utf8')) as unknown
-  const errors = validateActions(raw)
+  const errors = validateActions(raw, opts)
   if (!errors.length) errors.push(...jsSyntaxProblems(raw as ActionsFile))
   if (errors.length)
     throw new UsageError(`invalid actions file:\n  ${errors.join('\n  ')}`)

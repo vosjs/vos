@@ -1352,8 +1352,11 @@ async function recordTakeSteps(
         break
       }
       case 'type': {
-        if (await rehearseGuard(step.selector)) break
-        const rect = await boxOf(step.selector)
+        // A page's type always names its field: validateActions refuses one
+        // that does not (only a desktop script may leave it out).
+        const field = step.selector!
+        if (await rehearseGuard(field)) break
+        const rect = await boxOf(field)
         stepRect = rect
         if (rect) {
           // The click is what opens the typing zoom on the field. A step that
@@ -1400,8 +1403,7 @@ async function recordTakeSteps(
           ping()
           log(`type ${step.text.length} chars into ${step.selector}`)
           await gesture(() => sleep(settleMs(step)))
-        } else
-          skipped.push({ step: stepIdx, do: step.do, selector: step.selector })
+        } else skipped.push({ step: stepIdx, do: step.do, selector: field })
         break
       }
       case 'press': {

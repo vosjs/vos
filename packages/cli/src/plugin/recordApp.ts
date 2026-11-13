@@ -56,6 +56,7 @@ const USAGE =
   'vos record --app <name|bundle id> [--out take] [--seconds <n>] [--max-duration <s>] [--background <slug|url|none>] [--json]\n' +
   '       vos record --app <name|bundle id> --actions actions.json [--out take] [--strict] [--confirm <id>]... …   scripted\n' +
   '       vos record --window <id> …   one window by its id\n' +
+  '       vos record --pid <n> …       a process’s window: two instances of one app share a name\n' +
   '       vos record --windows         list the windows that can be recorded'
 
 /** The part of `@vosjs/driver` the desktop verbs use; a test hands in its own. */
@@ -71,9 +72,46 @@ export function isDesktopRecord(argv: string[]): boolean {
       a === '--app' ||
       a === '--window' ||
       a === '--windows' ||
+      a === '--pid' ||
       a.startsWith('--app=') ||
+      a.startsWith('--pid=') ||
       a.startsWith('--window='),
   )
+}
+
+/**
+ * Which window a desktop verb is about: `--window <id>`, `--pid <n>` (a
+ * process's window, the one way to tell two instances of an app apart) or
+ * `--app <name>`, in that order. Null when none is given.
+ */
+export function desktopTarget(
+  flags: Record<string, string | true>,
+  fallbackApp?: string,
+): { window: number } | { pid: number } | { app: string } | null {
+  for (const key of ['window', 'pid'] as const) {
+    if (!hasFlag(flags, key)) continue
+    const n = numFlag(flags, key, NaN)
+    if (!Number.isInteger(n) || n <= 0)
+      throw new UsageError(
+        key === 'window'
+          ? '--window expects a window id from vos record --windows'
+          : '--pid expects a process id (vos record --windows lists each window’s)',
+      )
+    return key === 'window' ? { window: n } : { pid: n }
+  }
+  const app = strFlag(flags, 'app') ?? fallbackApp
+  return app ? { app } : null
+}
+
+/** A target in words, for a line a person reads. */
+export function targetWords(
+  t: { window: number } | { pid: number } | { app: string },
+): string {
+  return 'app' in t
+    ? t.app
+    : 'pid' in t
+      ? `process ${t.pid}`
+      : `window ${t.window}`
 }
 
 /**
@@ -135,7 +173,7 @@ export const SCREEN_RECORDING =
 
 function windowLine(w: DriverWindow): string {
   const size = `${Math.round(w.frame.w)}×${Math.round(w.frame.h)}`
-  return `${String(w.id).padStart(7)}  ${w.app || '(no name)'}  ${size}${w.titled ? '' : '  (untitled: an alert or a panel)'}`
+  return `${String(w.id).padStart(7)}  ${w.app || '(no name)'}  ${size}  pid ${w.pid}${w.titled ? '' : '  (untitled: an alert or a panel)'}`
 }
 
 export async function cmdRecordApp(
@@ -154,7 +192,7 @@ export async function cmdRecordApp(
   let actions: ActionsFile | undefined
   let confirm: string[] = []
   if (actionsPath && flags.windows !== true) {
-    actions = await loadActions(resolve(actionsPath))
+    actions = await loadActions(resolve(actionsPath), { desktop: true })
     const problems = desktopProblems(actions)
     if (problems.length)
       throw new UsageError(
@@ -187,7 +225,7 @@ export async function cmdRecordApp(
     r.done(
       { windows },
       windows.length
-        ? `${windows.map(windowLine).join('\n')}\n\nRecord one: vos record --app "<name>" --out take`
+        ? `${windows.map(windowLine).join('\n')}\n\nRecord one: vos record --app "<name>" --out take. Two windows of one app? --pid <n> names the process, --window <id> the window`
         : 'No window that can be recorded is on screen.',
     )
     return EXIT_OK
@@ -196,14 +234,8 @@ export async function cmdRecordApp(
   const app = strFlag(flags, 'app') ?? actions?.app
   if (actions && !granted.accessibility)
     throw new Error(ACCESSIBILITY_FOR_SCRIPT)
-  const windowFlag = hasFlag(flags, 'window')
-    ? numFlag(flags, 'window', NaN)
-    : undefined
-  if (windowFlag !== undefined && !Number.isInteger(windowFlag))
-    throw new UsageError(
-      '--window expects a window id from vos record --windows',
-    )
-  if (!app && windowFlag === undefined) throw new UsageError(USAGE)
+  const target = desktopTarget(flags, actions?.app)
+  if (!target) throw new UsageError(USAGE)
   const seconds = hasFlag(flags, 'seconds')
     ? numFlag(flags, 'seconds', NaN)
     : undefined
@@ -237,7 +269,7 @@ export async function cmdRecordApp(
   }
 
   const request: RecordRequest = {
-    ...(windowFlag !== undefined ? { window: windowFlag } : { app: app! }),
+    ...target,
     out: outDir,
     maxSeconds: seconds !== undefined ? Math.min(seconds, cap) : cap,
     pointer: true,
@@ -404,7 +436,7 @@ export async function cmdRecordApp(
       ? `FAILED: the take stopped at step #${run.stopped.step}: ${run.stopped.reason}${scriptLines}`
       : strict
         ? `STRICT: take recorded but incomplete: ${strict}; fix the script and record again.${scriptLines}`
-        : `Recorded ${app ?? `window ${windowFlag}`} → ${outDir}/recording.mp4 (${length}s, ${stopped.frames} frames${run ? `, ${run.steps.length} steps` : ''})\n  ${cursorLine}${scriptLines}\n  Next: vos digest ${outDir} — look before you cut; edit doc.json; vos open ${outDir} or vos push ${outDir}`,
+        : `Recorded ${targetWords(target)} → ${outDir}/recording.mp4 (${length}s, ${stopped.frames} frames${run ? `, ${run.steps.length} steps` : ''})\n  ${cursorLine}${scriptLines}\n  Next: vos digest ${outDir} — look before you cut; edit doc.json; vos open ${outDir} or vos push ${outDir}`,
   )
   return run?.stopped ? EXIT_ERROR : strict ? EXIT_USAGE : EXIT_OK
 }
