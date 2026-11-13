@@ -76,8 +76,16 @@ is no rehearsal, and three rules come before any take.
   A desktop take stops at the first step that misses; that is the guard,
   not a failure to route around.
 
+- **An app that IS an account has no throwaway instance.** Then the
+  person's own app is the stage only when they asked for it, and the
+  reference's section on it comes first: say what will show and `mask`
+  what is left, give the script a `teardown` so no walk leaves its text
+  behind, and record a result that arrives later as two takes joined
+  (`@vosjs/cli` 0.93 and later).
+
 Everything below about destinations, the pre-flight, the cut and the push
-applies. Sessions, masks, `--hosted` and `--dry-run` do not.
+applies. Sessions, `--hosted` and `--dry-run` do not; a desktop `mask`
+covers and never rewrites words.
 
 ## Pre-flight: six answers before the first take
 

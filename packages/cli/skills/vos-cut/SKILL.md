@@ -179,6 +179,10 @@ Per beat, against `plan` and the recipe:
   again later, marked `"camera": "rest"` so it shows the settled whole
   while the main play zooms; never a second join of the same recording.
   An end card or caption with an `anchor` to a step needs no `start`.
+  A joined take's digest is one file per input (`digest/digest.json`,
+  then `digest/m1/digest.json`, each with its own sheet; `@vosjs/cli`
+  0.93 and later): read every one before cutting, or everything after
+  the first input is cut blind.
   Several takes are one `vos join`; to add, swap or reorder an input
   later, run the same join with `--keep-edits`, which keeps every trim,
   span, caption and still made since. Never rebuild the joined take.
