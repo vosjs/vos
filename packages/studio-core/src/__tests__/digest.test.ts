@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { projectFromArtifact } from '../ingest'
 import { docCardLayout, focusBounds } from '../layout'
-import { momentsFromDoc, planForDigest } from '../digest/moments'
+import {
+  GLANCE_CHANGE,
+  GLANCE_IDLE_MIN,
+  GLANCE_MAX,
+  idleGlances,
+  momentsFromDoc,
+  planForDigest,
+} from '../digest/moments'
 import { sceneChanges } from '../digest/scenes'
 import { zoomCoversRect, zoomWindow } from '../digest/framing'
 import { STYLE_FIELDS, copyStyle, pickStyle } from '../digest/style'
@@ -291,5 +298,51 @@ describe('copyStyle', () => {
       fps: 30,
       format: 'mp4',
     })
+  })
+})
+
+describe('idleGlances: eyes inside a long wait', () => {
+  it('looks where the picture changed, strongest first and kept apart, then at an even pace', () => {
+    // Eighteen minutes of a session working: nothing moves enough to count
+    // for the first ten, then pictures arrive.
+    const bins = new Array(1107).fill(0)
+    Object.assign(bins, {
+      300: 0.012,
+      690: 0.044,
+      695: 0.096,
+      708: 0.101,
+      779: 0.116,
+      791: 0.089,
+      846: 0.084,
+      914: 0.082,
+      979: 0.069,
+      1083: 0.081,
+    })
+    const g = idleGlances(16.7, 1106.4, bins)
+    expect(g.length).toBeGreaterThanOrEqual(8)
+    expect(g.length).toBeLessThanOrEqual(GLANCE_MAX)
+    expect(g.map((x) => x.t)).toEqual(
+      [...g.map((x) => x.t)].sort((a, b) => a - b),
+    )
+    const changed = g.filter((x) => x.fraction !== undefined)
+    // The second AFTER each change, the strongest of a busy minute only.
+    expect(changed.map((x) => x.t)).toEqual([709, 780, 847, 915, 980, 1084])
+    expect(changed.every((x) => x.fraction! >= GLANCE_CHANGE)).toBe(true)
+    // The quiet ten minutes are not left unseen.
+    const paced = g.filter((x) => x.fraction === undefined)
+    expect(paced.filter((x) => x.t < 690).length).toBeGreaterThanOrEqual(3)
+    for (let i = 1; i < g.length; i++)
+      expect(g[i].t - g[i - 1].t).toBeLessThanOrEqual(270)
+  })
+
+  it('leaves a short idle alone, and needs the bins', () => {
+    expect(
+      idleGlances(10, 10 + GLANCE_IDLE_MIN - 1, new Array(200).fill(0.2)),
+    ).toEqual([])
+    expect(idleGlances(10, 400, null)).toEqual([])
+    // A still minute and a half: a look at an even pace, no change claimed.
+    const still = idleGlances(10, 100, new Array(120).fill(0))
+    expect(still.length).toBeGreaterThanOrEqual(2)
+    expect(still.every((x) => x.fraction === undefined)).toBe(true)
   })
 })

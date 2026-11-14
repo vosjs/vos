@@ -41,6 +41,12 @@ export type MomentKind =
   | 'scroll'
   | 'dwell'
   | 'idle'
+  /**
+   * A look inside a long idle: an instant where the picture changed while
+   * nothing was pressed (a checklist ticking, a result arriving), or one
+   * at an even pace where it did not. A wait is a beat too.
+   */
+  | 'glance'
   | 'scene'
 
 /** A rect in normalized [0..1] frame fractions (the zoom cx/cy convention). */
@@ -88,6 +94,65 @@ export interface DigestPlan {
   zoom: ZoomSpan[]
   speed: SpeedSpan[]
   tilt: TiltSpan[]
+}
+
+/** An idle this long (seconds) is looked into. */
+export const GLANCE_IDLE_MIN = 45
+/** At most this many glances in one idle. */
+export const GLANCE_MAX = 12
+/** A second whose changed-pixel fraction reaches this is a change worth a look. */
+export const GLANCE_CHANGE = 0.03
+
+/**
+ * Where to look inside an idle stretch `[a, b]` (SOURCE seconds), from the
+ * per-second motion bins. First the seconds where the picture changed:
+ * local peaks at or above `GLANCE_CHANGE`, strongest first, kept apart so
+ * one busy minute does not take them all. Then an even pace through what
+ * is left, so no long stretch goes unseen when the changes were too small
+ * to count (text streaming into a pane moves few pixels). Each glance is
+ * the second AFTER the change, where the new picture is.
+ *
+ * A changed glance carries the fraction that changed; a paced one does
+ * not. Empty for a short idle, or without bins.
+ */
+export function idleGlances(
+  a: number,
+  b: number,
+  bins: readonly number[] | null | undefined,
+): { t: number; fraction?: number }[] {
+  const len = b - a
+  if (!bins?.length || len < GLANCE_IDLE_MIN) return []
+  const lo = Math.ceil(a) + 2
+  const hi = Math.min(bins.length - 1, Math.floor(b) - 2)
+  const apart = Math.max(8, len / (GLANCE_MAX * 1.5))
+  const peaks: number[] = []
+  for (let i = lo; i <= hi; i++) {
+    const v = bins[i] ?? 0
+    if (v >= GLANCE_CHANGE && v >= (bins[i - 1] ?? 0) && v > (bins[i + 1] ?? 0))
+      peaks.push(i)
+  }
+  peaks.sort((x, y) => bins[y] - bins[x])
+  const changed: number[] = []
+  for (const i of peaks) {
+    if (changed.length >= GLANCE_MAX - 3) break
+    if (changed.every((j) => Math.abs(j - i) >= apart)) changed.push(i)
+  }
+  changed.sort((x, y) => x - y)
+  const out: { t: number; fraction?: number }[] = changed.map((i) => ({
+    t: i + 1,
+    fraction: bins[i],
+  }))
+  // The pace: about six looks across the idle, never closer than 20 s or
+  // further than 3 minutes apart.
+  const pace = Math.min(180, Math.max(20, len / 6))
+  const marks = [a, ...changed.map((i) => i + 1), b]
+  for (let k = 0; k + 1 < marks.length; k++) {
+    const gap = marks[k + 1] - marks[k]
+    const n = Math.round(gap / pace) - 1
+    for (let j = 1; j <= n && out.length < GLANCE_MAX; j++)
+      out.push({ t: Math.round(marks[k] + (gap * j) / (n + 1)) })
+  }
+  return out.sort((x, y) => x.t - y.t)
 }
 
 export interface TranscriptSegment {
@@ -286,6 +351,20 @@ export function momentsFromDoc(
         focus: null,
         rect: null,
       })
+      // Eyes inside it, when it is long: nothing was pressed there, so no
+      // other moment falls in it, and a film of a long task is cut from it.
+      for (const g of idleGlances(a, b, opts.bins)) {
+        if (g.t <= edge || g.t >= dur - edge) continue
+        drafts.push({
+          kind: 'glance',
+          in: g.t,
+          out: g.t,
+          at: Math.min(dur, g.t + 0.04),
+          focus: null,
+          rect: null,
+          ...(g.fraction !== undefined ? { fraction: g.fraction } : {}),
+        })
+      }
     }
   }
 
@@ -328,7 +407,8 @@ export function momentsFromDoc(
     dwell: 5,
     scene: 6,
     idle: 7,
-    tail: 8,
+    glance: 8,
+    tail: 9,
   }
   drafts.sort((a, b) => a.in - b.in || order[a.kind] - order[b.kind])
 
@@ -387,7 +467,8 @@ export function momentsFromDoc(
       ...(d.surface ? { surface: true } : {}),
       ...(d.pings !== undefined ? { pings: d.pings } : {}),
       activity:
-        d.kind === 'changed' && d.fraction !== undefined
+        (d.kind === 'changed' || d.kind === 'glance') &&
+        d.fraction !== undefined
           ? round(d.fraction)
           : activityOf(opts.bins, d),
       proposed,

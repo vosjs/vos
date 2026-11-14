@@ -169,11 +169,16 @@ describe('lintDoc: a typed field is read where its caret was', () => {
   }
 
   it('a zoom on the typed line is right, and one on the pressed middle is not', () => {
-    expect(lintDoc(terminal({ zoom: [onWords] })).warnings).toEqual([])
+    expect(
+      lintDoc(terminal({ zoom: [onWords] } as unknown as Partial<ProjectDoc>))
+        .warnings,
+    ).toEqual([])
     const onPress = { ...onWords, level: 1.4, cx: 0.5, cy: 0.75 }
-    expect(lintDoc(terminal({ zoom: [onPress] })).warnings.join('\n')).toMatch(
-      /points beside what was clicked/,
-    )
+    expect(
+      lintDoc(
+        terminal({ zoom: [onPress] } as unknown as Partial<ProjectDoc>),
+      ).warnings.join('\n'),
+    ).toMatch(/points beside what was clicked/)
   })
 
   it('a caption in the lower third does not sit on a terminal that was typed into at its top', () => {
