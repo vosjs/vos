@@ -208,9 +208,11 @@ window:
 - **`Mod` is Command.** A menu-bar menu is not in the window: reach it with
   its key chord.
 - **A wide field that is typed into** (a terminal's text, an address
-  bar) has its words at the left. Frame the words; from 0.94 `vos
-  validate` holds such a zoom to the typed line and not to the field's
-  centre.
+  bar) has its words at the left. Frame the words; from 0.95 `vos
+  validate` holds such a zoom to the line where the typing happened (a
+  terminal's caret, not where it was pressed), in a script and in a play.
+  On 0.94 a terminal and a play still warn: read the picture, not the
+  warning.
 
 ## What stops a take, and why you want it to
 

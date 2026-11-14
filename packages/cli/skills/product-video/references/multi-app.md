@@ -26,14 +26,19 @@ Say these to the person, once, before anything is launched:
   before EVERY take (`defaults read -g AppleInterfaceStyle`, which fails
   when it is light) and stop if it is not what the first take had: a
   long take plus a locked screen is enough for the evening to arrive.
-  Say so if the film crosses the change.
+  Say so if the film crosses the change. A take records which it was
+  made under, and `vos validate` and `vos join` say when a film's inputs
+  differ (`@vosjs/cli` 0.95 over `@vosjs/driver` 0.4.1).
 - **The screen will lock.** A take that waits sends no input, so the
   system counts it as idle, sleeps the display and locks. The capture
   goes on, but the NEXT take cannot bring its app forward ("The app
   could not be brought to the front"), and only the person can unlock.
-  Keep the display awake for as long as the takes run
-  (`caffeinate -d -t <seconds> &`, ended when they are done), and tell
-  the person a film with a long wait needs the machine left awake.
+  From `@vosjs/driver` 0.4.1 the helper holds the display awake for the
+  length of a take, and a script behind a locked screen is refused in
+  those words. BETWEEN takes nothing holds it: keep the display awake
+  for as long as the film's takes run (`caffeinate -d -t <seconds> &`,
+  ended when they are done), and tell the person a film with a long wait
+  needs the machine left awake.
 
 ## A stage per app
 
@@ -215,17 +220,21 @@ showing (0.94 and later): wait inside the take, then cut it.
 { "do": "expect", "gone": "button[name='Stop']", "timeout": 1800, "id": "working", "caption": "It builds" }
 ```
 
-with `--max-duration` above the wait (an `expect` or a `wait` takes no
-`zoom` mark: `vos validate` refuses one). A window that stands still
+with `--max-duration` above the wait. From 0.95 a `wait` or an `expect`
+may carry `"zoom": false`: the wait is watched whole, and the planner
+proposes nothing over it whatever the pointer does meanwhile (before
+0.95 `vos validate` refuses the mark). A window that stands still
 costs almost nothing (about 7 KB a second); an app that is working is
 about 120 KB a second, so eighteen minutes is about 130 MB. A wait looks
 again when the window cannot be read for a moment. The machine is taken
 for the whole wait and must stay awake (above), so say how long.
 
-**Cutting it.** The digest has no moment inside a wait: nothing was
-pressed, so eighteen minutes is one `idle` moment, and the plan proposes
-one speed span over all of it. Make your own eyes, a contact sheet with
-a frame every 40 seconds:
+**Cutting it.** From 0.95 `vos digest` looks inside a wait: an idle of
+45 seconds or more carries `glance` moments, the seconds where the
+picture changed while nothing was pressed and an even pace through the
+rest, each with a frame on the sheet. Choose the windows from those.
+Before 0.95 the digest has one `idle` moment for the whole wait, and you
+make your own eyes, a contact sheet with a frame every 40 seconds:
 
 ```bash
 ffmpeg -i take/recording.mp4 -vf "fps=1/40,scale=480:-1,tile=6x5" -frames:v 1 contact.png

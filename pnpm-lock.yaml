@@ -36,8 +36,8 @@ importers:
         specifier: workspace:^
         version: link:../core
       '@vosjs/driver':
-        specifier: ^0.4.0
-        version: 0.4.0
+        specifier: ^0.4.1
+        version: 0.4.1
       '@vosjs/editor':
         specifier: workspace:^
         version: link:../editor
@@ -861,14 +861,14 @@ packages:
   '@vitest/utils@3.2.6':
     resolution: {integrity: sha512-lI23nIs4bnT3T8NIoh+vFaz5s2/DdP0Jgt2jxwgWljvwn82cLJtyi/If+fjFyoLMGIOz0U/fKvWE0d4jsNQEfg==}
 
-  '@vosjs/driver-darwin@0.4.0':
-    resolution: {integrity: sha512-zTEZEx0VsDGISMIvV7h/DfI2YqOEZN/zKVph0ew6L9qP/c6Eeldx+Njw8apTCyzgr4zJjzNdZjjby6W98KUC2g==}
+  '@vosjs/driver-darwin@0.4.1':
+    resolution: {integrity: sha512-fc0mAAPHp4PySoKgyjvksmVzP2mZRnOGmGgBhsS7Pyv/7HqdeU+xLaR+MK8e1MwRhfehY5WTg2Kkk4k8m8TZoA==}
     cpu: [arm64, x64]
     os: [darwin]
     hasBin: true
 
-  '@vosjs/driver@0.4.0':
-    resolution: {integrity: sha512-l/D2SPcMgw+JGjruO/ucr7LeJxfCrPCtxLBgShRFYl2CaZtG2IC0W6hOxN+jktMz+VO/dtWpv79rSE6TX/s1uQ==}
+  '@vosjs/driver@0.4.1':
+    resolution: {integrity: sha512-OBZlgkvHxZzPS1mmhtTXOyo5x3vqm95wAvNBMPtVzlMSm7cxtFjOj9+/JAm7z+w2izAXsmpK+aFMbqzVgD3/MQ==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -2407,12 +2407,12 @@ snapshots:
       loupe: 3.2.1
       tinyrainbow: 2.0.0
 
-  '@vosjs/driver-darwin@0.4.0':
+  '@vosjs/driver-darwin@0.4.1':
     optional: true
 
-  '@vosjs/driver@0.4.0':
+  '@vosjs/driver@0.4.1':
     optionalDependencies:
-      '@vosjs/driver-darwin': 0.4.0
+      '@vosjs/driver-darwin': 0.4.1
 
   '@webgpu/types@0.1.70': {}
 
