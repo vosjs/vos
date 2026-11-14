@@ -97,7 +97,14 @@ export {
 } from './planner/autoZoom'
 export type { Drag } from './planner/autoZoom'
 export type { SpeedParams } from './planner/autoSpeed'
-export { momentsFromDoc, planForDigest } from './digest/moments'
+export {
+  GLANCE_CHANGE,
+  GLANCE_IDLE_MIN,
+  GLANCE_MAX,
+  idleGlances,
+  momentsFromDoc,
+  planForDigest,
+} from './digest/moments'
 export {
   CHANGE_FLOOR,
   CHANGE_GRID,

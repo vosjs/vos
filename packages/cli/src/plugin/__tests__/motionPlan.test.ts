@@ -452,6 +452,14 @@ describe('proposeMotion (the cut’s motion as data on the document)', () => {
       'endcard-mark': 'B',
       'endcard-sub': 'B 2',
     })
+    // A film with no brand and no release: the kicker is the line under
+    // the title. It used to be said and laid nowhere.
+    expect(templateWords({ headline: 'A', kicker: 'K' })).toEqual({
+      'stage-title': 'A',
+      'endcard-title': 'A',
+      'stage-kicker': 'K',
+      'endcard-sub': 'K',
+    })
   })
 
   it('never puts two beat captions on screen at once: one that cannot be read before the next is dropped and said', () => {

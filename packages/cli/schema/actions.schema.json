@@ -120,6 +120,11 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
+              },
+              "zoom": {
+                "type": "boolean",
+                "enum": [false],
+                "description": "false: the wait is watched whole. The planner proposes nothing over it, whatever the pointer does meanwhile (a long task, a result arriving). true is refused: a wait shows nothing to zoom on"
               }
             }
           },
@@ -696,6 +701,11 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
+              },
+              "zoom": {
+                "type": "boolean",
+                "enum": [false],
+                "description": "false: the wait is watched whole. The planner proposes nothing over it, whatever the pointer does meanwhile (a long task, a result arriving). true is refused: a wait shows nothing to zoom on"
               }
             }
           },

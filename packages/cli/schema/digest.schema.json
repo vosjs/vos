@@ -126,7 +126,9 @@
               "typing",
               "scroll",
               "dwell",
+              "changed",
               "idle",
+              "glance",
               "scene"
             ]
           },

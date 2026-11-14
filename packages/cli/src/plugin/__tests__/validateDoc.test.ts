@@ -60,6 +60,23 @@ describe('lintDoc on a joined take', () => {
     } as Partial<ProjectDoc>)
   }
 
+  it('says when the inputs were recorded under two appearances', () => {
+    const look = (first: string | undefined, second: string | undefined) => {
+      const d = joined()
+      const set = (m: Record<string, unknown>, a: string | undefined) =>
+        a ? { ...m, appearance: a } : m
+      d.source.meta = set(d.source.meta as never, first) as never
+      d.media![0].meta = set(d.media![0].meta as never, second) as never
+      return lintDoc(d).warnings.filter((w) => /appearances/.test(w))
+    }
+    expect(look('light', 'dark')).toEqual([
+      'the inputs were recorded under two appearances (light: the first input; dark: m1): the film changes look where it changes input. Record them under one, or say it is meant',
+    ])
+    expect(look('dark', 'dark')).toEqual([])
+    // A take that does not say (an older helper, a page) is not guessed at.
+    expect(look('light', undefined)).toEqual([])
+  })
+
   it('measures a rejection against its own input, not the first', () => {
     // A proposal at 32 s of the 35 s input is one that can be rejected.
     const ok = lintDoc(
@@ -135,6 +152,73 @@ describe('lintDoc: a zoom over a field that was typed into', () => {
     ]
     expect(lintDoc(typedDoc(leftOfBar, clicked)).warnings.join('\n')).toMatch(
       /points beside what was clicked/,
+    )
+  })
+})
+
+describe('lintDoc: a typed field is read where its caret was', () => {
+  // A terminal: one element as tall as the window, pressed at its middle,
+  // typed into on its first line. No step says it was typed (a play types
+  // inside its own step): the take's key events do.
+  const term = { x: 0, y: 0, w: 1280, h: 720 }
+  const terminal = (over: Partial<ProjectDoc>) =>
+    makeDoc({
+      source: {
+        ...makeDoc().source,
+        cursor: [
+          { t: 1000, x: 640, y: 360, type: 'down', button: 0, rect: term },
+          { t: 1060, x: 640, y: 360, type: 'up', button: 0 },
+          { t: 1300, x: 640, y: 40, type: 'key' },
+          { t: 1700, x: 640, y: 40, type: 'key' },
+          { t: 2400, x: 640, y: 40, type: 'key' },
+        ],
+      },
+      ...over,
+    } as unknown as Partial<ProjectDoc>)
+  const onWords = {
+    id: 'u1',
+    in: 0.8,
+    out: 4,
+    level: 1.2,
+    cx: 0.3,
+    cy: 0.3,
+    source: 'manual',
+  }
+
+  it('a zoom on the typed line is right, and one on the pressed middle is not', () => {
+    expect(
+      lintDoc(terminal({ zoom: [onWords] } as unknown as Partial<ProjectDoc>))
+        .warnings,
+    ).toEqual([])
+    const onPress = { ...onWords, level: 1.4, cx: 0.5, cy: 0.75 }
+    expect(
+      lintDoc(
+        terminal({ zoom: [onPress] } as unknown as Partial<ProjectDoc>),
+      ).warnings.join('\n'),
+    ).toMatch(/points beside what was clicked/)
+  })
+
+  it('a caption in the lower third does not sit on a terminal that was typed into at its top', () => {
+    const caption = {
+      id: 'c1',
+      kind: 'text',
+      text: 'Start it',
+      preset: 'caption',
+      start: 0.9,
+      duration: 2,
+      transform: { x: 0.5, y: 0.86, scale: 1, rotation: 0 },
+    }
+    expect(
+      lintDoc(terminal({ overlays: [caption] } as Partial<ProjectDoc>))
+        .warnings,
+    ).toEqual([])
+    // With no typing after it, the press is the whole element, as before.
+    const pressed = terminal({ overlays: [caption] } as Partial<ProjectDoc>)
+    pressed.source.cursor = pressed.source.cursor.filter(
+      (e) => e.type !== 'key',
+    )
+    expect(lintDoc(pressed).warnings.join('\n')).toMatch(
+      /sits over the thing being clicked/,
     )
   })
 })

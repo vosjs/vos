@@ -22,8 +22,18 @@ Say these to the person, once, before anything is launched:
   account, a project on disk.
 - **How long the pointer and keyboard are taken**, in total.
 - **The look.** Apps follow the system's light or dark appearance, and a
-  stage cannot pin it without changing the person's settings. Film every
-  take in one sitting, and say so if the appearance changed between takes.
+  stage cannot pin it without changing the person's settings. Read it
+  before EVERY take (`defaults read -g AppleInterfaceStyle`, which fails
+  when it is light) and stop if it is not what the first take had: a
+  long take plus a locked screen is enough for the evening to arrive.
+  Say so if the film crosses the change.
+- **The screen will lock.** A take that waits sends no input, so the
+  system counts it as idle, sleeps the display and locks. The capture
+  goes on, but the NEXT take cannot bring its app forward ("The app
+  could not be brought to the front"), and only the person can unlock.
+  Keep the display awake for as long as the takes run
+  (`caffeinate -d -t <seconds> &`, ended when they are done), and tell
+  the person a film with a long wait needs the machine left awake.
 
 ## A stage per app
 
@@ -34,7 +44,13 @@ process ids it started.
 ### The app that is an account
 
 `desktop.md`, "An app that is an account". Its window is resized by the
-take (`viewport`): put it back to the size it had.
+take (`viewport`), and a `setup` may change it (a sidebar hidden): put
+it back RIGHT AFTER its take, not at the end of the film. An app that
+was restarted in between is a new process, and the script that changed
+it no longer reaches it.
+
+Hiding the app's sidebar in `setup` keeps a whole list of the person's
+work out of the picture with no mask at all.
 
 ### A terminal
 
@@ -73,7 +89,15 @@ exec zsh -i
   ]
   ```
 - **Only start the app if it was not running.** If it was, it is the
-  person's: ask, or use another terminal. End what you started
+  person's: ask, or use another terminal.
+- **The app reopens its last windows.** A terminal that was quit with a
+  window open brings that window back on the next launch, with the
+  person's own shell and a title that names them, and `--pid` picks the
+  largest window, which may be that one. List the windows
+  (`vos record --windows`) and name the stage's by `--window <id>`.
+- **Close the stage window from inside before quitting the app**, so
+  nothing is left to reopen: `Control+C`, `exit` and Return, then
+  `Meta+W`, as a `vos look --actions … --until` walk. Then end the app
   (`pkill -x Terminal` only when the whole app is the stage's).
 
 ### A browser
@@ -157,6 +181,14 @@ export default async function (play, { window }) {
   `now` and `send`. `click` and `type` keep a script's rules (waited for,
   never a disabled control, never typed where keys are commands), and
   whatever the program throws ends the take. A play has no rehearsal.
+- **Prove the player before it has the pointer.** Run the game on a port
+  of its own in a headless browser and steer it with pointer events over
+  the debugging port: no window, no footage, nobody's pointer. It finds
+  what the real take would have spent a minute of the machine to find
+  (a board not recognised in the scene, a judgement that crosses walls).
+  A headless browser renders slowly, so a player that lives there lives
+  longer on the real one. Let the play ride again when a run ends early,
+  as a person would; the film uses the run that holds.
 - **`play.step(id, fn, marks)`** names a stretch: that is what a caption,
   a pin and the plan hold on to. Mark the stretch that is play
   `zoom: false`: the pointer there is steering, not pointing, and the
@@ -180,15 +212,31 @@ without play, and says so.
 showing (0.94 and later): wait inside the take, then cut it.
 
 ```json
-{ "do": "expect", "gone": "button[name='Stop']", "timeout": 1200, "id": "working", "zoom": false }
+{ "do": "expect", "gone": "button[name='Stop']", "timeout": 1800, "id": "working", "caption": "It builds" }
 ```
 
-with `--max-duration` above the wait. A window that stands still costs
-almost nothing (about 7 KB a second), and a wait looks again when the
-window cannot be read for a moment. In the cut, `segments` drop the
-middle and a `speed` span (up to 16) runs what is kept: a checklist
-ticking at 16 times is a beat. The machine is taken for the whole wait,
-so say how long.
+with `--max-duration` above the wait (an `expect` or a `wait` takes no
+`zoom` mark: `vos validate` refuses one). A window that stands still
+costs almost nothing (about 7 KB a second); an app that is working is
+about 120 KB a second, so eighteen minutes is about 130 MB. A wait looks
+again when the window cannot be read for a moment. The machine is taken
+for the whole wait and must stay awake (above), so say how long.
+
+**Cutting it.** The digest has no moment inside a wait: nothing was
+pressed, so eighteen minutes is one `idle` moment, and the plan proposes
+one speed span over all of it. Make your own eyes, a contact sheet with
+a frame every 40 seconds:
+
+```bash
+ffmpeg -i take/recording.mp4 -vf "fps=1/40,scale=480:-1,tile=6x5" -frames:v 1 contact.png
+```
+
+Then keep four or five windows of about 40 seconds as `segments` (the
+checklist appearing, the first files, the first picture, the last
+checks), one `speed` span at 16 over all of them, a short `fade` between
+them, and the finished state at its own pace. Put the plan's own span in
+`rejected`. The app's own counter in the picture ("18m 3s") is the
+film's proof of how long it took.
 
 When the wait is long and nobody can leave the machine alone, it is two
 takes joined, as `desktop.md` says. Either way, never take clips on a

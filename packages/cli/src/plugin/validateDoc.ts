@@ -534,6 +534,28 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       if (id) mediaLen.set(id, ms / 1000)
     }
   }
+  // Apps follow the system's light or dark appearance, and a take says
+  // which it was made under: a film cut from both changes look where it
+  // changes input.
+  if (recording) {
+    const looks = new Map<string, string[]>()
+    const seen = (name: string, m: unknown) => {
+      const a = isObj(m) ? m.appearance : undefined
+      if (a === 'light' || a === 'dark')
+        looks.set(a, [...(looks.get(a) ?? []), name])
+    }
+    seen('the first input', meta)
+    for (const raw of Array.isArray(doc.media)
+      ? (doc.media as unknown[])
+      : []) {
+      const m = isObj(raw) ? raw : {}
+      seen(typeof m.id === 'string' ? m.id : 'an input', m.meta)
+    }
+    if (looks.size === 2)
+      warnings.push(
+        `the inputs were recorded under two appearances (light: ${looks.get('light')!.join(', ')}; dark: ${looks.get('dark')!.join(', ')}): the film changes look where it changes input. Record them under one, or say it is meant`,
+      )
+  }
   /** Check a span list media by media: each against its own footage. */
   const checkByMedia = (
     list: Json[],
@@ -2239,26 +2261,75 @@ function typedSpans(meta: Json): [number, number][] {
 
 /** How tall one typed line is taken to be, in the take's points. */
 const TYPED_LINE = 44
+/** A press focused a field when typing follows it within this many seconds. */
+const TYPED_WITHIN = 4
 
-/**
- * What a zoom must hold of a press that focused a field to type into it:
- * the line that is typed, from the field's left edge to where it was
- * pressed. A field is as wide as its window (an address bar, a terminal)
- * and its words start at the left: held to the whole field, a zoom that
- * frames the words was told it points beside them.
- */
-function typedLine(c: DownEvent): {
+interface KeyPing {
+  t: number
   x: number
   y: number
-  w: number
-  h: number
-} {
-  const r = c.rect
-  const px = Math.min(Math.max(c.x, r.x), r.x + r.w)
-  const py = Math.min(Math.max(c.y, r.y), r.y + r.h)
-  const h = Math.min(r.h, TYPED_LINE)
-  const y = Math.min(Math.max(py - h / 2, r.y), r.y + r.h - h)
-  return { x: r.x, y, w: Math.max(1, px - r.x), h }
+  rect?: { x: number; y: number; w: number; h: number }
+}
+
+/** `key` events in seconds: that typing happened, and the line it happened on. */
+function keyPings(source: Json): KeyPing[] {
+  const cursor = Array.isArray(source.cursor) ? source.cursor : []
+  const out: KeyPing[] = []
+  for (const e of cursor) {
+    if (!isObj(e) || e.type !== 'key' || !isNum(e.t)) continue
+    if (!isNum(e.x) || !isNum(e.y)) continue
+    const r = isObj(e.rect) ? e.rect : null
+    out.push({
+      t: e.t / 1000,
+      x: e.x,
+      y: e.y,
+      ...(r && isNum(r.x) && isNum(r.y) && isNum(r.w) && isNum(r.h)
+        ? { rect: { x: r.x, y: r.y, w: r.w, h: r.h } }
+        : {}),
+    })
+  }
+  return out
+}
+
+/**
+ * The presses of a take as the framing checks read them: a press that
+ * focused a field to type into it counts as the LINE that was typed, not
+ * the field. A field is as wide as its window (an address bar, a
+ * terminal), its words start at its left edge, and the line is where the
+ * caret was, which is not where the field was pressed: a terminal is
+ * pressed at its middle and typed into at its top. Held to the whole
+ * field, a zoom that frames the words was told it points beside them, and
+ * a caption anywhere was told it sits on what was clicked.
+ *
+ * The line is read from the take's own `key` events (the typing that
+ * followed the press, before the next one); on a take without them, a
+ * press inside a `type` step counts as the line at the press.
+ */
+function withTypedLines(
+  clicks: DownEvent[],
+  keys: KeyPing[],
+  typed: [number, number][],
+): DownEvent[] {
+  return clicks.map((c, i) => {
+    const until = clicks[i + 1]?.t ?? Infinity
+    const after = keys.filter((k) => k.t > c.t && k.t < until)
+    const r = c.rect
+    const h = Math.min(r.h, TYPED_LINE)
+    if (after.length && after[0].t - c.t <= TYPED_WITHIN) {
+      const ys = after.map((k) => k.y).sort((p, q) => p - q)
+      const cy = ys[ys.length >> 1]
+      const left = Math.min(r.x, ...after.map((k) => k.rect?.x ?? r.x))
+      const right = Math.max(left + 40, ...after.map((k) => k.x))
+      return { ...c, rect: { x: left, y: cy - h / 2, w: right - left, h } }
+    }
+    if (typed.some(([a, b]) => c.t >= a && c.t <= b)) {
+      const px = Math.min(Math.max(c.x, r.x), r.x + r.w)
+      const py = Math.min(Math.max(c.y, r.y), r.y + r.h)
+      const y = Math.min(Math.max(py - h / 2, r.y), r.y + r.h - h)
+      return { ...c, rect: { x: r.x, y, w: Math.max(1, px - r.x), h } }
+    }
+    return c
+  })
 }
 
 /**
@@ -2592,7 +2663,6 @@ function framingWarnings(
         h: number
         clicks: DownEvent[]
         layout: CardLayout
-        typed: [number, number][]
       }
     >()
     const others = Array.isArray(doc.media) ? doc.media : []
@@ -2605,7 +2675,11 @@ function framingWarnings(
       const w = isNum(meta.width) ? meta.width : 0
       const h = isNum(meta.height) ? meta.height : 0
       if (!(w > 0) || !(h > 0)) continue
-      const clicks = clicksWithRects(src)
+      const clicks = withTypedLines(
+        clicksWithRects(src),
+        keyPings(src),
+        typedSpans(meta),
+      )
       if (!clicks.length) continue
       let layout: CardLayout
       try {
@@ -2613,7 +2687,7 @@ function framingWarnings(
       } catch {
         continue
       }
-      evidence.set(key, { w, h, clicks, layout, typed: typedSpans(meta) })
+      evidence.set(key, { w, h, clicks, layout })
     }
     if (!evidence.size) return
     const layout = docCardLayout(docIn)
@@ -2621,7 +2695,7 @@ function framingWarnings(
     for (const z of zoom) {
       const ev = evidence.get(typeof z.media === 'string' ? z.media : '')
       if (!ev) continue
-      const { w, h, clicks, typed } = ev
+      const { w, h, clicks } = ev
       if (
         !isNum(z.in) ||
         !isNum(z.out) ||
@@ -2640,9 +2714,7 @@ function framingWarnings(
       let x1 = -Infinity
       let y1 = -Infinity
       for (const c of under) {
-        const r = typed.some(([a, b]) => c.t >= a && c.t <= b)
-          ? typedLine(c)
-          : c.rect
+        const r = c.rect
         x0 = Math.min(x0, r.x / w)
         y0 = Math.min(y0, r.y / h)
         x1 = Math.max(x1, (r.x + r.w) / w)

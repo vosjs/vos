@@ -415,10 +415,10 @@ export function planAutoZoom(
           .map((z) => ({ ...z, out: Math.min(z.out, round(duration)) }))
           .filter((z) => z.out - z.in >= 0.3)
 
-  // A stretch a program marked as PLAY (`do: 'play'`, `zoom: false`) is
-  // watched whole: the pointer there is steering, not pointing, so its
-  // presses, keys and rests plan nothing, and no span from either side
-  // reaches into it.
+  // A stretch a program marked as PLAY (`do: 'play'`, `zoom: false`), or a
+  // scripted wait marked the same, is watched whole: the pointer there is
+  // steering or idle, not pointing, so its presses, keys and rests plan
+  // nothing, and no span from either side reaches into it.
   const play = playStretches(options.steps)
   const inPlay = (t: number): boolean =>
     play.some((q) => t >= q.in && t <= q.out)
@@ -645,7 +645,7 @@ function playStretches(
   return (steps ?? [])
     .filter(
       (st) =>
-        st.do === 'play' &&
+        (st.do === 'play' || st.do === 'wait' || st.do === 'expect') &&
         st.zoom === false &&
         !st.skipped &&
         st.tEnd > st.tStart,

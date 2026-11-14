@@ -621,9 +621,14 @@ export function validateActions(
     if (s.zoom !== undefined) {
       if (typeof s.zoom !== 'boolean')
         errors.push(`${at}: zoom must be true or false`)
-      else if (!ZOOM_MARK_VERBS.includes(s.do))
+      else if (
+        !ZOOM_MARK_VERBS.includes(s.do) &&
+        // `zoom: false` on a wait says the wait is watched whole: nothing
+        // is proposed over it, whatever the pointer does meanwhile.
+        !(s.zoom === false && (s.do === 'wait' || s.do === 'expect'))
+      )
         errors.push(
-          `${at}: zoom marks a gesture (${ZOOM_MARK_VERBS.join(', ')}); a ${s.do} shows nothing to zoom on`,
+          `${at}: zoom marks a gesture (${ZOOM_MARK_VERBS.join(', ')}); a ${s.do} shows nothing to zoom on${s.do === 'wait' || s.do === 'expect' ? ' ("zoom": false on it is allowed: the wait is watched whole)' : ''}`,
         )
     }
     if (s.payoff !== undefined && typeof s.payoff !== 'boolean')
