@@ -350,6 +350,7 @@ export function templateWords(words: ReleaseWords): Record<string, string> {
     out['endcard-mark'] = brand
   }
   if (sub && sub !== headline) out['endcard-sub'] = sub
+  else if (!sub && kicker && kicker !== headline) out['endcard-sub'] = kicker
   return out
 }
 
@@ -484,7 +485,11 @@ export function proposeMotion(
   } else if (onWord(endCardRole) && !namedEndCard) {
     const headline = (words.headline ?? '').trim()
     const brand = (words.brand ?? '').trim()
-    const sub = [brand, (words.release ?? '').trim()].filter(Boolean).join(' ')
+    // The line under the title: the brand and its release, or, for a film
+    // with neither, the kicker (it used to be said and laid nowhere).
+    const sub =
+      [brand, (words.release ?? '').trim()].filter(Boolean).join(' ') ||
+      (words.kicker ?? '').trim()
     if (headline || brand) {
       const card: EndCard = { seconds: END_CARD_SECONDS }
       // Over a light plate the presets' white would vanish: the brand's ink.

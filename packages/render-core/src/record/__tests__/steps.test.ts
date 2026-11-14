@@ -47,8 +47,21 @@ describe('zoom', () => {
       'steps[0]: zoom must be true or false',
     ])
     expect(one({ do: 'wait', ms: 500, zoom: true })).toEqual([
-      'steps[0]: zoom marks a gesture (click, drag, type, paste, press, hover); a wait shows nothing to zoom on',
+      'steps[0]: zoom marks a gesture (click, drag, type, paste, press, hover); a wait shows nothing to zoom on ("zoom": false on it is allowed: the wait is watched whole)',
     ])
+    expect(one({ do: 'scroll', dy: 100, zoom: false })).toEqual([
+      'steps[0]: zoom marks a gesture (click, drag, type, paste, press, hover); a scroll shows nothing to zoom on',
+    ])
+  })
+
+  it('lets a wait and an expect say they are watched whole', () => {
+    expect(one({ do: 'wait', ms: 500, zoom: false })).toEqual([])
+    expect(
+      one({ do: 'expect', gone: '#stop', timeout: 1200, zoom: false }),
+    ).toEqual([])
+    expect(one({ do: 'expect', selector: '#done', zoom: true })[0]).toMatch(
+      /an expect shows nothing to zoom on|a expect shows nothing to zoom on/,
+    )
   })
 })
 

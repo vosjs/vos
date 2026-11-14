@@ -534,6 +534,28 @@ export function lintDoc(docIn: StudioDoc): DocLintResult {
       if (id) mediaLen.set(id, ms / 1000)
     }
   }
+  // Apps follow the system's light or dark appearance, and a take says
+  // which it was made under: a film cut from both changes look where it
+  // changes input.
+  if (recording) {
+    const looks = new Map<string, string[]>()
+    const seen = (name: string, m: unknown) => {
+      const a = isObj(m) ? m.appearance : undefined
+      if (a === 'light' || a === 'dark')
+        looks.set(a, [...(looks.get(a) ?? []), name])
+    }
+    seen('the first input', meta)
+    for (const raw of Array.isArray(doc.media)
+      ? (doc.media as unknown[])
+      : []) {
+      const m = isObj(raw) ? raw : {}
+      seen(typeof m.id === 'string' ? m.id : 'an input', m.meta)
+    }
+    if (looks.size === 2)
+      warnings.push(
+        `the inputs were recorded under two appearances (light: ${looks.get('light')!.join(', ')}; dark: ${looks.get('dark')!.join(', ')}): the film changes look where it changes input. Record them under one, or say it is meant`,
+      )
+  }
   /** Check a span list media by media: each against its own footage. */
   const checkByMedia = (
     list: Json[],

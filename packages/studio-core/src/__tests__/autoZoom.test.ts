@@ -266,8 +266,15 @@ describe('planAutoZoom', () => {
     for (const z of marked) expect(z.out <= 3 || z.in >= 12).toBe(true)
     expect(marked.some((z) => z.out <= 3)).toBe(true)
     expect(marked.some((z) => z.in >= 12)).toBe(true)
-    // The mark is a play's: a scripted step's `zoom: false` is still the
-    // plan verb's to reject, said in its report.
+    // A scripted wait marked the same is watched whole too: a long task,
+    // whatever the pointer does meanwhile.
+    const waited = planAutoZoom(track, {
+      ...opts,
+      steps: [{ ...fly, do: 'expect', zoom: false }],
+    })
+    expect(waited).toEqual(marked)
+    // On a gesture the mark is still the plan verb's to reject, said in
+    // its report.
     const scripted = planAutoZoom(track, {
       ...opts,
       steps: [{ ...fly, do: 'click', zoom: false }],

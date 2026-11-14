@@ -60,6 +60,23 @@ describe('lintDoc on a joined take', () => {
     } as Partial<ProjectDoc>)
   }
 
+  it('says when the inputs were recorded under two appearances', () => {
+    const look = (first: string | undefined, second: string | undefined) => {
+      const d = joined()
+      const set = (m: Record<string, unknown>, a: string | undefined) =>
+        a ? { ...m, appearance: a } : m
+      d.source.meta = set(d.source.meta as never, first) as never
+      d.media![0].meta = set(d.media![0].meta as never, second) as never
+      return lintDoc(d).warnings.filter((w) => /appearances/.test(w))
+    }
+    expect(look('light', 'dark')).toEqual([
+      'the inputs were recorded under two appearances (light: the first input; dark: m1): the film changes look where it changes input. Record them under one, or say it is meant',
+    ])
+    expect(look('dark', 'dark')).toEqual([])
+    // A take that does not say (an older helper, a page) is not guessed at.
+    expect(look('light', undefined)).toEqual([])
+  })
+
   it('measures a rejection against its own input, not the first', () => {
     // A proposal at 32 s of the 35 s input is one that can be rejected.
     const ok = lintDoc(
