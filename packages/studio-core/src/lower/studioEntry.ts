@@ -484,8 +484,10 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
 
   // --- audio clips (music/SFX): Web Audio scheduler against the transport ---
   // Buffer sources are one-shot: (re)schedule everything on play / clip-data change
-  // (SET_DATA) / drift; kill everything on pause. Seeks arrive paused (bridge forces
-  // it), so scrubbing is silent like the video seek path. Export forces isPaused=true,
+  // (SET_DATA) / drift / a change of the player's speed; kill everything on
+  // pause. A scrub arrives paused (the host pauses first), so it is silent like
+  // the video seek path; a seek while playing is a drift, answered by one
+  // reschedule. Export forces isPaused=true,
   // so none of this runs there — the export mixes offline from the same env points.
   var clips = d.audio || []
   var actx = ns.audioCtx
@@ -534,15 +536,24 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
       }
       AS.nodes = []
     }
-    var drift = AS.on ? Math.abs((actx.currentTime - AS.at0) - (t - AS.t0)) : 0
+    // THE PLAYER'S SPEED (window.__vos__.transport.speed; 1 in a document
+    // that has none). The clips play TAPE-STYLE at it, as a speed span's
+    // footage does: the output clock runs auSpeed seconds a wall second, so
+    // an audio-clock time is the output time divided by it and each source
+    // plays at it. Scheduled at 1 under a clock at 2, every clip was 80ms
+    // off within a tenth of a second and was killed and started again four
+    // times a second for as long as it played. At speed 1 every number here
+    // is the one it always was.
+    var auSpeed = ns.transport && ns.transport.speed > 0 ? ns.transport.speed : 1
+    var drift = AS.on ? Math.abs((actx.currentTime - AS.at0) - (t - AS.t0) / (AS.sp || 1)) : 0
     if (!playing && AS.on) { kill(); AS.on = false }
-    var needSched = playing && (!AS.on || sig !== AS.sig ||
+    var needSched = playing && (!AS.on || sig !== AS.sig || auSpeed !== (AS.sp || 1) ||
       (drift > 0.08 && actx.currentTime - AS.last > 0.25))
     if (needSched) {
       kill()
       if (actx.state === 'suspended') { try { actx.resume() } catch (e) {} }
       var now = actx.currentTime
-      AS.on = true; AS.sig = sig; AS.t0 = t; AS.at0 = now; AS.last = now
+      AS.on = true; AS.sig = sig; AS.t0 = t; AS.at0 = now; AS.last = now; AS.sp = auSpeed
       // NOTE: ON_FRAME is one var scope — locals here are prefixed (au*) so they
       // can't shadow the compositor's c/cur/etc used later in the function.
       for (var ai = 0; ai < clips.length; ai++) {
@@ -564,7 +575,7 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
           auGain.connect(auDuck); auDuck.connect(actx.destination)
           auDuck.gain.setValueAtTime(auEnvAt(dEnv, t, 1), now)
           for (var qi = 0; qi < dEnv.length; qi++) {
-            if (dEnv[qi].t > t && dEnv[qi].t <= auEnd) auDuck.gain.linearRampToValueAtTime(dEnv[qi].g, now + (dEnv[qi].t - t))
+            if (dEnv[qi].t > t && dEnv[qi].t <= auEnd) auDuck.gain.linearRampToValueAtTime(dEnv[qi].g, now + (dEnv[qi].t - t) / auSpeed)
           }
           auTail = auDuck
         } else {
@@ -574,7 +585,7 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
         var env = au.env || []
         auGain.gain.setValueAtTime(auEnvAt(env, t, au.gain != null ? au.gain : 1), now)
         for (var ri = 0; ri < env.length; ri++) {
-          if (env[ri].t > t) auGain.gain.linearRampToValueAtTime(env[ri].g, now + (env[ri].t - t))
+          if (env[ri].t > t) auGain.gain.linearRampToValueAtTime(env[ri].g, now + (env[ri].t - t) / auSpeed)
         }
         // Looping: native Web Audio loop over the source span fills the placed length.
         var auOff = au.in + Math.max(0, t - au.start)
@@ -584,7 +595,10 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
           auSrc.loopEnd = au.out
           auOff = au.in + (Math.max(0, t - au.start) % auSpan)
         }
-        auSrc.start(now + Math.max(0, au.start - t), auOff, auEnd - Math.max(t, au.start))
+        // The offset and the length are seconds of the BUFFER, whatever the
+        // rate it plays at; only when it starts is on the audio clock.
+        if (auSpeed !== 1 && auSrc.playbackRate) auSrc.playbackRate.value = auSpeed
+        auSrc.start(now + Math.max(0, au.start - t) / auSpeed, auOff, auEnd - Math.max(t, au.start))
         AS.nodes.push(auSrc); AS.nodes.push(auGain); if (auTail !== auGain) AS.nodes.push(auTail)
       }
     }
