@@ -1821,6 +1821,80 @@ const ON_FRAME = `(ctx, content, dt) => {
   // decode promise so the deterministic export awaits it). Shared by the screen video
   // and the webcam so both stay frame-accurate and in sync.
   ${FRAME_STEP_SRC}
+  // Stepping the footage WHILE IT PLAYS (the paused step is FRAME_STEP_SRC).
+  // Three rules, each closing a way the picture stopped:
+  //  - ONE seek in flight. Assigning currentTime aborts the seek before it,
+  //    so a step on every frame is a seek that never lands: nothing decodes
+  //    and the card holds its last picture while the clock runs on. Only a
+  //    CUT (another piece under the playhead) re-aims a seek still in flight.
+  //  - A step is aimed where the playhead WILL be when it lands, by the
+  //    element's own MEASURED seek time (never a guess: the first step is
+  //    aimed at now), and never onto the piece's last frames (an ended
+  //    element rewinds). Aimed at now, it lands a whole seek late, and N
+  //    times that inside an N× span.
+  //  - A landing is checked once and re-aimed once with what it measured,
+  //    and only when it missed by more than half the leash; after that only
+  //    the leash steps the element. A landing costs two seeks at most and
+  //    can never loop. The lead is the measured cost and the leash is never
+  //    under it, so a wrong latency can never itself be what steps the
+  //    element next.
+  // sv-prefixed (one var scope).
+  var svNow = performance.now(), svPiece = amI, svPieceOut = amS ? amS.out : Infinity
+  function svOf(vid) {
+    var sv = vid.__vosSv
+    if (!sv) {
+      // lat < 0: no seek measured yet, so the first step is aimed at now.
+      sv = vid.__vosSv = { lat: -1, at: 0, to: 0, piece: -1, landed: 0, fix: 0 }
+      if (vid.addEventListener) vid.addEventListener('seeked', function () {
+        if (!sv.at) return
+        var took = Math.min(2, (performance.now() - sv.at) / 1000)
+        sv.lat = sv.lat < 0 ? took : sv.lat * 0.3 + took * 0.7
+        sv.at = 0
+        sv.landed = 1
+      })
+    }
+    return sv
+  }
+  // What one seek costs on this element, in seconds of the output clock (0
+  // until one has been measured): 60ms in Chrome, most of a second in
+  // Safari on footage with sound.
+  function svCost(vid) {
+    return Math.max(0, Math.min(svOf(vid).lat, 2))
+  }
+  // How far the element may be from the playhead, in SOURCE seconds, before
+  // it is stepped. It is output time for a sped-up piece: what a viewer sees
+  // late is output seconds, and an N× span moves N source seconds through
+  // each of them. An element with sound runs its clock a device latency
+  // behind (about 0.1s of wall time, so N × 0.1 source seconds), and a
+  // decoder that cannot hold N× falls behind without end; a leash of fixed
+  // source seconds under that is never met, and every miss was a seek. Slow
+  // motion and 1× keep theirs. And it is never under what a seek COSTS here:
+  // a step that takes longer than the error it removes lands late by more
+  // than it fixed and calls the next one, which in Safari was footage with
+  // sound never settling at plain 1×.
+  function svAllow(vid) {
+    return Math.max(srcRate > 1 ? 0.3 * srcRate : srcRate < 1 ? 0.12 : 0.3, svCost(vid) * srcRate)
+  }
+  function svStep(vid, fix) {
+    var sv = svOf(vid)
+    var to = Math.min(srcT + srcRate * svCost(vid), Math.max(srcT, svPieceOut - 0.05))
+    sv.at = svNow; sv.to = to; sv.piece = svPiece; sv.fix = fix ? 1 : 0; sv.landed = 0
+    vid.currentTime = to
+  }
+  // 0 = leave it, 1 = step it, 2 = step it as the one re-aim of a landing.
+  function svDue(vid, tol) {
+    var sv = svOf(vid)
+    if (vid.seeking) return sv.at !== 0 && sv.piece !== svPiece && Math.abs(sv.to - srcT) > tol ? 1 : 0
+    var off = Math.abs(vid.currentTime - srcT)
+    if (sv.landed) {
+      sv.landed = 0
+      // Worth one more seek only when it missed by more than half of what
+      // is allowed: a step aimed before any seek was measured lands a whole
+      // seek late, which a cheap seek never notices and a dear one does.
+      if (!sv.fix && sv.piece === svPiece && off > 0.5 * svAllow(vid)) return 2
+    }
+    return off > tol ? 1 : 0
+  }
   function syncVid(vid) {
     try {
       if (playing && !frozen) {
@@ -1834,11 +1908,11 @@ const ON_FRAME = `(ctx, content, dt) => {
           // content moment. Resync position at the switch when it has already
           // drifted (an unconditional seek costs more than it fixes when the
           // media clock is tight, e.g. muted video-only playback).
-          if (Math.abs(vid.currentTime - srcT) > 0.06) vid.currentTime = srcT
-        } else if (Math.abs(vid.currentTime - srcT) > (srcRate !== 1 ? 0.12 : 0.3)) {
-          // Tighter leash inside rated spans: at N× a given source drift is N×
-          // more visible in content terms; a rare micro-seek there is not.
-          vid.currentTime = srcT
+          var svA = svDue(vid, 0.06)
+          if (svA) svStep(vid, svA === 2)
+        } else {
+          var svB = svDue(vid, svAllow(vid))
+          if (svB) svStep(vid, svB === 2)
         }
         if (vid.paused) {
           var p = vid.play()
