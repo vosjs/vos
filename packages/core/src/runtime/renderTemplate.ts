@@ -352,6 +352,8 @@ ${moduleBody}
 //   - SET_TWEEN_EDITS { edits }                 -> retime the recorded tweens live (vos backend; survives LOAD)
 //   - editor mode: OBJECT_BOUNDS { id }        -> OBJECT_RECT (a prop's screen rect)
 //   - PLAY / PAUSE / SEEK { value } / SEEK_TIME { value } / PLAY_SPEED { value }
+//                                               a seek moves the playhead only: playing stays playing
+//   - window.__vos__.transport { playing, speed, epoch } is what a program reads; isPaused mirrors it
 //   - SET_DURATION { value }                    -> retime (only if program supports it)
 //   - editor mode: GET_ELEMENT_RECTS / HIT_TEST / SET_ELEMENT_PROPS (ephemeral)
 // Backward compatible: if window.USER_CODE_BLOB_URL is baked (legacy), it auto-loads.
@@ -439,6 +441,52 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
         };
         const __withBlobs = (value) => (value != null && Object.keys(__blobUrls).length ? __rewriteBlobs(value) : value);
 
+        // THE TRANSPORT: what a program asks, in place of a flag it interprets.
+        //   playing  the clock is advancing
+        //   speed    output seconds per wall second
+        //   epoch    a counter that ticks whenever the clock JUMPS: a seek, a
+        //            loop's wrap, a load
+        // It is READ off the live timeline after every command, never set from
+        // what the command meant, so it cannot disagree with the clock: an
+        // autoplay load plays, a warm load of a playing timeline is playing,
+        // and a seek leaves a playing timeline playing. isPaused is its mirror
+        // (!playing), so a program stored before this reads the same truth.
+        // With no timeline there is no clock to read, and the last PLAY or
+        // PAUSE stands.
+        window.__vos__ = window.__vos__ || {};
+        const __transport = { playing: false, speed: 1, epoch: 0 };
+        window.__vos__.transport = __transport;
+        let __wantsPlay = false;
+        let __jumping = false;
+        let __lastTime = null;
+        const __syncTransport = () => {
+            const tl = __current && __current.timeline;
+            const playing = tl ? !tl.paused() : __wantsPlay;
+            const rate = tl ? Number(tl.timeScale()) : 1;
+            __transport.playing = playing;
+            __transport.speed = isFinite(rate) && rate > 0 ? rate : 1;
+            const ns = window.__vos__;
+            if (ns.isPaused !== !playing) {
+                if (ns.setGlobalPaused) ns.setGlobalPaused(!playing);
+                else ns.isPaused = !playing;
+            }
+        };
+        // A command that moves the clock: one tick, however many updates it fires.
+        const __jump = (fn) => {
+            __transport.epoch++;
+            __jumping = true;
+            try { fn(); } finally { __jumping = false; }
+        };
+        // Every update: a clock that went BACK with no command behind it
+        // wrapped. A timeline that does not loop pauses itself at its end,
+        // after the update that reaches it, so that one is read again.
+        const __noteTime = (tl) => {
+            const t = tl.time();
+            if (!__jumping && __lastTime !== null && t < __lastTime - 1e-6) __transport.epoch++;
+            __lastTime = t;
+            if (__transport.playing && t >= __finiteDuration(tl) - 1e-6) Promise.resolve().then(__syncTransport);
+        };
+
         // The transport reports the LIVE timeline. A data swap can rebuild the
         // content and its timeline in place (a bound split text, a program
         // without onFrame), and the rebuild carries this callback over to the
@@ -455,7 +503,9 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
             tl.eventCallback('onUpdate', () => {
                 if (existing) existing();
                 if (myEpoch !== __epoch) return;
-                __postUpdate(__liveTimeline(tl));
+                const live = __liveTimeline(tl);
+                __noteTime(live);
+                __postUpdate(live);
             });
         };
 
@@ -532,7 +582,9 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
             }
             __post({ type: 'READY', duration: __finiteDuration(tl), canSetDuration: !!result.setDuration, stack: result.stack ? result.stack.ids : [], retime: !!result.retime, canRetimeTweens: !!(tl && typeof tl.applyEdits === 'function') });
 
-            if (tl) {
+            // A load is a jump of the clock, whatever it restores.
+            __jump(() => {
+                if (!tl) return;
                 if (prev) {
                     // warm swap: restore where the user was
                     tl.timeScale(prev.rate);
@@ -542,7 +594,10 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
                 } else if (payload && payload.autoplay) {
                     tl.play();
                 }
-            }
+            });
+            __lastTime = tl ? tl.time() : null;
+            // The program's own setup may have reset isPaused; the clock decides.
+            __syncTransport();
         };
 
         window.addEventListener('message', (e) => {
@@ -598,28 +653,37 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
                     break;
                 }
                 case 'PLAY':
-                    if (window.__vos__?.setGlobalPaused) window.__vos__.setGlobalPaused(false);
+                    __wantsPlay = true;
                     if (__current && __current.timeline) __current.timeline.play();
+                    __syncTransport();
                     break;
                 case 'PAUSE':
-                    if (window.__vos__?.setGlobalPaused) window.__vos__.setGlobalPaused(true);
+                    __wantsPlay = false;
                     if (__current && __current.timeline) __current.timeline.pause();
+                    __syncTransport();
                     break;
-                case 'SEEK':
-                    if (window.__vos__?.setGlobalPaused) window.__vos__.setGlobalPaused(true);
-                    if (__current && __current.timeline) __current.timeline.progress(msg.value);
-                    break;
-                case 'SEEK_TIME': {
-                    if (window.__vos__?.setGlobalPaused) window.__vos__.setGlobalPaused(true);
+                // A seek moves the playhead and nothing else: a playing
+                // timeline plays on from the new moment, a paused one stays
+                // paused, as an HTMLMediaElement does.
+                case 'SEEK': {
                     const tl = __current && __current.timeline;
-                    if (tl) {
+                    __jump(() => { if (tl) tl.progress(msg.value); });
+                    __syncTransport();
+                    break;
+                }
+                case 'SEEK_TIME': {
+                    const tl = __current && __current.timeline;
+                    __jump(() => {
+                        if (!tl) return;
                         const dur = __finiteDuration(tl);
                         tl.seek(Math.max(0, Math.min(Number(msg.value) || 0, dur)), false);
-                    }
+                    });
+                    __syncTransport();
                     break;
                 }
                 case 'PLAY_SPEED':
                     if (__current && __current.timeline) __current.timeline.timeScale(msg.value);
+                    __syncTransport();
                     break;
                 case 'SET_DURATION': {
                     if (__current && __current.setDuration) {

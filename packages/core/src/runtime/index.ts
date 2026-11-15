@@ -4,4 +4,9 @@ export { transformModuleCode } from './transformModuleCode'
 export { inlineScriptSafe } from './inlineScript'
 export { RENDER_LIMITS } from './renderLimits'
 export { VOS_BRIDGE_PROTOCOL } from './bridge'
-export type { VosBridgeCommand, VosBridgeEvent, ElementRect } from './bridge'
+export type {
+  VosBridgeCommand,
+  VosBridgeEvent,
+  VosTransport,
+  ElementRect,
+} from './bridge'
