@@ -29,6 +29,25 @@ export function envelopeGain(env: GainEnvelope, t: number): number {
   return t1 <= t0 ? g1 : g0 + ((g1 - g0) * (t - t0)) / (t1 - t0)
 }
 
+// GESTURES in this document, counted. A browser that refuses an unmuted
+// play() is given muted playback, and the mute is lifted when the viewer
+// acts. HOW OFTEN that is tried matters: Safari has no lasting permission
+// for media, and an element unmuted outside a gesture is PAUSED there, so
+// "the page has been touched" as the reason to unmute would unmute, be
+// paused, be muted and played again on every frame. One try per gesture.
+let gestures = 0
+let gesturesOf: unknown = null
+function watchGestures() {
+  if (typeof window === 'undefined' || gesturesOf === window) return
+  if (typeof window.addEventListener !== 'function') return
+  gesturesOf = window
+  const bump = () => {
+    gestures++
+  }
+  for (const type of ['pointerdown', 'keydown', 'touchend'])
+    window.addEventListener(type, bump, { capture: true, passive: true })
+}
+
 const RASTER_PROPS = new Set([
   'content',
   'fontSize',
@@ -250,7 +269,9 @@ export function createElementProps(
   const ownMuted = videoElement ? videoElement.muted : false
   // A third says so while it stands: the follower's autoplay fallback. A
   // browser that refuses an unmuted play() with no gesture gets muted
-  // playback, and the mute lifts when the viewer has acted.
+  // playback, and the mute is lifted at the viewer's next gesture, by a
+  // host that holds the element (inside the gesture, which Safari needs)
+  // or by one try here.
   const applyMuted = () => {
     if (!videoElement) return
     const vos = (window as any).__vos__
@@ -302,6 +323,12 @@ export function createElementProps(
     wasPlaying: false,
     /** A rate one window measured, waiting for the next to agree. */
     seen: 0,
+    /** The gesture count when lifting the autoplay mute was last tried. */
+    triedAt: 0,
+  }
+  if (videoElement) {
+    watchGestures()
+    tracked.triedAt = gestures
   }
   const followFrame = () => {
     if (!videoElement) return
@@ -365,6 +392,11 @@ export function createElementProps(
     // Past its own end it has nothing left to play: an ended element that
     // is played again rewinds, and one stepped to its end ends again.
     if (!loop && known && want >= dur - 0.05) return
+    // Lift the follower's autoplay mute once for each gesture since it was
+    // last tried, and not otherwise.
+    const lift =
+      !!(videoElement as any).__vosAutoMuted && gestures > tracked.triedAt
+    if (lift) tracked.triedAt = gestures
     media.follow(videoElement, {
       lead: true,
       at: loop ? ((want % dur) + dur) % dur : Math.max(0, want),
@@ -372,9 +404,7 @@ export function createElementProps(
       piece: tracked.piece,
       end: known ? dur : undefined,
       loop,
-      unlocked:
-        typeof navigator !== 'undefined' &&
-        !!(navigator as any).userActivation?.hasBeenActive,
+      unlocked: lift,
     })
     // The follower may have lifted its own mute; the element's and the
     // instance's still stand.

@@ -25,9 +25,19 @@ function makeModel(o: { cost?: number; duration?: number; loop?: boolean }) {
   let stalledUntil = 0
   let rate = 1
   const listeners: Record<string, Array<() => void>> = {}
+  let muted = false
   const m = {
     paused: true,
-    muted: false,
+    get muted() {
+      return muted
+    },
+    set muted(x: boolean) {
+      if (muted && !x) {
+        m.unmutes++
+        if (m.pausesOnUnmute) m.paused = true
+      }
+      muted = x
+    },
     volume: 1,
     loop: !!o.loop,
     duration: o.duration ?? 600,
@@ -38,6 +48,9 @@ function makeModel(o: { cost?: number; duration?: number; loop?: boolean }) {
     rates: [] as Array<number>,
     plays: 0,
     refuses: false,
+    /** Safari: an element unmuted outside a gesture is paused. */
+    pausesOnUnmute: false,
+    unmutes: 0,
     get playbackRate() {
       return rate
     },
@@ -120,6 +133,11 @@ describe.each([
   let out = 0
   let vos: Record<string, any>
   let frames: Array<() => void> = []
+  let handlers: Array<() => void> = []
+  /** The viewer presses something in the document. */
+  const gesture = () => {
+    for (const fn of handlers) fn()
+  }
 
   beforeEach(() => {
     wall = 0
@@ -135,7 +153,11 @@ describe.each([
       videoCallbacks: new Set<() => void>(),
       transport: { playing: true, speed: 1, epoch: 0, time: 0 },
     }
-    g.window = { __vos__: vos }
+    handlers = []
+    g.window = {
+      __vos__: vos,
+      addEventListener: (_type: string, fn: () => void) => handlers.push(fn),
+    }
     if (follower) {
       expect(MEDIA_FOLLOWER_SRC).toContain('ns.media =')
       new Function(MEDIA_FOLLOWER_SRC)()
@@ -427,10 +449,45 @@ describe.each([
     pause(true)
     pause(false)
     expect(m.muted).toBe(true)
-    // The viewer has acted: the next frame lifts it.
-    vi.stubGlobal('navigator', { userActivation: { hasBeenActive: true } })
+    // Frames go by with no gesture: nothing is tried.
+    run(m, props, 0.5)
+    expect(m.unmutes).toBe(0)
+    // The viewer acts: the next frame lifts it.
+    gesture()
     run(m, props, 0.1)
     expect(m.muted).toBe(false)
+    expect(m.unmutes).toBe(1)
+  })
+
+  it('Safari pauses an element unmuted outside a gesture: one try a gesture, never a loop', async () => {
+    if (!follower) return
+    const m = makeModel({})
+    m.refuses = true
+    m.pausesOnUnmute = true
+    const props = element(m)
+    props.playing = true
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(m.muted).toBe(true)
+    gesture()
+    // A second of frames: unmuted once, paused by the browser, refused
+    // again, muted again, and left muted and playing.
+    for (let i = 0; i < 60; i++) {
+      run(m, props, 1 / FPS)
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+    expect(m.unmutes).toBe(1)
+    expect(m.muted).toBe(true)
+    expect(m.paused).toBe(false)
+    // The next gesture is one more try, and no more.
+    gesture()
+    for (let i = 0; i < 60; i++) {
+      run(m, props, 1 / FPS)
+      await Promise.resolve()
+      await Promise.resolve()
+    }
+    expect(m.unmutes).toBe(2)
   })
 
   it("the instance's mute outlasts the follower's", async () => {
@@ -443,10 +500,30 @@ describe.each([
     await Promise.resolve()
     expect(m.muted).toBe(true)
     vos.isMuted = true
-    vi.stubGlobal('navigator', { userActivation: { hasBeenActive: true } })
+    gesture()
     run(m, props, 0.1)
     // The follower lifted its own; the host's still says muted.
     expect((m as Record<string, any>).__vosAutoMuted).toBe(false)
     expect(m.muted).toBe(true)
+  })
+
+  it('a host that lifts the mute itself, inside its gesture, is not second-guessed', async () => {
+    if (!follower) return
+    const m = makeModel({})
+    m.refuses = true
+    const props = element(m)
+    props.playing = true
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(m.muted).toBe(true)
+    // What a host's sound gate does in the gesture: unmute, drop the flag.
+    gesture()
+    m.refuses = false
+    m.muted = false
+    delete (m as Record<string, any>).__vosAutoMuted
+    run(m, props, 0.5)
+    expect(m.muted).toBe(false)
+    expect(m.unmutes).toBe(1)
+    expect(m.paused).toBe(false)
   })
 })
