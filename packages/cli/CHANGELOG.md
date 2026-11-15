@@ -1,5 +1,15 @@
 # @vosjs/cli
 
+## 0.95.3
+
+### Patch Changes
+
+- d410e55: `vos preview` plays a program's video and sound natively. Its page loads with `autoplay`, which started the clock and left every media element paused, sought on every frame instead of played. The fix is in `@vosjs/core`'s player document.
+- Updated dependencies [d410e55]
+- Updated dependencies [d410e55]
+  - @vosjs/render-core@0.16.2
+  - @vosjs/core@0.31.1
+
 ## 0.95.2
 
 ### Patch Changes
