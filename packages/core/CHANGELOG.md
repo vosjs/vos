@@ -1,5 +1,11 @@
 # @vosjs/core
 
+## 0.31.3
+
+### Patch Changes
+
+- d156822: `window.__vos__.transport` carries `time`: the clock itself, in output seconds, as of the last update. A follower that is not handed the time each frame (a `video` or `audio` element left to play) measures against it.
+
 ## 0.31.2
 
 ### Patch Changes
