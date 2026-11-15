@@ -1,5 +1,17 @@
 # @vosjs/cli
 
+## 0.95.4
+
+### Patch Changes
+
+- 4e8ee6a: `vos preview` and a take pushed from here carry the media follower: the player's page installs it, and a lowered take calls it. At the player's speed 2 a take's footage now runs at double speed, where it stayed at 1× and was stepped several times a second.
+- Updated dependencies [4e8ee6a]
+- Updated dependencies [4e8ee6a]
+- Updated dependencies [4e8ee6a]
+  - @vosjs/render-core@0.16.3
+  - @vosjs/core@0.31.2
+  - @vosjs/studio-core@0.49.5
+
 ## 0.95.3
 
 ### Patch Changes
