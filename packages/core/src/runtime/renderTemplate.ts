@@ -448,6 +448,7 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
         //   speed    output seconds per wall second
         //   epoch    a counter that ticks whenever the clock JUMPS: a seek, a
         //            loop's wrap, a load
+        //   time     the clock itself, in output seconds, as of the last update
         // It is READ off the live timeline after every command, never set from
         // what the command meant, so it cannot disagree with the clock: an
         // autoplay load plays, a warm load of a playing timeline is playing,
@@ -456,7 +457,7 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
         // With no timeline there is no clock to read, and the last PLAY or
         // PAUSE stands.
         window.__vos__ = window.__vos__ || {};
-        const __transport = { playing: false, speed: 1, epoch: 0 };
+        const __transport = { playing: false, speed: 1, epoch: 0, time: 0 };
         window.__vos__.transport = __transport;
         let __wantsPlay = false;
         let __jumping = false;
@@ -486,6 +487,7 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
             const t = tl.time();
             if (!__jumping && __lastTime !== null && t < __lastTime - 1e-6) __transport.epoch++;
             __lastTime = t;
+            __transport.time = t;
             if (__transport.playing && t >= __finiteDuration(tl) - 1e-6) Promise.resolve().then(__syncTransport);
         };
 
@@ -603,6 +605,7 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
                 }
             });
             __lastTime = tl ? tl.time() : null;
+            __transport.time = tl ? tl.time() : 0;
             // The program's own setup may have reset isPaused; the clock decides.
             __syncTransport();
         };

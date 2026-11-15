@@ -38,6 +38,12 @@ export interface VosTransport {
    * tells a jump from a drift by it.
    */
   epoch: number
+  /**
+   * The clock itself, in output seconds, as of the last update. What a
+   * follower that is not handed the time each frame (an element left to
+   * play) measures against.
+   */
+  time: number
 }
 
 /** One stack entry's live state, as `STACK_STATE` reports it. */

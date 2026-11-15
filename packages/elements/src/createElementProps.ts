@@ -248,12 +248,149 @@ export function createElementProps(
   // instance's global mute (`window.__vos__.isMuted`, set by the SET_MUTED
   // bridge command) composes on top: muted when either says so.
   const ownMuted = videoElement ? videoElement.muted : false
+  // A third says so while it stands: the follower's autoplay fallback. A
+  // browser that refuses an unmuted play() with no gesture gets muted
+  // playback, and the mute lifts when the viewer has acted.
   const applyMuted = () => {
     if (!videoElement) return
     const vos = (window as any).__vos__
-    videoElement.muted = ownMuted || !!vos?.isMuted
+    videoElement.muted =
+      ownMuted || !!vos?.isMuted || !!(videoElement as any).__vosAutoMuted
   }
   applyMuted()
+
+  // WHILE IT PLAYS the element is kept on the clock by the player
+  // document's follower (`window.__vos__.media`, @vosjs/core), when the
+  // document has one. Before this a playing element ran free: it was placed
+  // once when it started and never again, so a stall, a seek or a loop's
+  // wrap left it wherever it was, and the player's speed never reached it.
+  // With no follower in the document it still runs free.
+  //
+  // WHERE it should be is what the program last said, carried forward on
+  // the player's clock (`transport.time`, output seconds):
+  //
+  //   at = said.media + (clock - said.out) × rate
+  //
+  // A program that sets `playing` and lets the element run says it once.
+  // One that animates `currentTime` says it every frame, and then the rate
+  // is MEASURED from what it says, a quarter of an output second at a time:
+  // a program may move the time at any speed, and an element playing at
+  // another is stepped again and again. The rate snaps to the element's own
+  // `playbackRate` when it is that (the common case never touches it),
+  // moves in steps of 0.05, and changes only by more than 4%. A time the
+  // program holds still, or moves backward, is not followed: an element
+  // cannot play that, and it runs free as it did.
+  const ownRate =
+    videoElement && videoElement.playbackRate > 0
+      ? videoElement.playbackRate
+      : 1
+  const RATE_WINDOW = 0.25
+  const tracked = {
+    rate: ownRate,
+    piece: 0,
+    /** What the program last said, and the clock when it said it. */
+    media: 0,
+    out: 0,
+    /** Said since the last frame, not yet placed on the clock. */
+    said: null as number | null,
+    first: true,
+    fromMedia: 0,
+    fromOut: 0,
+    still: false,
+    running: false,
+    wasPlaying: false,
+  }
+  const followFrame = () => {
+    if (!videoElement) return
+    const vos = (window as any).__vos__
+    const media = vos?.media
+    const out = vos?.transport?.time
+    if (!media || typeof media.follow !== 'function') return
+    if (typeof out !== 'number') return
+    if (tracked.said !== null) {
+      const at = tracked.said
+      tracked.said = null
+      const dOut = out - tracked.out
+      const dAt = at - tracked.media
+      // A new piece: the first word, a gap since the last, a jump back, or
+      // a step further than any rate a browser plays explains.
+      const cut =
+        tracked.first ||
+        !(dOut > 0) ||
+        dOut > RATE_WINDOW ||
+        dAt < -0.5 ||
+        dAt > Math.max(0.5, 32 * dOut)
+      tracked.first = false
+      tracked.media = at
+      tracked.out = out
+      if (cut) {
+        tracked.piece++
+        tracked.still = false
+        tracked.fromMedia = at
+        tracked.fromOut = out
+      } else if (dAt < 0) {
+        tracked.still = true
+        tracked.fromMedia = at
+        tracked.fromOut = out
+      } else if (out - tracked.fromOut >= RATE_WINDOW) {
+        let r = (at - tracked.fromMedia) / (out - tracked.fromOut)
+        tracked.fromMedia = at
+        tracked.fromOut = out
+        tracked.still = !(r >= 0.05)
+        if (r >= 0.05 && r <= 20) {
+          if (Math.abs(r - ownRate) <= 0.04 * ownRate) r = ownRate
+          else r = Math.round(r * 20) / 20
+          if (Math.abs(r - tracked.rate) > 0.04 * tracked.rate) tracked.rate = r
+        }
+      }
+    }
+    if (tracked.first || tracked.still) return
+    const want = tracked.media + (out - tracked.out) * tracked.rate
+    const dur = videoElement.duration
+    const known = Number.isFinite(dur) && dur > 0
+    const loop = known && videoElement.loop ? { dur } : null
+    // Past its own end it has nothing left to play: an ended element that
+    // is played again rewinds, and one stepped to its end ends again.
+    if (!loop && known && want >= dur - 0.05) return
+    media.follow(videoElement, {
+      lead: true,
+      at: loop ? ((want % dur) + dur) % dur : Math.max(0, want),
+      rate: tracked.rate,
+      piece: tracked.piece,
+      end: known ? dur : undefined,
+      loop,
+      unlocked:
+        typeof navigator !== 'undefined' &&
+        !!(navigator as any).userActivation?.hasBeenActive,
+    })
+    // The follower may have lifted its own mute; the element's and the
+    // instance's still stand.
+    applyMuted()
+  }
+  /** The document has a follower and a clock for it to follow. */
+  const canFollow = (): boolean => {
+    const vos = (window as any).__vos__
+    return (
+      !!videoElement &&
+      typeof vos?.media?.follow === 'function' &&
+      typeof vos?.transport?.time === 'number'
+    )
+  }
+  // One frame at a time while the element should be playing, and no longer.
+  const followLoop = () => {
+    const vos = (window as any).__vos__
+    if (!state.playing || vos?.isPaused || !canFollow()) {
+      tracked.running = false
+      return
+    }
+    followFrame()
+    requestAnimationFrame(followLoop)
+  }
+  const startFollowing = () => {
+    if (tracked.running || typeof requestAnimationFrame !== 'function') return
+    tracked.running = true
+    requestAnimationFrame(followLoop)
+  }
 
   // Volume = props.gain × the element's gain envelope at the output time the
   // render loop publishes. Sorted once; an envelope-less element writes gain
@@ -290,6 +427,16 @@ export function createElementProps(
     const shouldPlay = state.playing && !vos?.isPaused
 
     if (shouldPlay) {
+      // The follower places and starts it; with none, as it always did.
+      if (canFollow()) {
+        // Starting (not resuming after a pause of the whole player): where
+        // it starts is the program's word.
+        if (!tracked.wasPlaying) tracked.said = Number(state.currentTime) || 0
+        tracked.wasPlaying = true
+        followFrame()
+        startFollowing()
+        if (!tracked.still) return
+      }
       if (videoElement.paused) {
         const timeDiff = Math.abs(videoElement.currentTime - state.currentTime)
         if (timeDiff > 0.5) {
@@ -303,6 +450,7 @@ export function createElementProps(
         videoElement.currentTime = state.currentTime
       }
     }
+    tracked.wasPlaying = !!state.playing
   }
 
   // Register callback for global pause/resume
@@ -333,6 +481,9 @@ export function createElementProps(
     if (!state.playing || vos?.isPaused) {
       videoElement.currentTime = state.currentTime
     }
+    // The program's word on where it is: placed on the clock by the next
+    // frame it plays (a scrub while paused is the word it resumes from).
+    tracked.said = Number(state.currentTime) || 0
   }
 
   return new Proxy(state, {

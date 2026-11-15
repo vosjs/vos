@@ -13,6 +13,7 @@ interface Transport {
   playing: boolean
   speed: number
   epoch: number
+  time: number
 }
 interface Vos {
   transport: Transport
@@ -150,7 +151,12 @@ describe('the transport a program reads', () => {
 
   it('starts stopped, and a load that does not autoplay leaves it so', async () => {
     const { load, vos } = boot()
-    expect(vos().transport).toEqual({ playing: false, speed: 1, epoch: 0 })
+    expect(vos().transport).toEqual({
+      playing: false,
+      speed: 1,
+      epoch: 0,
+      time: 0,
+    })
     await load(program({ loop: true }))
     expect(vos().transport.playing).toBe(false)
     expect(vos().isPaused).toBe(true)
@@ -163,6 +169,20 @@ describe('the transport a program reads', () => {
     expect(vos().isPaused).toBe(false)
     await run(1000)
     expect(time()).toBeGreaterThan(0.9)
+  })
+
+  it('carries the clock itself', async () => {
+    const { load, send, vos, time } = boot()
+    await load(program({ loop: true }))
+    send({ type: 'PLAY' })
+    await run(1000)
+    expect(vos().transport.time).toBe(time())
+    expect(vos().transport.time).toBeGreaterThan(0.9)
+    send({ type: 'SEEK_TIME', value: 2 })
+    expect(vos().transport.time).toBe(2)
+    send({ type: 'PAUSE' })
+    send({ type: 'SEEK_TIME', value: 3.5 })
+    expect(vos().transport.time).toBe(3.5)
   })
 
   it('a seek leaves a playing timeline playing, from the new moment', async () => {
