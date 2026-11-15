@@ -1,5 +1,13 @@
 # @vosjs/cli
 
+## 0.95.6
+
+### Patch Changes
+
+- b3b1b7e: A take pushed from here plays its music and effects at the player's speed, where they were restarted four times a second at any speed but 1.
+- Updated dependencies [b3b1b7e]
+  - @vosjs/studio-core@0.49.6
+
 ## 0.95.5
 
 ### Patch Changes
