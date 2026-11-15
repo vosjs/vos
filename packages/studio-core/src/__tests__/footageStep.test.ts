@@ -6,6 +6,7 @@ import {
   sample,
   totalDuration,
 } from '@vosjs/timeline'
+import { MEDIA_FOLLOWER_SRC } from '@vosjs/core/runtime'
 import { lowerToComposition } from '../lower/lowerToComposition'
 import {
   DEFAULT_CAM_STYLE,
@@ -26,6 +27,12 @@ import type { ProjectDoc, Segment, SpeedSpan } from '../types'
  *
  * A stub that lands every seek at once (the rest of the suite's) cannot
  * see any of this, which is how a step on every frame went unnoticed.
+ *
+ * Every case runs TWICE: against the program's own copy of the rule (a
+ * player with no follower: an older CLI, a standalone page), and against
+ * the player document's follower (`window.__vos__.media`, @vosjs/core),
+ * which the program calls when it finds one. The two are the same rule and
+ * are held to the same numbers.
  */
 const FPS = 60
 
@@ -137,7 +144,10 @@ function doc(
   }
 }
 
-describe('the footage follows the clock while it plays', () => {
+describe.each([
+  ['by its own copy of the rule', false],
+  ["by the player's follower", true],
+])('the footage follows the clock while it plays, %s', (_name, follower) => {
   const g = globalThis as Record<string, unknown>
   let wall = 0
   beforeEach(() => {
@@ -163,6 +173,10 @@ describe('the footage follows the clock while it plays', () => {
       `"use strict"; return (${config.onFrame as string})`,
     )() as (ctx: unknown, content: unknown, dt: number) => void
     g.window = { __vos__: { isPaused: false } }
+    if (follower) {
+      expect(MEDIA_FOLLOWER_SRC).toContain('ns.media =')
+      new Function(MEDIA_FOLLOWER_SRC)()
+    }
     g.__vosTimeline = { mapTime, sample, lerpArray, rateAt, totalDuration }
     const c2d = new Proxy(
       {},
@@ -210,6 +224,9 @@ describe('the footage follows the clock while it plays', () => {
       )
       off.push(Math.abs(m.position - m.want) / rateAt(segments, t))
     }
+    // Which rule drove the element: each keeps its state under its own name.
+    expect('__vosFollow' in m).toBe(follower)
+    expect('__vosSv' in m).toBe(!follower)
     return off
   }
 

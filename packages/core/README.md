@@ -182,6 +182,8 @@ A `playback` page speaks `VOS_BRIDGE_PROTOCOL` (currently 11) over `postMessage`
 
 A seek moves the playhead and nothing else: a playing timeline plays on from the new moment and a paused one stays paused, so a host that wants a still frame sends `PAUSE` first. A program reads the transport at `window.__vos__.transport` (`VosTransport`): `playing` (the clock is advancing), `speed` (output seconds per wall second) and `epoch` (a counter that ticks when the clock jumps: a seek, a loop's wrap, a load). The page reads it off the live timeline after every command, and `window.__vos__.isPaused` is its mirror.
 
+A playback page also installs the MEDIA FOLLOWER at `window.__vos__.media` (`VosMedia`; its source is exported as `MEDIA_FOLLOWER_SRC`). A program that keeps a `<video>` or `<audio>` on the clock calls `media.follow(el, { at, rate, piece, end, loop, unlocked, lead })` once a frame while playing, and the follower is then the only thing that seeks that element, sets its rate or plays it: one seek in flight, an allowance in output time that is never under what a seek costs on that element, a step aimed where the playhead will be when it lands, and a landing checked once. It carries the player's speed and reads the clock's jumps from the transport. The paused frame stays the program's. A program should keep its own rule for a page that has no follower, and be tested both ways.
+
 ## Render audio
 
 An `audio` element plays under the master clock: set `props.playing`, animate `props.currentTime`, fade `props.gain`. `@vosjs/core/audio` renders that same sound offline, so an export carries it:
