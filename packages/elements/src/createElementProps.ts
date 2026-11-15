@@ -277,7 +277,8 @@ export function createElementProps(
   // a program may move the time at any speed, and an element playing at
   // another is stepped again and again. The rate snaps to the element's own
   // `playbackRate` when it is that (the common case never touches it),
-  // moves in steps of 0.05, and changes only by more than 4%. A time the
+  // moves in steps of 0.05, and changes only by more than 4% and only when
+  // two windows running agree. A time the
   // program holds still, or moves backward, is not followed: an element
   // cannot play that, and it runs free as it did.
   const ownRate =
@@ -299,6 +300,8 @@ export function createElementProps(
     still: false,
     running: false,
     wasPlaying: false,
+    /** A rate one window measured, waiting for the next to agree. */
+    seen: 0,
   }
   const followFrame = () => {
     if (!videoElement) return
@@ -340,7 +343,17 @@ export function createElementProps(
         if (r >= 0.05 && r <= 20) {
           if (Math.abs(r - ownRate) <= 0.04 * ownRate) r = ownRate
           else r = Math.round(r * 20) / 20
-          if (Math.abs(r - tracked.rate) > 0.04 * tracked.rate) tracked.rate = r
+          // Two windows running have to agree before the rate moves: one
+          // that straddles a change of the player's speed reads a rate
+          // nobody is playing at.
+          if (Math.abs(r - tracked.rate) <= 0.04 * tracked.rate) {
+            tracked.seen = 0
+          } else if (tracked.seen && Math.abs(r - tracked.seen) <= 0.04 * r) {
+            tracked.rate = r
+            tracked.seen = 0
+          } else {
+            tracked.seen = r
+          }
         }
       }
     }

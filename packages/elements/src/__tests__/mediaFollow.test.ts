@@ -353,6 +353,23 @@ describe.each([
       }
     })
 
+    it("a change of the player's speed moves its rate once", () => {
+      const m = makeModel({})
+      const props = element(m)
+      props.playing = true
+      run(m, props, 2, (t) => t / 2)
+      vos.transport.speed = 2
+      run(m, props, 2, (t) => t / 2)
+      if (follower) {
+        // Half speed measured, then half speed at the player's double.
+        expect(m.rates).toEqual([0.5, 1])
+        expect(m.steps.length).toBeLessThanOrEqual(2)
+        expect(Math.abs(m.position - out / 2)).toBeLessThan(0.15)
+      } else {
+        expect(m.rates).toHaveLength(0)
+      }
+    })
+
     it('held still: not followed, the element runs free', () => {
       const m = makeModel({})
       const props = element(m)
