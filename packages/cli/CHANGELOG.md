@@ -1,5 +1,17 @@
 # @vosjs/cli
 
+## 0.95.5
+
+### Patch Changes
+
+- d156822: `vos preview` keeps a playing `video` or `audio` element on the clock: it comes back from a stall, goes with a seek and with the program's loop, resumes where it paused, and runs at the player's speed.
+- Updated dependencies [d156822]
+- Updated dependencies [d156822]
+- Updated dependencies [d156822]
+  - @vosjs/render-core@0.16.4
+  - @vosjs/elements@0.12.3
+  - @vosjs/core@0.31.3
+
 ## 0.95.4
 
 ### Patch Changes
