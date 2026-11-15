@@ -21,6 +21,25 @@ import type { FontFaceDecl } from '../types/vosConfigJson'
 /** Bumped whenever the message set changes. Advertised in `BRIDGE_READY`. */
 export const VOS_BRIDGE_PROTOCOL = 11
 
+/**
+ * The transport, as a program reads it at `window.__vos__.transport`. The
+ * player document owns it and reads it off the live timeline after every
+ * command, so it cannot disagree with the clock. `window.__vos__.isPaused`
+ * is its mirror (`!playing`).
+ */
+export interface VosTransport {
+  /** The clock is advancing. */
+  playing: boolean
+  /** Output seconds per wall second. */
+  speed: number
+  /**
+   * Ticks whenever the clock jumps: a seek, a loop's wrap, a load. A program
+   * following the clock with something that has its own (a video, a sound)
+   * tells a jump from a drift by it.
+   */
+  epoch: number
+}
+
 /** One stack entry's live state, as `STACK_STATE` reports it. */
 export interface StackEntryReport {
   id: string
@@ -125,10 +144,19 @@ export type VosBridgeCommand =
   | { type: 'SET_TWEEN_EDITS'; edits: TweenEditPayload[] }
   | { type: 'PLAY' }
   | { type: 'PAUSE' }
-  /** Legacy progress seek (0-1). Prefer SEEK_TIME. */
+  /**
+   * Legacy progress seek (0-1). Prefer SEEK_TIME. Like it, a seek moves the
+   * playhead and nothing else.
+   */
   | { type: 'SEEK'; value: number }
-  /** Absolute seek in seconds (clamped to [0, duration]). */
+  /**
+   * Absolute seek in seconds (clamped to [0, duration]). It moves the
+   * playhead and nothing else: a playing timeline plays on from the new
+   * moment and a paused one stays paused, as an `HTMLMediaElement` does. A
+   * host that wants a still frame sends `PAUSE` first.
+   */
   | { type: 'SEEK_TIME'; value: number }
+  /** Output seconds per wall second, kept across a warm `LOAD`. */
   | { type: 'PLAY_SPEED'; value: number }
   /**
    * Retime the master timeline (T2.5) — only honored when the running program

@@ -67,6 +67,7 @@ function reporter() {
     '__post',
     `const __finiteDuration = (tl) => tl.duration();
      const __epoch = 1;
+     const __noteTime = () => {};
      ${body}
      return { __attachProgress, __afterDataSwap };`,
   )
