@@ -1840,6 +1840,12 @@ const ON_FRAME = `(ctx, content, dt) => {
   //    element next.
   // sv-prefixed (one var scope).
   var svNow = performance.now(), svPiece = amI, svPieceOut = amS ? amS.out : Infinity
+  // THE PLAYER'S FOLLOWER, when the document has one (window.__vos__.media,
+  // @vosjs/core's mediaFollower): the same rule, the player's current copy
+  // of it, and it carries the player's speed. The code below it is this
+  // program's own copy, which plays it right in a player that has none (an
+  // older CLI, a standalone page made earlier) and never changes after a save.
+  var svMedia = ns.media && typeof ns.media.follow === 'function' ? ns.media : null
   function svOf(vid) {
     var sv = vid.__vosSv
     if (!sv) {
@@ -1897,7 +1903,9 @@ const ON_FRAME = `(ctx, content, dt) => {
   }
   function syncVid(vid) {
     try {
-      if (playing && !frozen) {
+      if (playing && !frozen && svMedia) {
+        svMedia.follow(vid, { lead: true, at: srcT, rate: srcRate, piece: svPiece, end: svPieceOut, unlocked: !!d.audioUnlocked })
+      } else if (playing && !frozen) {
         if (vid.playbackRate !== playRate) {
           vid.playbackRate = playRate
           // Resampled (tape-style) speed, matching the export's offline mix.
@@ -2110,7 +2118,11 @@ const ON_FRAME = `(ctx, content, dt) => {
       var bgDur = bgm.duration || bgEl.duration || 0
       var bgT = bgDur > 0 ? t % bgDur : 0
       try {
-        if (playing) {
+        if (playing && svMedia && bgDur > 0) {
+          // The loop runs on the OUTPUT clock, so its rate is 1 and the
+          // follower measures around the wrap.
+          svMedia.follow(bgEl, { at: bgT, rate: 1, piece: 'bg', loop: { dur: bgDur } })
+        } else if (playing) {
           if (bgEl.playbackRate !== 1) bgEl.playbackRate = 1
           // Free-run on the element's native loop; drift-correct against the
           // modulo clock. Near the wrap the raw delta spans ~bgDur — treat

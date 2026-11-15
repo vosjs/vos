@@ -769,7 +769,13 @@ export const STUDIO_FRAME = `(ctx, content, dt) => {
       if (ol.loop && olDur > 0) olMT = olT % olDur
       else if (olDur > 0) olMT = Math.min(olT, olDur - 0.001)
       try {
-        if (playing) {
+        // The player's follower when the document has one (see ON_FRAME's
+        // svMedia); a clip past its end is held here, paused, either way.
+        var olMedia = ns.media && typeof ns.media.follow === 'function' ? ns.media : null
+        var olHold = !ol.loop && olDur > 0 && olT >= olDur
+        if (playing && olMedia && olDur > 0 && !olHold) {
+          olMedia.follow(olEl, { at: olMT, rate: 1, piece: ol.id, end: olDur, loop: ol.loop ? { dur: olDur } : null })
+        } else if (playing) {
           if (olEl.playbackRate !== 1) olEl.playbackRate = 1
           var olDrift = Math.abs(olEl.currentTime - olMT)
           if (olDur > 0 && !olEl.seeking && olDrift > 0.3 && (!ol.loop || olDur - olDrift > 0.3)) olEl.currentTime = olMT

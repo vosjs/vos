@@ -1,6 +1,7 @@
 import { tweenRuntimeCode } from '@vosjs/tween/bundle'
 import { engineModules } from '../addons/cdn'
 import { VOS_BRIDGE_PROTOCOL } from './bridge'
+import { MEDIA_FOLLOWER_SRC } from './mediaFollower'
 import { ELEMENT_PICK_JS } from './elementPick'
 import { transformModuleCode } from './transformModuleCode'
 import { inlineScriptSafe } from './inlineScript'
@@ -354,6 +355,7 @@ ${moduleBody}
 //   - PLAY / PAUSE / SEEK { value } / SEEK_TIME { value } / PLAY_SPEED { value }
 //                                               a seek moves the playhead only: playing stays playing
 //   - window.__vos__.transport { playing, speed, epoch } is what a program reads; isPaused mirrors it
+//   - window.__vos__.media.follow(el, target) keeps a playing media element on the clock (./mediaFollower.ts)
 //   - SET_DURATION { value }                    -> retime (only if program supports it)
 //   - editor mode: GET_ELEMENT_RECTS / HIT_TEST / SET_ELEMENT_PROPS (ephemeral)
 // Backward compatible: if window.USER_CODE_BLOB_URL is baked (legacy), it auto-loads.
@@ -486,6 +488,11 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
             __lastTime = t;
             if (__transport.playing && t >= __finiteDuration(tl) - 1e-6) Promise.resolve().then(__syncTransport);
         };
+
+        // THE MEDIA FOLLOWER (window.__vos__.media): how a playing video or
+        // sound is kept on this clock. A program that finds it calls it;
+        // one that does not keeps the rule it was compiled with.
+        ${MEDIA_FOLLOWER_SRC}
 
         // The transport reports the LIVE timeline. A data swap can rebuild the
         // content and its timeline in place (a bound split text, a program

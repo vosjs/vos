@@ -10,3 +10,5 @@ export type {
   VosTransport,
   ElementRect,
 } from './bridge'
+export { MEDIA_FOLLOWER_SRC } from './mediaFollower'
+export type { MediaFollowTarget, VosMedia } from './mediaFollower'
