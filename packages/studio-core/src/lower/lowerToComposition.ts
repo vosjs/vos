@@ -1300,7 +1300,10 @@ const SETUP = `async (ctx) => {
       key = src + '#' + n
       v = cache.get(key)
     }
-    if (v) { claimed.add(v); return v }
+    // Whether this media carries sound that should be heard is the
+    // document's fact, told to the player's follower: an element with none
+    // may rest while a decoder supplies its picture.
+    if (v) { v.__vosSilent = !!muted; claimed.add(v); return v }
     let url = src
     if (ctx.data.videoFetchMode === 'blob') {
       try { url = await toBlobUrl(src) }
@@ -1310,6 +1313,7 @@ const SETUP = `async (ctx) => {
     v.src = url
     v.crossOrigin = 'anonymous'
     v.muted = muted
+    v.__vosSilent = !!muted
     v.playsInline = true
     v.preload = 'auto'
     await new Promise((res, rej) => {
@@ -1846,6 +1850,21 @@ const ON_FRAME = `(ctx, content, dt) => {
   // program's own copy, which plays it right in a player that has none (an
   // older CLI, a standalone page made earlier) and never changes after a save.
   var svMedia = ns.media && typeof ns.media.follow === 'function' ? ns.media : null
+  // THE PICTURE may be a decoder's, where the player has one and its host
+  // switched it on (media.draw): above 1×, and over a hand-back. The card
+  // asks it before drawing the element, which stays the picture at 1×, for
+  // all sound, and wherever the decoder does not serve.
+  var svDraw = svMedia && typeof svMedia.draw === 'function' ? svMedia : null
+  // A fast piece somewhere in the document: the player may open the file
+  // ahead of it.
+  var svWarm = false
+  if (svDraw) for (var svI = 0, svSg = d.segments || []; svI < svSg.length; svI++) if ((svSg[svI].rate || 1) > 1.001) { svWarm = true; break }
+  // The piece after this one, when the same media plays it: where it
+  // starts, its rate, and how far off it is on the output clock.
+  var svNext = null
+  if (svDraw && amS && amI + 1 < amSg.length && (amSg[amI + 1].media || '') === (amS.media || '')) {
+    svNext = { at: amSg[amI + 1].in, rate: amSg[amI + 1].rate || 1, in: amAcc + amLn - t }
+  }
   function svOf(vid) {
     var sv = vid.__vosSv
     if (!sv) {
@@ -1901,10 +1920,11 @@ const ON_FRAME = `(ctx, content, dt) => {
     }
     return off > tol ? 1 : 0
   }
-  function syncVid(vid) {
+  // svCard: this element is the card's picture, drawn through svDraw.
+  function syncVid(vid, svCard) {
     try {
       if (playing && !frozen && svMedia) {
-        svMedia.follow(vid, { lead: true, at: srcT, rate: srcRate, piece: svPiece, end: svPieceOut, unlocked: !!d.audioUnlocked })
+        svMedia.follow(vid, { lead: true, at: srcT, rate: srcRate, piece: svPiece, end: svPieceOut, unlocked: !!d.audioUnlocked, picture: !!(svCard && svDraw), silent: vid.__vosSilent === true, warm: svWarm, next: svCard ? svNext : null })
       } else if (playing && !frozen) {
         if (vid.playbackRate !== playRate) {
           vid.playbackRate = playRate
@@ -1956,7 +1976,7 @@ const ON_FRAME = `(ctx, content, dt) => {
       }
     } catch (e) {}
   }
-  if (video.play) syncVid(video) // stills (HTMLImageElement) have nothing to sync
+  if (video.play) syncVid(video, true) // stills (HTMLImageElement) have nothing to sync
   if (r.cam && !amId) syncVid(r.cam)
   if (r.mic && !amId) syncVid(r.mic)
 
@@ -2546,7 +2566,7 @@ const ON_FRAME = `(ctx, content, dt) => {
     // dimension-checked at attach); false ⇒ element path (pre-first-seek,
     // or the provider never attached).
     var wcp3 = video.__vosWc
-    if (!(wcp3 && wcp3.draw(c, crp, ceX, ceY, ceW, ceH))) {
+    if (!(wcp3 && wcp3.draw(c, crp, ceX, ceY, ceW, ceH)) && !(svDraw && !tpG && video.play && svDraw.draw(video, c, crp, ceX, ceY, ceW, ceH, srcT))) {
       if (crp) c.drawImage(video, crp.x, crp.y, crp.w, crp.h, ceX, ceY, ceW, ceH)
       else c.drawImage(video, ceX, ceY, ceW, ceH)
     }

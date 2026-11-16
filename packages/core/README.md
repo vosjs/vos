@@ -186,6 +186,8 @@ A playback page also installs the MEDIA FOLLOWER at `window.__vos__.media` (`Vos
 
 A program stored BEFORE there was a follower never calls it. For a lowered take of that age the page installs the media governor (`MEDIA_GOVERNOR_SRC`): of the program's `currentTime` assignments to a playing element, the page decides which become seeks, by the follower's rule. A paused element, an element with a rule of its own, and any element that is not a take's media pass straight through, so no frame a program draws can change.
 
+The PICTURE of a followed video may come from a WebCodecs decoder instead of the element, where the host switches that on (`generateRenderTemplate(code, { mode: 'playback', mediaDecoder: true })`) and the caller asks (`picture: true`, then `media.draw(el, ctx, crop, dx, dy, dw, dh, at)` before drawing the element). The decoder serves above 1× while it can keep inside the allowance, and over a hand-back; the element serves plain 1×, all sound, every paused frame, and any file the decoder cannot open. A caller that says what piece comes next (`next`) gets that piece's first frame on the frame of the cut. Off by default.
+
 ## Render audio
 
 An `audio` element plays under the master clock: set `props.playing`, animate `props.currentTime`, fade `props.gain`. In a playback page a playing `audio` or `video` element is kept on that clock by the media follower: where the program last put it, carried forward one output second per second (or at the rate the program animates its time at), so it comes back from a stall, goes with a seek and with the program's loop, resumes where it paused, and runs at the player's speed. `@vosjs/core/audio` renders that same sound offline, so an export carries it:

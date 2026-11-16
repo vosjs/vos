@@ -105,7 +105,7 @@ describe('the media follower', () => {
   it('is installed by the playback document, and by nothing else', () => {
     expect(media.v).toBe(1)
     expect(generateRenderTemplate('', { mode: 'playback' })).toContain(
-      'ns.media = { v: 1, follow: follow };',
+      'ns.media = { v: 1, follow: follow, draw: draw };',
     )
     expect(
       generateRenderTemplate('export const initVos = async () => ({})', {
