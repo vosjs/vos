@@ -1,5 +1,13 @@
 # @vosjs/render-core
 
+## 0.16.6
+
+### Patch Changes
+
+- 80650f7: The audio page's core pin follows @vosjs/core 0.31.5.
+- Updated dependencies [80650f7]
+  - @vosjs/studio-core@0.49.7
+
 ## 0.16.5
 
 ### Patch Changes

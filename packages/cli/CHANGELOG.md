@@ -1,5 +1,17 @@
 # @vosjs/cli
 
+## 0.95.8
+
+### Patch Changes
+
+- 80650f7: A take pushed by this CLI draws its footage through the player's follower, so a player that can supply the picture from a decoder does. `vos preview` plays as before.
+- Updated dependencies [80650f7]
+- Updated dependencies [80650f7]
+- Updated dependencies [80650f7]
+  - @vosjs/render-core@0.16.6
+  - @vosjs/core@0.31.5
+  - @vosjs/studio-core@0.49.7
+
 ## 0.95.7
 
 ### Patch Changes
