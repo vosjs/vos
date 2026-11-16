@@ -12,3 +12,4 @@ export type {
 } from './bridge'
 export { MEDIA_FOLLOWER_SRC } from './mediaFollower'
 export type { MediaFollowTarget, VosMedia } from './mediaFollower'
+export { MEDIA_GOVERNOR_SRC } from './mediaGovernor'
