@@ -2,6 +2,7 @@ import { tweenRuntimeCode } from '@vosjs/tween/bundle'
 import { engineModules } from '../addons/cdn'
 import { VOS_BRIDGE_PROTOCOL } from './bridge'
 import { MEDIA_FOLLOWER_SRC } from './mediaFollower'
+import { MEDIA_GOVERNOR_SRC } from './mediaGovernor'
 import { ELEMENT_PICK_JS } from './elementPick'
 import { transformModuleCode } from './transformModuleCode'
 import { inlineScriptSafe } from './inlineScript'
@@ -495,6 +496,12 @@ function generatePlaybackBody(elementsBlock: string, editor: boolean): string {
         // sound is kept on this clock. A program that finds it calls it;
         // one that does not keeps the rule it was compiled with.
         ${MEDIA_FOLLOWER_SRC}
+
+        // THE MEDIA GOVERNOR: the same rule for a take stored before there
+        // was a follower, which will never call it. Of that program's
+        // currentTime assignments to a PLAYING element, the document
+        // decides which become seeks (./mediaGovernor.ts).
+        ${MEDIA_GOVERNOR_SRC}
 
         // The transport reports the LIVE timeline. A data swap can rebuild the
         // content and its timeline in place (a bound split text, a program
