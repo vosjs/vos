@@ -32,6 +32,15 @@ export interface RenderTemplateOptions {
    * for the modules runtime code imports on its own.
    */
   moduleMirror?: string | null
+  /**
+   * The playback document may take a playing video's PICTURE from a
+   * WebCodecs decoder where it serves better than the element: above 1×,
+   * and over a hand-back (`./mediaFollower.ts`). Off unless the host says
+   * so, and a host that sets it can turn it off again without a release
+   * of anything stored. A program that never asks (`picture: true`) is
+   * untouched either way.
+   */
+  mediaDecoder?: boolean
   /** Required for capture-* modes */
   capture?: {
     width: number
@@ -183,6 +192,7 @@ export function generateRenderTemplate(
     threeVersion,
     gsapVersion,
     moduleMirror = null,
+    mediaDecoder = false,
     capture,
     preloadModuleUrls = [],
     additionalImportmapEntries = {},
@@ -315,7 +325,11 @@ ${preloadHints}
     <script>
         window.__THREE_DRACO_PATH__ = '${dracoPath}';
         window.__vos__ = window.__vos__ || {};
-        window.__vos__.modules = ${runtimeModules};
+        window.__vos__.modules = ${runtimeModules};${
+          mediaDecoder && mode === 'playback'
+            ? '\n        window.__vos__.mediaDecoder = true;'
+            : ''
+        }
     </script>${globalErrorHandler}
 </head>
 <body>

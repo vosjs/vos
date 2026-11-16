@@ -38,7 +38,7 @@
  * Pinned to the version the api installs (`coreAudioCdn.test.ts` there
  * holds it to the installed package): render-core has no engine dependency.
  */
-export const CORE_AUDIO_VERSION = '0.31.4'
+export const CORE_AUDIO_VERSION = '0.31.5'
 export const CORE_AUDIO_CDN_URL = `https://esm.sh/@vosjs/core@${CORE_AUDIO_VERSION}/audio?target=es2022`
 
 /**
