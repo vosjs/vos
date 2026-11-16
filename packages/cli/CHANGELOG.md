@@ -1,5 +1,15 @@
 # @vosjs/cli
 
+## 0.95.7
+
+### Patch Changes
+
+- 03d75e7: `vos preview` plays a take stored before the seek fix without freezing in a fast speed span: the player now corrects it, with no re-save.
+- Updated dependencies [03d75e7]
+- Updated dependencies [03d75e7]
+  - @vosjs/render-core@0.16.5
+  - @vosjs/core@0.31.4
+
 ## 0.95.6
 
 ### Patch Changes
