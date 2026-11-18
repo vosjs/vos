@@ -6,6 +6,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   BROWSER_INSTALL,
+  KEPT_FILE,
+  KEPT_LINK,
   RULES_BEGIN,
   RULES_BLOCK,
   RULES_END,
@@ -19,6 +21,8 @@ import {
   setupPlanLines,
   setupReceipt,
   skillFrontmatterName,
+  keptBehindLink,
+  skillsTarget,
 } from '../machine'
 import type {
   AgentHome,
@@ -104,6 +108,7 @@ const CLAUDE: AgentHome = {
 function ask(over: Partial<SetupAsk> = {}): SetupAsk {
   return {
     root: '/p',
+    home: '/home/me',
     homes: [CLAUDE],
     global: false,
     skills: 'bundled',
@@ -206,6 +211,7 @@ describe('planSetup says what setup would do and reads only', () => {
             dir: '/p/.claude/skills',
             names: ['product-video', 'vos-cut'],
             existing: ['vos-cut'],
+            kept: [],
           },
         ],
       },
@@ -232,6 +238,7 @@ describe('planSetup says what setup would do and reads only', () => {
         dir: '/p/.agents/skills',
         names: ['product-video', 'vos-cut'],
         existing: [],
+        kept: [],
       },
     ])
     expect(plan.rules).toMatchObject({ file: '/p/AGENTS.md', action: 'write' })
@@ -306,6 +313,125 @@ describe('planSetup says what setup would do and reads only', () => {
   })
 })
 
+describe('a skill already there another way is left as it is', () => {
+  const NAMES = ['product-video', 'vos-cut']
+  const BASES = { root: '/p', home: '/home/me' }
+
+  it('a skill that is a link is kept, not copied over, and the rest still copy', () => {
+    const fs = disk(
+      {
+        ...BUNDLED,
+        '/elsewhere/product-video/SKILL.md': skill('product-video'),
+        '/p/.claude/skills/vos-cut/SKILL.md': 'an older copy',
+      },
+      { '/p/.claude/skills/product-video': '/elsewhere/product-video' },
+    )
+    const target = skillsTarget(CLAUDE, NAMES, BASES, fs)
+    expect(target).toEqual({
+      dir: '/p/.claude/skills',
+      names: NAMES,
+      // A plain directory is still overwritten.
+      existing: ['vos-cut'],
+      kept: [{ name: 'product-video', reason: KEPT_LINK }],
+    })
+    // The decision is made at the link: nothing behind it is read.
+    expect(fs.reads.some((p) => p.startsWith('/elsewhere'))).toBe(false)
+    expect(
+      fs.reads.some((p) => p.startsWith('/p/.claude/skills/product-video/')),
+    ).toBe(false)
+
+    const plan = planSetup(ask(), fs)
+    expect(plan.skills.targets).toEqual([target])
+    const words = setupPlanLines(plan, '/p').join('\n')
+    expect(words).toContain(
+      'left as it is (a symbolic link, so this skill was installed another way): product-video',
+    )
+    expect(words).toContain('already there, would be overwritten: vos-cut')
+    expect(words).not.toContain('new:')
+  })
+
+  it('a dangling link is kept too', () => {
+    const target = skillsTarget(
+      CLAUDE,
+      NAMES,
+      BASES,
+      disk(BUNDLED, { '/p/.claude/skills/vos-cut': '/gone/vos-cut' }),
+    )
+    expect(target.existing).toEqual([])
+    expect(target.kept).toEqual([{ name: 'vos-cut', reason: KEPT_LINK }])
+  })
+
+  it('a file standing where a skill would go is kept', () => {
+    const fs = disk({ ...BUNDLED, '/p/.claude/skills/vos-cut': 'my notes' })
+    const target = skillsTarget(CLAUDE, NAMES, BASES, fs)
+    expect(target.existing).toEqual([])
+    expect(target.kept).toEqual([{ name: 'vos-cut', reason: KEPT_FILE }])
+    const words = setupPlanLines(planSetup(ask(), fs), '/p').join('\n')
+    expect(words).toContain('new: product-video')
+    expect(words).toContain(`left as it is (${KEPT_FILE}): vos-cut`)
+  })
+
+  it('a skills directory reached through a link takes nothing, at any depth', () => {
+    for (const link of ['/p/.claude', '/p/.claude/skills']) {
+      const fs = disk(
+        {
+          ...BUNDLED,
+          '/shared/skills/vos-cut/SKILL.md': skill('vos-cut'),
+          '/shared/vos-cut/SKILL.md': skill('vos-cut'),
+        },
+        { [link]: '/shared' },
+      )
+      const target = skillsTarget(CLAUDE, NAMES, BASES, fs)
+      const reason = keptBehindLink(link)
+      expect(target, link).toEqual({
+        dir: '/p/.claude/skills',
+        names: NAMES,
+        existing: [],
+        kept: NAMES.map((name) => ({ name, reason })),
+      })
+      expect(fs.reads.some((p) => p.startsWith(`${link}/`))).toBe(false)
+      const words = setupPlanLines(planSetup(ask(), fs), '/p').join('\n')
+      expect(words).toContain(
+        `left as it is (${reason}): product-video, vos-cut`,
+      )
+      expect(words).not.toContain('new:')
+    }
+  })
+
+  it('a --global home is walked from the home directory down', () => {
+    const home: AgentHome = {
+      agent: 'claude',
+      dir: '/home/me/.claude',
+      scope: 'global',
+    }
+    const linked = skillsTarget(
+      home,
+      NAMES,
+      BASES,
+      disk(BUNDLED, { '/home/me/.claude': '/dotfiles/claude' }),
+    )
+    expect(linked.kept).toHaveLength(2)
+    expect(linked.kept[0].reason).toBe(keptBehindLink('/home/me/.claude'))
+    // The home directory itself being a link is the person's own layout.
+    const plain = skillsTarget(
+      home,
+      NAMES,
+      BASES,
+      disk(BUNDLED, { '/home/me': '/Users/me' }),
+    )
+    expect(plain.kept).toEqual([])
+  })
+
+  it('nothing in the way: every skill is new', () => {
+    expect(skillsTarget(CLAUDE, NAMES, BASES, disk(BUNDLED))).toEqual({
+      dir: '/p/.claude/skills',
+      names: NAMES,
+      existing: [],
+      kept: [],
+    })
+  })
+})
+
 describe('setupReceipt names every path a run changed', () => {
   it('sorted, absolute in the data and relative in words, with the undo', () => {
     const receipt = setupReceipt(
@@ -315,6 +441,7 @@ describe('setupReceipt names every path a run changed', () => {
           { path: '/p/.claude/skills/product-video', replaced: false },
         ],
         rules: { file: '/p/AGENTS.md', action: 'write', created: false },
+        kept: [],
         browser: { ran: false, path: null },
       },
       '/p',
@@ -335,7 +462,12 @@ describe('setupReceipt names every path a run changed', () => {
 
   it('a second run says nothing changed, in words', () => {
     const receipt = setupReceipt(
-      { skills: [], rules: null, browser: { ran: false, path: null } },
+      {
+        skills: [],
+        kept: [],
+        rules: null,
+        browser: { ran: false, path: null },
+      },
       '/p',
     )
     expect(receipt.changed).toEqual([])
@@ -349,6 +481,7 @@ describe('setupReceipt names every path a run changed', () => {
     const installed = setupReceipt(
       {
         skills: [],
+        kept: [],
         rules: { file: '/p/AGENTS.md', action: 'write', created: true },
         browser: { ran: true, path: '/cache/ms-playwright/chromium/chrome' },
       },
@@ -365,12 +498,45 @@ describe('setupReceipt names every path a run changed', () => {
       'AGENTS.md (created, holding the vos block)',
     )
     const failed = setupReceipt(
-      { skills: [], rules: null, browser: { ran: true, path: null } },
+      {
+        skills: [],
+        kept: [],
+        rules: null,
+        browser: { ran: true, path: null },
+      },
       '/p',
     )
     expect(failed.lines).toContain(
       'ran: npx playwright install chromium (no browser was found after it)',
     )
+  })
+
+  it('says what it left as it was, and never lists that as changed', () => {
+    const receipt = setupReceipt(
+      {
+        skills: [
+          { path: '/p/.claude/skills/vos-cut', replaced: false },
+          // Never both: a path that was left is not a path that changed.
+          { path: '/p/.claude/skills/product-video', replaced: true },
+        ],
+        kept: [
+          { path: '/p/.claude/skills/product-video', reason: KEPT_LINK },
+          { path: '/p/.cursor/skills', reason: keptBehindLink('/p/.cursor') },
+        ],
+        rules: null,
+        browser: { ran: false, path: null },
+      },
+      '/p',
+    )
+    expect(receipt.changed).toEqual(['/p/.claude/skills/vos-cut'])
+    expect(receipt.lines).toEqual([
+      'changed:',
+      '  .claude/skills/vos-cut (new)',
+      'left as it was:',
+      '  .claude/skills/product-video (a symbolic link, so this skill was installed another way)',
+      '  .cursor/skills (reached through a symbolic link (/p/.cursor), and vos setup copies nothing through one)',
+      'undo: npx vos setup --remove',
+    ])
   })
 
   it('a path outside the working directory is said whole', () => {

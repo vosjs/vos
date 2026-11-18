@@ -11,6 +11,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  readlinkSync,
   realpathSync,
   symlinkSync,
   writeFileSync,
@@ -18,7 +19,14 @@ import {
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { RULES_BLOCK, bundledSkillsDir, installedSkills } from '../machine'
+import {
+  KEPT_FILE,
+  KEPT_LINK,
+  RULES_BLOCK,
+  bundledSkillsDir,
+  installedSkills,
+  keptBehindLink,
+} from '../machine'
 import { cmdSetup } from '../machineCmd'
 
 const BUNDLED = bundledSkillsDir(join(__dirname, 'setupCmd.test.ts'))!
@@ -59,17 +67,26 @@ afterEach(() => {
   process.chdir(home)
 })
 
-/** Run the verb headless and hand back its done event. */
-async function setup(...argv: string[]): Promise<Record<string, unknown>> {
+type Event = Record<string, unknown>
+
+/** Run the verb headless: its exit code and every event it printed. */
+async function run(
+  ...argv: string[]
+): Promise<{ code: number; events: Event[]; done: Event }> {
   out = ''
-  await cmdSetup([...argv, '--no-browser', '--json'])
+  const code = await cmdSetup([...argv, '--no-browser', '--json'])
   const events = out
     .trim()
     .split('\n')
-    .map((line) => JSON.parse(line) as Record<string, unknown>)
+    .map((line) => JSON.parse(line) as Event)
   const done = events.at(-1)!
   expect(done.event).toBe('done')
-  return done
+  return { code, events, done }
+}
+
+/** Run the verb headless and hand back its done event. */
+async function setup(...argv: string[]): Promise<Event> {
+  return (await run(...argv)).done
 }
 
 function project(): string {
@@ -165,6 +182,109 @@ describe('vos setup, its plan and its undo', () => {
         reason: expect.stringContaining('empty directory'),
       },
     ])
+  }, 60_000)
+
+  it('a skill already linked in is left as it is, and setup finishes', async () => {
+    const dir = project()
+    const skills = join(dir, '.claude', 'skills')
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), 'vos-outside-')))
+    // The skill installed another way: it lives elsewhere and is linked in,
+    // at an older text than the one this package ships.
+    mkdirSync(join(outside, 'product-video'))
+    writeFileSync(
+      join(outside, 'product-video', 'SKILL.md'),
+      '---\nname: product-video\n---\n\nan older copy\n',
+    )
+    mkdirSync(skills)
+    const link = join(skills, 'product-video')
+    symlinkSync(join(outside, 'product-video'), link)
+    // And a file of the person's own standing where another skill would go.
+    writeFileSync(join(skills, 'vos-cut'), 'my notes\n')
+    const elsewhere = snapshot(outside)
+    const kept = [
+      { path: link, reason: KEPT_LINK },
+      { path: join(skills, 'vos-cut'), reason: KEPT_FILE },
+    ]
+    const copied = NAMES.filter((n) => n !== 'product-video' && n !== 'vos-cut')
+
+    // The plan says so first, per name.
+    const planned = await setup('--agent', 'claude', '--plan')
+    expect(
+      (planned.plan as { skills: { targets: unknown[] } }).skills.targets,
+    ).toEqual([
+      {
+        dir: skills,
+        names: NAMES,
+        existing: [],
+        kept: [
+          { name: 'product-video', reason: KEPT_LINK },
+          { name: 'vos-cut', reason: KEPT_FILE },
+        ],
+      },
+    ])
+
+    const { code, events, done } = await run('--agent', 'claude')
+    const doctor = done.doctor as {
+      ok: boolean
+      skills: { names: string[] }[]
+    }
+    // The run finishes: only a missing browser changes the exit code.
+    expect(code).toBe(doctor.ok ? 0 : 3)
+
+    // The link is still that link, and what it points at is untouched.
+    expect(lstatSync(link).isSymbolicLink()).toBe(true)
+    expect(readlinkSync(link)).toBe(join(outside, 'product-video'))
+    expect(snapshot(outside)).toEqual(elsewhere)
+    expect(readFileSync(join(skills, 'vos-cut'), 'utf8')).toBe('my notes\n')
+
+    // Every other skill is copied, and the rules block is written.
+    for (const name of copied) {
+      expect(lstatSync(join(skills, name)).isDirectory(), name).toBe(true)
+      expect(readFileSync(join(skills, name, 'SKILL.md'))).toEqual(
+        readFileSync(join(BUNDLED, name, 'SKILL.md')),
+      )
+    }
+    expect(readFileSync(join(dir, 'AGENTS.md'), 'utf8')).toBe(
+      `${RULES_BLOCK}\n`,
+    )
+
+    // Said in the skills event and the done event, and never as changed.
+    expect((done.skills as { kept: unknown }).kept).toEqual(kept)
+    expect(events.find((e) => e.event === 'skills')?.kept).toEqual(kept)
+    expect(done.changed).toEqual(
+      [...copied.map((n) => join(skills, n)), join(dir, 'AGENTS.md')].sort(),
+    )
+
+    // A linked skill is still a skill that is there: doctor counts it.
+    expect((done.skills as { names: string[] }).names).toContain(
+      'product-video',
+    )
+    expect(doctor.skills[0].names).toContain('product-video')
+    expect(doctor.skills[0].names).not.toContain('vos-cut')
+
+    // A second run changes nothing and says the same two again.
+    const again = await setup('--agent', 'claude')
+    expect(again.changed).toEqual([])
+    expect((again.skills as { kept: unknown }).kept).toEqual(kept)
+    expect(snapshot(outside)).toEqual(elsewhere)
+  }, 60_000)
+
+  it('copies nothing into a skills directory that is a link, and still finishes', async () => {
+    const dir = project()
+    const skills = join(dir, '.claude', 'skills')
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), 'vos-outside-')))
+    writeFileSync(join(outside, 'keep.txt'), 'theirs\n')
+    symlinkSync(outside, skills)
+    const elsewhere = snapshot(outside)
+
+    const done = await setup('--agent', 'claude')
+    expect(snapshot(outside)).toEqual(elsewhere)
+    expect(lstatSync(skills).isSymbolicLink()).toBe(true)
+    expect((done.skills as { kept: unknown }).kept).toEqual([
+      { path: skills, reason: keptBehindLink(skills) },
+    ])
+    expect(done.changed).toEqual([join(dir, 'AGENTS.md')])
+    expect(readFileSync(join(dir, 'AGENTS.md'), 'utf8')).toContain(RULES_BLOCK)
   }, 60_000)
 
   it('--remove leaves what is not provably its own, and never follows a link', async () => {

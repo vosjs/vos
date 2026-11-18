@@ -44,6 +44,7 @@ import {
   doctorReport,
   fallbackSkillsHome,
   installedSkills,
+  keptBehindLink,
   planRemoval,
   planSetup,
   probeBrowser,
@@ -53,6 +54,8 @@ import {
   setupPlanLines,
   setupReceipt,
   skillsDirFor,
+  skillsDirLink,
+  skillsTarget,
 } from './machine'
 import type {
   AgentHome,
@@ -389,6 +392,7 @@ export async function cmdSetup(argv: string[]): Promise<number> {
     const plan = planSetup(
       {
         root,
+        home: homedir(),
         homes,
         global,
         skills: noSkills ? 'skipped' : fromCatalog ? 'skills.sh' : 'bundled',
@@ -420,6 +424,7 @@ export async function cmdSetup(argv: string[]): Promise<number> {
   )
   const writes: SetupWrites = {
     skills: [],
+    kept: [],
     rules: null,
     browser: { ran: false, path: null },
   }
@@ -441,9 +446,13 @@ export async function cmdSetup(argv: string[]): Promise<number> {
     // the receipt names the ones whose contents changed, so a second run
     // over the same files says it changed nothing. The catalog CLI may add
     // names this build does not know, so its directories are listed whole.
+    const bases = { root, home: homedir() }
     const snapshot = (): Map<string, string | null> => {
       const seen = new Map<string, string | null>()
       for (const home of targets) {
+        // The copy puts nothing behind a linked skills directory, so there
+        // is nothing of its own to look for there.
+        if (!fromCatalog && skillsDirLink(home, bases, DISK.isLink)) continue
         const dest = skillsDirFor(home)
         const names = fromCatalog
           ? new Set([...ours, ...installedSkills(dest)])
@@ -454,15 +463,36 @@ export async function cmdSetup(argv: string[]): Promise<number> {
       return seen
     }
     const before = snapshot()
-    const copyBundled = (dir: string) => {
+    // The copy, decided per skill before any byte moves (`skillsTarget`): a
+    // skill already there as a link, or a file standing in its place, is
+    // left exactly as it is and said; nothing is copied over it, through
+    // it, or after removing it. A skills directory reached through a link
+    // takes nothing. Answers the directories it copied into.
+    const copyBundled = (dir: string): string[] => {
+      const names = installedSkills(dir)
+      const into: string[] = []
       for (const home of targets) {
         const dest = skillsDirFor(home)
+        const link = skillsDirLink(home, bases, DISK.isLink)
+        if (link) {
+          writes.kept.push({ path: dest, reason: keptBehindLink(link) })
+          continue
+        }
         mkdirSync(dest, { recursive: true })
-        for (const name of installedSkills(dir)) {
+        const target = skillsTarget(home, names, bases, DISK)
+        const left = new Set(target.kept.map((k) => k.name))
+        for (const k of target.kept)
+          writes.kept.push({ path: join(dest, k.name), reason: k.reason })
+        for (const name of names) {
+          if (left.has(name)) continue
           cpSync(join(dir, name), join(dest, name), { recursive: true })
         }
+        into.push(dest)
       }
+      return into
     }
+    const copiedLine = (into: string[]): string =>
+      into.length ? `into ${into.join(', ')}` : 'into no directory'
     if (fromCatalog) {
       r.log(`installing the vos skills: npx ${catalog.join(' ')}`)
       const res = spawnSync(npx(), catalog, {
@@ -481,22 +511,23 @@ export async function cmdSetup(argv: string[]): Promise<number> {
           throw new Error(
             `could not install the skills: npx ${catalog.join(' ')} failed (${(res.stderr ?? '').trim().split('\n').at(-1) ?? res.error?.message ?? 'no output'}) and this build carries no bundled copy`,
           )
-        copyBundled(bundled)
+        const into = copyBundled(bundled)
         skillsVia = 'bundled'
         r.log(
-          `skills.sh did not answer; copied the bundled skills into ${targets.map((t) => skillsDirFor(t)).join(', ')}`,
+          `skills.sh did not answer; copied the bundled skills ${copiedLine(into)}`,
         )
       }
     } else if (bundled) {
-      copyBundled(bundled)
+      const into = copyBundled(bundled)
       skillsVia = 'bundled'
       r.log(
-        `installed the bundled vos skills${version ? ` (catalog ${version})` : ''} into ${targets.map((t) => skillsDirFor(t)).join(', ')}`,
+        `installed the bundled vos skills${version ? ` (catalog ${version})` : ''} ${copiedLine(into)}`,
       )
     }
+    const left = new Set(writes.kept.map((k) => k.path))
     for (const [path, digest] of snapshot()) {
       const was = before.get(path) ?? null
-      if (digest !== null && digest !== was)
+      if (digest !== null && digest !== was && !left.has(path))
         writes.skills.push({ path, replaced: was !== null })
     }
     skillNames = [
@@ -508,6 +539,7 @@ export async function cmdSetup(argv: string[]): Promise<number> {
     via: skillsVia,
     names: skillNames,
     written: writes.skills,
+    kept: writes.kept,
   })
 
   // 3. The browser.
@@ -571,7 +603,12 @@ export async function cmdSetup(argv: string[]): Promise<number> {
   r.done(
     {
       agents,
-      skills: { via: skillsVia, names: skillNames, written: writes.skills },
+      skills: {
+        via: skillsVia,
+        names: skillNames,
+        written: writes.skills,
+        kept: writes.kept,
+      },
       browser: {
         kind: browser.kind,
         path: browser.path,

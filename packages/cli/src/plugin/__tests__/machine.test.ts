@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -172,6 +172,19 @@ describe('installedSkills lists every <name>/SKILL.md', () => {
     writeFileSync(join(dir, 'notes.txt'), 'x')
     expect(installedSkills(dir)).toEqual(['product-video'])
     expect(installedSkills(join(dir, 'missing'))).toEqual([])
+  })
+  it('counts a skill that is linked in: it is there for the agent to read', () => {
+    const dir = tree()
+    const elsewhere = tree()
+    mkdirSync(join(elsewhere, 'product-video'))
+    writeFileSync(
+      join(elsewhere, 'product-video', 'SKILL.md'),
+      '---\nname: product-video\n---\n',
+    )
+    symlinkSync(join(elsewhere, 'product-video'), join(dir, 'product-video'))
+    // A link to nothing is not a skill.
+    symlinkSync(join(elsewhere, 'gone'), join(dir, 'vos-cut'))
+    expect(installedSkills(dir)).toEqual(['product-video'])
   })
 })
 

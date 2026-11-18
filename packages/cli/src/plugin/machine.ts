@@ -513,11 +513,17 @@ export interface PlanFs {
   /** The file's text, or null when it cannot be read. */
   read: (path: string) => string | null
   list: (path: string) => string[]
+  /** A symbolic link sits at the path itself (never followed). */
+  isLink: (path: string) => boolean
+  /** A real directory sits at the path itself (a link to one is not one). */
+  isDir: (path: string) => boolean
 }
 
 /** What one run of `vos setup` was asked for, after its flags are read. */
 export interface SetupAsk {
   root: string
+  /** The person's home directory: the base of a --global home. */
+  home: string
   /** The homes the flags select; empty means the `.agents` fallback. */
   homes: AgentHome[]
   global: boolean
@@ -543,12 +549,7 @@ export interface SetupPlan {
     version: string | null
     /** The command that would be spawned (the catalog path only). */
     command: string | null
-    targets: {
-      dir: string
-      names: string[]
-      /** The names already there: the copy would overwrite them. */
-      existing: string[]
-    }[]
+    targets: SkillsTarget[]
   }
   browser: {
     kind: BrowserProbe['kind']
@@ -558,6 +559,81 @@ export interface SetupPlan {
   }
   /** Null under --no-rules. */
   rules: { file: string; action: RulesAction; block: string } | null
+}
+
+/** What a copy into one skills directory does with each skill. */
+export interface SkillsTarget {
+  dir: string
+  /** Every skill the copy is about. */
+  names: string[]
+  /** The ones already there as directories: the copy overwrites them. */
+  existing: string[]
+  /** The ones left as they are, each with why. Never copied over. */
+  kept: { name: string; reason: string }[]
+}
+
+/** Why a skill that is already there as a link is not copied over. */
+export const KEPT_LINK =
+  'a symbolic link, so this skill was installed another way'
+/** Why a file standing where a skill would go is not copied over. */
+export const KEPT_FILE =
+  'a file, not a directory, and vos setup deletes nothing to make room'
+/** Why nothing is copied into a skills directory reached through a link. */
+export function keptBehindLink(link: string): string {
+  return `reached through a symbolic link (${link}), and vos setup copies nothing through one`
+}
+
+/** The directory a home's paths are walked down from. */
+function baseOf(home: AgentHome, bases: { root: string; home: string }) {
+  return home.scope === 'global' ? bases.home : bases.root
+}
+
+/**
+ * The symbolic link a home's skills directory is reached through, or null:
+ * the directory itself, or any directory between it and the repository
+ * (the person's home, under --global).
+ */
+export function skillsDirLink(
+  home: AgentHome,
+  bases: { root: string; home: string },
+  isLink: (path: string) => boolean,
+): string | null {
+  return linkOnPath(baseOf(home, bases), skillsDirFor(home), isLink)
+}
+
+/**
+ * What copying `names` into one home's skills directory does, decided
+ * before any byte moves: a skill already there as a symbolic link is left
+ * as it is (never copied over, never followed, never removed), a file
+ * standing in the way is left too, a directory is overwritten, and a
+ * skills directory reached through a link takes nothing at all.
+ */
+export function skillsTarget(
+  home: AgentHome,
+  names: string[],
+  bases: { root: string; home: string },
+  fs: PlanFs,
+): SkillsTarget {
+  const dir = skillsDirFor(home)
+  const link = skillsDirLink(home, bases, fs.isLink)
+  if (link) {
+    const reason = keptBehindLink(link)
+    return {
+      dir,
+      names,
+      existing: [],
+      kept: names.map((name) => ({ name, reason })),
+    }
+  }
+  const existing: string[] = []
+  const kept: SkillsTarget['kept'] = []
+  for (const name of names) {
+    const path = join(dir, name)
+    if (fs.isLink(path)) kept.push({ name, reason: KEPT_LINK })
+    else if (fs.isDir(path)) existing.push(name)
+    else if (fs.exists(path)) kept.push({ name, reason: KEPT_FILE })
+  }
+  return { dir, names, existing, kept }
 }
 
 /**
@@ -573,14 +649,7 @@ export function planSetup(ask: SetupAsk, fs: PlanFs): SetupPlan {
     ask.skills === 'skipped'
       ? []
       : (ask.homes.length ? ask.homes : [fallbackSkillsHome(ask.root)]).map(
-          (home) => {
-            const dir = skillsDirFor(home)
-            return {
-              dir,
-              names,
-              existing: names.filter((name) => fs.exists(join(dir, name))),
-            }
-          },
+          (home) => skillsTarget(home, names, ask, fs),
         )
   let rules: SetupPlan['rules'] = null
   if (ask.rules) {
@@ -638,12 +707,24 @@ export function setupPlanLines(plan: SetupPlan, cwd: string): string[] {
         : `skills: the copy this package ships${skills.version ? ` (catalog ${skills.version})` : ''}, copied`,
     )
     for (const t of skills.targets) {
-      const fresh = t.names.filter((n) => !t.existing.includes(n))
+      const left = new Set(t.kept.map((k) => k.name))
+      const fresh = t.names.filter(
+        (n) => !t.existing.includes(n) && !left.has(n),
+      )
       lines.push(`  into ${displayPath(t.dir, cwd)}`)
       if (fresh.length) lines.push(`    new: ${fresh.join(', ')}`)
       if (t.existing.length)
         lines.push(
           `    already there, would be overwritten: ${t.existing.join(', ')}`,
+        )
+      // One line per reason: a linked skills directory keeps every name for
+      // the same one.
+      for (const reason of new Set(t.kept.map((k) => k.reason)))
+        lines.push(
+          `    left as it is (${reason}): ${t.kept
+            .filter((k) => k.reason === reason)
+            .map((k) => k.name)
+            .join(', ')}`,
         )
     }
   }
@@ -679,6 +760,8 @@ export function setupPlanLines(plan: SetupPlan, cwd: string): string[] {
 export interface SetupWrites {
   /** The skill directories whose contents changed; `replaced` when one was there. */
   skills: { path: string; replaced: boolean }[]
+  /** What stood where a skill would go and was left as it was, with why. */
+  kept: { path: string; reason: string }[]
   /** The rules file, when its text changed. */
   rules: { file: string; action: 'write' | 'replace'; created: boolean } | null
   /** The browser install: whether it ran, and the browser it left. */
@@ -687,15 +770,18 @@ export interface SetupWrites {
 
 /**
  * The receipt: every path a run created or modified, absolute and sorted,
- * and the same in words. A run that changed nothing says so.
+ * and the same in words, then what it found in the way and left as it was.
+ * A run that changed nothing says so. A path that was left is never listed
+ * as changed.
  */
 export function setupReceipt(
   writes: SetupWrites,
   cwd: string,
 ): { changed: string[]; lines: string[] } {
+  const left = new Set(writes.kept.map((k) => k.path))
   const notes = new Map<string, string>()
   for (const s of writes.skills)
-    notes.set(s.path, s.replaced ? 'replaced' : 'new')
+    if (!left.has(s.path)) notes.set(s.path, s.replaced ? 'replaced' : 'new')
   if (writes.rules)
     notes.set(
       writes.rules.file,
@@ -717,6 +803,11 @@ export function setupReceipt(
         ...changed.map((p) => `  ${displayPath(p, cwd)} (${notes.get(p)})`),
       ]
     : ['changed: nothing (what vos setup writes was already in place)']
+  if (writes.kept.length)
+    lines.push(
+      'left as it was:',
+      ...writes.kept.map((k) => `  ${displayPath(k.path, cwd)} (${k.reason})`),
+    )
   if (writes.browser.ran && !writes.browser.path)
     lines.push(`ran: ${BROWSER_INSTALL} (no browser was found after it)`)
   lines.push(`undo: ${SETUP_UNDO}`)
@@ -739,10 +830,6 @@ export const RULES_FILES = ['AGENTS.md', 'CLAUDE.md'] as const
 
 /** What the undo reads: the plan's file system, and what sits AT a path. */
 export interface RemovalFs extends PlanFs {
-  /** A symbolic link sits at the path itself (never followed). */
-  isLink: (path: string) => boolean
-  /** A real directory sits at the path itself (a link to one is not one). */
-  isDir: (path: string) => boolean
   /** The path with every link resolved; the path itself when it cannot be. */
   realpath: (path: string) => string
 }
@@ -822,11 +909,7 @@ export function planRemoval(
       const dir = skillsDirFor(home)
       if (seen.has(dir)) continue
       seen.add(dir)
-      const link = linkOnPath(
-        home.scope === 'global' ? ask.home : ask.root,
-        dir,
-        fs.isLink,
-      )
+      const link = skillsDirLink(home, ask, fs.isLink)
       if (link) {
         kept.push({
           path: link,

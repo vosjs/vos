@@ -308,15 +308,18 @@ This machine (no account)
             agent's directories (the copy bundled in this package, or with
             --skills-from-catalog the same tag through skills.sh), a
             browser found or installed, one idempotent block in AGENTS.md
-            (or CLAUDE.md), then doctor. It ends with a receipt: every path
-            it created or changed (done carries them as changed[]), and
-            the line that undoes it.
+            (or CLAUDE.md), then doctor. A skill already there as a link
+            (or a file in its place) is left as it is and said, never
+            copied over. It ends with a receipt: every path it created or
+            changed (done carries them as changed[]), what it left as it
+            was (skills.kept[]), and the line that undoes it.
             NDJSON whenever stdout is not a TTY; done carries next_step
   vos setup --plan [the same flags] [--json]
             what setup WOULD do, and nothing done: no file written, nothing
             installed, nothing run, no network. The agents found, each
             skills directory with the skills that would be copied and the
-            ones already there (they would be overwritten), the browser
+            ones already there (overwritten, or left as they are when one
+            is a link), the browser
             found or the command that would install one, and the rules
             file with the exact block. Exit 0 with or without a browser
   vos setup --remove [--plan] [--agent …] [--global] [--no-skills] [--no-rules] [--json]
