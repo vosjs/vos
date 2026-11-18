@@ -14,4 +14,5 @@ export type {
 export { loadVosConfig, configDuration } from './loadConfig'
 export type { LoadedConfig } from './loadConfig'
 export { launchBrowser, BrowserUnavailableError } from './browser'
+export { agentGuide, hostGuide } from './plugin/guide'
 export * from './plugin/index'

@@ -159,12 +159,17 @@ export const manifest: PluginManifest = {
     {
       name: 'setup',
       summary:
-        'ready this machine: the vos skills into your agent, a browser, one rules block, then doctor',
+        'ready this machine: the vos skills into your agent, a browser, one rules block, then doctor; --plan shows it first and changes nothing, --remove undoes it',
     },
     {
       name: 'doctor',
       summary:
         'what is ready, in words: node, browser, ffmpeg, skills, a credential (never printed), the dev server',
+    },
+    {
+      name: 'guide',
+      summary:
+        'the steps an agent follows, printed from this package: recording a product (vos guide), hosting a finished video (vos guide host)',
     },
     {
       name: 'whoami',
@@ -180,6 +185,11 @@ export const manifest: PluginManifest = {
       name: 'logout',
       summary:
         'forget the account in use, a named one (vos logout <handle>), or all (--all)',
+    },
+    {
+      name: 'feedback',
+      summary:
+        'report a problem to vos.so: prints what it sends before sending (--dry-run sends nothing), and never sends a credential',
     },
   ],
 }

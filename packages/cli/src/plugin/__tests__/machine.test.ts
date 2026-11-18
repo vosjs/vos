@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -104,14 +104,17 @@ describe('the rules block is idempotent', () => {
 
   it('the block says the four things and names the reference', () => {
     for (const s of [
-      'product-video',
+      'product-video (installed by vos setup)',
       'vos open take',
       'Local by default',
       'never print one',
+      '- Undo: vos setup --remove takes the skills and this block back out',
       'https://vos.so/llms-full.txt',
     ])
       expect(RULES_BLOCK).toContain(s)
     expect(RULES_BLOCK).not.toContain('—')
+    // An unpinned catalog install runs whatever is published that minute.
+    expect(RULES_BLOCK).not.toContain('skills add')
   })
 })
 
@@ -169,6 +172,19 @@ describe('installedSkills lists every <name>/SKILL.md', () => {
     writeFileSync(join(dir, 'notes.txt'), 'x')
     expect(installedSkills(dir)).toEqual(['product-video'])
     expect(installedSkills(join(dir, 'missing'))).toEqual([])
+  })
+  it('counts a skill that is linked in: it is there for the agent to read', () => {
+    const dir = tree()
+    const elsewhere = tree()
+    mkdirSync(join(elsewhere, 'product-video'))
+    writeFileSync(
+      join(elsewhere, 'product-video', 'SKILL.md'),
+      '---\nname: product-video\n---\n',
+    )
+    symlinkSync(join(elsewhere, 'product-video'), join(dir, 'product-video'))
+    // A link to nothing is not a skill.
+    symlinkSync(join(elsewhere, 'gone'), join(dir, 'vos-cut'))
+    expect(installedSkills(dir)).toEqual(['product-video'])
   })
 })
 
@@ -257,7 +273,7 @@ describe('doctorReport says what is ready and what to do next', () => {
     skills: [{ agent: 'claude', scope: 'project', names: ['product-video'] }],
     credential: false,
   }
-  it('a ready machine: ok, and the next step is to record', () => {
+  it('a ready machine: ok, and the next step is the packaged guide', () => {
     const rep = doctorReport(ready)
     expect(rep.ok).toBe(true)
     expect(rep.lines.join('\n')).toContain('node        22.4.0 ✓')
@@ -267,7 +283,9 @@ describe('doctorReport says what is ready and what to do next', () => {
     expect(rep.lines.join('\n')).toContain(
       'absent (vos login when you need hosting)',
     )
-    expect(rep.next_step).toContain('vos record')
+    expect(rep.next_step).toBe(
+      'Run: npx vos guide (the steps to record this product; the product-video skill carries the loop)',
+    )
   })
   it('no browser is the one thing that fails it, and the next step says the fix', () => {
     const rep = doctorReport({

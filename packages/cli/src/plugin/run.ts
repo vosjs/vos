@@ -191,11 +191,13 @@ import type { StepCaptionReport } from './stepCaptions'
 import { cmdLook } from './look'
 import {
   cmdDoctor,
+  cmdGuide,
   cmdLogout,
   cmdSetup,
   cmdSwitch,
   cmdWhoami,
 } from './machineCmd'
+import { cmdFeedback } from './feedback'
 import type { Backdrop, ProjectDoc } from '@vosjs/studio-core'
 import type { ActionsFile } from './actions'
 import type { ParsedArgs } from './args'
@@ -306,12 +308,39 @@ This machine (no account)
             agent's directories (the copy bundled in this package, or with
             --skills-from-catalog the same tag through skills.sh), a
             browser found or installed, one idempotent block in AGENTS.md
-            (or CLAUDE.md), then doctor.
+            (or CLAUDE.md), then doctor. A skill already there as a link
+            (or a file in its place) is left as it is and said, never
+            copied over. It ends with a receipt: every path it created or
+            changed (done carries them as changed[]), what it left as it
+            was (skills.kept[]), and the line that undoes it.
             NDJSON whenever stdout is not a TTY; done carries next_step
+  vos setup --plan [the same flags] [--json]
+            what setup WOULD do, and nothing done: no file written, nothing
+            installed, nothing run, no network. The agents found, each
+            skills directory with the skills that would be copied and the
+            ones already there (overwritten, or left as they are when one
+            is a link), the browser
+            found or the command that would install one, and the rules
+            file with the exact block. Exit 0 with or without a browser
+  vos setup --remove [--plan] [--agent …] [--global] [--no-skills] [--no-rules] [--json]
+            undo setup, for the same agents the flags select: each skill
+            this package ships out of the skills directories (only a
+            directory with that skill's name whose SKILL.md names that
+            skill; anything else is kept, with the reason; a skill that
+            is a link is left as it is), and the marked block out of
+            AGENTS.md and CLAUDE.md, the rest of the file as it was. It
+            never removes a browser, this package, a credential or a take:
+            it prints the lines for those (npm rm @vosjs/cli). --plan
+            shows what would go and removes nothing. Safe to run twice
   vos doctor [--url <dev server>] [--json]
             what is ready, in words: node, browser, ffmpeg, the skills per
             agent, a credential (present or absent, never printed), and the
             dev server when --url names one. Exit 3 when no browser
+  vos guide [host] [--json]
+            the steps an agent follows, printed from this package as plain
+            markdown (no network): vos guide takes a clean machine to a
+            recording of the product open in the studio; vos guide host
+            takes a video already made to a link on vos.so
   vos whoami [--json]
             the account in use (its key's name, which rung resolved it) and
             every other account stored for the origin, never a key
@@ -321,6 +350,13 @@ This machine (no account)
   vos logout [<handle>] [--all] [--json]
             forget the account in use, a named one, or every stored
             credential (VOS_API_KEY still resolves)
+  vos feedback "<what happened>" [--kind problem|idea] [--dry-run] [--origin <url>] [--json]
+            report a problem (or an idea) to vos.so. It prints the address
+            and the whole body before it sends, and --dry-run stops there.
+            The body is the kind, your message and the word "cli", nothing
+            else. No credential is sent, even when one is stored or
+            VOS_API_KEY is set. A message holds 8000 characters; exit 1
+            when vos.so does not take it
 
 Platform (vos.so) — fetch, edit, push, pull, repeat
   vos login [--key <vos_sk_…>] [--handoff <url>] [--label <name>] [--no-browser]
@@ -3095,6 +3131,10 @@ export async function run(argv: string[]): Promise<number> {
         return await cmdSetup(rest)
       case 'doctor':
         return await cmdDoctor(rest)
+      case 'guide':
+        return cmdGuide(rest)
+      case 'feedback':
+        return await cmdFeedback(rest)
       case 'whoami':
         return await cmdWhoami(rest)
       case 'logout':
