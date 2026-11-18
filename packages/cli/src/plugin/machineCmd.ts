@@ -631,25 +631,17 @@ export async function cmdSetup(argv: string[]): Promise<number> {
 
 /** One planned removal, carried out. Throws in words when it cannot be. */
 function takeOut(item: RemovalItem): void {
-  // What sits at the path NOW, never followed: a link put there since the
-  // plan was made loses the link, and what it points at is not touched. The
-  // same for the skills directory a skill sits in: it must still be the
-  // real directory the plan read.
+  // What sits at the path NOW, never followed. The plan removes no link,
+  // so a link put there since the plan was made is not removed either, and
+  // what it points at is not touched. The same for the skills directory a
+  // skill sits in: it must still be the real directory the plan read.
   const at = lstatSync(item.path)
-  if (
-    (item.kind === 'skill' || item.kind === 'link') &&
-    !lstatSync(dirname(item.path)).isDirectory()
-  )
+  if (item.kind === 'skill' && !lstatSync(dirname(item.path)).isDirectory())
     throw new Error('its skills directory is no longer a plain directory')
   switch (item.kind) {
     case 'skill':
-      if (at.isSymbolicLink()) unlinkSync(item.path)
-      else rmSync(item.path, { recursive: true })
-      return
-    case 'link':
-      if (!at.isSymbolicLink())
-        throw new Error('it is no longer a symbolic link')
-      unlinkSync(item.path)
+      if (!at.isDirectory()) throw new Error('it is no longer a directory')
+      rmSync(item.path, { recursive: true })
       return
     case 'dir':
       // rmdir refuses a directory that still holds anything.

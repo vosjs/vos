@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   KEPT_FILE,
   KEPT_LINK,
+  LEFT_LINK,
   RULES_BLOCK,
   bundledSkillsDir,
   installedSkills,
@@ -267,6 +268,24 @@ describe('vos setup, its plan and its undo', () => {
     expect(again.changed).toEqual([])
     expect((again.skills as { kept: unknown }).kept).toEqual(kept)
     expect(snapshot(outside)).toEqual(elsewhere)
+
+    // The undo takes back what setup wrote and nothing else: the link and
+    // the file were there before it and are there after it.
+    const gone = await setup('--agent', 'claude', '--remove')
+    expect(gone.removed).toEqual([
+      ...copied.map((n) => join(skills, n)),
+      join(dir, 'AGENTS.md'),
+    ])
+    expect(gone.kept).toEqual([
+      { path: link, reason: LEFT_LINK },
+      { path: join(skills, 'vos-cut'), reason: expect.any(String) },
+    ])
+    expect(readdirSync(skills).sort()).toEqual(['product-video', 'vos-cut'])
+    expect(lstatSync(link).isSymbolicLink()).toBe(true)
+    expect(readlinkSync(link)).toBe(join(outside, 'product-video'))
+    expect(snapshot(outside)).toEqual(elsewhere)
+    expect(readFileSync(join(skills, 'vos-cut'), 'utf8')).toBe('my notes\n')
+    expect(existsSync(join(dir, 'AGENTS.md'))).toBe(false)
   }, 60_000)
 
   it('copies nothing into a skills directory that is a link, and still finishes', async () => {
@@ -287,7 +306,7 @@ describe('vos setup, its plan and its undo', () => {
     expect(readFileSync(join(dir, 'AGENTS.md'), 'utf8')).toContain(RULES_BLOCK)
   }, 60_000)
 
-  it('--remove leaves what is not provably its own, and never follows a link', async () => {
+  it('--remove leaves what is not provably its own, and never removes a link', async () => {
     const dir = project()
     const skills = join(dir, '.claude', 'skills')
     const outside = realpathSync(mkdtempSync(join(tmpdir(), 'vos-outside-')))
@@ -311,20 +330,44 @@ describe('vos setup, its plan and its undo', () => {
     mkdirSync(join(skills, 'mine'))
     writeFileSync(join(skills, 'mine', 'SKILL.md'), '---\nname: mine\n---\n')
     const elsewhere = snapshot(outside)
-
-    const gone = await setup('--remove')
-    expect(gone.removed).toEqual([
-      join(skills, 'product-video'),
-      join(skills, 'vos-cut'),
-    ])
-    expect(gone.kept).toEqual([
+    const link = join(skills, 'vos-cut')
+    const kept = [
       {
         path: join(skills, 'launch-kit'),
         reason: expect.stringContaining('"our-launch-checklist"'),
       },
+      // Setup never writes a link, so the undo never removes one.
+      { path: link, reason: LEFT_LINK },
+    ]
+    const before = snapshot(dir)
+
+    // The plan says the link stays, and touches nothing.
+    const wouldGo = await setup('--remove', '--plan')
+    expect((wouldGo.plan as { remove: string[] }).remove).toEqual([
+      join(skills, 'product-video'),
     ])
-    expect(readdirSync(skills).sort()).toEqual(['launch-kit', 'mine'])
-    // The link went; what it pointed at is whole.
+    expect(wouldGo.kept).toEqual(kept)
+    expect(snapshot(dir)).toEqual(before)
+
+    const gone = await setup('--remove')
+    expect(gone.removed).toEqual([join(skills, 'product-video')])
+    expect(gone.kept).toEqual(kept)
+    // The skills directory still holds the link, so it is not empty and stays.
+    expect(readdirSync(skills).sort()).toEqual([
+      'launch-kit',
+      'mine',
+      'vos-cut',
+    ])
+    expect(lstatSync(link).isSymbolicLink()).toBe(true)
+    expect(readlinkSync(link)).toBe(join(outside, 'vos-cut'))
+    expect(snapshot(outside)).toEqual(elsewhere)
+
+    // Idempotent: nothing more to remove, and the link is still said.
+    const after = snapshot(dir)
+    const again = await setup('--remove')
+    expect(again.removed).toEqual([])
+    expect(again.kept).toEqual(kept)
+    expect(snapshot(dir)).toEqual(after)
     expect(snapshot(outside)).toEqual(elsewhere)
   }, 60_000)
 

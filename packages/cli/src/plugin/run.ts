@@ -326,8 +326,8 @@ This machine (no account)
             undo setup, for the same agents the flags select: each skill
             this package ships out of the skills directories (only a
             directory with that skill's name whose SKILL.md names that
-            skill; anything else is kept, with the reason; a link is
-            unlinked, never followed), and the marked block out of
+            skill; anything else is kept, with the reason; a skill that
+            is a link is left as it is), and the marked block out of
             AGENTS.md and CLAUDE.md, the rest of the file as it was. It
             never removes a browser, this package, a credential or a take:
             it prints the lines for those (npm rm @vosjs/cli). --plan

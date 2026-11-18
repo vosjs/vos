@@ -8,6 +8,7 @@ import {
   BROWSER_INSTALL,
   KEPT_FILE,
   KEPT_LINK,
+  LEFT_LINK,
   RULES_BEGIN,
   RULES_BLOCK,
   RULES_END,
@@ -634,34 +635,74 @@ describe('planRemoval takes back only what setup wrote', () => {
     expect(paths(plan.remove)).toEqual(['skill /p/.claude/skills/vos-cut'])
   })
 
-  it('a skill that is a link loses the link, and what it points at is not planned', () => {
+  it('a skill that is a link is never removed: setup did not write it', () => {
+    // The very skill this package ships, living elsewhere and linked in.
+    const fs = disk(
+      {
+        ...BUNDLED,
+        '/elsewhere/product-video/SKILL.md': skill('product-video'),
+        '/p/.claude/skills/their-own/SKILL.md': skill('their-own'),
+      },
+      { '/p/.claude/skills/product-video': '/elsewhere/product-video' },
+    )
+    const plan = removal(fs)
+    expect(plan.remove).toEqual([])
+    expect(plan.kept).toEqual([
+      { path: '/p/.claude/skills/product-video', reason: LEFT_LINK },
+    ])
+    expect(LEFT_LINK).toBe(
+      'a symbolic link, so vos setup did not write it: this skill was installed another way',
+    )
+    // Decided at the link: nothing beneath it is read, nothing behind it named.
+    expect(
+      fs.reads.some((p) => p.startsWith('/p/.claude/skills/product-video/')),
+    ).toBe(false)
+    expect(JSON.stringify(plan)).not.toContain('/elsewhere')
+  })
+
+  it('a link to anything else, or to nothing, is kept the same way', () => {
+    const behind: Record<string, string>[] = [
+      { '/elsewhere/thing/readme.md': 'x' },
+      {},
+    ]
+    for (const files of behind) {
+      const plan = removal(
+        disk(
+          { ...BUNDLED, ...files },
+          { '/p/.claude/skills/product-video': '/elsewhere/thing' },
+        ),
+      )
+      expect(plan.remove).toEqual([])
+      expect(plan.kept).toEqual([
+        { path: '/p/.claude/skills/product-video', reason: LEFT_LINK },
+      ])
+    }
+  })
+
+  it('a skills directory that still holds a kept link is not empty, so it stays', () => {
     const plan = removal(
       disk(
         {
           ...BUNDLED,
           '/elsewhere/product-video/SKILL.md': skill('product-video'),
-          '/p/.claude/skills/their-own/SKILL.md': skill('their-own'),
+          // The only other entry is a skill setup did write.
+          '/p/.claude/skills/vos-cut/SKILL.md': skill('vos-cut'),
         },
         { '/p/.claude/skills/product-video': '/elsewhere/product-video' },
       ),
     )
     expect(plan.remove).toEqual([
-      { kind: 'link', path: '/p/.claude/skills/product-video' },
+      { kind: 'skill', path: '/p/.claude/skills/vos-cut' },
     ])
-    expect(JSON.stringify(plan)).not.toContain('/elsewhere')
-  })
-
-  it('a link to something that is not the skill is kept', () => {
-    const plan = removal(
-      disk(
-        { ...BUNDLED, '/elsewhere/thing/readme.md': 'x' },
-        { '/p/.claude/skills/product-video': '/elsewhere/thing' },
-      ),
-    )
-    expect(plan.remove).toEqual([])
-    expect(plan.kept.map((k) => k.path)).toEqual([
-      '/p/.claude/skills/product-video',
+    expect(plan.kept).toEqual([
+      { path: '/p/.claude/skills/product-video', reason: LEFT_LINK },
     ])
+    const words = removalLines(
+      { removed: plan.remove, kept: plan.kept, manual: [], plan: true },
+      '/p',
+    ).join('\n')
+    expect(words).toContain(`  .claude/skills/product-video: ${LEFT_LINK}`)
+    expect(words).not.toContain('.claude/skills (')
   })
 
   it('a skills directory reached through a link is left alone, unread', () => {

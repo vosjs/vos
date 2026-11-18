@@ -837,8 +837,6 @@ export interface RemovalFs extends PlanFs {
 export type RemovalItem =
   /** A skill's own directory, removed whole. */
   | { kind: 'skill'; path: string }
-  /** A link to a skill: the link is removed, never what it points at. */
-  | { kind: 'link'; path: string }
   /** A skills directory the removal leaves empty. */
   | { kind: 'dir'; path: string }
   /** A rules file, rewritten without the block. */
@@ -850,6 +848,10 @@ export interface RemovalPlan {
   remove: RemovalItem[]
   kept: { path: string; reason: string }[]
 }
+
+/** Why the undo leaves a skill that is a link: setup never writes one. */
+export const LEFT_LINK =
+  'a symbolic link, so vos setup did not write it: this skill was installed another way'
 
 /** The first symbolic link on the way from `base` down to `dir`, or null. */
 function linkOnPath(
@@ -871,10 +873,10 @@ function linkOnPath(
  * ships: a bundled skill's name, holding a SKILL.md whose frontmatter names
  * that same skill. The only paths ever built are a selected skills
  * directory joined with a BUNDLED name, so nothing on the person's disk
- * steers where a removal lands; a skills directory reached through a
- * symbolic link is left alone, and a skill that is itself a link loses the
- * link, never what it points at. The rules files lose the marked block and
- * nothing else.
+ * steers where a removal lands. `vos setup` never writes a symbolic link,
+ * so the undo never removes one: a skill that is a link is left as it is,
+ * unread, and a skills directory reached through a link is left alone. The
+ * rules files lose the marked block and nothing else.
  */
 export function planRemoval(
   ask: {
@@ -922,8 +924,11 @@ export function planRemoval(
       const gone = new Set<string>()
       for (const { name, named } of ours) {
         const path = join(dir, name)
-        const linked = fs.isLink(path)
-        if (!linked && !fs.isDir(path)) {
+        if (fs.isLink(path)) {
+          kept.push({ path, reason: LEFT_LINK })
+          continue
+        }
+        if (!fs.isDir(path)) {
           if (fs.exists(path))
             kept.push({ path, reason: 'not a directory, so not a skill' })
           continue
@@ -945,7 +950,7 @@ export function planRemoval(
           })
           continue
         }
-        remove.push({ kind: linked ? 'link' : 'skill', path })
+        remove.push({ kind: 'skill', path })
         gone.add(name)
       }
       if (gone.size && fs.list(dir).every((entry) => gone.has(entry))) {
@@ -995,8 +1000,6 @@ function removalNote(item: RemovalItem): string {
   switch (item.kind) {
     case 'skill':
       return 'the skill'
-    case 'link':
-      return 'a link to the skill; what it points at stays'
     case 'dir':
       return 'the skills directory, empty once its skills are out'
     case 'rules':
