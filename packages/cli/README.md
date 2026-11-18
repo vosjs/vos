@@ -9,11 +9,12 @@ Part of [vos](https://github.com/vosjs/vos), the open programmatic video engine 
 
 ```bash
 npm i -D @vosjs/cli          # into the repo; npx vos … from there (or npm i -g for a shell)
+npx vos setup --plan         # what setup would write, and nothing written
 npx vos setup                # the skills into your agent, a browser, one rules block, then doctor
 npx vos render animation.json out.webm
 ```
 
-Deterministic: the preview is the render, and every edit is a data patch to `doc.json`, never a re-record. Rendering is local and free at every resolution up to 4K, no watermark. The workflow skills for agents install with `npx skills add vosjs/skills` (`product-video` records and cuts one video, `vos-cut` cuts an existing recording, `launch-kit` ships the media with a release); `vos setup` runs that for you, and falls back to the copy of the catalog this package ships when skills.sh cannot be reached. A coding agent gets the whole procedure from one line: `Read https://vos.so/agent.md and do what it says.`
+Deterministic: the preview is the render, and every edit is a data patch to `doc.json`, never a re-record. Rendering is local and free at every resolution up to 4K, no watermark. The workflow skills for agents ship inside this package (`product-video` records and cuts one video, `vos-cut` cuts an existing recording, `launch-kit` ships the media with a release), and `vos setup` copies them into your agent's directories. A coding agent gets the whole procedure from the package too: `npx vos guide` prints the steps from a clean machine to a recording open in the studio, and `npx vos guide host` the steps that put a finished video on vos.so.
 
 Until 0.9 the take pipeline and the vos.so verbs shipped separately as `@vosso/vos-plugin`, and before that as `@vosso/cli`; those names are deprecated on npm and forward here.
 
@@ -38,13 +39,35 @@ Node 18 or newer and a Chromium-family browser. A system Chrome is used when pre
 
 ```bash
 vos setup [--agent claude,cursor,codex,copilot|all] [--global] [--no-skills] [--skills-from-catalog] [--no-rules] [--no-browser] [--url <dev server>]
+vos setup --plan [the same flags]   # what setup would do, and nothing done
+vos setup --remove [--plan] [--agent …] [--global] [--no-skills] [--no-rules]   # undo it
 vos doctor [--url <dev server>]     # what is ready, in words; exit 3 when no browser
+vos guide [host]                    # the steps an agent follows, printed from this package
 vos whoami                          # the account in use, its key's name, and every other account stored; never a key
 vos switch [<handle>]               # use another stored account (with two stored, the other one)
 vos logout [<handle>] [--all]       # forget the account in use, a named one, or every stored credential
+vos feedback "<what happened>" [--kind problem|idea] [--dry-run]   # report a problem; no credential is sent
 ```
 
-`vos setup` detects the agents present by their directories (`.claude/`, `.cursor/`, `.codex/` or `.agents/`, `.github/copilot`; the home forms under `--global`), installs the skills into them from the copy of the catalog this package ships (`skills/`, the catalog at the tag this release was cut from; `--skills-from-catalog` fetches that same tag through skills.sh instead, with the bundled copy as the fallback when it cannot be reached), finds a browser in the recorder's own order or installs Chromium, writes one block between `<!-- vos:begin -->` and `<!-- vos:end -->` markers into `AGENTS.md` (or `CLAUDE.md` when only that exists), so a second run replaces its own text and never yours, and ends with `doctor`. These four verbs print NDJSON whenever stdout is not a TTY, and every `done` event carries `next_step`.
+`vos setup` detects the agents present by their directories (`.claude/`, `.cursor/`, `.codex/` or `.agents/`, `.github/copilot`; the home forms under `--global`), installs the skills into them from the copy of the catalog this package ships (`skills/`, the catalog at the tag this release was cut from; `--skills-from-catalog` fetches that same tag through skills.sh instead, with the bundled copy as the fallback when it cannot be reached), finds a browser in the recorder's own order or installs Chromium, writes one block between `<!-- vos:begin -->` and `<!-- vos:end -->` markers into `AGENTS.md` (or `CLAUDE.md` when only that exists), so a second run replaces its own text and never yours, and ends with `doctor`. The verbs in this block except `guide` and `feedback` print NDJSON whenever stdout is not a TTY, and every `done` event of theirs carries `next_step`.
+
+**`vos setup --plan`: see it before it happens.** The same flags, and nothing done: no file written, no directory made, nothing installed, nothing run, no network. It lists the agents found, each skills directory with the skills that would be copied and which of them are already there (they would be overwritten), the browser it found or the exact command that would install one (`npx playwright install chromium`), and the rules file with whether the block would be added, replaced or is already current, followed by the block itself. Exit 0 with or without a browser. The done event is `{ plan: { agents, global, skills: { via, version, command, targets: [{ dir, names, existing }] }, browser: { kind, path, install }, rules: { file, action, block } }, changed: [] }`; `rules` is `null` under `--no-rules`, and `action` is `write`, `replace` or `current`.
+
+**The receipt.** `vos setup` ends by naming every path it created or changed, before the doctor's lines: each skill directory (new or replaced), the rules file, and the browser when it had to install one. The done event carries them as `changed` (absolute paths, sorted), with `undo`, the line that takes them back out. A second run over the same files says it changed nothing. It writes no receipt file into your repository: the undo reads what is on disk.
+
+```text
+changed:
+  .claude/skills/product-video (new)
+  .claude/skills/vos-cut (new)
+  AGENTS.md (the vos block added)
+undo: npx vos setup --remove
+```
+
+**`vos setup --remove`: take it back out.** For the same agents the flags select, it removes each skill this package ships from the skills directories, and the marked block from `AGENTS.md` and `CLAUDE.md` (both are checked, since an older run may have written either). It removes a skill only when the directory has that skill's name and holds a `SKILL.md` whose frontmatter names that same skill; anything else under one of those names is kept and listed with the reason. A skill that is a symbolic link loses the link, never what it points at, and a skills directory reached through a link is left alone. A skills directory left empty goes too; the agent's own directory never does. In a rules file only the block goes, with the blank line its insertion added, so the file is byte for byte what it was; a file that held nothing but the block is deleted. It never removes a browser, this package, a credential or a take: it prints the lines only you can run (`npx vos logout` when a credential is stored, `npx vos logout --all` when several are, then `npm rm @vosjs/cli`). `--remove --plan` shows what would go and removes nothing, and a second `--remove` finds nothing to do and exits 0. The done event is `{ removed: [path], kept: [{ path, reason }], manual: [line] }`, with `plan: { remove: [path] }` beside an empty `removed` under `--plan`.
+
+**`vos guide`: the procedure, from the package.** `vos guide` prints the steps that take a coding agent from a clean machine to a recording of the product open in the studio; `vos guide host` prints the steps that put a video someone already made on vos.so. Plain markdown on stdout, no network, exit 0; any other argument is a usage error. An agent that reads its steps here reads them from the package it installed, at the version it installed. Both texts are exported as functions, `agentGuide()` and `hostGuide()`.
+
+**`vos feedback "<what happened>"`: a report, and only what you can read.** It posts `{ "kind": "problem", "message": "<your message>", "surface": "cli" }` to `<origin>/api/product-feedback` and nothing else: no path, no file, no machine name. It sends no credential, even when one is stored or `VOS_API_KEY` is set. Before it sends, it prints the address and the whole body; `--dry-run` prints them and sends nothing. `--kind idea` files an idea instead of a problem. A message holds 8000 characters. When vos.so does not take the report it prints the reason and exits 1; `--json` ends with `{ sent, url, body, status }`.
 
 ## Engine verbs
 
@@ -713,7 +736,7 @@ const { bytes } = await renderVideo(browser, {
 })
 ```
 
-Also exported: `renderStill`, `previewPages`, `configDuration`, `BrowserUnavailableError`; the take pipeline (`recordTake`, `encodeRecording`, `planTake`, `digestTake`, `parseTranscript`, `renderTake`, `renderAnimation`, `pullMedia`, `loadTake`, `takePaths`, `startTakeServer`, `validateActions`, `convertAgentBrowser`, `parseAgentBrowserLog`); the vos.so client helpers (`resolveCredential`, `platformOrigin`, `parseVosId`, `readSyncState`, `writeSyncState`, `apiJson`, `apiError`); `manifest`, the verb list `vos help` prints; and `run(argv)`, which dispatches any take or platform verb.
+Also exported: `renderStill`, `previewPages`, `configDuration`, `BrowserUnavailableError`; the take pipeline (`recordTake`, `encodeRecording`, `planTake`, `digestTake`, `parseTranscript`, `renderTake`, `renderAnimation`, `pullMedia`, `loadTake`, `takePaths`, `startTakeServer`, `validateActions`, `convertAgentBrowser`, `parseAgentBrowserLog`); the vos.so client helpers (`resolveCredential`, `platformOrigin`, `parseVosId`, `readSyncState`, `writeSyncState`, `apiJson`, `apiError`); `manifest`, the verb list `vos help` prints; `agentGuide()` and `hostGuide()`, the two texts `vos guide` prints; and `run(argv)`, which dispatches any take or platform verb.
 
 ## License
 

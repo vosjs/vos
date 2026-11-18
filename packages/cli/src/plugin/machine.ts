@@ -10,7 +10,7 @@
  * Not `setup.ts`: that module is the SI `setup` steps of actions.json.
  */
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 
 export type AgentName = 'claude' | 'cursor' | 'codex' | 'copilot'
 
@@ -164,48 +164,106 @@ export const RULES_BEGIN =
 export const RULES_END = '<!-- vos:end -->'
 
 /**
- * The block `vos setup` writes into AGENTS.md (or CLAUDE.md). Four things
+ * The block `vos setup` writes into AGENTS.md (or CLAUDE.md). The few things
  * an agent needs every session and nothing more: the skill, the hand-back,
- * local by default, where a credential comes from. The full contract is
- * the reference it names, never a wall inside a rules file.
+ * local by default, where a credential comes from, and how the block itself
+ * is taken back out. The full contract is the reference it names, never a
+ * wall inside a rules file.
  */
 export const RULES_BODY = `## Product videos (vosso)
-- Skill: product-video (npx skills add vosjs/skills) records the real product from actions.json
+- Skill: product-video (installed by vos setup) records the real product from actions.json
 - Look before you cut: vos frames take --at-zooms; edit take/doc.json and re-render, never re-record
 - Hand back: vos open take serves the take into the studio at vos.so, doc.json intact
 - Local by default: vos push only when asked for a link, the shelf or a cloud render
 - Deleting: vos delete moves a vos to Trash and vos restore brings it back; if you deleted by mistake, restore it and say so. Only the person can delete forever, at vos.so/app/trash
 - Credentials: VOS_API_KEY, then the account in use at ~/.config/vos/credentials (vos whoami says which; vos switch <handle> changes it), then vos login; never print one
+- Undo: vos setup --remove takes the skills and this block back out
 - Reference: https://vos.so/llms-full.txt`
 
 export const RULES_BLOCK = `${RULES_BEGIN}\n${RULES_BODY}\n${RULES_END}`
+
+/** Where the first marked block sits in a file, or null when it has none. */
+function rulesSpan(text: string): { begin: number; end: number } | null {
+  const begin = text.indexOf(RULES_BEGIN)
+  if (begin === -1) return null
+  const end = text.indexOf(RULES_END, begin)
+  return end === -1 ? null : { begin, end: end + RULES_END.length }
+}
 
 /**
  * The file with the block in it, idempotently: a file already carrying the
  * markers gets the text between them replaced (an older block, or one a
  * person edited, gives way to the current one); any other file gets the
- * block appended after one blank line. `changed` is false when the file
- * already reads exactly this.
+ * block appended after one blank line, and nothing of the file is rewritten
+ * to make room: it keeps its own bytes, and it ends in a newline after the
+ * block only if it ended in one before. That is what lets
+ * `removeRulesBlock` hand the file back exactly. `changed` is false when
+ * the file already reads exactly this.
  */
 export function applyRulesBlock(existing: string | null): {
   text: string
   changed: boolean
 } {
   const current = existing ?? ''
-  const begin = current.indexOf(RULES_BEGIN)
-  const end = current.indexOf(RULES_END)
+  const span = rulesSpan(current)
   let text: string
-  if (begin !== -1 && end !== -1 && end > begin) {
-    text =
-      current.slice(0, begin) +
-      RULES_BLOCK +
-      current.slice(end + RULES_END.length)
+  if (span) {
+    text = current.slice(0, span.begin) + RULES_BLOCK + current.slice(span.end)
   } else if (current.trim() === '') {
     text = `${RULES_BLOCK}\n`
   } else {
-    text = `${current.replace(/\s*$/, '')}\n\n${RULES_BLOCK}\n`
+    const newline = current.endsWith('\n')
+    text = `${current}${newline ? '\n' : '\n\n'}${RULES_BLOCK}${newline ? '\n' : ''}`
   }
   return { text, changed: text !== current }
+}
+
+/** What `applyRulesBlock` would do to a file, without doing it. */
+export type RulesAction = 'write' | 'replace' | 'current'
+
+export function rulesAction(existing: string | null): RulesAction {
+  const current = existing ?? ''
+  if (!applyRulesBlock(current).changed) return 'current'
+  return rulesSpan(current) ? 'replace' : 'write'
+}
+
+/**
+ * The file with the block taken back out, and nothing else of it touched:
+ * the text between the markers goes (whatever it reads now, so a block a
+ * person edited goes whole), with the blank line its insertion added. A
+ * file that was only ever the block comes back empty, which the caller
+ * reads as "delete the file". The inverse of `applyRulesBlock` for a file
+ * it appended to. `changed` is false when the file carries no block.
+ */
+export function removeRulesBlock(existing: string): {
+  text: string
+  changed: boolean
+} {
+  let text = existing
+  // A file can only hold a second block when someone pasted one; each goes.
+  for (let i = 0; i < 8; i++) {
+    const span = rulesSpan(text)
+    if (!span) break
+    let before = text.slice(0, span.begin)
+    let after = text.slice(span.end)
+    if (before.trim() === '' && after.trim() === '') {
+      text = ''
+      break
+    }
+    if (after === '') {
+      // The file ends at the marker: it had no final newline when the block
+      // went in, and the insertion put two in front of it.
+      before = before.replace(/\n{1,2}$/, '')
+    } else {
+      // The end marker's own line ending, then the blank line above the
+      // block (or, for a block at the top of a file, the one below it).
+      if (after.startsWith('\n')) after = after.slice(1)
+      if (before.trim() === '') after = after.replace(/^\n+/, '')
+      else if (before.endsWith('\n\n')) before = before.slice(0, -1)
+    }
+    text = before + after
+  }
+  return { text, changed: text !== existing }
 }
 
 /**
@@ -436,8 +494,476 @@ export function doctorReport(facts: DoctorFacts): DoctorReport {
   else if (!withSkills.length) next_step = 'Run: npx vos setup'
   else
     next_step =
-      'Record: npx vos record --actions actions.json --out take --strict (the product-video skill writes actions.json)'
+      'Run: npx vos guide (the steps to record this product; the product-video skill carries the loop)'
   return { ok: nodeOk && browserOk, lines, next_step, facts }
+}
+
+// ---------------------------------------------------------------------------
+// The plan, the receipt, the undo
+// ---------------------------------------------------------------------------
+
+/** The one command `vos setup` runs for a browser, when it finds none. */
+export const BROWSER_INSTALL = 'npx playwright install chromium'
+/** How a person takes back what `vos setup` wrote. */
+export const SETUP_UNDO = 'npx vos setup --remove'
+
+/** The file system a plan reads, injected so a plan needs none to be tested. */
+export interface PlanFs {
+  exists: (path: string) => boolean
+  /** The file's text, or null when it cannot be read. */
+  read: (path: string) => string | null
+  list: (path: string) => string[]
+}
+
+/** What one run of `vos setup` was asked for, after its flags are read. */
+export interface SetupAsk {
+  root: string
+  /** The homes the flags select; empty means the `.agents` fallback. */
+  homes: AgentHome[]
+  global: boolean
+  skills: 'bundled' | 'skills.sh' | 'skipped'
+  /** The copy of the catalog this package ships, or null when it has none. */
+  bundledDir: string | null
+  /** The catalog command `--skills-from-catalog` would run, as typed. */
+  catalogCommand: string | null
+  browser: BrowserProbe
+  /** False under --no-browser: nothing is installed whatever is found. */
+  installBrowser: boolean
+  /** False under --no-rules. */
+  rules: boolean
+}
+
+/** What `vos setup` would do, as data. Nothing in it has happened. */
+export interface SetupPlan {
+  agents: AgentName[]
+  global: boolean
+  skills: {
+    via: 'bundled' | 'skills.sh' | 'skipped'
+    /** The catalog tag the skills are at, when the package says. */
+    version: string | null
+    /** The command that would be spawned (the catalog path only). */
+    command: string | null
+    targets: {
+      dir: string
+      names: string[]
+      /** The names already there: the copy would overwrite them. */
+      existing: string[]
+    }[]
+  }
+  browser: {
+    kind: BrowserProbe['kind']
+    path: string | null
+    /** The command that would be run, or null when none would be. */
+    install: string | null
+  }
+  /** Null under --no-rules. */
+  rules: { file: string; action: RulesAction; block: string } | null
+}
+
+/**
+ * The plan for one `vos setup`: the same decisions the verb makes, read off
+ * the disk and never written to it.
+ */
+export function planSetup(ask: SetupAsk, fs: PlanFs): SetupPlan {
+  const names =
+    ask.skills !== 'skipped' && ask.bundledDir
+      ? installedSkills(ask.bundledDir, fs.exists, fs.list)
+      : []
+  const targets =
+    ask.skills === 'skipped'
+      ? []
+      : (ask.homes.length ? ask.homes : [fallbackSkillsHome(ask.root)]).map(
+          (home) => {
+            const dir = skillsDirFor(home)
+            return {
+              dir,
+              names,
+              existing: names.filter((name) => fs.exists(join(dir, name))),
+            }
+          },
+        )
+  let rules: SetupPlan['rules'] = null
+  if (ask.rules) {
+    const file = rulesFileFor(ask.root, fs.exists)
+    rules = {
+      file,
+      action: rulesAction(fs.exists(file) ? fs.read(file) : null),
+      block: RULES_BLOCK,
+    }
+  }
+  return {
+    agents: [...new Set(ask.homes.map((h) => h.agent))],
+    global: ask.global,
+    skills: {
+      via: ask.skills,
+      version:
+        ask.skills !== 'skipped' && ask.bundledDir
+          ? bundledSkillsVersion(ask.bundledDir, fs.read)
+          : null,
+      command: ask.skills === 'skills.sh' ? ask.catalogCommand : null,
+      targets,
+    },
+    browser: {
+      kind: ask.browser.kind,
+      path: ask.browser.path,
+      install:
+        ask.browser.kind === 'none' && ask.installBrowser
+          ? BROWSER_INSTALL
+          : null,
+    },
+    rules,
+  }
+}
+
+/** A path as a person reads it: relative inside the working directory. */
+export function displayPath(path: string, cwd: string): string {
+  const rel = relative(cwd, path)
+  return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : path
+}
+
+/** The plan in words, for a person at a terminal. */
+export function setupPlanLines(plan: SetupPlan, cwd: string): string[] {
+  const lines = ['vos setup would do this. Nothing has been changed.', '']
+  lines.push(
+    plan.agents.length
+      ? `agents: ${plan.agents.join(', ')}${plan.global ? ' (their home directories too)' : ''}`
+      : 'agents: none detected here (the skills would land in .agents/skills, which every agent reads)',
+  )
+  const { skills } = plan
+  if (skills.via === 'skipped') lines.push('skills: none (--no-skills)')
+  else {
+    lines.push(
+      skills.via === 'skills.sh'
+        ? `skills: through skills.sh, by running ${skills.command}; the copy this package ships is copied instead when it does not answer`
+        : `skills: the copy this package ships${skills.version ? ` (catalog ${skills.version})` : ''}, copied`,
+    )
+    for (const t of skills.targets) {
+      const fresh = t.names.filter((n) => !t.existing.includes(n))
+      lines.push(`  into ${displayPath(t.dir, cwd)}`)
+      if (fresh.length) lines.push(`    new: ${fresh.join(', ')}`)
+      if (t.existing.length)
+        lines.push(
+          `    already there, would be overwritten: ${t.existing.join(', ')}`,
+        )
+    }
+  }
+  const { browser } = plan
+  lines.push(
+    browser.kind !== 'none'
+      ? `browser: found (${browser.path}); nothing would be installed`
+      : browser.install
+        ? `browser: none found; would run ${browser.install}`
+        : 'browser: none found, and none would be installed (--no-browser)',
+  )
+  if (!plan.rules) lines.push('rules: none (--no-rules)')
+  else {
+    const file = displayPath(plan.rules.file, cwd)
+    lines.push(
+      plan.rules.action === 'current'
+        ? `rules: ${file} already carries this block; it would not be touched`
+        : plan.rules.action === 'replace'
+          ? `rules: the marked block in ${file} would be replaced with this one, and nothing else in the file`
+          : `rules: this block would be added at the end of ${file}`,
+      '',
+      ...plan.rules.block.split('\n'),
+    )
+  }
+  lines.push(
+    '',
+    `Nothing was changed. npx vos setup does it; ${SETUP_UNDO} undoes it.`,
+  )
+  return lines
+}
+
+/** What one run of `vos setup` wrote, as the verb noted it while writing. */
+export interface SetupWrites {
+  /** The skill directories whose contents changed; `replaced` when one was there. */
+  skills: { path: string; replaced: boolean }[]
+  /** The rules file, when its text changed. */
+  rules: { file: string; action: 'write' | 'replace'; created: boolean } | null
+  /** The browser install: whether it ran, and the browser it left. */
+  browser: { ran: boolean; path: string | null }
+}
+
+/**
+ * The receipt: every path a run created or modified, absolute and sorted,
+ * and the same in words. A run that changed nothing says so.
+ */
+export function setupReceipt(
+  writes: SetupWrites,
+  cwd: string,
+): { changed: string[]; lines: string[] } {
+  const notes = new Map<string, string>()
+  for (const s of writes.skills)
+    notes.set(s.path, s.replaced ? 'replaced' : 'new')
+  if (writes.rules)
+    notes.set(
+      writes.rules.file,
+      writes.rules.created
+        ? 'created, holding the vos block'
+        : writes.rules.action === 'replace'
+          ? 'the vos block replaced'
+          : 'the vos block added',
+    )
+  if (writes.browser.ran && writes.browser.path)
+    notes.set(
+      writes.browser.path,
+      `Chromium, installed by ${BROWSER_INSTALL}; vos setup --remove leaves it`,
+    )
+  const changed = [...notes.keys()].sort()
+  const lines = changed.length
+    ? [
+        'changed:',
+        ...changed.map((p) => `  ${displayPath(p, cwd)} (${notes.get(p)})`),
+      ]
+    : ['changed: nothing (what vos setup writes was already in place)']
+  if (writes.browser.ran && !writes.browser.path)
+    lines.push(`ran: ${BROWSER_INSTALL} (no browser was found after it)`)
+  lines.push(`undo: ${SETUP_UNDO}`)
+  return { changed, lines }
+}
+
+/** The `name:` a SKILL.md's frontmatter gives, or null when it has none. */
+export function skillFrontmatterName(text: string): string | null {
+  const front = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)
+  if (!front) return null
+  const line = /^name:[ \t]*(.+?)[ \t]*$/m.exec(front[1])
+  return line ? line[1].replace(/^(['"])(.*)\1$/, '$2') : null
+}
+
+/** A skill's directory name: one path segment, and never `.` or `..`. */
+const SKILL_NAME = /^[a-z0-9][a-z0-9_-]*$/i
+
+/** The rules files a run may have written, older runs included. */
+export const RULES_FILES = ['AGENTS.md', 'CLAUDE.md'] as const
+
+/** What the undo reads: the plan's file system, and what sits AT a path. */
+export interface RemovalFs extends PlanFs {
+  /** A symbolic link sits at the path itself (never followed). */
+  isLink: (path: string) => boolean
+  /** A real directory sits at the path itself (a link to one is not one). */
+  isDir: (path: string) => boolean
+  /** The path with every link resolved; the path itself when it cannot be. */
+  realpath: (path: string) => string
+}
+
+export type RemovalItem =
+  /** A skill's own directory, removed whole. */
+  | { kind: 'skill'; path: string }
+  /** A link to a skill: the link is removed, never what it points at. */
+  | { kind: 'link'; path: string }
+  /** A skills directory the removal leaves empty. */
+  | { kind: 'dir'; path: string }
+  /** A rules file, rewritten without the block. */
+  | { kind: 'rules'; path: string; text: string }
+  /** A rules file that was only ever the block. */
+  | { kind: 'rules-file'; path: string }
+
+export interface RemovalPlan {
+  remove: RemovalItem[]
+  kept: { path: string; reason: string }[]
+}
+
+/** The first symbolic link on the way from `base` down to `dir`, or null. */
+function linkOnPath(
+  base: string,
+  dir: string,
+  isLink: (path: string) => boolean,
+): string | null {
+  let at = base
+  for (const part of relative(base, dir).split(sep).filter(Boolean)) {
+    at = join(at, part)
+    if (isLink(at)) return at
+  }
+  return null
+}
+
+/**
+ * What `vos setup --remove` takes back out, decided before anything is
+ * touched. A skill goes only when it is provably the one this package
+ * ships: a bundled skill's name, holding a SKILL.md whose frontmatter names
+ * that same skill. The only paths ever built are a selected skills
+ * directory joined with a BUNDLED name, so nothing on the person's disk
+ * steers where a removal lands; a skills directory reached through a
+ * symbolic link is left alone, and a skill that is itself a link loses the
+ * link, never what it points at. The rules files lose the marked block and
+ * nothing else.
+ */
+export function planRemoval(
+  ask: {
+    root: string
+    /** The person's home directory: the base of a --global home. */
+    home: string
+    homes: AgentHome[]
+    /** False under --no-skills. */
+    skills: boolean
+    /** False under --no-rules. */
+    rules: boolean
+    bundledDir: string | null
+  },
+  fs: RemovalFs,
+): RemovalPlan {
+  const remove: RemovalItem[] = []
+  const kept: RemovalPlan['kept'] = []
+
+  if (ask.skills && ask.bundledDir) {
+    const bundledDir = ask.bundledDir
+    const ours = installedSkills(bundledDir, fs.exists, fs.list)
+      .filter((name) => SKILL_NAME.test(name))
+      .map((name) => ({
+        name,
+        named: skillFrontmatterName(
+          fs.read(join(bundledDir, name, 'SKILL.md')) ?? '',
+        ),
+      }))
+      .filter((s): s is { name: string; named: string } => s.named !== null)
+    const seen = new Set<string>()
+    for (const home of ask.homes) {
+      const dir = skillsDirFor(home)
+      if (seen.has(dir)) continue
+      seen.add(dir)
+      const link = linkOnPath(
+        home.scope === 'global' ? ask.home : ask.root,
+        dir,
+        fs.isLink,
+      )
+      if (link) {
+        kept.push({
+          path: link,
+          reason:
+            'a symbolic link: nothing behind it was read or removed, so take the vos skills out of where it points by hand',
+        })
+        continue
+      }
+      if (!fs.isDir(dir)) continue
+      const gone = new Set<string>()
+      for (const { name, named } of ours) {
+        const path = join(dir, name)
+        const linked = fs.isLink(path)
+        if (!linked && !fs.isDir(path)) {
+          if (fs.exists(path))
+            kept.push({ path, reason: 'not a directory, so not a skill' })
+          continue
+        }
+        const skill = fs.read(join(path, 'SKILL.md'))
+        if (skill === null) {
+          kept.push({
+            path,
+            reason: 'it holds no SKILL.md, so vos setup did not write it',
+          })
+          continue
+        }
+        const found = skillFrontmatterName(skill)
+        if (found !== named) {
+          kept.push({
+            path,
+            // A name read off the person's disk is quoted short, never whole.
+            reason: `its SKILL.md names ${found === null ? 'no skill' : `"${found.slice(0, 80)}"`}, not "${named}", so it is not the one vos ships`,
+          })
+          continue
+        }
+        remove.push({ kind: linked ? 'link' : 'skill', path })
+        gone.add(name)
+      }
+      if (gone.size && fs.list(dir).every((entry) => gone.has(entry))) {
+        remove.push({ kind: 'dir', path: dir })
+        if (fs.list(home.dir).every((entry) => entry === 'skills'))
+          kept.push({
+            path: home.dir,
+            reason:
+              'an empty directory now: it is left because nothing says whether vos setup made it',
+          })
+      }
+    }
+  }
+
+  if (ask.rules) {
+    const files = RULES_FILES.map((name) => join(ask.root, name)).filter(
+      (file) => fs.exists(file),
+    )
+    const real = files
+      .filter((file) => !fs.isLink(file))
+      .map((file) => fs.realpath(file))
+    for (const file of files) {
+      const { text, changed } = removeRulesBlock(fs.read(file) ?? '')
+      if (!changed) continue
+      if (fs.isLink(file)) {
+        // A second name for a file handled under its own name needs nothing.
+        if (!real.includes(fs.realpath(file)))
+          kept.push({
+            path: file,
+            reason:
+              'a symbolic link to a file that carries the vos block: take the block out of the file it points at by hand',
+          })
+        continue
+      }
+      remove.push(
+        text.trim() === ''
+          ? { kind: 'rules-file', path: file }
+          : { kind: 'rules', path: file, text },
+      )
+    }
+  }
+  return { remove, kept }
+}
+
+/** One removal in words. */
+function removalNote(item: RemovalItem): string {
+  switch (item.kind) {
+    case 'skill':
+      return 'the skill'
+    case 'link':
+      return 'a link to the skill; what it points at stays'
+    case 'dir':
+      return 'the skills directory, empty once its skills are out'
+    case 'rules':
+      return 'the vos block; the rest of the file stays as it was'
+    case 'rules-file':
+      return 'the file, which held only the vos block'
+  }
+}
+
+/**
+ * The undo in words: what went (or, for a plan, what would), what was left
+ * and why, and the lines only the person can run.
+ */
+export function removalLines(
+  result: {
+    removed: RemovalItem[]
+    kept: RemovalPlan['kept']
+    manual: string[]
+    plan: boolean
+  },
+  cwd: string,
+): string[] {
+  const lines: string[] = []
+  if (result.plan)
+    lines.push(
+      'vos setup --remove would do this. Nothing has been changed.',
+      '',
+    )
+  if (result.removed.length)
+    lines.push(
+      result.plan ? 'would remove:' : 'removed:',
+      ...result.removed.map(
+        (item) => `  ${displayPath(item.path, cwd)} (${removalNote(item)})`,
+      ),
+    )
+  else
+    lines.push(
+      `${result.plan ? 'would remove' : 'removed'}: nothing (no vos skill and no vos block is here)`,
+    )
+  if (result.kept.length)
+    lines.push(
+      'kept:',
+      ...result.kept.map((k) => `  ${displayPath(k.path, cwd)}: ${k.reason}`),
+    )
+  lines.push(
+    'left for you (this never removes a browser, the package, a credential or a take):',
+    ...result.manual.map((line) => `  ${line}`),
+  )
+  if (result.plan) lines.push('', `Nothing was changed. ${SETUP_UNDO} does it.`)
+  return lines
 }
 
 // ---------------------------------------------------------------------------
@@ -454,10 +980,17 @@ export function doctorReport(facts: DoctorFacts): DoctorReport {
  * The catalog tag the bundled copy was synced from (`skills/VERSION`, written
  * by `scripts/sync-skills.mjs`), or null when the file is absent.
  */
-export function bundledSkillsVersion(dir: string): string | null {
+export function bundledSkillsVersion(
+  dir: string,
+  read: (path: string) => string | null = readOrNull,
+): string | null {
+  const v = read(join(dir, 'VERSION'))?.trim() ?? ''
+  return /^\d+\.\d+\.\d+$/.test(v) ? v : null
+}
+
+function readOrNull(path: string): string | null {
   try {
-    const v = readFileSync(join(dir, 'VERSION'), 'utf8').trim()
-    return /^\d+\.\d+\.\d+$/.test(v) ? v : null
+    return readFileSync(path, 'utf8')
   } catch {
     return null
   }

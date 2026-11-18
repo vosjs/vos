@@ -1,7 +1,10 @@
 /**
- * `vos setup`, `vos doctor`, `vos whoami`, `vos logout` (AN1): the verbs
- * that ready the machine and say what is on it. The facts come from
- * `machine.ts`; this file is the part that spawns, copies and prints.
+ * `vos setup`, `vos doctor`, `vos guide`, `vos whoami`, `vos logout` (AN1):
+ * the verbs that ready the machine and say what is on it. The facts come
+ * from `machine.ts`; this file is the part that spawns, copies and prints.
+ *
+ * `vos setup` shows its plan before it acts (`--plan`), ends by naming
+ * every path it changed, and takes its own work back out (`--remove`).
  *
  * Output: NDJSON when `--json` is given OR stdout is not a TTY (an agent
  * reads these verbs far more often than a person does), always ending in a
@@ -9,18 +12,30 @@
  * credential; `whoami` answers a key's NAME and the account's handle.
  */
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import {
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
+  readlinkSync,
+  realpathSync,
+  rmSync,
+  rmdirSync,
+  statSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { chromium } from 'playwright'
 import { UsageError, parseArgs, strFlag } from './args'
+import { agentGuide, hostGuide } from './guide'
 import {
+  BROWSER_INSTALL,
+  SETUP_UNDO,
   agentsFromFlag,
   applyRulesBlock,
   bundledSkillsDir,
@@ -29,11 +44,24 @@ import {
   doctorReport,
   fallbackSkillsHome,
   installedSkills,
+  planRemoval,
+  planSetup,
   probeBrowser,
+  removalLines,
+  rulesAction,
   rulesFileFor,
+  setupPlanLines,
+  setupReceipt,
   skillsDirFor,
 } from './machine'
-import type { AgentHome, BrowserProbe, DoctorFacts } from './machine'
+import type {
+  AgentHome,
+  BrowserProbe,
+  DoctorFacts,
+  RemovalFs,
+  RemovalItem,
+  SetupWrites,
+} from './machine'
 import { EXIT_ERROR, EXIT_NO_BROWSER, EXIT_OK, createReporter } from './output'
 import {
   CREDENTIALS_PATH,
@@ -67,6 +95,8 @@ const BOOLEAN_FLAGS = new Set([
   'skills-from-catalog',
   'no-rules',
   'no-browser',
+  'plan',
+  'remove',
 ])
 /** `vos logout --all` forgets every stored credential. */
 const LOGOUT_FLAGS = new Set([...BOOLEAN_FLAGS, 'all'])
@@ -82,6 +112,88 @@ export const SKILLS_CLI_VERSION = '1.7.2'
 /** The catalog at ONE tag, the one the bundled copy was synced from. */
 export function skillsCatalogAt(version: string): string {
   return `https://github.com/${SKILLS_SOURCE}/tree/v${version}`
+}
+
+/** The catalog CLI's arguments for one tag (the catalog itself when the build names none). */
+function catalogArgs(version: string | null, global: boolean): string[] {
+  return [
+    `skills@${SKILLS_CLI_VERSION}`,
+    'add',
+    version ? skillsCatalogAt(version) : SKILLS_SOURCE,
+    '-y',
+    ...(global ? ['-g'] : []),
+  ]
+}
+
+/** The disk, as the plans read it. Nothing here writes. */
+const DISK: RemovalFs = {
+  exists: existsSync,
+  read: (path) => {
+    try {
+      return readFileSync(path, 'utf8')
+    } catch {
+      return null
+    }
+  },
+  list: (path) => {
+    try {
+      return readdirSync(path)
+    } catch {
+      return []
+    }
+  },
+  isLink: (path) => {
+    try {
+      return lstatSync(path).isSymbolicLink()
+    } catch {
+      return false
+    }
+  },
+  isDir: (path) => {
+    try {
+      return lstatSync(path).isDirectory()
+    } catch {
+      return false
+    }
+  },
+  realpath: (path) => {
+    try {
+      return realpathSync(path)
+    } catch {
+      return path
+    }
+  },
+}
+
+/**
+ * What a skill directory holds, as one hash: every file's path and bytes,
+ * and a link's target as text (never what it points at). Null when nothing
+ * is there. Taken before and after a copy, it says whether the copy changed
+ * anything, which is what the receipt reports.
+ */
+function treeDigest(path: string): string | null {
+  const hash = createHash('sha256')
+  const walk = (at: string, rel: string, top: boolean): void => {
+    // The entry itself may be a link into another skills directory (the
+    // layout skills.sh writes): a copy lands behind it, so it is read there.
+    const stat = top ? statSync(at) : lstatSync(at)
+    if (stat.isSymbolicLink()) {
+      hash.update(`link ${rel} ${readlinkSync(at)}\n`)
+    } else if (stat.isDirectory()) {
+      hash.update(`dir ${rel}\n`)
+      for (const name of readdirSync(at).sort())
+        walk(join(at, name), `${rel}/${name}`, false)
+    } else {
+      hash.update(`file ${rel} ${stat.size}\n`)
+      hash.update(readFileSync(at))
+    }
+  }
+  try {
+    walk(path, '', true)
+    return hash.digest('hex')
+  } catch {
+    return null
+  }
 }
 
 function reporterFor(flags: Record<string, string | true>): Reporter {
@@ -217,23 +329,28 @@ function storedAccounts(
 }
 
 /**
- * `vos setup`: the skills into the agents' directories (skills.sh when
- * `npx` answers, else the copy this package ships), a browser found or
- * installed, one idempotent block in the rules file, then doctor.
+ * `vos setup`: the skills into the agents' directories (the copy this
+ * package ships, or skills.sh under --skills-from-catalog), a browser found
+ * or installed, one idempotent block in the rules file, then a receipt of
+ * every path it changed and doctor. `--plan` prints all of that as what it
+ * WOULD do and touches nothing; `--remove` takes it back out.
  */
 export async function cmdSetup(argv: string[]): Promise<number> {
   const { flags } = parseArgs(argv, BOOLEAN_FLAGS)
   const r = reporterFor(flags)
   const root = process.cwd()
   const global = flags.global === true
-  const url = strFlag(flags, 'url')
   // Every flag is read up front: the flag tracker records READS, and a
   // --no-browser consulted only when no browser exists would count as
-  // ignored on the machine that has one.
+  // ignored on the machine that has one. A plan and an undo never look at
+  // --url, and are not wrong for being given it.
+  const url = strFlag(flags, 'url')
   const noSkills = flags['no-skills'] === true
   const fromCatalog = flags['skills-from-catalog'] === true
   const noRules = flags['no-rules'] === true
   const noBrowser = flags['no-browser'] === true
+  const planOnly = flags.plan === true
+  const remove = flags.remove === true
 
   // 1. Which agents.
   const wanted = strFlag(flags, 'agent')
@@ -245,6 +362,55 @@ export async function cmdSetup(argv: string[]): Promise<number> {
   } else {
     homes = detectAgents(root, { home: homedir(), global })
   }
+  const bundled = bundledSkillsDir(import.meta.url.replace('file://', ''))
+
+  if (remove) {
+    return removeSetup(r, {
+      root,
+      // The homes a run of setup with these flags wrote into: the ones
+      // named, or the ones detected plus `.agents`, where setup puts the
+      // skills when it detects no agent at all.
+      homes: wanted ? homes : [...homes, fallbackSkillsHome(root)],
+      skills: !noSkills,
+      rules: !noRules,
+      bundled,
+      planOnly,
+    })
+  }
+
+  const version = bundled ? bundledSkillsVersion(bundled) : null
+  if (!noSkills && !fromCatalog && !bundled)
+    throw new Error(
+      'this build carries no bundled skills; run with --skills-from-catalog',
+    )
+  const catalog = catalogArgs(version, global)
+
+  if (planOnly) {
+    const plan = planSetup(
+      {
+        root,
+        homes,
+        global,
+        skills: noSkills ? 'skipped' : fromCatalog ? 'skills.sh' : 'bundled',
+        bundledDir: bundled,
+        catalogCommand: `npx ${catalog.join(' ')}`,
+        browser: probe(),
+        installBrowser: !noBrowser,
+        rules: !noRules,
+      },
+      DISK,
+    )
+    r.done(
+      {
+        plan,
+        changed: [],
+        next_step: `Run: npx vos setup (it writes what this plan lists; ${SETUP_UNDO} takes it back out)`,
+      },
+      setupPlanLines(plan, root).join('\n'),
+    )
+    return EXIT_OK
+  }
+
   const agents = [...new Set(homes.map((h) => h.agent))]
   r.event({ event: 'agents', agents, global })
   r.log(
@@ -252,6 +418,11 @@ export async function cmdSetup(argv: string[]): Promise<number> {
       ? `agents: ${agents.join(', ')}`
       : 'agents: none detected here (the skills land in .agents/skills, which every agent reads)',
   )
+  const writes: SetupWrites = {
+    skills: [],
+    rules: null,
+    browser: { ran: false, path: null },
+  }
 
   // 2. The skills. The copy this package ships is the default: it is the
   // catalog at the tag this release was cut from (skills/VERSION), reviewed
@@ -264,9 +435,25 @@ export async function cmdSetup(argv: string[]): Promise<number> {
   let skillsVia: 'skills.sh' | 'bundled' | 'skipped' = 'skipped'
   let skillNames: string[] = []
   if (!noSkills) {
-    const bundled = bundledSkillsDir(import.meta.url.replace('file://', ''))
-    const version = bundled ? bundledSkillsVersion(bundled) : null
     const targets = homes.length ? homes : [fallbackSkillsHome(root)]
+    const ours = bundled ? installedSkills(bundled) : []
+    // Every skill directory this step can write, hashed before and after:
+    // the receipt names the ones whose contents changed, so a second run
+    // over the same files says it changed nothing. The catalog CLI may add
+    // names this build does not know, so its directories are listed whole.
+    const snapshot = (): Map<string, string | null> => {
+      const seen = new Map<string, string | null>()
+      for (const home of targets) {
+        const dest = skillsDirFor(home)
+        const names = fromCatalog
+          ? new Set([...ours, ...installedSkills(dest)])
+          : ours
+        for (const name of names)
+          seen.set(join(dest, name), treeDigest(join(dest, name)))
+      }
+      return seen
+    }
+    const before = snapshot()
     const copyBundled = (dir: string) => {
       for (const home of targets) {
         const dest = skillsDirFor(home)
@@ -277,16 +464,8 @@ export async function cmdSetup(argv: string[]): Promise<number> {
       }
     }
     if (fromCatalog) {
-      const source = version ? skillsCatalogAt(version) : SKILLS_SOURCE
-      const args = [
-        `skills@${SKILLS_CLI_VERSION}`,
-        'add',
-        source,
-        '-y',
-        ...(global ? ['-g'] : []),
-      ]
-      r.log(`installing the vos skills: npx ${args.join(' ')}`)
-      const res = spawnSync(npx(), args, {
+      r.log(`installing the vos skills: npx ${catalog.join(' ')}`)
+      const res = spawnSync(npx(), catalog, {
         cwd: root,
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -300,7 +479,7 @@ export async function cmdSetup(argv: string[]): Promise<number> {
         // the copy this package ships is the same files at its tag.
         if (!bundled)
           throw new Error(
-            `could not install the skills: npx ${args.join(' ')} failed (${(res.stderr ?? '').trim().split('\n').at(-1) ?? res.error?.message ?? 'no output'}) and this build carries no bundled copy`,
+            `could not install the skills: npx ${catalog.join(' ')} failed (${(res.stderr ?? '').trim().split('\n').at(-1) ?? res.error?.message ?? 'no output'}) and this build carries no bundled copy`,
           )
         copyBundled(bundled)
         skillsVia = 'bundled'
@@ -308,29 +487,33 @@ export async function cmdSetup(argv: string[]): Promise<number> {
           `skills.sh did not answer; copied the bundled skills into ${targets.map((t) => skillsDirFor(t)).join(', ')}`,
         )
       }
-    } else {
-      if (!bundled)
-        throw new Error(
-          'this build carries no bundled skills; run with --skills-from-catalog',
-        )
+    } else if (bundled) {
       copyBundled(bundled)
       skillsVia = 'bundled'
       r.log(
         `installed the bundled vos skills${version ? ` (catalog ${version})` : ''} into ${targets.map((t) => skillsDirFor(t)).join(', ')}`,
       )
     }
+    for (const [path, digest] of snapshot()) {
+      const was = before.get(path) ?? null
+      if (digest !== null && digest !== was)
+        writes.skills.push({ path, replaced: was !== null })
+    }
     skillNames = [
       ...new Set(targets.flatMap((h) => installedSkills(skillsDirFor(h)))),
     ].sort()
   }
-  r.event({ event: 'skills', via: skillsVia, names: skillNames })
+  r.event({
+    event: 'skills',
+    via: skillsVia,
+    names: skillNames,
+    written: writes.skills,
+  })
 
   // 3. The browser.
   let browser = probe()
   if (browser.kind === 'none' && !noBrowser) {
-    r.log(
-      'no browser found; installing Chromium: npx playwright install chromium',
-    )
+    r.log(`no browser found; installing Chromium: ${BROWSER_INSTALL}`)
     spawnSync(npx(), ['playwright', 'install', 'chromium'], {
       cwd: root,
       stdio: ['ignore', 'ignore', 'inherit'],
@@ -338,17 +521,36 @@ export async function cmdSetup(argv: string[]): Promise<number> {
       timeout: 600_000,
     })
     browser = probe()
+    writes.browser = {
+      ran: true,
+      path: browser.kind === 'chromium' ? browser.path : null,
+    }
   }
-  r.event({ event: 'browser', kind: browser.kind, path: browser.path })
+  r.event({
+    event: 'browser',
+    kind: browser.kind,
+    path: browser.path,
+    installRan: writes.browser.ran,
+  })
   r.log(`browser: ${browser.line}`)
 
   // 4. The rules block.
   let rules: { file: string; changed: boolean } | null = null
   if (!noRules) {
     const file = rulesFileFor(root)
-    const existing = existsSync(file) ? readFileSync(file, 'utf8') : null
+    const had = existsSync(file)
+    const existing = had ? readFileSync(file, 'utf8') : null
+    const action = rulesAction(existing)
     const { text, changed } = applyRulesBlock(existing)
-    if (changed) writeFileSync(file, text)
+    if (changed) {
+      writeFileSync(file, text)
+      writes.rules = {
+        // A rules file that is a link was written where it points.
+        file: DISK.isLink(file) ? DISK.realpath(file) : file,
+        action: action === 'replace' ? 'replace' : 'write',
+        created: !had,
+      }
+    }
     rules = { file, changed }
     r.log(
       changed
@@ -358,7 +560,8 @@ export async function cmdSetup(argv: string[]): Promise<number> {
   }
   r.event({ event: 'rules', ...(rules ?? { file: null, changed: false }) })
 
-  // 5. Doctor.
+  // 5. The receipt, then doctor.
+  const receipt = setupReceipt(writes, root)
   const report = doctorReport(
     await doctorFacts({
       homes: homes.length ? homes : [fallbackSkillsHome(root)],
@@ -368,15 +571,163 @@ export async function cmdSetup(argv: string[]): Promise<number> {
   r.done(
     {
       agents,
-      skills: { via: skillsVia, names: skillNames },
-      browser: { kind: browser.kind, path: browser.path },
+      skills: { via: skillsVia, names: skillNames, written: writes.skills },
+      browser: {
+        kind: browser.kind,
+        path: browser.path,
+        installRan: writes.browser.ran,
+      },
       rules,
+      changed: receipt.changed,
+      undo: SETUP_UNDO,
       doctor: { ok: report.ok, ...report.facts },
       next_step: report.next_step,
     },
-    `${report.lines.join('\n')}\n\nNext: ${report.next_step}`,
+    `${receipt.lines.join('\n')}${
+      skillsVia === 'skills.sh'
+        ? '\n(skills.sh did the writing: this lists what changed in the skill directories, and it may keep a lock file of its own)'
+        : ''
+    }\n\n${report.lines.join('\n')}\n\nNext: ${report.next_step}`,
   )
   return report.ok ? EXIT_OK : EXIT_NO_BROWSER
+}
+
+/** One planned removal, carried out. Throws in words when it cannot be. */
+function takeOut(item: RemovalItem): void {
+  // What sits at the path NOW, never followed: a link put there since the
+  // plan was made loses the link, and what it points at is not touched. The
+  // same for the skills directory a skill sits in: it must still be the
+  // real directory the plan read.
+  const at = lstatSync(item.path)
+  if (
+    (item.kind === 'skill' || item.kind === 'link') &&
+    !lstatSync(dirname(item.path)).isDirectory()
+  )
+    throw new Error('its skills directory is no longer a plain directory')
+  switch (item.kind) {
+    case 'skill':
+      if (at.isSymbolicLink()) unlinkSync(item.path)
+      else rmSync(item.path, { recursive: true })
+      return
+    case 'link':
+      if (!at.isSymbolicLink())
+        throw new Error('it is no longer a symbolic link')
+      unlinkSync(item.path)
+      return
+    case 'dir':
+      // rmdir refuses a directory that still holds anything.
+      if (!at.isDirectory()) throw new Error('it is no longer a directory')
+      rmdirSync(item.path)
+      return
+    case 'rules':
+      if (at.isSymbolicLink()) throw new Error('it is now a symbolic link')
+      writeFileSync(item.path, item.text)
+      return
+    case 'rules-file':
+      if (at.isSymbolicLink()) throw new Error('it is now a symbolic link')
+      unlinkSync(item.path)
+      return
+  }
+}
+
+/**
+ * `vos setup --remove`: the skills this package ships out of the selected
+ * skill directories, and the marked block out of the rules files. What is
+ * removed is decided by `planRemoval` before anything is touched; a browser,
+ * the package, a credential and a take are never removed here, and the
+ * lines that remove the first two are printed for the person to run.
+ */
+function removeSetup(
+  r: Reporter,
+  ask: {
+    root: string
+    homes: AgentHome[]
+    skills: boolean
+    rules: boolean
+    bundled: string | null
+    planOnly: boolean
+  },
+): number {
+  if (ask.skills && !ask.bundled)
+    r.warn(
+      'this build carries no bundled skills, so it cannot tell which skill directories are its own: none were looked at',
+    )
+  const plan = planRemoval(
+    {
+      root: ask.root,
+      home: homedir(),
+      homes: ask.homes,
+      skills: ask.skills,
+      rules: ask.rules,
+      bundledDir: ask.bundled,
+    },
+    DISK,
+  )
+  // Named, never run: signing out and uninstalling are the person's acts.
+  const stored = listStored(DEFAULT_STORE).length
+  const manual = [
+    ...(stored ? [stored > 1 ? 'npx vos logout --all' : 'npx vos logout'] : []),
+    'npm rm @vosjs/cli',
+  ]
+  const kept = [...plan.kept]
+  const removed: RemovalItem[] = []
+  if (!ask.planOnly) {
+    for (const item of plan.remove) {
+      try {
+        takeOut(item)
+        removed.push(item)
+      } catch (e) {
+        kept.push({
+          path: item.path,
+          reason: `it could not be removed (${e instanceof Error ? e.message.split('\n')[0] : String(e)})`,
+        })
+      }
+    }
+  }
+  r.done(
+    {
+      ...(ask.planOnly
+        ? { plan: { remove: plan.remove.map((item) => item.path) } }
+        : {}),
+      removed: removed.map((item) => item.path),
+      kept,
+      manual,
+      next_step: ask.planOnly
+        ? `Run: ${SETUP_UNDO} (it removes what this plan lists)`
+        : `Run: ${manual.join(', then ')} (yours to run; npx vos setup puts the skills and the block back)`,
+    },
+    removalLines(
+      {
+        removed: ask.planOnly ? plan.remove : removed,
+        kept,
+        manual,
+        plan: ask.planOnly,
+      },
+      ask.root,
+    ).join('\n'),
+  )
+  return EXIT_OK
+}
+
+/**
+ * `vos guide [host]`: the setup procedure, printed from this package. The
+ * text an agent follows is then the text of an installed, versioned
+ * package. No network and no file is read.
+ */
+export function cmdGuide(argv: string[]): number {
+  const { flags, positionals } = parseArgs(argv, BOOLEAN_FLAGS)
+  const which = positionals[0]
+  if (positionals.length > 1 || (which !== undefined && which !== 'host'))
+    throw new UsageError(
+      `vos guide prints the steps to record a product video, and vos guide host the steps to put a finished video on vos.so; there is no "${positionals.join(' ')}" guide`,
+    )
+  const text = which === 'host' ? hostGuide() : agentGuide()
+  if (flags.json === true)
+    process.stdout.write(
+      `${JSON.stringify({ event: 'done', guide: which ?? 'record', text })}\n`,
+    )
+  else process.stdout.write(text)
+  return EXIT_OK
 }
 
 /** `vos doctor`: what is ready, in words; exit 3 when no browser. */

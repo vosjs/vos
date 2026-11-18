@@ -104,14 +104,17 @@ describe('the rules block is idempotent', () => {
 
   it('the block says the four things and names the reference', () => {
     for (const s of [
-      'product-video',
+      'product-video (installed by vos setup)',
       'vos open take',
       'Local by default',
       'never print one',
+      '- Undo: vos setup --remove takes the skills and this block back out',
       'https://vos.so/llms-full.txt',
     ])
       expect(RULES_BLOCK).toContain(s)
     expect(RULES_BLOCK).not.toContain('—')
+    // An unpinned catalog install runs whatever is published that minute.
+    expect(RULES_BLOCK).not.toContain('skills add')
   })
 })
 
@@ -257,7 +260,7 @@ describe('doctorReport says what is ready and what to do next', () => {
     skills: [{ agent: 'claude', scope: 'project', names: ['product-video'] }],
     credential: false,
   }
-  it('a ready machine: ok, and the next step is to record', () => {
+  it('a ready machine: ok, and the next step is the packaged guide', () => {
     const rep = doctorReport(ready)
     expect(rep.ok).toBe(true)
     expect(rep.lines.join('\n')).toContain('node        22.4.0 ✓')
@@ -267,7 +270,9 @@ describe('doctorReport says what is ready and what to do next', () => {
     expect(rep.lines.join('\n')).toContain(
       'absent (vos login when you need hosting)',
     )
-    expect(rep.next_step).toContain('vos record')
+    expect(rep.next_step).toBe(
+      'Run: npx vos guide (the steps to record this product; the product-video skill carries the loop)',
+    )
   })
   it('no browser is the one thing that fails it, and the next step says the fix', () => {
     const rep = doctorReport({
