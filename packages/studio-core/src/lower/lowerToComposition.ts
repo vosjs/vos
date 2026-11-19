@@ -1464,10 +1464,43 @@ const SETUP = `async (ctx) => {
   // the same sync as the screen video (source-anchored, so element time == the
   // video's). Unmuted — syncVid's autoplay net re-mutes on policy rejection.
   const mic = ctx.data.micSrc ? await load(ctx.data.micSrc, false) : null
+  // A media whose file cannot be read NEVER borrows another clip's picture.
+  // Its own card stands in, empty, and says so (an editor's "media offline"
+  // frame): a still the compositor draws like any shot, so the film keeps
+  // its timing and the gap is plain to see, live and in a render. The size
+  // is the media's own recorded space, so its crop, zooms and card geometry
+  // land where they would have.
+  const offlineCard = (m) => {
+    const sp = m.cursorSpace || {}
+    const w = Math.max(16, Math.round(sp.w || 1920))
+    const h = Math.max(9, Math.round(sp.h || 1080))
+    const cv = document.createElement('canvas')
+    cv.width = w
+    cv.height = h
+    // The draw site reads a video's size; a canvas answers the same way.
+    cv.videoWidth = w
+    cv.videoHeight = h
+    cv.__vosMissing = true
+    try {
+      const g = cv.getContext('2d')
+      g.fillStyle = '#1b1a19'
+      g.fillRect(0, 0, w, h)
+      // Inside the crop when there is one: the words must be in the frame.
+      const cr = m.crop || { x: 0, y: 0, w: w, h: h }
+      g.fillStyle = 'rgba(255, 255, 255, 0.62)'
+      g.font = '500 ' + Math.max(12, Math.round(cr.h * 0.036)) + 'px Lexend, system-ui, -apple-system, "Segoe UI", sans-serif'
+      g.textAlign = 'center'
+      g.textBaseline = 'middle'
+      g.fillText("This clip's footage did not load", cr.x + cr.w / 2, cr.y + cr.h / 2)
+    } catch (e) { void e }
+    return cv
+  }
   // The take's OTHER media (concat): one element each, decoded the way the
   // primary is; ON_FRAME drives the one under the playhead and pauses the
-  // rest. Absent = one media, byte-identical.
+  // rest. Absent = one media, byte-identical. What failed to load is named
+  // at window.__vos__.mediaErrors[id] (the reason, in words) for a host.
   const mediaEls = {}
+  if (ns.mediaErrors) ns.mediaErrors = {}
   for (const m of ctx.data.media || []) {
     try {
       const el = m.isImage ? await loadImage(m.src) : await load(m.src, !m.hasAudio)
@@ -1481,7 +1514,9 @@ const SETUP = `async (ctx) => {
       }
       mediaEls[m.id] = el
     } catch (e) {
-      console.warn('[studio] a media failed to load', m.id, e)
+      ;(ns.mediaErrors || (ns.mediaErrors = {}))[m.id] = String((e && e.message) || e)
+      console.error('[studio] media ' + m.id + ' failed to load; its card shows it offline', e)
+      try { mediaEls[m.id] = offlineCard(m) } catch (e2) { void e2 }
     }
   }
   // Background media (frame.backgroundMedia): warm-load so the first paint is
@@ -2656,7 +2691,7 @@ const ON_FRAME = `(ctx, content, dt) => {
   var cks = d.clicks || []
   var ckF = d.clickFx || {}
   var ckPress = 1
-  if (cks.length && !tpG) {
+  if (cks.length && !tpG && !video.__vosMissing) {
     var ckK = ckF.k || 1
     var ckPre = ${CLICK_FX_PRE}
     var ckRD = ${CLICK_RIPPLE_DUR} * (ckF.dur || 1)
@@ -2847,7 +2882,7 @@ const ON_FRAME = `(ctx, content, dt) => {
   // Undefined reads as visible so pre-toggle docs are unchanged. The ranges
   // in cursorStyle.off hide the dot the same way, by time (cxoF).
   var cur = (actM ? actM.cursor : d.cursor) || []
-  if (cur.length && !(d.cursorStyle && d.cursorStyle.visible === false)) {
+  if (cur.length && !video.__vosMissing && !(d.cursorStyle && d.cursorStyle.visible === false)) {
     var px = cur[0].x, py = cur[0].y
     for (var j = 0; j < cur.length; j++) { if (cur[j].t <= srcT) { px = cur[j].x; py = cur[j].y } }
     var ax = dx + (px / (space.w || vw)) * dw
