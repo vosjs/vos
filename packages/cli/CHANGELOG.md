@@ -1,5 +1,13 @@
 # @vosjs/cli
 
+## 0.96.1
+
+### Patch Changes
+
+- 2584bba: `vos render`, `vos frames` and `vos preview` show a joined take's clip whose footage cannot be read as its own card saying so ("This clip's footage did not load"), where they used to draw the first clip's footage in its place.
+- Updated dependencies [2584bba]
+  - @vosjs/studio-core@0.49.8
+
 ## 0.96.0
 
 ### Minor Changes
