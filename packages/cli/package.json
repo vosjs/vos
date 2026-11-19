@@ -1,6 +1,6 @@
 {
   "name": "@vosjs/cli",
-  "version": "0.96.1",
+  "version": "0.96.2",
   "description": "Record a product demo video from the command line: a script or your coding agent (Claude Code, Codex, Cursor) drives the real app, zooms are planned from the cursor track, the cut is data in doc.json, and renders are deterministic. Also every vos engine verb and the vos.so sync. One binary, MIT.",
   "type": "module",
   "license": "MIT",
