@@ -1,7 +1,7 @@
 {
   "name": "@vosjs/cli",
   "version": "0.96.1",
-  "description": "The vos CLI: record the real product from a scripted browser flow, auto-zoom from the cursor track, cut as data in doc.json, render deterministic video, deliver a release's video cuts per destination spec, and sync with vos.so. One binary, every verb, MIT.",
+  "description": "Record a product demo video from the command line: a script or your coding agent (Claude Code, Codex, Cursor) drives the real app, zooms are planned from the cursor track, the cut is data in doc.json, and renders are deterministic. Also every vos engine verb and the vos.so sync. One binary, MIT.",
   "type": "module",
   "license": "MIT",
   "author": "vosso",
@@ -25,9 +25,17 @@
     "animation",
     "three",
     "screen-recording",
+    "screen-recorder",
     "product-video",
+    "product-demo",
+    "demo-video",
     "demo",
-    "auto-zoom"
+    "auto-zoom",
+    "claude-code",
+    "codex",
+    "cursor",
+    "agent-skills",
+    "playwright"
   ],
   "bin": {
     "vos": "./dist/cli.js"

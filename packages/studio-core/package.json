@@ -13,6 +13,16 @@
   "bugs": {
     "url": "https://github.com/vosjs/vos/issues"
   },
+  "keywords": [
+    "vos",
+    "screen-recording",
+    "auto-zoom",
+    "cursor",
+    "video-editing",
+    "timeline",
+    "product-video",
+    "document-model"
+  ],
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
