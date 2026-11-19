@@ -1,0 +1,18 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "vos",
+  "description": "The open programmatic video engine and the vos CLI: compile a declarative config into deterministic video, and record a real product into an editable demo with zooms planned from the cursor track.",
+  "excludeFiles": [
+    "CHANGELOG.md",
+    "CODE_OF_CONDUCT.md",
+    "SECURITY.md",
+    "LICENSE"
+  ],
+  "rules": [
+    "Install the CLI into the project with `npm i -D @vosjs/cli` and run it as `npx vos`.",
+    "Functions in a vos config are strings (`createContent: \"(ctx) => { ... }\"`), written without TypeScript syntax.",
+    "A config states its `version`; the current version is 2.",
+    "Record with `vos record --strict`, so a step that misses fails the take instead of being skipped.",
+    "Change a take by editing `doc.json` and rendering again; a zoom, a trim or a caption never needs a new recording."
+  ]
+}
