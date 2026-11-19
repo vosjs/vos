@@ -1,5 +1,11 @@
 # @vosjs/cli
 
+## 0.96.2
+
+### Patch Changes
+
+- 73d0b50: The npm description now opens with what the package does (record a product demo video from the command line), and the keywords name the agents and tools it works with.
+
 ## 0.96.1
 
 ### Patch Changes
