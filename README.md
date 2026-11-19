@@ -11,20 +11,20 @@
 
 The same engine drives a screen-recording pipeline: the `vos` CLI scripts a browser through the real product, records it with an exact cursor track, plans zooms and pacing from that track, and renders the cut. Every editing decision lives in a JSON document, so a fix is an edit and a re-render, never a re-recording.
 
-Everything in this repository is MIT. [vos.so](https://vos.so) is the hosted platform built on it (a studio, version history, cloud rendering); the CLI talks to it when you ask, and works without it.
+Everything in this repository is MIT. vosso (vos.so) is a free screen recorder with automatic zoom, and a CLI that lets your coding agent record your real product, cut the demo video and host it at a link that keeps every version. It is built on this engine; the CLI talks to [vos.so](https://vos.so) when you ask, and works without it.
 
 ## Two ways in
 
 ### Make product media
 
 ```bash
-npm i -g @vosjs/cli
-vos record --actions actions.json --out take --strict   # drive the page, record it, plan the zooms
-vos render take out.webm                                # deterministic render; edit take/doc.json and render again
-vos deliver take --to youtube,x,shorts --release v2.1  # the release's video cuts per channel spec, verified into kit.json
+npm i -D @vosjs/cli                                         # into your app's repo
+npx vos record --actions actions.json --out take --strict   # drive the page, record it, plan the zooms
+npx vos render take out.webm                                # deterministic render; edit take/doc.json and render again
+npx vos deliver take --to youtube,x,shorts --release v2.1  # the release's video cuts per channel spec, verified into kit.json
 ```
 
-The workflows for coding agents (Claude Code, Codex, Cursor and friends) install with `npx skills add vosjs/skills`. The full agent contract is [vos.so/llms.txt](https://vos.so/llms.txt). See the [CLI README](./packages/cli/README.md) for every verb.
+Or let your coding agent do it (Claude Code, Codex, Cursor and friends): [vos.so/agents](https://vos.so/agents) has the one line to hand it, and [vos.so/agent.md](https://vos.so/agent.md) is the short procedure it follows, which you can read first. The workflow skills ship in the package (`npx vos setup` installs them, and `npx vos setup --plan` shows what that would write) and are also at `npx skills add vosjs/skills`. The full agent contract is [vos.so/llms.txt](https://vos.so/llms.txt). See the [CLI README](./packages/cli/README.md) for every verb.
 
 ### Use the engine
 
