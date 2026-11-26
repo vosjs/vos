@@ -26,9 +26,9 @@ import { generateRenderTemplate } from '@vosjs/core/runtime'
 const config = {
   version: 2,
   duration: 3,
-  camera: { preset: 'perspective' },
+  camera: { preset: 'perspective', position: [0, 0, 4] },
   createContent:
-    '(ctx) => { const { THREE, scene } = ctx; const m = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()); scene.add(m); return { objects: [m], m } }',
+    '(ctx) => { const { THREE, scene } = ctx; const m = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshNormalMaterial()); m.rotation.x = 0.5; scene.add(m); return { objects: [m], m } }',
   createTimeline:
     '(ctx, content, duration) => ctx.gsap.timeline().to(content.m.rotation, { y: Math.PI, duration })',
 }
