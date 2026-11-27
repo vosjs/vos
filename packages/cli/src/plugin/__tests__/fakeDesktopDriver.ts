@@ -177,7 +177,7 @@ export function fakeDriver(o: FakeOptions = {}) {
       return {
         out: request.out,
         app: 'TextEdit',
-        window: request.window ?? 41,
+        window: ('window' in request ? request.window : undefined) ?? 41,
         width: 1312,
         height: 844,
         scale: 2,
@@ -322,7 +322,7 @@ export function fakeDriver(o: FakeOptions = {}) {
         ready: Promise.resolve({
           event: 'ready',
           protocol: 1,
-          window: request.window ?? 41,
+          window: ('window' in request ? request.window : undefined) ?? 41,
           app: 'TextEdit',
           frame: { x: 185, y: 83, w: 656, h: 422 },
           scale: 2,

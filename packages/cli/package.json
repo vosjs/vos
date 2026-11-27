@@ -64,7 +64,7 @@
   },
   "dependencies": {
     "@vosjs/core": "workspace:^",
-    "@vosjs/driver": "^0.5.0",
+    "@vosjs/driver": "^0.6.0",
     "@vosjs/editor": "workspace:^",
     "@vosjs/elements": "workspace:^",
     "@vosjs/render-core": "workspace:^",
