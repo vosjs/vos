@@ -3,6 +3,7 @@ import { projectFromArtifact } from '../ingest'
 import { groupTrack, planAutoZoom } from '../planner/autoZoom'
 import {
   STAGE_REST_MIN_LEVEL,
+  STAGE_SMALL_WINDOW_FILL,
   STAGE_VIEW_REF,
   STAGE_WINDOW_FILL,
   stageVisits,
@@ -319,12 +320,19 @@ describe('the camera on a stage', () => {
     ).find((z) => z.id.startsWith('z'))!
     const onStage = beats.find((z) => z.in >= 4.3 && z.in < 8.6)!
     const fit = Math.min(W / calc.w, H / calc.h)
-    const closest = Math.max(
-      fit * STAGE_WINDOW_FILL,
-      (W * resolveZoomStyle().maxLevel) / STAGE_VIEW_REF,
-    )
+    // The calculator is small: the least of the stage a beat may show would
+    // hold nearly all of it, so it is shown whole, closer than its rest.
+    const least = (W * resolveZoomStyle().maxLevel) / STAGE_VIEW_REF
+    const closest = fit * STAGE_SMALL_WINDOW_FILL
+    expect(closest).toBeLessThan(least)
+    expect(closest).toBeGreaterThan(fit * STAGE_WINDOW_FILL)
     expect(alone.level * fit).toBeGreaterThan(closest)
     expect(onStage.level).toBeCloseTo(closest, 2)
+    expect(calc.w / W).toBeLessThanOrEqual(1 / onStage.level)
+    expect(calc.h / H).toBeLessThanOrEqual(1 / onStage.level)
+    // The clock is not: its beats stop at the least of the stage.
+    const onClock = beats.find((z) => z.in >= 8.6 && !z.id.startsWith('w'))!
+    expect(onClock.level).toBeCloseTo(least, 2)
     // A window wide enough that the limit is far away: the two agree.
     const wide: StageWindow = {
       id: 31,

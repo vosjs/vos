@@ -50,6 +50,13 @@ export const STAGE_WINDOW_FILL = 0.85
  * default ceiling this is 600 points across.
  */
 export const STAGE_VIEW_REF = 1080
+/**
+ * A window the closest view would hold this much of (by level) is shown
+ * whole instead, filling this fraction of the frame: closer than its rest,
+ * with nothing of it cut.
+ */
+export const STAGE_NEARLY = 0.8
+export const STAGE_SMALL_WINDOW_FILL = 0.95
 /** A window that already fills the stage this nearly earns no rest: the stage is its framing. */
 export const STAGE_REST_MIN_LEVEL = 1.08
 /** A gap between a visit's spans shorter than this is left to the spans' own chain. */
@@ -275,11 +282,16 @@ export function planStageZoom<O extends StagePlanOptions>(
     const restLevel = clampZoomLevel(
       Math.min(width / win.w, height / win.h) * STAGE_WINDOW_FILL,
     )
-    // …and no closer than a reader needs: the whole window when it is a
-    // small one, else the least of the stage a beat may show.
+    // …and no closer than a reader needs: the least of the stage a beat may
+    // show, or the whole window when it is small enough that the least
+    // would hold nearly all of it (a view that cuts a sliver off a small
+    // window shows neither the window nor a part of it).
+    const least = (width * style.maxLevel) / STAGE_VIEW_REF
+    const whole =
+      Math.min(width / win.w, height / win.h) * STAGE_SMALL_WINDOW_FILL
     const closest = Math.max(
       restLevel,
-      (width * style.maxLevel) / STAGE_VIEW_REF,
+      whole >= least * STAGE_NEARLY ? Math.min(least, whole) : least,
     )
     const mapped = kept(
       frame.plan(local, {

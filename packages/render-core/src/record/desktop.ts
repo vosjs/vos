@@ -51,13 +51,26 @@ import type { SetupResult, SetupStep, StepPhase } from './setup'
 import { IF_LOOK_MS, TEARDOWN_BOUND_MS, resolveSetupText } from './setup'
 
 /** What a command acts on: an element by selector, or a point in the window's own points. */
-export type DesktopTarget = { selector: string } | { x: number; y: number }
+export type DesktopTarget = (
+  | { selector: string }
+  | { x: number; y: number }
+) & {
+  /** On a stage: the app the target is in (a drag's end may name another). */
+  app?: string
+}
 
 /** A key held through a click or a drag. */
 export type DesktopModifier = 'Meta' | 'Control' | 'Alt' | 'Shift'
 
-/** One act the session performs. The shape is `@vosjs/driver`'s `Command`. */
-export type DesktopCommand =
+/**
+ * One act the session performs. The shape is `@vosjs/driver`'s `Command`. On a
+ * stage a command says which app it acts on (`app`); one that says none acts on
+ * the app the last one named.
+ */
+export type DesktopCommand = { app?: string } & DesktopAct
+
+/** What a command does. */
+export type DesktopAct =
   | ({ do: 'locate' } & DesktopTarget)
   | ({
       do: 'click'
@@ -198,10 +211,23 @@ export function desktopProblems(
         `mask[${i}]: as "text" rewrites a page’s words; a desktop take covers what a mask names and puts nothing in its place`,
       )
     named(`mask[${i}]`, m.selector)
+    // An element is some app's: on a stage of several, a mask says whose.
+    if (m.app !== undefined && !(actions.apps ?? []).includes(m.app))
+      out.push(
+        `mask[${i}]: app "${m.app}" is not on the stage${actions.apps ? ` (apps: ${actions.apps.join(', ')})` : ': this script has no apps'}`,
+      )
+    else if ((actions.apps?.length ?? 0) > 1 && m.app === undefined)
+      out.push(
+        `mask[${i}]: on a stage of several apps a mask says which app its element is in: "app"`,
+      )
   })
   for (const phase of ['setup', 'teardown'] as const)
     actions[phase]?.forEach((step, i) => {
       const at = `${phase}[${i}]`
+      if (step.app !== undefined && !(actions.apps ?? []).includes(step.app))
+        out.push(
+          `${at}: app "${step.app}" is not on the stage${actions.apps ? ` (apps: ${actions.apps.join(', ')})` : ': this script has no apps'}`,
+        )
       if (step.do === 'goto')
         out.push(`${at}: goto opens a page; a desktop script has none`)
       if ('selector' in step) named(at, step.selector)
@@ -284,6 +310,8 @@ export async function runDesktopSetup(
   log: (msg: string) => void,
   opts: {
     clock?: RecorderClock
+    /** A stage's apps: a step that names none acts on the first, then on the last named. */
+    apps?: readonly string[]
     /** Where a `{ env }` text is read from: the host's environment, handed in. */
     env?: Record<string, string | undefined>
     boundMs?: number
@@ -292,6 +320,17 @@ export async function runDesktopSetup(
   const clock: RecorderClock = opts.clock ?? {
     now: Date.now,
     sleep: realSleep,
+  }
+  // On a stage every command says which app it acts on: the step's, else the last named.
+  let stepApp: string | undefined = opts.apps?.[0]
+  const direct = session
+  session = {
+    send: (command) =>
+      direct.send(
+        stepApp && command.app === undefined
+          ? { ...command, app: stepApp }
+          : command,
+      ),
   }
   const deadline = clock.now() + (opts.boundMs ?? TEARDOWN_BOUND_MS)
   const lines: string[] = []
@@ -316,6 +355,7 @@ export async function runDesktopSetup(
   }
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i]!
+    if (step.app) stepApp = step.app
     const selector = 'selector' in step ? step.selector : undefined
     const failed = (error: string): SetupResult => ({
       ran,
@@ -672,8 +712,15 @@ export async function runDesktopSteps(
   // this side keeps the difference and can tell the take's time between acts.
   let offset = 0
   let gestureMs = 0
+  // On a stage every command says which app it acts on: the step's own, else
+  // the app of the step before it, and the stage's first app before any.
+  let stepApp: string | undefined = actions.apps?.[0]
   const send = async (command: DesktopCommand): Promise<DesktopAnswer> => {
-    const answer = await session.send(command)
+    const answer = await session.send(
+      stepApp && command.app === undefined
+        ? { ...command, app: stepApp }
+        : command,
+    )
     if (answer.ok) {
       offset = answer.tEnd - clock.now()
       if (command.do !== 'locate' && command.do !== 'now')
@@ -694,6 +741,7 @@ export async function runDesktopSteps(
     }
     const id = step.id
     const tag = `#${i}${id ? ` ${id}` : ''} ${step.do}`
+    if (step.app) stepApp = step.app
     const stepStart = now()
     const skippedBefore = skipped.length
     gestureMs = 0
@@ -739,10 +787,16 @@ export async function runDesktopSteps(
     const find = async (
       selector: string,
       timeoutMs = DESKTOP_FIND_MS,
+      /** On a stage: another app than the step's (a drag's far end). */
+      app?: string,
     ): Promise<Extract<DesktopAnswer, { ok: true }> | null> => {
       const deadline = clock.now() + timeoutMs
       for (;;) {
-        const answer = await send({ do: 'locate', selector })
+        const answer = await send({
+          do: 'locate',
+          selector,
+          ...(app ? { app } : {}),
+        })
         if (!answer.ok) {
           missed(answer, selector)
           return null
@@ -920,12 +974,28 @@ export async function runDesktopSteps(
       case 'drag': {
         const target = await targetOf(step)
         if (!target) break
+        // Where it ends: an element (waited for, in another app of a stage
+        // when it says so), a point of a window, or the page-style tx, ty.
+        const end = step.to
+        const onStage = end?.app ? { app: end.app } : {}
+        if (end?.selector !== undefined) {
+          const start = rect
+          const there = await find(end.selector, DESKTOP_FIND_MS, end.app)
+          // The step's bounds are of what was picked up, not of where it lands.
+          rect = start
+          if (!there) break
+        }
         if (
           await act(
             {
               do: 'drag',
               ...target,
-              to: { x: step.tx!, y: step.ty! },
+              to:
+                end?.selector !== undefined
+                  ? { selector: end.selector, ...onStage }
+                  : end
+                    ? { x: end.x!, y: end.y!, ...onStage }
+                    : { x: step.tx!, y: step.ty! },
               ms: step.ms ?? 700,
               ...(step.modifiers
                 ? { modifiers: desktopModifiers(step.modifiers) }

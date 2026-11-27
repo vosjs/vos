@@ -33,6 +33,15 @@ export interface ActionsFile {
    */
   app?: string
   /**
+   * A STAGE in place of one app: several desktop apps in one take, each by
+   * name or bundle id. Every window of theirs is recorded where it is, on
+   * one display, and nothing else is. A step says which app it acts on with
+   * its own `app`; one that says none stays with the app of the step before
+   * it, and the first with the first app named here. `app` or `apps`, never
+   * both; `viewport` has no meaning on a stage.
+   */
+  apps?: string[]
+  /**
    * Recording viewport in CSS px (default 1280x720). For a desktop app, the
    * size its window is given before the take, in points; absent, the window
    * is recorded at the size it has.
@@ -186,6 +195,12 @@ export type ActionStep = (
       y?: number
       tx?: number
       ty?: number
+      /**
+       * A DESKTOP drag's end, in place of (tx, ty): an element, or a point of
+       * a window. On a stage it may be in another app (`app`): the thing is
+       * carried from one window into the other.
+       */
+      to?: { app?: string; selector?: string; x?: number; y?: number }
       path?: PathPoint[] | string
       modifiers?: DragModifier[]
       ms?: number
@@ -262,6 +277,12 @@ export type ActionStep = (
    * edits without breaking the cut anchored to it. Unique when present.
    */
   id?: string
+  /**
+   * On a stage (`apps`): the app this step acts on, by the name or bundle
+   * id the stage gave it. Absent, the step stays with the app of the step
+   * before it.
+   */
+  app?: string
   /**
    * A beat's caption, two to eight words: `vos deliver` lands it as a
    * lower-third at this step's moment on the cuts that take words, and
@@ -385,7 +406,36 @@ export function validateActions(
   if (typeof value !== 'object' || value === null)
     return ['actions file must be a JSON object']
   const obj = value as Record<string, unknown>
-  const desktop = opts.desktop === true || typeof obj.app === 'string'
+  const desktop =
+    opts.desktop === true ||
+    typeof obj.app === 'string' ||
+    Array.isArray(obj.apps)
+  /** A stage's apps, when the script is one and names them well. */
+  let stage: string[] | null = null
+  if (obj.apps !== undefined) {
+    const list: unknown = obj.apps
+    if (
+      !Array.isArray(list) ||
+      list.length === 0 ||
+      list.some((a) => typeof a !== 'string' || !a.trim())
+    )
+      errors.push(
+        'apps must be a list of apps’ names or bundle ids (a stage: several desktop apps in one take)',
+      )
+    else if (new Set(list).size !== list.length)
+      errors.push('apps names an app twice')
+    else stage = list as string[]
+    if (obj.app !== undefined)
+      errors.push(
+        'a script names one app (app) or a stage of several (apps), not both',
+      )
+    if (obj.url !== undefined)
+      errors.push('a script records a url or a stage of apps, not both')
+    if (obj.viewport !== undefined)
+      errors.push(
+        'viewport sizes one window; a stage records its apps’ windows where and as they are',
+      )
+  }
   if (obj.onSkip !== undefined) {
     if (obj.onSkip !== 'stop' && obj.onSkip !== 'continue')
       errors.push('onSkip must be "stop" or "continue"')
@@ -477,6 +527,18 @@ export function validateActions(
       } else {
         seenIds.add(s.id)
       }
+    }
+    if (s.app !== undefined) {
+      if (typeof s.app !== 'string' || !s.app.trim())
+        errors.push(`${at}: app must be an app’s name or bundle id`)
+      else if (!stage)
+        errors.push(
+          `${at}: app says which app of a stage a step acts on, and this script has no apps`,
+        )
+      else if (!stage.includes(s.app))
+        errors.push(
+          `${at}: app "${s.app}" is not on the stage (apps: ${stage.join(', ')})`,
+        )
     }
     if (s.do === 'type' && typeof s.selector !== 'string') {
       // A desktop app may offer no field to name (an editor drawn by the
@@ -746,8 +808,36 @@ export function validateActions(
             for (const p of read.problems) errors.push(`${at}: drag path ${p}`)
         }
       } else {
-        if (typeof s.tx !== 'number' || typeof s.ty !== 'number') {
-          errors.push(`${at}: drag needs tx and ty (CSS px), or a path`)
+        if (s.to !== undefined) {
+          const to = s.to as Record<string, unknown> | null
+          const ends =
+            typeof to === 'object' &&
+            to !== null &&
+            (isFilled(to.selector) ||
+              (typeof to.x === 'number' && typeof to.y === 'number'))
+          if (!desktop)
+            errors.push(
+              `${at}: drag to is a desktop script’s; a page’s drag ends at tx and ty`,
+            )
+          else if (!ends)
+            errors.push(
+              `${at}: drag to needs a selector, or x and y in the window’s points`,
+            )
+          else if (
+            to.app !== undefined &&
+            !(stage ?? []).includes(to.app as string)
+          )
+            errors.push(
+              `${at}: drag to app "${String(to.app)}" is not on the stage${stage ? ` (apps: ${stage.join(', ')})` : ': this script has no apps'}`,
+            )
+          if (s.tx !== undefined || s.ty !== undefined)
+            errors.push(`${at}: a drag ends at to, or at tx and ty, not both`)
+        } else if (typeof s.tx !== 'number' || typeof s.ty !== 'number') {
+          errors.push(
+            desktop
+              ? `${at}: drag needs where it ends: to (a selector, or x and y), or tx and ty`
+              : `${at}: drag needs tx and ty (CSS px), or a path`,
+          )
         }
         const hasStart =
           typeof s.selector === 'string' ||

@@ -32,6 +32,8 @@ export type ScannedNotice = Omit<Notice, 'step' | 'seen'>
 
 export interface MaskRule {
   selector: string
+  /** On a stage of several desktop apps: the app the element is in. */
+  app?: string
   /** `blur` (default) blurs the element; `text` swaps its words for `text`. */
   as?: 'blur' | 'text'
   text?: string

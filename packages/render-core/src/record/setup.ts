@@ -41,7 +41,11 @@ export type SetupStep = (
   | { do: 'press'; key: string; ms?: number }
   | { do: 'goto'; url: string }
   | { do: 'if'; selector: string; ms?: number }
-) & { id?: string }
+) & {
+  id?: string
+  /** On a stage: the app this step acts on. Absent, the app of the step before it. */
+  app?: string
+}
 
 const VERBS = new Set(['wait', 'click', 'type', 'press', 'goto', 'if'])
 
