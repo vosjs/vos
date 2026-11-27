@@ -1,5 +1,25 @@
 # @vosjs/studio-core
 
+## 0.51.0
+
+### Minor Changes
+
+- 1edba1c: A stage's windows can float: nothing behind them but the backdrop.
+
+  `vos record --app <A> --app <B> --float` records a stage with nothing painted where it holds nothing. A video file carries no transparency, so the take's file holds the picture with a matte in a strip under it, and `meta.matte` says where the matte stands (`FootageMatte`). The card draws such a take through its matte: there is no card behind the windows and no edge to clip them to, each window keeps its own shape, and the frame's shadow is cast by the windows themselves. The picture rides the crop every draw of footage already takes, so nothing that draws the file shows the strip; where the picture cannot be drawn through its matte (no WebGL2) it is drawn as it is, on black. `--float` is not given with `--desk`, works with a script, and needs `@vosjs/driver` 0.6.0, said when the installed helper is older.
+
+  A kept menu bar (`--desk menubar`) no longer shows the mark the system adds while a screen is recorded, where the helper can find it.
+
+### Patch Changes
+
+- 1edba1c: A stage is scripted.
+
+  An `actions.json` is a stage's when it names `apps` where one app's names `app`. A step says which app it acts on with its own `app`; one that says none stays with the app of the step before it, and the first with the first app named. The app is brought forward when its step runs. A desktop drag may end at an element (`to`), and on a stage that element may be in another app: the thing is carried from one window into the other. A mask and a `setup` or `teardown` step say their app the same way. `viewport` and `--play` are refused on a stage, in words.
+
+  `vos record --actions <a stage's script>` records it like any scripted desktop take: setup off camera, masks, steps into `meta.steps`, teardown, `--strict`. `vos look --app <A> --app <B>` takes one picture of the stage and lists each app's controls. It needs `@vosjs/driver` 0.6.0, and says so when the installed helper is older.
+
+  The stage's camera shows a small window whole: when the least of the stage a beat may show would hold nearly all of a window, the beat frames the whole window instead of cutting a sliver off it.
+
 ## 0.50.0
 
 ### Minor Changes
