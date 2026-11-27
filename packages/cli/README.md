@@ -198,6 +198,7 @@ vos record --app Linear --app Terminal --out take      # a stage of two apps
 vos record --app Figma --stage --out take              # one app's every window: its palettes, its second window
 vos record --app Raycast --desk menubar --out take     # keep a part of the desk: menubar, dock, wallpaper
 vos record --app Linear --app Terminal --float --out take   # nothing behind the windows: they stand on the backdrop, each casting its own shadow
+vos record --app Terminal --pid 4100 --out take          # a process on the stage: a throwaway instance of an app you have open, and not your own windows
 ```
 
 Nothing that was not named is recorded: no other app, no wallpaper, no desktop icons, no Dock, no menu bar, and there is no flag that records the screen as it is. A window of another app that opens over the stage mid-take is in no frame. A named window that something else covers on screen is recorded whole, so you can keep another app in front while the stage is filmed. An Open panel, a system prompt and a password sheet belong to their own processes and stay out. The frame is the display under its menu bar, and the pointer counts only while it is over the stage.

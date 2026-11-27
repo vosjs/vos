@@ -56,6 +56,7 @@ import {
   stageTarget,
   STAGE_NEEDS_DRIVER,
   FLOAT_NEEDS_DRIVER,
+  narrowedToProcesses,
 } from './recordStage'
 import type { StageTarget } from './recordStage'
 import {
@@ -295,10 +296,12 @@ export async function cmdRecordApp(
   const { positionals, flags, multi } = parseArgs(
     argv,
     BOOLEAN_FLAGS,
-    new Set([...MULTI_FLAGS, 'app', 'desk']),
+    new Set([...MULTI_FLAGS, 'app', 'desk', 'pid']),
   )
   const r = createReporter(flags.json === true)
   const appFlag = multi.app?.length === 1 ? multi.app[0] : undefined
+  // --pid too: one names a process as it always did, more than one is a stage of them.
+  if (multi.pid?.length === 1) flags.pid = multi.pid[0]!
 
   // The script, read and refused before anything on the machine is touched.
   const actionsPath = strFlag(flags, 'actions') ?? positionals[0]
@@ -388,7 +391,14 @@ export async function cmdRecordApp(
   if (actions && !granted.accessibility)
     throw new Error(ACCESSIBILITY_FOR_SCRIPT)
   const target = staged
-    ? stageTarget(flags, multi, actions)
+    ? narrowedToProcesses(
+        stageTarget(flags, multi, actions),
+        multi.pid?.length
+          ? await driver.windows().catch((error) => {
+              throw driverFailure(error)
+            })
+          : [],
+      )
     : desktopTarget(flags, app)
   if (!target) throw new UsageError(USAGE)
   const stage = isStageTarget(target) ? target : undefined

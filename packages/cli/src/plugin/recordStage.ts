@@ -24,7 +24,7 @@
  * The capture and its rules are `@vosjs/driver`'s (0.5.0 and later; a
  * scripted stage, 0.6.0).
  */
-import { UsageError, hasFlag, numFlag } from './args'
+import { UsageError, hasFlag } from './args'
 import type { ActionsFile } from '@vosjs/render-core/record'
 
 /** The parts of the desk a stage can keep. */
@@ -59,6 +59,7 @@ export function isStage(
     (multi.app?.length ?? 0) > 1 ||
     flags.stage === true ||
     flags.float === true ||
+    (multi.pid?.length ?? 0) > 1 ||
     (multi.desk?.length ?? 0) > 0 ||
     (actions?.apps?.length ?? 0) > 0
   )
@@ -104,15 +105,18 @@ export function stageTarget(
         `the script's stage is ${actions.apps.join(', ')}, and its steps name those apps; --app named ${given.join(', ')}. Leave --app out, or name the same apps`,
       )
   }
-  let pid: number | undefined
-  if (hasFlag(flags, 'pid')) {
-    pid = numFlag(flags, 'pid', NaN)
-    if (!Number.isInteger(pid) || pid <= 0)
-      throw new UsageError(
-        '--pid expects a process id (vos record --windows lists each window’s)',
-      )
-  }
-  if (!apps.length && pid === undefined)
+  // --pid may be given more than once: each is one process on the stage.
+  const said = multi.pid?.length
+    ? multi.pid
+    : hasFlag(flags, 'pid')
+      ? [String(flags.pid)]
+      : []
+  const pids = said.map((v) => Number(v))
+  if (pids.some((p) => !Number.isInteger(p) || p <= 0))
+    throw new UsageError(
+      '--pid expects a process id (vos record --windows lists each window’s)',
+    )
+  if (!apps.length && !pids.length)
     throw new UsageError(
       'a stage names its apps: --app "<name>" once for each (vos record --windows lists what is on screen). Nothing that is not named is recorded',
     )
@@ -124,10 +128,30 @@ export function stageTarget(
     )
   return {
     ...(apps.length ? { apps } : {}),
-    ...(pid !== undefined ? { pids: [pid] } : {}),
+    ...(pids.length ? { pids } : {}),
     ...(desk.length ? { desk } : {}),
     ...(float ? { float: true as const } : {}),
   }
+}
+
+/**
+ * A stage that names a process names THAT process: an app the stage also names by name is
+ * then that process alone, never every running instance of it. So a throwaway instance of
+ * an app the person has open is filmed by its `--pid`, and their own windows stay out.
+ */
+export function narrowedToProcesses(
+  target: StageTarget,
+  windows: readonly { pid: number; app: string; appId: string }[],
+): StageTarget {
+  if (!target.pids?.length || !target.apps?.length) return target
+  const held = new Set(
+    windows
+      .filter((w) => target.pids!.includes(w.pid))
+      .flatMap((w) => [w.app, w.appId]),
+  )
+  const apps = target.apps.filter((a) => !held.has(a))
+  const { apps: _named, ...rest } = target
+  return apps.length ? { ...rest, apps } : rest
 }
 
 /** Apps in words: "A", "A and B", "A, B and C". */

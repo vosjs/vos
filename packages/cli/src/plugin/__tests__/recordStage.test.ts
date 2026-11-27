@@ -12,7 +12,7 @@ import {
   vi,
 } from 'vitest'
 import { cmdRecordApp, isDesktopRecord } from '../recordApp'
-import { deskParts } from '../recordStage'
+import { deskParts, narrowedToProcesses } from '../recordStage'
 import { STAGE_WINDOWS, TRACK, fakeDriver } from './fakeDesktopDriver'
 import type { FakeOptions } from './fakeDesktopDriver'
 
@@ -114,6 +114,41 @@ describe('vos record --app A --app B', () => {
     expect('app' in a.requests[0]!).toBe(false)
     const b = await run(['--pid', '4100', '--stage', '--out', join(dir, 'b')])
     expect(b.requests[0]).toMatchObject({ pids: [4100] })
+  })
+
+  it('--pid names a process, more than once; an app it also names by name is that process alone', async () => {
+    const a = await run([
+      '--pid',
+      '4100',
+      '--pid',
+      '4200',
+      '--out',
+      join(dir, 'p'),
+    ])
+    expect(a.requests[0]).toMatchObject({ pids: [4100, 4200] })
+    expect('apps' in a.requests[0]!).toBe(false)
+    // The person has Chrome open; the take films a throwaway Chrome by its process.
+    const windows = [
+      { pid: 900, app: 'Google Chrome', appId: 'com.google.Chrome' },
+      { pid: 4100, app: 'Google Chrome', appId: 'com.google.Chrome' },
+      { pid: 4300, app: 'Terminal', appId: 'com.apple.Terminal' },
+    ]
+    expect(
+      narrowedToProcesses(
+        { apps: ['Terminal', 'Google Chrome'], pids: [4100] },
+        windows,
+      ),
+    ).toEqual({ apps: ['Terminal'], pids: [4100] })
+    expect(
+      narrowedToProcesses(
+        { apps: ['com.google.Chrome'], pids: [4100] },
+        windows,
+      ),
+    ).toEqual({ pids: [4100] })
+    // with no process named, a name is every instance, as it was
+    expect(narrowedToProcesses({ apps: ['Terminal'] }, windows)).toEqual({
+      apps: ['Terminal'],
+    })
   })
 
   it('--float asks for the windows with nothing behind them, alone or with one app', async () => {
