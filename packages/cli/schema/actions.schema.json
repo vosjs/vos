@@ -17,6 +17,16 @@
       "minLength": 1,
       "description": "A desktop app to record in place of a page: its name or bundle id (overridable with --app; macOS). Selectors are then in the desktop dialect: a role, then what the element is called or its accessibility identifier, e.g. button[name='Save'], textfield[id='title'], toolbar > button[name*='Share'], button[name='Delete']:nth(1). vos look --app lists them. A desktop script takes no url, mask, setup, teardown, ready or peers, and its steps are wait, hover, click, type, press, scroll, move, drag and expect."
     },
+    "apps": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "A STAGE in place of one app: several desktop apps in one take (macOS), each by name or bundle id. Every window of theirs is recorded where it is, on one display, and nothing else is. A step says which app it acts on with its own `app`. `app` or `apps`, never both; `viewport` has no meaning on a stage."
+    },
     "onSkip": {
       "type": "string",
       "enum": ["stop", "continue"],
@@ -80,6 +90,11 @@
           "text": {
             "type": "string",
             "description": "shown instead, with as: \"text\""
+          },
+          "app": {
+            "type": "string",
+            "minLength": 1,
+            "description": "On a stage of several desktop apps: the app the element is in."
           }
         }
       }
@@ -110,6 +125,11 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
+              },
+              "app": {
+                "type": "string",
+                "minLength": 1,
+                "description": "On a stage (`apps`): the app this step acts on, by the name or bundle id the stage gave it. Absent, the step stays with the app of the step before it, and the first with the first app of `apps`."
               },
               "caption": {
                 "type": "string",
@@ -163,6 +183,11 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
+              },
+              "app": {
+                "type": "string",
+                "minLength": 1,
+                "description": "On a stage (`apps`): the app this step acts on, by the name or bundle id the stage gave it. Absent, the step stays with the app of the step before it, and the first with the first app of `apps`."
               },
               "caption": {
                 "type": "string",
@@ -258,6 +283,11 @@
                 "minLength": 1,
                 "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
               },
+              "app": {
+                "type": "string",
+                "minLength": 1,
+                "description": "On a stage (`apps`): the app this step acts on, by the name or bundle id the stage gave it. Absent, the step stays with the app of the step before it, and the first with the first app of `apps`."
+              },
               "caption": {
                 "type": "string",
                 "maxLength": 80,
@@ -338,6 +368,11 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
+              },
+              "app": {
+                "type": "string",
+                "minLength": 1,
+                "description": "On a stage (`apps`): the app this step acts on, by the name or bundle id the stage gave it. Absent, the step stays with the app of the step before it, and the first with the first app of `apps`."
               },
               "caption": {
                 "type": "string",
@@ -434,6 +469,11 @@
                 "minLength": 1,
                 "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
               },
+              "app": {
+                "type": "string",
+                "minLength": 1,
+                "description": "On a stage (`apps`): the app this step acts on, by the name or bundle id the stage gave it. Absent, the step stays with the app of the step before it, and the first with the first app of `apps`."
+              },
               "caption": {
                 "type": "string",
                 "maxLength": 80,
@@ -488,6 +528,11 @@
                 "minLength": 1,
                 "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
               },
+              "app": {
+                "type": "string",
+                "minLength": 1,
+                "description": "On a stage (`apps`): the app this step acts on, by the name or bundle id the stage gave it. Absent, the step stays with the app of the step before it, and the first with the first app of `apps`."
+              },
               "caption": {
                 "type": "string",
                 "maxLength": 80,
@@ -524,6 +569,11 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
+              },
+              "app": {
+                "type": "string",
+                "minLength": 1,
+                "description": "On a stage (`apps`): the app this step acts on, by the name or bundle id the stage gave it. Absent, the step stays with the app of the step before it, and the first with the first app of `apps`."
               },
               "caption": {
                 "type": "string",
@@ -607,6 +657,11 @@
                 "minLength": 1,
                 "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
               },
+              "app": {
+                "type": "string",
+                "minLength": 1,
+                "description": "On a stage (`apps`): the app this step acts on, by the name or bundle id the stage gave it. Absent, the step stays with the app of the step before it, and the first with the first app of `apps`."
+              },
               "caption": {
                 "type": "string",
                 "maxLength": 80,
@@ -620,17 +675,61 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "a selector whose words the recorder keeps once the step has settled (meta.steps[].text, trimmed, at most 2 KB): the take's own payload, which a layer quotes instead of a replay; on a click, what the click opened"
+              },
+              "to": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "A DESKTOP drag’s end, in place of tx and ty: an element, or a point of a window. On a stage it may be in another app (`app`): the thing is carried from one window into the other.",
+                "properties": {
+                  "app": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "selector": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "x": {
+                    "type": "number"
+                  },
+                  "y": {
+                    "type": "number"
+                  }
+                }
               }
             },
             "oneOf": [
               {
                 "required": ["tx", "ty"],
                 "not": {
-                  "required": ["path"]
+                  "anyOf": [
+                    {
+                      "required": ["path"]
+                    },
+                    {
+                      "required": ["to"]
+                    }
+                  ]
                 }
               },
               {
                 "required": ["path"]
+              },
+              {
+                "required": ["to"],
+                "not": {
+                  "anyOf": [
+                    {
+                      "required": ["path"]
+                    },
+                    {
+                      "required": ["tx"]
+                    },
+                    {
+                      "required": ["ty"]
+                    }
+                  ]
+                }
               }
             ]
           },
@@ -691,6 +790,11 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
+              },
+              "app": {
+                "type": "string",
+                "minLength": 1,
+                "description": "On a stage (`apps`): the app this step acts on, by the name or bundle id the stage gave it. Absent, the step stays with the app of the step before it, and the first with the first app of `apps`."
               },
               "caption": {
                 "type": "string",
@@ -847,6 +951,11 @@
                 "minLength": 1,
                 "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
               },
+              "app": {
+                "type": "string",
+                "minLength": 1,
+                "description": "On a stage (`apps`): the app this step acts on, by the name or bundle id the stage gave it. Absent, the step stays with the app of the step before it, and the first with the first app of `apps`."
+              },
               "caption": {
                 "type": "string",
                 "maxLength": 80,
@@ -895,6 +1004,11 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
+              },
+              "app": {
+                "type": "string",
+                "minLength": 1,
+                "description": "On a stage (`apps`): the app this step acts on, by the name or bundle id the stage gave it. Absent, the step stays with the app of the step before it, and the first with the first app of `apps`."
               },
               "caption": {
                 "type": "string",
@@ -952,6 +1066,11 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "Optional stable identity: doc.json anchors name a step by this id (else by index), so a step survives moving or gaining neighbours across script edits. Unique across steps when present."
+              },
+              "app": {
+                "type": "string",
+                "minLength": 1,
+                "description": "On a stage (`apps`): the app this step acts on, by the name or bundle id the stage gave it. Absent, the step stays with the app of the step before it, and the first with the first app of `apps`."
               },
               "caption": {
                 "type": "string",
@@ -1042,6 +1161,11 @@
                 "id": {
                   "type": "string",
                   "minLength": 1
+                },
+                "app": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "On a stage (`apps`): the app this step acts on, by the name or bundle id the stage gave it. Absent, the step stays with the app of the step before it, and the first with the first app of `apps`."
                 }
               },
               "not": {
@@ -1104,6 +1228,11 @@
         },
         "id": {
           "type": "string"
+        },
+        "app": {
+          "type": "string",
+          "minLength": 1,
+          "description": "On a stage (`apps`): the app this step acts on, by the name or bundle id the stage gave it. Absent, the step stays with the app of the step before it, and the first with the first app of `apps`."
         },
         "selector": {
           "type": "string"

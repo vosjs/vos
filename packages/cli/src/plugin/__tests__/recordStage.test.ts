@@ -63,6 +63,7 @@ async function run(argv: string[], o: FakeOptions = {}) {
   return {
     code,
     requests: fake.requests,
+    commands: fake.commands,
     done: events.find((e) => e.event === 'done'),
     notes: err.join(''),
   }
@@ -198,16 +199,25 @@ describe('what a stage refuses, in words', () => {
     )
   }
 
-  it('a script or a program: a stage is performed', async () => {
-    const script = join(dir, 'actions.json')
-    await writeFile(script, JSON.stringify({ app: 'Linear', steps: [] }))
-    await refused(
-      ['--app', 'Linear', '--app', 'Terminal', '--actions', script],
-      /a stage is performed/,
-    )
+  it('a program: a stage is performed or scripted', async () => {
     await refused(
       ['--app', 'Linear', '--stage', '--play', 'play.mjs'],
-      /a stage is performed/,
+      /takes no program yet/,
+    )
+  })
+
+  it('--app flags that are not the stage a script names', async () => {
+    const script = join(dir, 'stage-other.json')
+    await writeFile(
+      script,
+      JSON.stringify({
+        apps: ['Linear', 'Terminal'],
+        steps: [{ do: 'wait', ms: 10 }],
+      }),
+    )
+    await refused(
+      ['--app', 'Linear', '--app', 'Notes', '--actions', script],
+      /the script's stage is Linear, Terminal/,
     )
   })
 

@@ -29,7 +29,10 @@ import type {
 import type { RecordRequest } from '@vosjs/driver'
 
 /** The record request's target: a window, a process, or an app. */
-export type DesktopTargetRequest = Pick<RecordRequest, 'window' | 'pid' | 'app'>
+export type DesktopTargetRequest = Pick<
+  RecordRequest,
+  'window' | 'pid' | 'app' | 'apps' | 'pids' | 'desk'
+>
 
 /**
  * Why a selector is not one in the desktop dialect: the driver's own
@@ -69,9 +72,13 @@ export function desktopStageProblem(
 /** The script's masks as the driver takes them: every match of each selector. */
 export function driverMasks(
   actions: ActionsFile | undefined,
-): { selector: string }[] | undefined {
+): { selector: string; app?: string }[] | undefined {
+  // On a stage a mask says which app its element is in.
   return actions?.mask?.length
-    ? actions.mask.map((m) => ({ selector: m.selector }))
+    ? actions.mask.map((m) => ({
+        selector: m.selector,
+        ...(m.app ? { app: m.app } : {}),
+      }))
     : undefined
 }
 
@@ -105,6 +112,7 @@ export async function offCamera(
       log(`${phase}: ${steps.length} step(s), off camera…`)
       return await runDesktopSetup(take, steps, phase, log, {
         env: process.env,
+        ...(actions.apps ? { apps: actions.apps } : {}),
       })
     } finally {
       await take.stop().catch(() => {})

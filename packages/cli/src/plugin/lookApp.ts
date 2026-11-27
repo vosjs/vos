@@ -27,6 +27,7 @@ import {
   desktopTeardown,
   driverSelectorProblem,
 } from './desktopStage'
+import { lookStage } from './lookStage'
 import { EXIT_OK, EXIT_USAGE, createReporter } from './output'
 import {
   ACCESSIBILITY_FOR_SCRIPT,
@@ -48,6 +49,7 @@ import type { TreeElement } from '@vosjs/driver'
 
 const USAGE =
   'vos look --app <name|bundle id> [--out <dir>] [--json]\n' +
+  '       vos look --app <name> --app <name> …   a stage: one picture, each app’s controls\n' +
   '       vos look --window <id> …   one window by its id (vos record --windows lists them)\n' +
   '       vos look --pid <n> …       a process’s window: two instances of one app share a name\n' +
   '       vos look --app <name> --actions actions.json --until <step id> [--confirm <id>]...   the state a script reaches'
@@ -150,12 +152,26 @@ export async function cmdLookApp(
   argv: string[],
   deps: { driver?: DesktopDriver } = {},
 ): Promise<number> {
+  // --app may be given more than once: more than one is a stage (lookStage.ts).
   const { flags, multi } = parseArgs(
     argv,
     new Set(['json', 'help']),
-    new Set(['confirm']),
+    new Set(['confirm', 'app']),
   )
   const r = createReporter(flags.json === true)
+  const appFlag = multi.app?.length === 1 ? multi.app[0] : undefined
+  if ((multi.app?.length ?? 0) > 1) {
+    if (strFlag(flags, 'actions') || strFlag(flags, 'until'))
+      throw new UsageError(
+        '--until walks one app’s script to a step. A stage is looked at as it stands: vos look --app "<A>" --app "<B>"',
+      )
+    return lookStage({
+      apps: multi.app!,
+      flags,
+      driver: deps.driver ?? (await loadDriver()),
+      r,
+    })
+  }
 
   // The script to walk, read and refused before anything is touched.
   const actionsArg = strFlag(flags, 'actions')
@@ -191,7 +207,7 @@ export async function cmdLookApp(
     )
   }
 
-  const target = desktopTarget(flags, actions?.app)
+  const target = desktopTarget(flags, appFlag ?? actions?.app)
   if (!target) throw new UsageError(USAGE)
   const driver = deps.driver ?? (await loadDriver())
 
