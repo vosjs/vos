@@ -36,6 +36,8 @@ export interface StageTarget {
   apps?: string[]
   pids?: number[]
   desk?: DeskPart[]
+  /** Nothing behind the windows: the take carries their shape, and they stand on the backdrop. */
+  float?: true
 }
 
 export const STAGE_NEEDS_DRIVER =
@@ -43,6 +45,9 @@ export const STAGE_NEEDS_DRIVER =
 
 export const SCRIPTED_STAGE_NEEDS_DRIVER =
   'a scripted stage needs @vosjs/driver 0.6.0 or later; the one installed records a stage as it is performed. Update @vosjs/cli (npm i -D @vosjs/cli@latest).'
+
+export const FLOAT_NEEDS_DRIVER =
+  "a floating stage needs @vosjs/driver 0.6.0 or later; the one installed paints a ground behind a stage's windows. Update @vosjs/cli (npm i -D @vosjs/cli@latest)."
 
 /** True when the flags, or the script, ask for a stage and not a take of one window. */
 export function isStage(
@@ -53,6 +58,7 @@ export function isStage(
   return (
     (multi.app?.length ?? 0) > 1 ||
     flags.stage === true ||
+    flags.float === true ||
     (multi.desk?.length ?? 0) > 0 ||
     (actions?.apps?.length ?? 0) > 0
   )
@@ -111,10 +117,16 @@ export function stageTarget(
       'a stage names its apps: --app "<name>" once for each (vos record --windows lists what is on screen). Nothing that is not named is recorded',
     )
   const desk = deskParts(multi.desk ?? [])
+  const float = flags.float === true
+  if (float && desk.length)
+    throw new UsageError(
+      '--float is the windows with nothing behind them, and --desk keeps a part of what is behind them. Use one',
+    )
   return {
     ...(apps.length ? { apps } : {}),
     ...(pid !== undefined ? { pids: [pid] } : {}),
     ...(desk.length ? { desk } : {}),
+    ...(float ? { float: true as const } : {}),
   }
 }
 

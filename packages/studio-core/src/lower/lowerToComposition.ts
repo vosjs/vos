@@ -168,6 +168,7 @@ import type {
   ObjectClip,
   OverlayClip,
   ProjectDoc,
+  FootageMatte,
   RecordingMeta,
   Rect,
   TiltSpan,
@@ -2349,6 +2350,105 @@ const ON_FRAME = `(ctx, content, dt) => {
     if (cc.roundRect) { cc.beginPath(); cc.roundRect(x, y, w, h, rd) }
     else { cc.beginPath(); cc.rect(x, y, w, h) }
   }
+  // A FLOATING take's picture, drawn through its matte: a canvas the picture's
+  // size holding the windows and nothing where nothing was, or null when it
+  // cannot be made (no WebGL2, no frame yet), and the caller then draws the
+  // picture as it is, on the black the file holds.
+  //
+  // The file's frame is the picture with the matte's bands in a strip under it
+  // (FootageMatte). One pass reads both from the one texture: the colour at a
+  // pixel, and from the strip how much of that pixel is a window. The matte is
+  // smaller than the picture, so its edge is a ramp a few pixels wide, and the
+  // edge is rebuilt at the ramp's middle; the picture's own edge pixels were
+  // mixed with black by their coverage when they were captured, and are
+  // divided back out, never past what a third of a pixel would give.
+  //
+  // What is uploaded is the element, or, where a decoder draws the take's
+  // frames (an export's, the player's in a fast span), that frame drawn whole
+  // into a canvas first: a decoder only ever draws into a 2D context.
+  function mtUnpack(el, m, crop, wc, sv, t) {
+    var st = ns.matteGl
+    if (st === undefined) {
+      st = ns.matteGl = null
+      try {
+        var mtCv = document.createElement('canvas')
+        var mtGl = mtCv.getContext('webgl2', { alpha: true, premultipliedAlpha: true, antialias: false, depth: false })
+        if (mtGl && mtGl.createShader && mtGl.texImage2D) {
+          var mtSh = function (type, src) {
+            var sh = mtGl.createShader(type)
+            mtGl.shaderSource(sh, src); mtGl.compileShader(sh)
+            if (!mtGl.getShaderParameter(sh, mtGl.COMPILE_STATUS)) throw new Error('matte shader')
+            return sh
+          }
+          var mtPr = mtGl.createProgram()
+          mtGl.attachShader(mtPr, mtSh(mtGl.VERTEX_SHADER, [
+            '#version 300 es',
+            'in vec2 p; out vec2 uv;',
+            'void main() { uv = vec2(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5); gl_Position = vec4(p, 0.0, 1.0); }',
+          ].join('\\n')))
+          mtGl.attachShader(mtPr, mtSh(mtGl.FRAGMENT_SHADER, [
+            '#version 300 es',
+            'precision highp float;',
+            'uniform sampler2D tx;',
+            'uniform vec2 pic;',   // the picture's size
+            'uniform vec2 file;',  // the file's size
+            'uniform vec2 mat;',   // the matte's size
+            'uniform vec2 band;',  // a band's height, and how many there are
+            'in vec2 uv; out vec4 o;',
+            'void main() {',
+            '  vec2 px = uv * pic;',
+            '  vec2 mp = px * mat / pic;',
+            '  float bn = min(floor(mp.y / band.x), band.y - 1.0);',
+            // a lookup stays inside its own band: two bands are neighbours only in the file
+            '  float mx = clamp(mp.x, 0.5, mat.x - 0.5) + bn * mat.x;',
+            '  float my = clamp(mp.y - bn * band.x, 0.5, band.x - 0.5);',
+            '  float a = texture(tx, vec2(mx, pic.y + my) / file).g;',
+            '  float e = smoothstep(0.25, 0.75, a);',
+            '  vec3 c = texture(tx, px / file).rgb;',
+            '  o = vec4(min(c / max(a, 0.35), vec3(1.0)) * e, e);',
+            '}',
+          ].join('\\n')))
+          mtGl.linkProgram(mtPr)
+          if (!mtGl.getProgramParameter(mtPr, mtGl.LINK_STATUS)) throw new Error('matte program')
+          mtGl.useProgram(mtPr)
+          mtGl.bindBuffer(mtGl.ARRAY_BUFFER, mtGl.createBuffer())
+          mtGl.bufferData(mtGl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), mtGl.STATIC_DRAW)
+          var mtLo = mtGl.getAttribLocation(mtPr, 'p')
+          mtGl.enableVertexAttribArray(mtLo); mtGl.vertexAttribPointer(mtLo, 2, mtGl.FLOAT, false, 0, 0)
+          mtGl.bindTexture(mtGl.TEXTURE_2D, mtGl.createTexture())
+          mtGl.texParameteri(mtGl.TEXTURE_2D, mtGl.TEXTURE_MIN_FILTER, mtGl.LINEAR)
+          mtGl.texParameteri(mtGl.TEXTURE_2D, mtGl.TEXTURE_MAG_FILTER, mtGl.LINEAR)
+          mtGl.texParameteri(mtGl.TEXTURE_2D, mtGl.TEXTURE_WRAP_S, mtGl.CLAMP_TO_EDGE)
+          mtGl.texParameteri(mtGl.TEXTURE_2D, mtGl.TEXTURE_WRAP_T, mtGl.CLAMP_TO_EDGE)
+          st = ns.matteGl = { cv: mtCv, gl: mtGl, pr: mtPr, sc: null }
+        }
+      } catch (e) { st = ns.matteGl = null }
+    }
+    if (!st || !crop) return null
+    try {
+      var mtW = crop.w, mtH = m.height
+      var mtSrc = el
+      if (wc || sv) {
+        var mtSc = st.sc || (st.sc = document.createElement('canvas'))
+        if (mtSc.width !== mtW || mtSc.height !== mtH) { mtSc.width = mtW; mtSc.height = mtH }
+        var mtSx = mtSc.getContext('2d')
+        if ((wc && wc.draw(mtSx, null, 0, 0, mtW, mtH)) || (sv && sv.draw(el, mtSx, null, 0, 0, mtW, mtH, t))) mtSrc = mtSc
+      }
+      // An element with no frame yet has nothing to upload.
+      if (mtSrc === el && el.readyState != null && el.readyState < 2) return null
+      var mtG = st.gl
+      if (st.cv.width !== crop.w || st.cv.height !== crop.h) { st.cv.width = crop.w; st.cv.height = crop.h }
+      mtG.viewport(0, 0, crop.w, crop.h)
+      mtG.texImage2D(mtG.TEXTURE_2D, 0, mtG.RGBA, mtG.RGBA, mtG.UNSIGNED_BYTE, mtSrc)
+      mtG.uniform2f(mtG.getUniformLocation(st.pr, 'pic'), crop.w, crop.h)
+      mtG.uniform2f(mtG.getUniformLocation(st.pr, 'file'), mtW, mtH)
+      mtG.uniform2f(mtG.getUniformLocation(st.pr, 'mat'), m.w, m.h)
+      mtG.uniform2f(mtG.getUniformLocation(st.pr, 'band'), m.bandHeight, m.bands)
+      mtG.clearColor(0, 0, 0, 0); mtG.clear(mtG.COLOR_BUFFER_BIT)
+      mtG.drawArrays(mtG.TRIANGLE_STRIP, 0, 4)
+      return st.cv
+    } catch (e) { return null }
+  }
 
   // The pointer's shape: an OS-style arrow (tip on the recorded point, a
   // black body with a white edge, the shape of the pointer on the viewer's
@@ -2427,6 +2527,10 @@ const ON_FRAME = `(ctx, content, dt) => {
   // removes the real browser chrome — the card's source dims are then the CROP
   // dims (meta/cursor were rewritten into crop space at doc build).
   var crp = actM ? (actM.crop || null) : (d.crop || null)
+  // A floating take: its picture is drawn through its matte (mtUnpack), stands on no card,
+  // and casts its shadow from the windows' own shape.
+  var mtt = (actM ? actM.matte : d.matte) || null
+  if (mtt && !crp) mtt = null
   var vw = crp ? crp.w : (video.videoWidth || video.naturalWidth || 16)
   var vh = crp ? crp.h : (video.videoHeight || video.naturalHeight || 9)
   // Card-chrome scale: everything that belongs to the CARD (browser bar +
@@ -2563,8 +2667,8 @@ const ON_FRAME = `(ctx, content, dt) => {
   // ground instead of outlined on it. One wide layer at the full strength
   // was the old paint, and at the default 0.4 it read as a dark pool
   // under the card; three tight layers read as a rim.
-  if (shadow > 0) {
-    var shL = [[2, 1, 0.1], [12, 4, 0.1], [40, 16, 0.14], [120, 44, 0.3]]
+  var shL = [[2, 1, 0.1], [12, 4, 0.1], [40, 16, 0.14], [120, 44, 0.3]]
+  if (shadow > 0 && !mtt) {
     for (var shI = 0; shI < shL.length; shI++) {
       c.save()
       c.shadowColor = 'rgba(' + shRgb + ',' + +(shadow * shL[shI][2]).toFixed(3) + ')'
@@ -2575,7 +2679,7 @@ const ON_FRAME = `(ctx, content, dt) => {
     }
   }
   // contact shadow: tight and close, over the ambient layer
-  if (shC > 0) {
+  if (shC > 0 && !mtt) {
     c.save()
     c.shadowColor = 'rgba(' + shRgb + ',' + shC + ')'
     c.shadowBlur = 10 * s2; c.shadowOffsetX = shD; c.shadowOffsetY = 3 * s2
@@ -2595,13 +2699,31 @@ const ON_FRAME = `(ctx, content, dt) => {
   // it (found by eye on the padded marquee check — the stub geometry tests
   // have no z-order). Contain never overlaps, so the order is free there.
   c.save()
-  rr(cardX, cardY, cardW, cardH, radius); c.clip()
+  // Floating windows stand on no card: there is no edge to clip them to.
+  if (!mtt) { rr(cardX, cardY, cardW, cardH, radius); c.clip() }
   try {
     // The provider draws the current sample directly (crop-capable,
     // dimension-checked at attach); false ⇒ element path (pre-first-seek,
     // or the provider never attached).
     var wcp3 = video.__vosWc
-    if (!(wcp3 && wcp3.draw(c, crp, ceX, ceY, ceW, ceH)) && !(svDraw && !tpG && video.play && svDraw.draw(video, c, crp, ceX, ceY, ceW, ceH, srcT))) {
+    var mtC = mtt ? mtUnpack(video, mtt, crp, wcp3, svDraw && !tpG && video.play ? svDraw : null, srcT) : null
+    if (mtC) {
+      // The four shadows a card casts, and its contact shadow, cast by the
+      // windows themselves: the picture drawn OFF-CANVAS, as the card's body
+      // is, so only what it casts comes back.
+      for (var mtI = 0; mtI <= shL.length; mtI++) {
+        var mtA = mtI < shL.length ? shadow * shL[mtI][2] : shC
+        if (!(mtA > 0)) continue
+        c.save()
+        c.shadowColor = 'rgba(' + shRgb + ',' + +mtA.toFixed(3) + ')'
+        c.shadowBlur = (mtI < shL.length ? shL[mtI][0] : 10) * s2
+        c.shadowOffsetX = shD
+        c.shadowOffsetY = (mtI < shL.length ? shL[mtI][1] : 3) * s2
+        c.drawImage(mtC, ceX - shD / ceZs, ceY, ceW, ceH)
+        c.restore()
+      }
+      c.drawImage(mtC, ceX, ceY, ceW, ceH)
+    } else if (!(wcp3 && wcp3.draw(c, crp, ceX, ceY, ceW, ceH)) && !(svDraw && !tpG && video.play && svDraw.draw(video, c, crp, ceX, ceY, ceW, ceH, srcT))) {
       if (crp) c.drawImage(video, crp.x, crp.y, crp.w, crp.h, ceX, ceY, ceW, ceH)
       else c.drawImage(video, ceX, ceY, ceW, ceH)
     }
@@ -2665,7 +2787,7 @@ const ON_FRAME = `(ctx, content, dt) => {
   // a square card stays square. cfr.border is the ALPHA (0 = off) and rides
   // globalAlpha, so borderColor takes any CSS colour notation without this
   // having to parse one. Card chrome, so it scales by s2.
-  if (cfr.border) {
+  if (cfr.border && !mtt) {
     var bdW = (cfr.borderWidth > 0 ? cfr.borderWidth : ${FRAME_BORDER_WIDTH_DEFAULT}) * s2
     var bdH = bdW / 2
     c.save()
@@ -3412,7 +3534,9 @@ export function studioLayerData(
                 ...base,
                 ...(lm ? { kind: lmImage ? 'image' : 'video' } : {}),
                 key: lm ? lm.videoKey : o.key,
-                ...(lm && lm.crop ? { crop: lm.crop } : {}),
+                ...(lm && (lm.crop ?? matteCrop(lm.meta))
+                  ? { crop: lm.crop ?? matteCrop(lm.meta) }
+                  : {}),
                 ...(lmCard ? { card: lmCard } : {}),
                 ...lmFacts,
                 w: round(o.width ?? OVERLAY_MEDIA_DEFAULT_WIDTH),
@@ -3568,7 +3692,7 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
     videoSrc: doc.source.videoKey,
     isImage: doc.source.sourceKind === 'image',
     // Viewport crop for window takes (drawImage source rect; null = full frame).
-    crop: doc.source.crop ?? null,
+    crop: doc.source.crop ?? matteCrop(doc.source.meta) ?? null,
     camSrc: doc.source.camKey ?? null,
     cam: doc.cam,
     // Cam pose spans: OUTPUT-time [x, y, size] fraction track built at
@@ -3609,6 +3733,7 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
     cursorStyle: doc.cursor,
     cursorSpace: { w: doc.source.meta.width, h: doc.source.meta.height },
     ...footageRadiusData(doc.source.meta, doc.source.crop),
+    ...matteData(doc.source.meta, doc.source.crop),
     // The other media (concat): each with its element's source, its crop
     // and its own cursor in its own capture space; absent = one media.
     ...(doc.media && doc.media.length
@@ -3629,7 +3754,7 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
               id: m.id,
               src: m.videoKey,
               isImage: m.sourceKind === 'image',
-              crop: m.crop ?? null,
+              crop: m.crop ?? matteCrop(m.meta) ?? null,
               hasAudio: !!m.meta.hasAudio,
               cursor: sm.map((p) => ({
                 t: round(p.t),
@@ -3638,6 +3763,7 @@ export function lowerToComposition(input: ProjectDoc): LoweredComposition {
               })),
               cursorSpace: { w: m.meta.width, h: m.meta.height },
               ...footageRadiusData(m.meta, m.crop),
+              ...matteData(m.meta, m.crop),
               // The card this media wears (its own placement, bar, corner,
               // shadow, border, fit and focus over the take's), resolved
               // here so ON_FRAME swaps one object and reads no document.
@@ -4029,6 +4155,30 @@ function footageRadiusData(
   const r = meta.cornerRadius
   if (!r || !(r > 0) || crop || !(meta.width > 0)) return {}
   return { footageRadius: round4(r / meta.width) }
+}
+
+/**
+ * A floating take's picture: the top of its file, above the matte's strip. It rides the
+ * crop every draw of footage already takes, so nothing that draws the file shows the strip.
+ */
+function matteCrop(meta: RecordingMeta): Rect | undefined {
+  const m = meta.matte
+  const w = meta.captureWidth
+  if (!m || !(m.y > 0) || !(m.w > 0) || !(m.h > 0) || !w) return undefined
+  return { x: 0, y: 0, w, h: m.y }
+}
+
+/**
+ * Where a floating take's matte stands, for the card to draw the picture through. Absent
+ * for every other take, so a document without one lowers to the data it always did; and
+ * absent beside a crop of the document's own, which says the picture is somewhere else.
+ */
+function matteData(
+  meta: RecordingMeta,
+  crop: Rect | null | undefined,
+): { matte?: FootageMatte } {
+  if (crop || !meta.matte || !matteCrop(meta)) return {}
+  return { matte: meta.matte }
 }
 
 /**

@@ -55,6 +55,7 @@ import {
   stageRefusal,
   stageTarget,
   STAGE_NEEDS_DRIVER,
+  FLOAT_NEEDS_DRIVER,
 } from './recordStage'
 import type { StageTarget } from './recordStage'
 import {
@@ -84,12 +85,14 @@ const BOOLEAN_FLAGS = new Set([
   'strict',
   'dry-run',
   'stage',
+  'float',
 ])
 
 const USAGE =
   'vos record --app <name|bundle id> [--out take] [--seconds <n>] [--max-duration <s>] [--background <slug|url|none>] [--json]\n' +
   '       vos record --app <name> --app <name> … [--desk menubar,dock,wallpaper]   a stage: only those apps’ windows, on one display\n' +
   '       vos record --app <name> --stage …   that one app’s every window\n' +
+  '       vos record --app <name> --app <name> --float …   a stage with nothing behind its windows: they stand on the backdrop\n' +
   '       vos record --app <name|bundle id> --actions actions.json [--out take] [--strict] [--confirm <id>]... …   scripted\n' +
   '       vos record --app <name|bundle id> --play play.mjs [--out take] …   played by a program\n' +
   '       vos record --window <id> …   one window by its id\n' +
@@ -118,6 +121,7 @@ export function isDesktopRecord(argv: string[]): boolean {
       a === '--pid' ||
       a === '--play' ||
       a === '--stage' ||
+      a === '--float' ||
       a === '--desk' ||
       a.startsWith('--desk=') ||
       a.startsWith('--play=') ||
@@ -421,7 +425,7 @@ export async function cmdRecordApp(
   }
   if (stage?.desk?.includes('menubar')) {
     notes.push(
-      'the menu bar is in the picture, and with it whatever else it shows: other apps’ items, the clock, and the mark the system adds while a screen is recorded',
+      'the menu bar is in the picture, and with it whatever else it shows: other apps’ items and the clock. The mark the system adds while a screen is recorded is covered where it can be found (that takes Accessibility)',
     )
     r.log(`note: ${notes.at(-1)}`)
   }
@@ -488,6 +492,12 @@ export async function cmdRecordApp(
         throw new Error(STAGE_NEEDS_DRIVER)
       }
       if (said.apps?.length) stageApps = said.apps.map((a) => a.name)
+      // One that does not know a floating stage paints a ground and says nothing of a matte.
+      if (stage.float && !(ready as { matte?: unknown }).matte) {
+        await take.stop().catch(() => {})
+        await rm(outDir, { recursive: true, force: true })
+        throw new Error(FLOAT_NEEDS_DRIVER)
+      }
     }
     // A helper that was not told of the masks would record what they name.
     if (masks && !Array.isArray((ready as { masks?: number[] }).masks)) {
@@ -569,7 +579,11 @@ export async function cmdRecordApp(
       stopped = await take.done
     }
   } catch (error) {
-    if (error instanceof Error && error.message === STAGE_NEEDS_DRIVER)
+    if (
+      error instanceof Error &&
+      (error.message === STAGE_NEEDS_DRIVER ||
+        error.message === FLOAT_NEEDS_DRIVER)
+    )
       throw error
     throw (stage && stageRefusal(error)) || driverFailure(error)
   } finally {
@@ -759,6 +773,7 @@ export async function cmdRecordApp(
             stage: {
               apps: stageApps,
               desk: stage.desk ?? [],
+              ...(stage.float ? { float: true } : {}),
               windows: stageWindows,
             },
           }

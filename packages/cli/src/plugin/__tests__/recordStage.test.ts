@@ -116,6 +116,24 @@ describe('vos record --app A --app B', () => {
     expect(b.requests[0]).toMatchObject({ pids: [4100] })
   })
 
+  it('--float asks for the windows with nothing behind them, alone or with one app', async () => {
+    const a = await run([
+      '--app',
+      'A',
+      '--app',
+      'B',
+      '--float',
+      '--out',
+      join(dir, 'f'),
+    ])
+    expect(a.requests[0]).toMatchObject({ apps: ['A', 'B'], float: true })
+    expect(a.done).toMatchObject({ stage: { float: true } })
+    // one app floats too: asking for it is asking for a stage
+    const b = await run(['--app', 'A', '--float', '--out', join(dir, 'g')])
+    expect(b.requests[0]).toMatchObject({ apps: ['A'], float: true })
+    expect(isDesktopRecord(['record', '--float'])).toBe(true)
+  })
+
   it('--desk keeps parts of the desk, by name, and says what a kept menu bar shows', async () => {
     const { requests, done } = await run([
       '--app',
@@ -232,6 +250,22 @@ describe('what a stage refuses, in words', () => {
       ['--app', 'A', '--desk', 'everything'],
       /There is no part that is everything/,
     )
+  })
+
+  it('--float with a part of the desk: one or the other', async () => {
+    await expect(
+      run(['--app', 'A', '--app', 'B', '--float', '--desk', 'dock']),
+    ).rejects.toThrow(/--float is the windows with nothing behind them/)
+  })
+
+  it('a driver that does not know a floating stage: said as what to install, and no take is left', async () => {
+    const out = join(dir, 'oldfloat')
+    await expect(
+      run(['--app', 'A', '--app', 'B', '--float', '--out', out], {
+        noFloat: true,
+      }),
+    ).rejects.toThrow(/a floating stage needs @vosjs\/driver 0\.6\.0 or later/)
+    expect(existsSync(join(out, 'meta.json'))).toBe(false)
   })
 
   it('a driver that does not know a stage: said as what to install, and no take is left', async () => {
