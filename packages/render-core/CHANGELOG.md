@@ -1,5 +1,12 @@
 # @vosjs/render-core
 
+## 0.16.7
+
+### Patch Changes
+
+- Updated dependencies [fc2b786]
+  - @vosjs/studio-core@0.50.0
+
 ## 0.16.6
 
 ### Patch Changes
