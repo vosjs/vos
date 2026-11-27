@@ -48,7 +48,17 @@ import {
 } from './desktopStage'
 import { EXIT_ERROR, EXIT_OK, EXIT_USAGE, createReporter } from './output'
 import { planTake } from './plan'
-import { isStage, recordStage } from './recordStage'
+import {
+  isStage,
+  isStageTarget,
+  listed,
+  stageRefusal,
+  stageTarget,
+  STAGE_NEEDS_DRIVER,
+  FLOAT_NEEDS_DRIVER,
+  narrowedToProcesses,
+} from './recordStage'
+import type { StageTarget } from './recordStage'
 import {
   MULTI_FLAGS,
   loadActions,
@@ -76,12 +86,14 @@ const BOOLEAN_FLAGS = new Set([
   'strict',
   'dry-run',
   'stage',
+  'float',
 ])
 
 const USAGE =
   'vos record --app <name|bundle id> [--out take] [--seconds <n>] [--max-duration <s>] [--background <slug|url|none>] [--json]\n' +
   '       vos record --app <name> --app <name> … [--desk menubar,dock,wallpaper]   a stage: only those apps’ windows, on one display\n' +
   '       vos record --app <name> --stage …   that one app’s every window\n' +
+  '       vos record --app <name> --app <name> --float …   a stage with nothing behind its windows: they stand on the backdrop\n' +
   '       vos record --app <name|bundle id> --actions actions.json [--out take] [--strict] [--confirm <id>]... …   scripted\n' +
   '       vos record --app <name|bundle id> --play play.mjs [--out take] …   played by a program\n' +
   '       vos record --window <id> …   one window by its id\n' +
@@ -110,6 +122,7 @@ export function isDesktopRecord(argv: string[]): boolean {
       a === '--pid' ||
       a === '--play' ||
       a === '--stage' ||
+      a === '--float' ||
       a === '--desk' ||
       a.startsWith('--desk=') ||
       a.startsWith('--play=') ||
@@ -156,15 +169,18 @@ export function targetWords(
 
 /**
  * True when the script a `vos record` names is a desktop one: it has an
- * `app`. A file that cannot be read says no; the page path reports it.
+ * `app`, or `apps` (a stage). A file that cannot be read says no; the page path reports it.
  */
 export async function scriptNamesApp(
   file: string | undefined,
 ): Promise<boolean> {
   if (!file) return false
   try {
-    const raw = await readJson<{ app?: unknown }>(resolve(file))
-    return typeof raw?.app === 'string' && raw.app.trim().length > 0
+    const raw = await readJson<{ app?: unknown; apps?: unknown }>(resolve(file))
+    return (
+      (typeof raw?.app === 'string' && raw.app.trim().length > 0) ||
+      (Array.isArray(raw?.apps) && raw.apps.length > 0)
+    )
   } catch {
     return false
   }
@@ -280,17 +296,18 @@ export async function cmdRecordApp(
   const { positionals, flags, multi } = parseArgs(
     argv,
     BOOLEAN_FLAGS,
-    new Set([...MULTI_FLAGS, 'app', 'desk']),
+    new Set([...MULTI_FLAGS, 'app', 'desk', 'pid']),
   )
   const r = createReporter(flags.json === true)
   const appFlag = multi.app?.length === 1 ? multi.app[0] : undefined
-  const staged = isStage(flags, multi)
+  // --pid too: one names a process as it always did, more than one is a stage of them.
+  if (multi.pid?.length === 1) flags.pid = multi.pid[0]!
 
   // The script, read and refused before anything on the machine is touched.
   const actionsPath = strFlag(flags, 'actions') ?? positionals[0]
-  if (staged && (actionsPath || hasFlag(flags, 'play')))
+  if (isStage(flags, multi) && hasFlag(flags, 'play'))
     throw new UsageError(
-      'a stage is performed: it takes no script and no program yet. Record each app with its own script and vos join the takes, or perform the stage',
+      'a stage is performed or scripted with --actions: it takes no program yet. Play the one app that answers back as its own take (--app with --play) and vos join the takes',
     )
   let actions: ActionsFile | undefined
   let confirm: string[] = []
@@ -362,21 +379,29 @@ export async function cmdRecordApp(
     return EXIT_OK
   }
 
-  if (staged)
-    return recordStage({
-      flags,
-      multi,
-      driver,
-      accessibility: granted.accessibility,
-      r,
-      failure: driverFailure,
-    })
-
-  const app = appFlag ?? actions?.app
+  // A stage: several apps (or one app's every window) on one display, by the
+  // flags or by a script that names `apps`. It is a desktop take in every
+  // other way, so everything below records it.
+  const staged = isStage(flags, multi, actions)
+  if (staged && play)
+    throw new UsageError(
+      'a stage is performed or scripted with --actions: it takes no program yet',
+    )
+  const app = staged ? undefined : (appFlag ?? actions?.app)
   if (actions && !granted.accessibility)
     throw new Error(ACCESSIBILITY_FOR_SCRIPT)
-  const target = desktopTarget(flags, app)
+  const target = staged
+    ? narrowedToProcesses(
+        stageTarget(flags, multi, actions),
+        multi.pid?.length
+          ? await driver.windows().catch((error) => {
+              throw driverFailure(error)
+            })
+          : [],
+      )
+    : desktopTarget(flags, app)
   if (!target) throw new UsageError(USAGE)
+  const stage = isStageTarget(target) ? target : undefined
   const seconds = hasFlag(flags, 'seconds')
     ? numFlag(flags, 'seconds', NaN)
     : undefined
@@ -408,6 +433,12 @@ export async function cmdRecordApp(
     )
     r.log(`note: ${notes[0]}`)
   }
+  if (stage?.desk?.includes('menubar')) {
+    notes.push(
+      'the menu bar is in the picture, and with it whatever else it shows: other apps’ items and the clock. The mark the system adds while a screen is recorded is covered where it can be found (that takes Accessibility)',
+    )
+    r.log(`note: ${notes.at(-1)}`)
+  }
 
   // The app where the take starts: the script's own setup, off camera.
   if (actions?.setup?.length) {
@@ -420,7 +451,9 @@ export async function cmdRecordApp(
   }
 
   const masks = driverMasks(actions)
-  const request: RecordRequest & { mask?: { selector: string }[] } = {
+  const request: RecordRequest & {
+    mask?: { selector: string; app?: string }[]
+  } = {
     ...target,
     out: outDir,
     maxSeconds: seconds !== undefined ? Math.min(seconds, cap) : cap,
@@ -456,8 +489,26 @@ export async function cmdRecordApp(
   let run: DesktopRunResult | undefined
   let played: { steps: StepSpan[]; failed?: string } | undefined
   let teardown: TeardownReport | undefined
+  /** A stage's apps as the helper found them, by name. */
+  let stageApps: string[] = stage?.apps ?? []
   try {
     const ready = await take.ready
+    // A helper that does not know a stage would record one window, or the wrong thing.
+    if (stage) {
+      const said = ready as { filter?: string; apps?: { name: string }[] }
+      if (said.filter !== 'stage') {
+        await take.stop().catch(() => {})
+        await rm(outDir, { recursive: true, force: true })
+        throw new Error(STAGE_NEEDS_DRIVER)
+      }
+      if (said.apps?.length) stageApps = said.apps.map((a) => a.name)
+      // One that does not know a floating stage paints a ground and says nothing of a matte.
+      if (stage.float && !(ready as { matte?: unknown }).matte) {
+        await take.stop().catch(() => {})
+        await rm(outDir, { recursive: true, force: true })
+        throw new Error(FLOAT_NEEDS_DRIVER)
+      }
+    }
     // A helper that was not told of the masks would record what they name.
     if (masks && !Array.isArray((ready as { masks?: number[] }).masks)) {
       await take.stop().catch(() => {})
@@ -468,20 +519,25 @@ export async function cmdRecordApp(
     }
     r.event({
       event: 'recording',
-      app: ready.app,
-      window: ready.window,
+      ...(stage
+        ? { apps: stageApps }
+        : { app: ready.app, window: ready.window }),
       width: ready.captureWidth,
       height: ready.captureHeight,
     })
     r.log(
-      `recording ${ready.app || 'the window'} (${ready.captureWidth}×${ready.captureHeight})${
+      `recording ${
+        stage
+          ? `a stage of ${listed(stageApps)}: only their windows are in the picture`
+          : ready.app || 'the window'
+      } (${ready.captureWidth}×${ready.captureHeight})${
         play
           ? ', played by a program. Leave the machine alone until it ends'
           : actions
             ? `, ${actions.steps.length} step${actions.steps.length === 1 ? '' : 's'}. Leave the machine alone until it ends`
             : seconds !== undefined
               ? ` for ${seconds}s`
-              : '. Use the app; Ctrl-C ends the take'
+              : `. Use the app${stage ? 's' : ''}; Ctrl-C ends the take`
       }…`,
     )
     if (play && actions) {
@@ -533,7 +589,13 @@ export async function cmdRecordApp(
       stopped = await take.done
     }
   } catch (error) {
-    throw driverFailure(error)
+    if (
+      error instanceof Error &&
+      (error.message === STAGE_NEEDS_DRIVER ||
+        error.message === FLOAT_NEEDS_DRIVER)
+    )
+      throw error
+    throw (stage && stageRefusal(error)) || driverFailure(error)
   } finally {
     process.off('SIGINT', end)
     process.off('SIGTERM', end)
@@ -616,7 +678,7 @@ export async function cmdRecordApp(
   const held = stopped.heldFrames
   if (held > 0)
     notes.push(
-      `another app's window was over this one for a moment: ${held} frame${held === 1 ? ' was' : 's were'} held back so it is not in the take`,
+      `${stage ? 'a window that was not named was over the stage' : "another app's window was over this one"} for a moment: ${held} frame${held === 1 ? ' was' : 's were'} held back so it is not in the take`,
     )
   if (actions && !run && !played)
     notes.push('the take was interrupted before the script finished')
@@ -695,7 +757,15 @@ export async function cmdRecordApp(
   const length = (stopped.durationMs / 1000).toFixed(1)
   const cursorLine = events.length
     ? `${events.length} cursor events (${clicks} click${clicks === 1 ? '' : 's'}, ${typing} typing ping${typing === 1 ? '' : 's'}); ${plan.zoomAuto} zoom${plan.zoomAuto === 1 ? '' : 's'} planned`
-    : 'no pointer came over the window, so nothing was planned'
+    : `no pointer came over the ${stage ? 'stage' : 'window'}, so nothing was planned`
+  // A stage's windows proper: an alert or a tip is its window's, not one more.
+  const stageWindows = stage
+    ? new Set(
+        ((await readJson<RecordingMeta>(paths.meta)).windows ?? []).flatMap(
+          (s) => s.windows.filter((w) => !w.panel).map((w) => w.id),
+        ),
+      ).size
+    : 0
   r.done(
     {
       out: outDir,
@@ -708,6 +778,16 @@ export async function cmdRecordApp(
       zooms: plan.zoomAuto,
       backdrop: plan.backdrop ?? null,
       notes,
+      ...(stage
+        ? {
+            stage: {
+              apps: stageApps,
+              desk: stage.desk ?? [],
+              ...(stage.float ? { float: true } : {}),
+              windows: stageWindows,
+            },
+          }
+        : {}),
       ...scriptFields,
       ...playFields,
     },
@@ -717,7 +797,7 @@ export async function cmdRecordApp(
         ? `FAILED: the take stopped at step #${run.stopped.step}: ${run.stopped.reason}${scriptLines}`
         : strict
           ? `STRICT: take recorded but incomplete: ${strict}; fix the script and record again.${scriptLines}`
-          : `Recorded ${targetWords(target)} → ${outDir}/recording.mp4 (${length}s, ${stopped.frames} frames${run ? `, ${run.steps.length} steps` : played ? `, ${played.steps.length} named step${played.steps.length === 1 ? '' : 's'}` : ''})\n  ${cursorLine}${scriptLines}${playLines}\n  Next: vos digest ${outDir} — look before you cut; edit doc.json; vos open ${outDir} or vos push ${outDir}`,
+          : `Recorded ${stage ? `a stage of ${listed(stageApps)}` : targetWords(target as Exclude<typeof target, StageTarget>)} → ${outDir}/recording.mp4 (${length}s, ${stopped.frames} frames${run ? `, ${run.steps.length} steps` : played ? `, ${played.steps.length} named step${played.steps.length === 1 ? '' : 's'}` : ''})\n  ${cursorLine}${scriptLines}${playLines}\n  Next: vos digest ${outDir} — look before you cut; edit doc.json; vos open ${outDir} or vos push ${outDir}`,
   )
   return run?.stopped || played?.failed
     ? EXIT_ERROR

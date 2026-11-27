@@ -197,11 +197,49 @@ It needs macOS 14 or later, and Screen Recording granted to the app the CLI runs
 vos record --app Linear --app Terminal --out take      # a stage of two apps
 vos record --app Figma --stage --out take              # one app's every window: its palettes, its second window
 vos record --app Raycast --desk menubar --out take     # keep a part of the desk: menubar, dock, wallpaper
+vos record --app Linear --app Terminal --float --out take   # nothing behind the windows: they stand on the backdrop, each casting its own shadow
+vos record --app Terminal --pid 4100 --out take          # a process on the stage: a throwaway instance of an app you have open, and not your own windows
 ```
 
 Nothing that was not named is recorded: no other app, no wallpaper, no desktop icons, no Dock, no menu bar, and there is no flag that records the screen as it is. A window of another app that opens over the stage mid-take is in no frame. A named window that something else covers on screen is recorded whole, so you can keep another app in front while the stage is filmed. An Open panel, a system prompt and a password sheet belong to their own processes and stay out. The frame is the display under its menu bar, and the pointer counts only while it is over the stage.
 
-The take is `captureSurface: "desktop"` and says where its windows were (`meta.windows`), so a press belongs to a window. `vos plan` plans each visit to a window as a take of that window would be planned, keeps every beat's view inside its window, and rests the camera on the window between beats (spans `w0`, `w1`, …); the take opens on the whole stage. A stage is performed: `--actions`, `--play` and a mask are refused with it for now. A film in which the apps never share a moment is still one take per app, joined (`vos join`).
+The take is `captureSurface: "desktop"` and says where its windows were (`meta.windows`), so a press belongs to a window. `vos plan` plans each visit to a window as a take of that window would be planned, keeps every beat's view inside its window, and rests the camera on the window between beats (spans `w0`, `w1`, …); the take opens on the whole stage. A small window is shown whole, never entered until one control fills the picture.
+
+**A scripted stage.** A script is a stage's when it names `apps` where one app's names `app`. Look first, then write steps that say which app they act on:
+
+```bash
+vos look --app Linear --app Terminal        # one picture of the stage, and each app's controls
+vos record --actions actions.json --out take --strict
+```
+
+```json
+{
+  "apps": ["Linear", "Terminal"],
+  "mask": [{ "app": "Linear", "selector": "popup[name*='Account']" }],
+  "steps": [
+    { "do": "click", "app": "Linear", "selector": "button[name='New issue']" },
+    {
+      "do": "type",
+      "selector": "textfield[name='Title']",
+      "text": "Ship stages"
+    },
+    {
+      "do": "type",
+      "app": "Terminal",
+      "selector": "textarea",
+      "text": "git status"
+    },
+    {
+      "do": "drag",
+      "app": "Finder",
+      "selector": "row[name='notes.md']",
+      "to": { "app": "Linear", "selector": "textarea[name='Description']" }
+    }
+  ]
+}
+```
+
+A step that names no `app` stays with the app of the step before it, and the first with the first app of `apps`. The app a step names is brought forward when the step runs, as a hand would bring it. A drag may end in another app (`to`), which is the hand-off a stage is for. A mask says which app its element is in. `setup` and `teardown` steps take `app` the same way and run off camera. `viewport` and `--play` are refused on a stage, and a film in which the apps never share a moment is still one take per app, joined (`vos join`).
 
 **Scripted: the same `actions.json`, in the desktop dialect.** Look at the window, write the script, record it:
 

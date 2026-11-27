@@ -12,7 +12,7 @@ import {
   vi,
 } from 'vitest'
 import { cmdRecordApp, isDesktopRecord } from '../recordApp'
-import { deskParts } from '../recordStage'
+import { deskParts, narrowedToProcesses } from '../recordStage'
 import { STAGE_WINDOWS, TRACK, fakeDriver } from './fakeDesktopDriver'
 import type { FakeOptions } from './fakeDesktopDriver'
 
@@ -63,6 +63,7 @@ async function run(argv: string[], o: FakeOptions = {}) {
   return {
     code,
     requests: fake.requests,
+    commands: fake.commands,
     done: events.find((e) => e.event === 'done'),
     notes: err.join(''),
   }
@@ -113,6 +114,59 @@ describe('vos record --app A --app B', () => {
     expect('app' in a.requests[0]!).toBe(false)
     const b = await run(['--pid', '4100', '--stage', '--out', join(dir, 'b')])
     expect(b.requests[0]).toMatchObject({ pids: [4100] })
+  })
+
+  it('--pid names a process, more than once; an app it also names by name is that process alone', async () => {
+    const a = await run([
+      '--pid',
+      '4100',
+      '--pid',
+      '4200',
+      '--out',
+      join(dir, 'p'),
+    ])
+    expect(a.requests[0]).toMatchObject({ pids: [4100, 4200] })
+    expect('apps' in a.requests[0]!).toBe(false)
+    // The person has Chrome open; the take films a throwaway Chrome by its process.
+    const windows = [
+      { pid: 900, app: 'Google Chrome', appId: 'com.google.Chrome' },
+      { pid: 4100, app: 'Google Chrome', appId: 'com.google.Chrome' },
+      { pid: 4300, app: 'Terminal', appId: 'com.apple.Terminal' },
+    ]
+    expect(
+      narrowedToProcesses(
+        { apps: ['Terminal', 'Google Chrome'], pids: [4100] },
+        windows,
+      ),
+    ).toEqual({ apps: ['Terminal'], pids: [4100] })
+    expect(
+      narrowedToProcesses(
+        { apps: ['com.google.Chrome'], pids: [4100] },
+        windows,
+      ),
+    ).toEqual({ pids: [4100] })
+    // with no process named, a name is every instance, as it was
+    expect(narrowedToProcesses({ apps: ['Terminal'] }, windows)).toEqual({
+      apps: ['Terminal'],
+    })
+  })
+
+  it('--float asks for the windows with nothing behind them, alone or with one app', async () => {
+    const a = await run([
+      '--app',
+      'A',
+      '--app',
+      'B',
+      '--float',
+      '--out',
+      join(dir, 'f'),
+    ])
+    expect(a.requests[0]).toMatchObject({ apps: ['A', 'B'], float: true })
+    expect(a.done).toMatchObject({ stage: { float: true } })
+    // one app floats too: asking for it is asking for a stage
+    const b = await run(['--app', 'A', '--float', '--out', join(dir, 'g')])
+    expect(b.requests[0]).toMatchObject({ apps: ['A'], float: true })
+    expect(isDesktopRecord(['record', '--float'])).toBe(true)
   })
 
   it('--desk keeps parts of the desk, by name, and says what a kept menu bar shows', async () => {
@@ -198,16 +252,25 @@ describe('what a stage refuses, in words', () => {
     )
   }
 
-  it('a script or a program: a stage is performed', async () => {
-    const script = join(dir, 'actions.json')
-    await writeFile(script, JSON.stringify({ app: 'Linear', steps: [] }))
-    await refused(
-      ['--app', 'Linear', '--app', 'Terminal', '--actions', script],
-      /a stage is performed/,
-    )
+  it('a program: a stage is performed or scripted', async () => {
     await refused(
       ['--app', 'Linear', '--stage', '--play', 'play.mjs'],
-      /a stage is performed/,
+      /takes no program yet/,
+    )
+  })
+
+  it('--app flags that are not the stage a script names', async () => {
+    const script = join(dir, 'stage-other.json')
+    await writeFile(
+      script,
+      JSON.stringify({
+        apps: ['Linear', 'Terminal'],
+        steps: [{ do: 'wait', ms: 10 }],
+      }),
+    )
+    await refused(
+      ['--app', 'Linear', '--app', 'Notes', '--actions', script],
+      /the script's stage is Linear, Terminal/,
     )
   })
 
@@ -222,6 +285,22 @@ describe('what a stage refuses, in words', () => {
       ['--app', 'A', '--desk', 'everything'],
       /There is no part that is everything/,
     )
+  })
+
+  it('--float with a part of the desk: one or the other', async () => {
+    await expect(
+      run(['--app', 'A', '--app', 'B', '--float', '--desk', 'dock']),
+    ).rejects.toThrow(/--float is the windows with nothing behind them/)
+  })
+
+  it('a driver that does not know a floating stage: said as what to install, and no take is left', async () => {
+    const out = join(dir, 'oldfloat')
+    await expect(
+      run(['--app', 'A', '--app', 'B', '--float', '--out', out], {
+        noFloat: true,
+      }),
+    ).rejects.toThrow(/a floating stage needs @vosjs\/driver 0\.6\.0 or later/)
+    expect(existsSync(join(out, 'meta.json'))).toBe(false)
   })
 
   it('a driver that does not know a stage: said as what to install, and no take is left', async () => {

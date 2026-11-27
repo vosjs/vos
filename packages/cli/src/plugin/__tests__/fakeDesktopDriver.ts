@@ -50,10 +50,17 @@ export interface FakeOptions {
    * that names `apps` as one that names nothing.
    */
   noStage?: boolean
+  /** A driver from before floating stages: it ignores `float` and says nothing of a matte. */
+  noFloat?: boolean
 }
 
 /** What a stage request carries, beside what every take does. */
-type StageFields = { apps?: string[]; pids?: number[]; desk?: string[] }
+type StageFields = {
+  apps?: string[]
+  pids?: number[]
+  desk?: string[]
+  float?: boolean
+}
 
 /** The stage the stand-in records: the track's window, and one more beside it. */
 export const STAGE_WINDOWS = (apps: string[]) => [
@@ -170,7 +177,7 @@ export function fakeDriver(o: FakeOptions = {}) {
       return {
         out: request.out,
         app: 'TextEdit',
-        window: request.window ?? 41,
+        window: ('window' in request ? request.window : undefined) ?? 41,
         width: 1312,
         height: 844,
         scale: 2,
@@ -315,7 +322,7 @@ export function fakeDriver(o: FakeOptions = {}) {
         ready: Promise.resolve({
           event: 'ready',
           protocol: 1,
-          window: request.window ?? 41,
+          window: ('window' in request ? request.window : undefined) ?? 41,
           app: 'TextEdit',
           frame: { x: 185, y: 83, w: 656, h: 422 },
           scale: 2,
@@ -338,6 +345,18 @@ export function fakeDriver(o: FakeOptions = {}) {
                 cornerRadius: 0,
                 apps: names.map((name) => ({ name, id: `test.${name}` })),
                 desk: stage.desk ?? [],
+                ...(stage.float && !o.noFloat
+                  ? {
+                      matte: {
+                        y: 2168,
+                        w: 1152,
+                        h: 723,
+                        bands: 3,
+                        bandHeight: 241,
+                        height: 2410,
+                      },
+                    }
+                  : {}),
               }
             : {}),
         } as never),

@@ -104,6 +104,24 @@ export interface StageWindow {
 }
 
 /** The stage's windows from `t` (ms on the file's timeline) on, front to back. */
+/**
+ * Where a floating take's matte stands in its file, in the file's own pixels. Such a
+ * take has nothing behind its windows; a video file carries no transparency, so its frame
+ * holds the picture in its top `y` rows and, under it, a MATTE: how much of each pixel of
+ * the picture is a window (white) or nothing (black). The matte is `w` by `h` pixels of
+ * its own standing for the whole picture, cut into `bands` bands of `bandHeight` rows laid
+ * side by side from the left (band n at x `n * w`, y `y`, holding the matte's rows from
+ * `n * bandHeight`). `height` is the file's whole height.
+ */
+export interface FootageMatte {
+  y: number
+  w: number
+  h: number
+  bands: number
+  bandHeight: number
+  height: number
+}
+
 export interface WindowSample {
   t: number
   windows: StageWindow[]
@@ -183,6 +201,13 @@ export interface RecordingMeta {
    * round, or those corners show as notches. Absent or 0 = square footage.
    */
   cornerRadius?: number
+  /**
+   * A floating take: where the matte stands in the file. The picture is then the file's
+   * top `captureWidth` by `matte.y` pixels, which is what `captureHeight` says too, and it
+   * is drawn through the matte: no card behind it, a shadow cast by the windows' own shape.
+   * Absent = the file is the picture.
+   */
+  matte?: FootageMatte
   /**
    * Page URL/title at record start (seeds the browser-bar mock's address pill).
    * Query/hash are stripped at capture for privacy.
