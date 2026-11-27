@@ -167,8 +167,9 @@ export function normalizeCaptureSpace(
   meta: RecordingMeta,
 ): CaptureNormalization {
   const surface = meta.captureSurface ?? 'tab'
-  // A tab and an app window are their own frame: the cursor is already in it.
-  if (surface === 'tab' || surface === 'app')
+  // A tab, an app window and a desktop producer's stage are their own frame:
+  // the cursor is already in it.
+  if (surface === 'tab' || surface === 'app' || surface === 'desktop')
     return { cursor, meta, coverage: 1 }
   const anchor = surface === 'window' ? meta.windowRect : meta.screenRect
   const capW = meta.captureWidth ?? 0

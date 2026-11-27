@@ -66,7 +66,9 @@ export function projectFromArtifact(
   // stays the window's wherever the window went: the moved-window anchor rule
   // is a browser capture's, and never drops an app take's cursor.
   const movedAnchor =
-    surface !== 'app' && artifact.meta.windowMovedDuringTake === true
+    surface !== 'app' &&
+    surface !== 'desktop' &&
+    artifact.meta.windowMovedDuringTake === true
   const coverage =
     surface === 'monitor' || movedAnchor || unfocused ? 0 : norm.coverage
   if (artifact.cursor.length > 0 && coverage < CAPTURE_COVERAGE_MIN) {

@@ -38,7 +38,7 @@ export interface DigestTakeFacts {
   producer: string
   pageUrl: string | null
   pageTitle: string | null
-  /** The recorded application's name, on an `'app'` take. */
+  /** The recorded application's name on an `'app'` take; every app on the stage of a `'desktop'` take. */
   app: string | null
   hasMic: boolean
   hasSystemAudio: boolean
@@ -157,7 +157,9 @@ export function buildDigest(input: BuildDigestInput): Digest {
       producer: meta.producer ?? 'extension',
       pageUrl: meta.pageUrl ?? null,
       pageTitle: meta.pageTitle ?? null,
-      app: meta.app?.name ?? null,
+      app:
+        meta.app?.name ??
+        (meta.apps?.length ? meta.apps.map((a) => a.name).join(', ') : null),
       hasMic: Boolean(doc.source.micKey) || meta.hasMic === true,
       hasSystemAudio: meta.hasAudio === true,
       hasCursor: doc.source.cursor.length > 0,

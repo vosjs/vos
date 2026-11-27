@@ -193,6 +193,7 @@ export function planForDigest(
     style: doc.zoomStyle,
     params: doc.zoomParams,
     steps: meta.steps,
+    windows: meta.windows,
   })
   const speed = planAutoSpeed(cursor, {
     durationMs: meta.durationMs,
@@ -265,6 +266,7 @@ export function momentsFromDoc(
       targetFill: style.targetFill,
       minLevel: style.minLevel,
       steps: meta.steps,
+      windows: meta.windows,
     })
     const pressed = (c: Click[], surface: boolean) => {
       const f = clusterFocus(c, width, height)
