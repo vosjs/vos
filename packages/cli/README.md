@@ -191,6 +191,18 @@ vos record --window 4127 --out take                           # one window, by i
 
 It needs macOS 14 or later, and Screen Recording granted to the app the CLI runs from (the terminal, the editor, the agent's host): macOS records the grant against that app. With Accessibility granted as well, a press carries the bounds of what was pressed, so its zoom fits the control; without it a performed take still has its pointer, presses and typing. A scripted take needs Accessibility. `vos doctor` says which are granted. The footage is `recording.mp4`, and the take is cut, opened and pushed like any other.
 
+**Several apps in one take: a stage.** Name more than one app and the take is a stage: one display with only those apps' windows in its pixels, each where it is and in its real order.
+
+```bash
+vos record --app Linear --app Terminal --out take      # a stage of two apps
+vos record --app Figma --stage --out take              # one app's every window: its palettes, its second window
+vos record --app Raycast --desk menubar --out take     # keep a part of the desk: menubar, dock, wallpaper
+```
+
+Nothing that was not named is recorded: no other app, no wallpaper, no desktop icons, no Dock, no menu bar, and there is no flag that records the screen as it is. A window of another app that opens over the stage mid-take is in no frame. A named window that something else covers on screen is recorded whole, so you can keep another app in front while the stage is filmed. An Open panel, a system prompt and a password sheet belong to their own processes and stay out. The frame is the display under its menu bar, and the pointer counts only while it is over the stage.
+
+The take is `captureSurface: "desktop"` and says where its windows were (`meta.windows`), so a press belongs to a window. `vos plan` plans each visit to a window as a take of that window would be planned, keeps every beat's view inside its window, and rests the camera on the window between beats (spans `w0`, `w1`, …); the take opens on the whole stage. A stage is performed: `--actions`, `--play` and a mask are refused with it for now. A film in which the apps never share a moment is still one take per app, joined (`vos join`).
+
 **Scripted: the same `actions.json`, in the desktop dialect.** Look at the window, write the script, record it:
 
 ```bash
