@@ -37,7 +37,7 @@
         "frameHeight": { "type": ["number", "null"] },
         "surface": {
           "type": "string",
-          "enum": ["tab", "window", "monitor", "app"]
+          "enum": ["tab", "window", "monitor", "app", "desktop"]
         },
         "producer": {
           "type": "string",

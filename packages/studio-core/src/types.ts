@@ -82,6 +82,33 @@ export interface Rect {
   h: number
 }
 
+/** A part of the desk a `'desktop'` take can keep in its picture. */
+export type DeskPart = 'menubar' | 'dock' | 'wallpaper'
+
+/** One window on a `'desktop'` take's stage, in cursor space. */
+export interface StageWindow {
+  /** The window's id for the length of the take. Never its title. */
+  id: number
+  /** The application that owns it, by name. */
+  app: string
+  x: number
+  y: number
+  w: number
+  h: number
+  /**
+   * A window with no title: an alert, a popover, a tip. What happens in one
+   * is happening in its app's window, so a press there belongs to that
+   * window and not to a place of its own.
+   */
+  panel?: boolean
+}
+
+/** The stage's windows from `t` (ms on the file's timeline) on, front to back. */
+export interface WindowSample {
+  t: number
+  windows: StageWindow[]
+}
+
 /** Recording metadata needed to map captured pixels ↔ cursor coords ↔ time. */
 export interface RecordingMeta {
   /** device pixel ratio at capture. */
@@ -169,6 +196,23 @@ export interface RecordingMeta {
    */
   app?: { name: string; id?: string }
   /**
+   * The applications on a `'desktop'` take's stage, each as `app` names one.
+   * Never a window title.
+   */
+  apps?: { name: string; id?: string }[]
+  /**
+   * The parts of the desk a `'desktop'` take kept in its picture. Absent or
+   * empty = none: the stage's windows stand on a flat ground.
+   */
+  desk?: DeskPart[]
+  /**
+   * Where a `'desktop'` take's windows were: what was on the stage at the
+   * first frame, then every change, each entry front to back. SOURCE-anchored
+   * like the cursor (`t` in ms on the file's timeline), in cursor space. It
+   * is what lets a planner know that a press belongs to a window.
+   */
+  windows?: WindowSample[]
+  /**
    * What the frame contains. Absent = 'tab' (back-compat). `'window'` and
    * `'monitor'` are a BROWSER's display captures: they use CursorEvent.sx/sy +
    * the geometry rects below to map cursor → capture px (see
@@ -178,8 +222,14 @@ export interface RecordingMeta {
    * is already in the frame's own space (`width × height` are the window's
    * points, `captureWidth × captureHeight` its pixels), and the footage
    * carries the window's own title bar, so no bar is drawn over it.
+   * `'desktop'` is a display, or what a take kept of one, recorded by a
+   * desktop producer: the windows of the applications the take named
+   * (`apps`), where they were (`windows`), with the cursor in the frame's own
+   * space as on an `'app'` take and no bar drawn. It is not `'monitor'`: a
+   * browser cannot say where the pointer is outside its pages, and this
+   * producer can.
    */
-  captureSurface?: 'tab' | 'window' | 'monitor' | 'app'
+  captureSurface?: 'tab' | 'window' | 'monitor' | 'app' | 'desktop'
   /**
    * Target-tab browser-window bounds at record start, screen-coord CSS px
    * (window.screenX/Y + outerWidth/Height). Anchor for 'window' captures.

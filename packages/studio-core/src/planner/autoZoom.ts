@@ -18,7 +18,14 @@
  */
 import { clampZoomLevel } from '../types'
 import { resolveZoomStyle } from '../zoomStyle'
-import type { CursorTrack, Rect, StepSpan, ZoomSpan } from '../types'
+import { eventPoint, planStageZoom, windowAtPoint } from './stage'
+import type {
+  CursorTrack,
+  Rect,
+  StepSpan,
+  WindowSample,
+  ZoomSpan,
+} from '../types'
 import type { ZoomStyleName, ZoomStyleParams } from '../zoomStyle'
 
 /** Normalized step distance that ends a dwell run (OpenScreen's 0.02). */
@@ -187,6 +194,12 @@ export interface PlanOptions {
    * where its presses share a window, never one per press.
    */
   steps?: readonly StepSpan[] | null
+  /**
+   * Where a stage take's windows were (`meta.windows`). With it a press
+   * belongs to a window: the take is planned window by window, and the
+   * camera rests on the window being worked in (planner/stage.ts).
+   */
+  windows?: readonly WindowSample[] | null
 }
 
 /** One press (or ping) in seconds, with the target element when known. */
@@ -228,9 +241,20 @@ export function groupTrack(
      * targets still share a window.
      */
     steps?: readonly StepSpan[] | null
+    /**
+     * Where a stage take's windows were: presses in two windows are two
+     * beats, however close in time and place.
+     */
+    windows?: readonly WindowSample[] | null
   },
 ): { sessions: TypingSession[]; clusters: Click[][]; surfaces: Click[][] } {
   const { width, height, clusterGap, typingGap, typingZoom, targetFill } = opts
+  const windowOf = (c: Click): number | null =>
+    opts.windows?.length
+      ? (windowAtPoint(opts.windows, c.t, ...eventPoint(c))?.id ?? null)
+      : null
+  const sameWindow = (a: Click, b: Click): boolean =>
+    !opts.windows?.length || windowOf(a) === windowOf(b)
   const stepOf = (t: number): StepSpan | null =>
     opts.steps?.find(
       (st) => st.do !== 'wait' && !st.skipped && st.tStart <= t && t <= st.tEnd,
@@ -292,6 +316,7 @@ export function groupTrack(
         last &&
         prev &&
         (c.t - prev.t <= clusterGap || sameStep(prev, c)) &&
+        sameWindow(prev, c) &&
         (!spatial ||
           unionFitLevel(unionRect([...last, c]), width, height) >= minLevel)
       if (joins) last!.push(c)
@@ -389,6 +414,16 @@ export function planAutoZoom(
   const style = resolveZoomStyle(options.style, options.params)
   // The 'none' style (or an autoZoom:false override): manual zooms only.
   if (!style.autoZoom) return []
+  // A stage is planned window by window: each visit to a window by this
+  // same planner, with that window as its frame.
+  if (options.windows?.length) {
+    const noZoom = playStretches(options.steps)
+    return planStageZoom(track, options, {
+      plan: planAutoZoom,
+      clear: (spans) =>
+        noZoom.length ? spans.flatMap((z) => clearOf(z, noZoom)) : spans,
+    })
+  }
   const {
     width,
     height,

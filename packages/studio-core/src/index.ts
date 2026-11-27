@@ -72,6 +72,8 @@ export { smoothCursor } from './planner/smoothing'
 export type { SmoothPoint, SmoothOptions } from './planner/smoothing'
 export { planAutoZoom } from './planner/autoZoom'
 export type { PlanOptions } from './planner/autoZoom'
+export { stageVisits, windowAtPoint, windowsAt } from './planner/stage'
+export type { StageVisit } from './planner/stage'
 export {
   TILT_AUTO_DEAD_ZONE,
   TILT_AUTO_MIN,

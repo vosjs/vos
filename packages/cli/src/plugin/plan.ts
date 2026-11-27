@@ -202,6 +202,7 @@ function planOtherMedia(
         style: doc.zoomStyle,
         params: doc.zoomParams,
         steps: m.meta.steps,
+        windows: m.meta.windows,
       })
         .filter((z) => !manualZoom.some((x) => overlaps(z, x)))
         .filter((z) => !isRejected('zoom', z, rejected))
@@ -276,6 +277,7 @@ export async function planTake(
       style: doc.zoomStyle,
       params: doc.zoomParams,
       steps: doc.source.meta.steps,
+      windows: doc.source.meta.windows,
     })
       .filter((z) => !manualZoom.some((m) => overlaps(z, m)))
       .filter((z) => !isRejected('zoom', z, doc.rejected))
@@ -379,6 +381,7 @@ export async function planTake(
       style: doc.zoomStyle,
       params: doc.zoomParams,
       steps: doc.source.meta.steps,
+      windows: doc.source.meta.windows,
     })
       .filter((z) => !manual.some((m) => overlaps(z, m)))
       .filter((z) => !isRejected('zoom', z, doc.rejected))
@@ -425,6 +428,7 @@ export async function planTake(
       style: doc.zoomStyle,
       params: doc.zoomParams,
       steps: doc.source.meta.steps,
+      windows: doc.source.meta.windows,
     })
     doc.speed = planAutoSpeed(doc.source.cursor, {
       durationMs: doc.source.meta.durationMs,

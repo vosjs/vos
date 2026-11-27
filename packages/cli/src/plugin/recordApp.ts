@@ -48,6 +48,7 @@ import {
 } from './desktopStage'
 import { EXIT_ERROR, EXIT_OK, EXIT_USAGE, createReporter } from './output'
 import { planTake } from './plan'
+import { isStage, recordStage } from './recordStage'
 import {
   MULTI_FLAGS,
   loadActions,
@@ -68,10 +69,19 @@ import type { StepSpan } from '@vosjs/studio-core'
 import type { CursorEvent, RecordingMeta } from '@vosjs/studio-core'
 import type { DriverWindow, RecordRequest, StoppedEvent } from '@vosjs/driver'
 
-const BOOLEAN_FLAGS = new Set(['json', 'help', 'windows', 'strict', 'dry-run'])
+const BOOLEAN_FLAGS = new Set([
+  'json',
+  'help',
+  'windows',
+  'strict',
+  'dry-run',
+  'stage',
+])
 
 const USAGE =
   'vos record --app <name|bundle id> [--out take] [--seconds <n>] [--max-duration <s>] [--background <slug|url|none>] [--json]\n' +
+  '       vos record --app <name> --app <name> … [--desk menubar,dock,wallpaper]   a stage: only those apps’ windows, on one display\n' +
+  '       vos record --app <name> --stage …   that one app’s every window\n' +
   '       vos record --app <name|bundle id> --actions actions.json [--out take] [--strict] [--confirm <id>]... …   scripted\n' +
   '       vos record --app <name|bundle id> --play play.mjs [--out take] …   played by a program\n' +
   '       vos record --window <id> …   one window by its id\n' +
@@ -99,6 +109,9 @@ export function isDesktopRecord(argv: string[]): boolean {
       a === '--windows' ||
       a === '--pid' ||
       a === '--play' ||
+      a === '--stage' ||
+      a === '--desk' ||
+      a.startsWith('--desk=') ||
       a.startsWith('--play=') ||
       a.startsWith('--app=') ||
       a.startsWith('--pid=') ||
@@ -263,15 +276,22 @@ export async function cmdRecordApp(
   argv: string[],
   deps: { driver?: DesktopDriver } = {},
 ): Promise<number> {
+  // --app may be given more than once: more than one is a stage (recordStage.ts).
   const { positionals, flags, multi } = parseArgs(
     argv,
     BOOLEAN_FLAGS,
-    MULTI_FLAGS,
+    new Set([...MULTI_FLAGS, 'app', 'desk']),
   )
   const r = createReporter(flags.json === true)
+  const appFlag = multi.app?.length === 1 ? multi.app[0] : undefined
+  const staged = isStage(flags, multi)
 
   // The script, read and refused before anything on the machine is touched.
   const actionsPath = strFlag(flags, 'actions') ?? positionals[0]
+  if (staged && (actionsPath || hasFlag(flags, 'play')))
+    throw new UsageError(
+      'a stage is performed: it takes no script and no program yet. Record each app with its own script and vos join the takes, or perform the stage',
+    )
   let actions: ActionsFile | undefined
   let confirm: string[] = []
   const playPath = strFlag(flags, 'play')
@@ -342,10 +362,20 @@ export async function cmdRecordApp(
     return EXIT_OK
   }
 
-  const app = strFlag(flags, 'app') ?? actions?.app
+  if (staged)
+    return recordStage({
+      flags,
+      multi,
+      driver,
+      accessibility: granted.accessibility,
+      r,
+      failure: driverFailure,
+    })
+
+  const app = appFlag ?? actions?.app
   if (actions && !granted.accessibility)
     throw new Error(ACCESSIBILITY_FOR_SCRIPT)
-  const target = desktopTarget(flags, actions?.app)
+  const target = desktopTarget(flags, app)
   if (!target) throw new UsageError(USAGE)
   const seconds = hasFlag(flags, 'seconds')
     ? numFlag(flags, 'seconds', NaN)

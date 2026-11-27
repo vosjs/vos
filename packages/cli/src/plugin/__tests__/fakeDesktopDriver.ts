@@ -45,7 +45,28 @@ export interface FakeOptions {
    * know a record request's `mask` (it records what the mask names).
    */
   old?: boolean
+  /**
+   * A driver from before 0.5.0: it does not know a stage, and reads a request
+   * that names `apps` as one that names nothing.
+   */
+  noStage?: boolean
 }
+
+/** What a stage request carries, beside what every take does. */
+type StageFields = { apps?: string[]; pids?: number[]; desk?: string[] }
+
+/** The stage the stand-in records: the track's window, and one more beside it. */
+export const STAGE_WINDOWS = (apps: string[]) => [
+  { id: 41, app: apps[0] ?? 'TextEdit', x: 60, y: 0, w: 656, h: 422 },
+  {
+    id: 43,
+    app: apps[1] ?? apps[0] ?? 'TextEdit',
+    x: 900,
+    y: 300,
+    w: 600,
+    h: 500,
+  },
+]
 
 /** The stand-in's selector check: it knows the one mistake the tests make. */
 const selectorProblem = (selector: string) =>
@@ -185,9 +206,21 @@ export function fakeDriver(o: FakeOptions = {}) {
     ],
     record: (request) => {
       requests.push(request)
-      if (o.fail) {
-        const error = Object.assign(new Error(o.fail.message), {
-          code: o.fail.code,
+      const stage = request as RecordRequest & StageFields
+      const staged = Boolean(stage.apps || stage.pids)
+      const names = stage.apps ?? ['TextEdit']
+      const fail =
+        o.fail ??
+        (staged && o.noStage
+          ? {
+              code: 'bad-request',
+              message:
+                "The request names no target: a window id, a process id, or an app's name or bundle id.",
+            }
+          : undefined)
+      if (fail) {
+        const error = Object.assign(new Error(fail.message), {
+          code: fail.code,
         })
         const failed = Promise.reject(error)
         failed.catch(() => {})
@@ -205,22 +238,42 @@ export function fakeDriver(o: FakeOptions = {}) {
         await writeFile(join(request.out, 'cursor.json'), JSON.stringify(TRACK))
         await writeFile(
           join(request.out, 'meta.json'),
-          JSON.stringify({
-            dpr: 2,
-            zoom: 1,
-            t0: 1794475400000,
-            durationMs: 6692,
-            width: 656,
-            height: 422,
-            fps: 60,
-            captureWidth: 1312,
-            captureHeight: 844,
-            captureSurface: 'app',
-            platform: 'mac',
-            producer: 'desktop',
-            cornerRadius: 18.2,
-            app: { name: 'TextEdit', id: 'com.apple.TextEdit' },
-          }),
+          JSON.stringify(
+            staged
+              ? {
+                  dpr: 2,
+                  zoom: 1,
+                  t0: 1794475400000,
+                  durationMs: 6692,
+                  width: 1728,
+                  height: 1084,
+                  fps: 60,
+                  captureWidth: 3456,
+                  captureHeight: 2168,
+                  captureSurface: 'desktop',
+                  platform: 'mac',
+                  producer: 'desktop',
+                  apps: names.map((name) => ({ name, id: `test.${name}` })),
+                  desk: stage.desk ?? [],
+                  windows: [{ t: 0, windows: STAGE_WINDOWS(names) }],
+                }
+              : {
+                  dpr: 2,
+                  zoom: 1,
+                  t0: 1794475400000,
+                  durationMs: 6692,
+                  width: 656,
+                  height: 422,
+                  fps: 60,
+                  captureWidth: 1312,
+                  captureHeight: 844,
+                  captureSurface: 'app',
+                  platform: 'mac',
+                  producer: 'desktop',
+                  cornerRadius: 18.2,
+                  app: { name: 'TextEdit', id: 'com.apple.TextEdit' },
+                },
+          ),
         )
       }
       const stopped = (reason: 'stop' | 'cap') =>
@@ -273,6 +326,19 @@ export function fakeDriver(o: FakeOptions = {}) {
           cornerRadius: 18.2,
           ...(!o.old && covered(request).length
             ? { masks: covered(request) }
+            : {}),
+          ...(staged
+            ? {
+                window: 0,
+                app: '',
+                frame: { x: 0, y: 33, w: 1728, h: 1084 },
+                captureWidth: 3456,
+                captureHeight: 2168,
+                filter: 'stage',
+                cornerRadius: 0,
+                apps: names.map((name) => ({ name, id: `test.${name}` })),
+                desk: stage.desk ?? [],
+              }
             : {}),
         } as never),
         done,
