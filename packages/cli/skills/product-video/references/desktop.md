@@ -67,6 +67,11 @@ A native app with no profile flag (Calculator, a document app) is safe to
 film directly only when it holds nothing: check it is not already running
 (`pgrep -x <Name>`), and leave it alone when it is.
 
+A take is one window. Two apps that must be seen at once (a command in
+one changes the other) are one take of both, a stage, where a name is
+every running instance of an app and the throwaway is named by `--pid`:
+`references/multi-app.md`.
+
 ## An app that is an account
 
 Some products have no throwaway instance: the app IS a signed-in account

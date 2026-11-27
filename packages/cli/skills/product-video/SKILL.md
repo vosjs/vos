@@ -1,6 +1,6 @@
 ---
 name: product-video
-description: Record and produce the demo video of a website, app, or feature with the vos CLI — the agent scripts the click path (actions.json), the recording auto-plans zooms, and every editing decision is data in doc.json, so fixes are edits and re-renders, never re-recordings. Renders are deterministic; export is free up to 4K with no watermark. Use when asked to make a product video, demo video, screen recording of a URL or feature, or a marketing clip, including a product behind a login (the session ladder: mint one from the project's own test auth before asking anyone), or when a feature was verified in agent-browser and that walk should become a take. Also a DESKTOP app (a Mac app, an Electron app such as VS Code, a terminal): the same script drives it through accessibility with vos record --app, from a throwaway instance. A whole release's video set (the launch demo and its social cuts) is the launch-kit skill, which records through this one.
+description: Record and produce the demo video of a website, app, or feature with the vos CLI — the agent scripts the click path (actions.json), the recording auto-plans zooms, and every editing decision is data in doc.json, so fixes are edits and re-renders, never re-recordings. Renders are deterministic; export is free up to 4K with no watermark. Use when asked to make a product video, demo video, screen recording of a URL or feature, or a marketing clip, including a product behind a login (the session ladder: mint one from the project's own test auth before asking anyone), or when a feature was verified in agent-browser and that walk should become a take. Also a DESKTOP app (a Mac app, an Electron app such as VS Code, a terminal, or several apps in one take): the same script drives it through accessibility with vos record --app, from a throwaway instance. A whole release's video set (the launch demo and its social cuts) is the launch-kit skill, which records through this one.
 license: MIT
 ---
 
@@ -83,11 +83,16 @@ is no rehearsal, and three rules come before any take.
   behind, and record a result that arrives later as two takes joined
   (`@vosjs/cli` 0.93 and later).
 
-- **A story across several apps is one take per app, joined.** A prompt
-  in a chat app, a command in a terminal, the result in a browser: each
-  window is its own take with its own stage, and `vos join` makes the
-  film. `references/multi-app.md` has the stages (a terminal, a browser,
-  a server), the join and the cut.
+- **A story across several apps: do the apps share a moment?** They do
+  not (a prompt in a chat app, then a command in a terminal, then the
+  result in a browser): one take per app, each window with its own
+  set-up, and `vos join` makes the film. They do (a command in one
+  window changes what another shows, a drag from one app into another):
+  that moment is ONE take of both, a stage, `vos record --app A --app B`
+  (0.97+; scripted with `"apps"` and a step's `"app"`, `--float`, and a
+  throwaway named by `--pid`, 0.98+). `references/multi-app.md` has both:
+  the set-ups (a terminal, a browser, a server), the stage, the join and
+  the cut.
 - **What answers back is played by a program, never scripted.** A game,
   a chart that moves, a drag that depends on where something landed:
   `vos record --app <name> --play play.mjs` (`@vosjs/cli` 0.94 and
@@ -443,6 +448,8 @@ when the ask is a release, not one video.
 
 - `vos record --app <name>` on an app someone has open with real work, or
   keys after a click that might miss: `references/desktop.md`.
+- Two takes joined for a moment two apps share, or a mask that names a
+  window title by its words: `references/multi-app.md`.
 - A zoom that opens before the click it frames: `validate` names it ("points
   beside what was clicked"); start the span after the click, or aim at it.
 - A focus point in pixels: `cx`/`cy` are fractions of the frame.

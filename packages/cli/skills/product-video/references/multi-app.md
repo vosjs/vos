@@ -4,10 +4,21 @@ Read this when the story leaves one window: a prompt in a chat app, a
 command in a terminal, the result in a browser. Read `desktop.md` first;
 everything in it holds for each app here.
 
-**The unit is still one window.** A take records one app's window, and a
-film is a list of takes: record each app as its own take, then
-`vos join` them. There is no capture of several windows at once, and none
-is needed. Needs `@vosjs/cli` 0.93 or later; what needs 0.94 says so.
+**Two shapes, chosen by one question: do the apps share a moment?**
+
+- **They do not** (ask in one app, then run in another, then look in a
+  third): each app is its own take of its own window, and the film is
+  `vos join` of them. Most of this page is that film. Needs `@vosjs/cli`
+  0.93 or later; what needs a later one says so.
+- **They do** (a command in one window changes what another shows, a
+  thing is dragged from one app into another, the viewer must see both
+  at once): that moment is ONE take of both apps, a **stage**. "A stage:
+  apps that share a moment", below. Needs `@vosjs/cli` 0.97 or later to
+  perform one and 0.98 or later to script one.
+
+A film may hold both: a stage for the hand-off, single takes for what
+comes before and after, joined. What is steered by a program (`--play`)
+is always a take of its own: a stage takes no program.
 
 ## Before the first take
 
@@ -77,12 +88,20 @@ export ZDOTDIR=/path/to/stage/zdot
 exec zsh -i
 ```
 
-- **Mask the title bar.** A terminal's title names the running process,
-  and once a tool rewrites its process title (`npm` does) the title can
-  show the environment of the shell that launched it. Cover the title's
-  text before the command runs:
-  `"mask": [{ "selector": "text[name*='<project> —']" }]` (read the role
-  and the name from `vos look`).
+- **Mask the title bar, by what it is.** A terminal's title names the
+  running process, and once a tool rewrites its process title (`npm`
+  does) the title can show the environment of the shell that launched
+  it. The title's words CHANGE while a command runs, so a mask that
+  names them (`text[name*='zsh']`) covers the title before and after the
+  command and shows it during, and `--strict` still passes, because the
+  mask matched when the take began. Name the role alone:
+  `"mask": [{ "selector": "text" }, { "selector": "image" }]` (the title
+  and the folder's icon beside it; read the roles from `vos look`, and
+  check the mask covers nothing else of that role).
+- **Give the window its size and place from inside**, when the take will
+  not (a stage records its windows as they are):
+  `printf '\e[8;24;70t\e[3;120;200t'` in the launch script makes it 24
+  rows by 70 columns at 120, 200 on the screen.
 - **A resize reflows the screen.** The take gives the window its
   `viewport`, and the prompt lands a third of the way down. Clear the
   screen in `setup`:
@@ -148,6 +167,93 @@ An app's Open panel is its own window: no selector of the take reaches
 it. Drive it with keys (`Meta+Shift+G`, the path, `Enter`, `Enter`), and
 expect what follows (a workspace trust dialog). When opening the folder
 is not the story, do it in `setup`.
+
+## A stage: apps that share a moment
+
+When two apps share a moment, record them in one take. The CLI calls that
+take a **stage** (above, a stage is the set-up an app is given before it
+is filmed; from here it is the take): one display with only the named
+apps' windows in its pixels, each where it is. Set each app up as above
+first.
+
+```bash
+vos record --windows                       # every window, with its app and pid
+vos record --actions ship.json --pid "$(cat $STAGE/chrome.pid)" \
+  --out take-ship --strict            # the script names the apps; --pid narrows the browser to the throwaway
+```
+
+```json
+{
+  "apps": ["Terminal", "Google Chrome"],
+  "setup": [
+    { "do": "type", "app": "Terminal", "selector": "textarea[name='shell']", "text": "clear" },
+    { "do": "press", "key": "Enter", "ms": 300 },
+    { "do": "click", "app": "Google Chrome", "selector": "button[name='Reload']", "ms": 900 }
+  ],
+  "mask": [
+    { "app": "Terminal", "selector": "text" },
+    { "app": "Terminal", "selector": "image" }
+  ],
+  "steps": [
+    { "do": "type", "app": "Terminal", "selector": "textarea[name='shell']", "text": "./deploy.sh", "id": "command", "caption": "Ship it" },
+    { "do": "press", "key": "Enter", "id": "run", "ms": 3400 },
+    { "do": "click", "app": "Google Chrome", "selector": "button[name='View release']", "id": "release", "caption": "And it is live", "payoff": true }
+  ]
+}
+```
+
+- **Nothing that was not named is recorded.** No other app, no
+  wallpaper, no Dock, no menu bar, and there is no flag that records the
+  screen as it is. Another app's window that crosses the stage mid-take
+  is kept out of every frame, and the take says so in a note.
+  `--desk menubar,dock,wallpaper` keeps a part of the desk when the desk
+  is the subject (a menu-bar app).
+- **A name is every running instance of that app.** Naming a browser the
+  person has open puts their windows on the stage. Name the throwaway by
+  `--pid <n>`, once for each process (0.98 and later): an app the script
+  also names is then that process alone. Name by name only an app that
+  was not running before you started it, and check with
+  `vos record --windows` that it has the stage's window and no other: a
+  terminal that reopened an old window has two, and both are on the
+  stage.
+- **The windows are recorded where and as they are.** A stage takes no
+  `viewport` and no `--window`. Give each app its size and place when it
+  is launched (a browser's `--window-size` and `--window-position`, the
+  terminal's own escape), side by side, with air between them and
+  nothing over what will be pressed. The frame is the whole display under
+  its menu bar: size the windows so that together they fill most of it,
+  or the film opens on small windows in an empty picture.
+- **The script names its apps** (`"apps"`, where one app's script names
+  `"app"`). A step says which app it acts on with its own `"app"`; a step
+  that says none stays with the app of the step before it, and the first
+  with the first app named. The app is brought forward when its step
+  runs. A drag may end in another app:
+  `"to": { "app": "Google Chrome", "selector": "…" }`. A `mask` and a
+  `setup` or `teardown` step say their app the same way.
+- **Look before scripting.** `vos look --app "A" --app "B"` takes one
+  picture of the stage and lists each app's controls. A throwaway is
+  looked at by its process, alone: `vos look --pid <n>`.
+- **Reset every app off camera, in `setup`**: clear the shell, reload the
+  page. The take then opens on the same state every time, and another
+  attempt needs nothing done by hand.
+- **`--float`** (0.98 and later) records the windows with nothing behind
+  them. In the film they stand on the backdrop, each with its own corners
+  and its own shadow, and no card is drawn around them. Without it they
+  sit on a plain ground inside the card. Not given with `--desk`.
+- **Performed, too.** With no `--actions` the take records while a person
+  works (`vos record --app "A" --app "B" --out take`, ended with
+  `--seconds <n>` or Control+C). The pointer's track is silent while the
+  pointer is over a window that was not named.
+- **Refused, in words**: `--play`, `--window`, a script's `viewport`.
+
+**Cutting it.** The plan knows which window each press belongs to: a zoom
+stays inside the window being worked in, and between beats the camera
+rests on that window (the spans named `w0`, `w1`). So when the point of a
+stretch is what the OTHER window does meanwhile (the page going live
+while the terminal prints), the camera is on the wrong window. Drop the
+rest over that stretch and put it in `rejected`: with no span there the
+camera steps back to the whole stage. That is the cut (the `vos-cut`
+skill's loop), never a second take.
 
 ## What answers back is played by a program
 
@@ -297,7 +403,13 @@ pointer and keyboard were taken.
 - Scripting play. If the thing answers back, it needs a loop.
 - Opening a picker of the person's recent work on camera.
 - Clips of a long task taken on a clock.
-- Trusting a terminal's title bar. Mask it.
+- Trusting a terminal's title bar. Mask it, by its role: a mask that
+  names the title's words loses it when a command runs.
+- Two takes joined for a moment two apps share. That is a stage.
+- Naming an app the person has open on a stage. Name the throwaway by
+  `--pid`.
+- A second take because the camera sat on the wrong window. Drop the
+  rest in the cut.
 - Typing into an address bar without selecting what is there.
 - Filming across a change of the system's appearance.
 - Leaving a server the agent started, or stopping one by pattern.
