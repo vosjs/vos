@@ -257,6 +257,8 @@ function round3(v: number): number {
 interface FrameSource {
   kind: 'video' | 'frames'
   url?: string
+  /** A floating take: the part of the file that is the picture (the matte stands under it). */
+  picture?: { w: number; h: number }
   frames?: { t: number; url: string }[]
 }
 
@@ -506,6 +508,19 @@ window.__digestSource = async (source) => {
     }
     const first = await getFrame(0)
     getFrame.width = first.videoWidth
+    if (source.picture) {
+      // A floating take's file holds a matte under its picture: only the picture is a frame.
+      const pc = document.createElement('canvas')
+      pc.width = source.picture.w
+      pc.height = source.picture.h
+      const px = pc.getContext('2d')
+      const cut = async (t) => {
+        const el = await getFrame(t)
+        px.drawImage(el, 0, 0, pc.width, pc.height, 0, 0, pc.width, pc.height)
+        return pc
+      }
+      return Object.assign(cut, { width: pc.width, height: pc.height })
+    }
     return Object.assign(getFrame, { width: v.videoWidth, height: v.videoHeight })
   }
   const frames = source.frames
@@ -564,6 +579,9 @@ export async function digestTake(
   let source: FrameSource = {
     kind: 'video',
     url: `/${take.paths.recordingName}`,
+    ...(meta.matte && meta.captureWidth
+      ? { picture: { w: meta.captureWidth, h: meta.matte.y } }
+      : {}),
   }
   if (existsSync(take.paths.framesIndex) && existsSync(take.paths.framesDir)) {
     const index = await readJson<{ file: string; tMs: number }[]>(
