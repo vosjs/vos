@@ -339,6 +339,8 @@ export async function cmdRecordApp(
       )
     play = await loadPlay(resolve(playPath))
     actions = play.take
+    // A program's take reads the shell by the same grant a script does.
+    grantReach(actions, flags, multi, playPath)
     const selectorProblem = await driverSelectorProblem(deps.driver)
     const problems = desktopProblems(actions, { selectorProblem })
     if (problems.length)

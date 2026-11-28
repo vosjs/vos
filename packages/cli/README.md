@@ -624,7 +624,7 @@ Not sure of a selector? `vos look <url>` (with the take's `--session` or `--stor
 
 ### What a script may reach
 
-An `actions.json` is a file, and files travel: a take is fetched, a script is shared, an agent is handed one. `vos record` runs it with your own hands, so a script describes a walk and never widens its own reach. Four things it may ask for, each granted by you, by name, on the command line:
+An `actions.json` is a file, and files travel: a take is fetched, a script is shared, an agent is handed one. `vos record` runs it with your own hands (as do `vos create` and a `vos look --actions`), so a script describes a walk and never widens its own reach. Four things it may ask for, each granted by you, by name, on the command line:
 
 | A script that... | runs only with | Why |
 | --- | --- | --- |

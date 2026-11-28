@@ -16,6 +16,7 @@
  * tested; the page probes are strings, because a function serialized out of
  * a bundle picks up the bundler's `__name` helper and dies in the page.
  */
+import { grantReach } from './scriptReach'
 import { cmdLookApp, isDesktopLook } from './lookApp'
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
@@ -939,8 +940,8 @@ export async function cmdLook(argv: string[]): Promise<number> {
   const steps = lookSteps(argv)
   const { positionals, flags, multi } = parseArgs(
     argv,
-    new Set(['json', 'headed']),
-    new Set(['click', 'type', 'header', 'browser-arg']),
+    new Set(['json', 'headed', 'allow-js']),
+    new Set(['click', 'type', 'header', 'browser-arg', 'env', 'allow-state']),
   )
   // Read here so the flag check knows they were used; the order is lookSteps'.
   void multi.click
@@ -956,6 +957,8 @@ export async function cmdLook(argv: string[]): Promise<number> {
   let actions: ActionsFile | undefined
   if (actionsArg) {
     actions = await loadLookActions(resolve(actionsArg))
+    // A look walks the script as a take does, with the same reach.
+    grantReach(actions, flags, multi, actionsArg)
     const bad = untilProblem(
       { actions: actionsArg, until: untilId, clicks: 0 },
       actions.steps,

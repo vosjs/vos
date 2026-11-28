@@ -16,6 +16,7 @@
  * macOS only. It needs Screen Recording (the picture) and Accessibility (the
  * outline) granted to the app this was run from.
  */
+import { grantReach } from './scriptReach'
 import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -155,8 +156,8 @@ export async function cmdLookApp(
   // --app may be given more than once: more than one is a stage (lookStage.ts).
   const { flags, multi } = parseArgs(
     argv,
-    new Set(['json', 'help']),
-    new Set(['confirm', 'app']),
+    new Set(['json', 'help', 'allow-js']),
+    new Set(['confirm', 'app', 'env', 'allow-state']),
   )
   const r = createReporter(flags.json === true)
   const appFlag = multi.app?.length === 1 ? multi.app[0] : undefined
@@ -184,6 +185,7 @@ export async function cmdLookApp(
         '--actions and --until go together: the script, and the id of the step to stop after',
       )
     actions = await loadActions(resolve(actionsArg), { desktop: true })
+    grantReach(actions, flags, multi, actionsArg)
     const selectorProblem = await driverSelectorProblem(deps.driver)
     const problems = desktopProblems(actions, { selectorProblem })
     if (problems.length)
