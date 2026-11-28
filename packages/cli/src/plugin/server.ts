@@ -46,8 +46,38 @@ const SAVE_NEVER = new Set([
   'meta.json',
   'cursor.json',
 ])
+/**
+ * What the pages write is PICTURES AND MEDIA, and a chunk on its way to
+ * being one: a list of what may be written, never a list of what may not.
+ * A page is where a stranger's program runs, and a take directory also
+ * holds files a later command reads as code or as instructions
+ * (`program.mjs`, which `vos build` imports; a script; a document). None
+ * of those has an extension on this list, so no page can write one.
+ */
+const SAVE_KINDS = new Set(['tmp', 'png', 'jpg', 'jpeg', 'webp', 'webm', 'mp4'])
 export function saveNameOk(name: string): boolean {
-  return SAVE_NAME.test(name) && !name.includes('..') && !SAVE_NEVER.has(name)
+  if (!SAVE_NAME.test(name) || name.includes('..') || SAVE_NEVER.has(name))
+    return false
+  const dot = name.lastIndexOf('.')
+  return dot > 0 && SAVE_KINDS.has(name.slice(dot + 1).toLowerCase())
+}
+
+/**
+ * Is this request addressed to the server by its own loopback name? The
+ * server listens on this machine alone, but a page anywhere can make a
+ * browser call it under a name that page controls (a DNS name re-pointed
+ * at 127.0.0.1), and such a request is `same-origin` to the browser. Its
+ * `Host` is then that name, never ours. A request with any other `Host`
+ * is answered 404 before anything is read.
+ */
+export function ownHost(host: unknown, port: number): boolean {
+  if (typeof host !== 'string') return false
+  const name = host.trim().toLowerCase()
+  return (
+    name === `127.0.0.1:${port}` ||
+    name === `localhost:${port}` ||
+    name === `[::1]:${port}`
+  )
 }
 
 /**
@@ -98,6 +128,12 @@ export function startTakeServer(
   const token = randomBytes(16).toString('hex')
   const prefix = `/t/${token}`
   const server = createServer((req, res) => {
+    const address = server.address()
+    const port = address && typeof address === 'object' ? address.port : 0
+    if (!ownHost(req.headers.host, port)) {
+      res.writeHead(404).end()
+      return
+    }
     const raw = new URL(req.url ?? '/', 'http://x')
     const tokened =
       raw.pathname === prefix || raw.pathname.startsWith(`${prefix}/`)

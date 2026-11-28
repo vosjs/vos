@@ -8,6 +8,7 @@
  * file a `download` step kept and `page-sound/<name>` for every sound the
  * page was heard playing.
  */
+import { grantedStatePaths, peerStatePath, scriptEnv } from './scriptReach'
 import { writeFileSync } from 'node:fs'
 import { lstat, mkdir, readFile, realpath } from 'node:fs/promises'
 import { join, resolve, sep } from 'node:path'
@@ -103,7 +104,7 @@ export function actionsDirFiles(dir: string): ScriptFiles {
  */
 export function peerStateFrom(dir: string): (name: string) => Promise<string> {
   return async (name) => {
-    const file = resolve(dir, name)
+    const file = peerStatePath(dir, name, grantedStatePaths())
     let raw: string
     try {
       raw = await readFile(file, 'utf8')
@@ -221,7 +222,7 @@ export async function recordTake(
             peerStorageState: peerStateFrom(opts.actionsDir),
           }
         : {}),
-      env: process.env,
+      env: scriptEnv(),
       platform:
         process.platform === 'darwin'
           ? 'mac'

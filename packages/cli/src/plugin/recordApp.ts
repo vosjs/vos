@@ -27,6 +27,7 @@
  * This file owns the verb; the helper, its protocol and its permissions are
  * `@vosjs/driver`'s.
  */
+import { grantReach, scriptedDesktopProblem } from './scriptReach'
 import { existsSync } from 'node:fs'
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
@@ -174,15 +175,25 @@ export function targetWords(
 export async function scriptNamesApp(
   file: string | undefined,
 ): Promise<boolean> {
-  if (!file) return false
+  return (await scriptApps(file)) !== null
+}
+
+/** The app or apps a script names, or null when it names none (a page's script). */
+export async function scriptApps(
+  file: string | undefined,
+): Promise<{ app?: string; apps?: string[] } | null> {
+  if (!file) return null
   try {
     const raw = await readJson<{ app?: unknown; apps?: unknown }>(resolve(file))
-    return (
-      (typeof raw?.app === 'string' && raw.app.trim().length > 0) ||
-      (Array.isArray(raw?.apps) && raw.apps.length > 0)
-    )
+    const apps = Array.isArray(raw?.apps)
+      ? raw.apps.filter((a): a is string => typeof a === 'string')
+      : []
+    if (apps.length > 0) return { apps }
+    if (typeof raw?.app === 'string' && raw.app.trim().length > 0)
+      return { app: raw.app }
+    return null
   } catch {
-    return false
+    return null
   }
 }
 
@@ -328,6 +339,8 @@ export async function cmdRecordApp(
       )
     play = await loadPlay(resolve(playPath))
     actions = play.take
+    // A program's take reads the shell by the same grant a script does.
+    grantReach(actions, flags, multi, playPath)
     const selectorProblem = await driverSelectorProblem(deps.driver)
     const problems = desktopProblems(actions, { selectorProblem })
     if (problems.length)
@@ -338,6 +351,17 @@ export async function cmdRecordApp(
     if (stage) throw new UsageError(stage)
   } else if (actionsPath && flags.windows !== true) {
     actions = await loadActions(resolve(actionsPath), { desktop: true })
+    // The person names the app; the script only has to agree (scriptReach.ts).
+    const unnamed = scriptedDesktopProblem(
+      actions,
+      {
+        apps: multi.app ?? [],
+        byWindow: hasFlag(flags, 'window') || (multi.pid?.length ?? 0) > 0,
+      },
+      actionsPath,
+    )
+    if (unnamed) throw new UsageError(unnamed)
+    grantReach(actions, flags, multi, actionsPath)
     const selectorProblem = await driverSelectorProblem(deps.driver)
     const problems = desktopProblems(actions, { selectorProblem })
     if (problems.length)
