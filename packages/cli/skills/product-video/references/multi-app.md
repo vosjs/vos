@@ -229,7 +229,9 @@ vos record --actions ship.json --pid "$(cat $STAGE/chrome.pid)" \
   with the first app named. The app is brought forward when its step
   runs. A drag may end in another app:
   `"to": { "app": "Google Chrome", "selector": "…" }`. A `mask` and a
-  `setup` or `teardown` step say their app the same way.
+  `setup` or `teardown` step say their app the same way. The command line
+  still names the stage (`--app` for each, or `--pid`): a script's own
+  `"apps"` never starts a desktop take (`@vosjs/cli` 0.99 and later).
 - **Look before scripting.** `vos look --app "A" --app "B"` takes one
   picture of the stage and lists each app's controls. A throwaway is
   looked at by its process, alone: `vos look --pid <n>`.
