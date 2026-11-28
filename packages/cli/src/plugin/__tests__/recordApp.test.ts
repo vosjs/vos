@@ -326,7 +326,7 @@ describe('vos record --app --actions: a scripted desktop take', () => {
     expect(done!.strictFailed).toBeUndefined()
   })
 
-  it('a script that names its app needs no --app', async () => {
+  it('a script that names its app still needs the person to name it', async () => {
     const file = await script('s2', {
       app: 'TextEdit',
       steps: [{ do: 'wait', ms: 10 }],
@@ -334,7 +334,18 @@ describe('vos record --app --actions: a scripted desktop take', () => {
     expect(await scriptNamesApp(file)).toBe(true)
     expect(await scriptNamesApp(await script('s2b', SAVE_AND_TYPE))).toBe(false)
     expect(await scriptNamesApp(join(dir, 'missing.json'))).toBe(false)
-    const { code, requests } = await run([file, '--out', join(dir, 's2')])
+    // The file alone never reaches the desktop, and says what would.
+    await expect(run([file, '--out', join(dir, 's2')])).rejects.toThrow(
+      /drives TextEdit on your desktop.*--app "TextEdit"/s,
+    )
+    const { code, requests } = await run([
+      '--app',
+      'TextEdit',
+      '--actions',
+      file,
+      '--out',
+      join(dir, 's2'),
+    ])
     expect(code).toBe(0)
     expect(requests[0]).toMatchObject({ app: 'TextEdit', drive: true })
     expect(requests[0]!.size).toBeUndefined()

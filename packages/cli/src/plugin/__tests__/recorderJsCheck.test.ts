@@ -225,7 +225,7 @@ describe('vos record with a js check', () => {
         ],
       }),
     )
-    const r = await vos([
+    const walk = [
       'record',
       '--actions',
       file,
@@ -234,7 +234,12 @@ describe('vos record with a js check', () => {
       'none',
       '--max-duration',
       '60',
-    ])
+    ]
+    // A js check runs in the page only on the person's word.
+    const refused = await vos(walk)
+    expect(refused.code).toBe(2)
+    expect(refused.out + refused.err).toContain('--allow-js')
+    const r = await vos([...walk, '--allow-js'])
     expect(r.code).toBe(2)
     expect(r.out + r.err).toContain(
       'js `window.app.count()` was 2, not 14, for 0.5 s',

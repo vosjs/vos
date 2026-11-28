@@ -31,6 +31,25 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+/**
+ * A script never chooses the apps it drives: the person names them. These
+ * tests are about what a stage then does, so the stage's apps are named
+ * here from the script, as someone running it would.
+ */
+async function naming(argv: string[]): Promise<string[]> {
+  if (argv.includes('--app')) return argv
+  const file = argv[argv.indexOf('--actions') + 1]
+  if (!file) return argv
+  try {
+    const { apps } = JSON.parse(await readFile(file, 'utf8')) as {
+      apps?: string[]
+    }
+    return [...(apps ?? []).flatMap((app) => ['--app', app]), ...argv]
+  } catch {
+    return argv
+  }
+}
+
 async function run(argv: string[], o: FakeOptions = {}) {
   const out: string[] = []
   vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
@@ -40,7 +59,14 @@ async function run(argv: string[], o: FakeOptions = {}) {
   vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
   const fake = fakeDriver(o)
   const code = await cmdRecordApp(
-    [...argv, '--background', 'none', '--max-duration', '600', '--json'],
+    [
+      ...(await naming(argv)),
+      '--background',
+      'none',
+      '--max-duration',
+      '600',
+      '--json',
+    ],
     { driver: fake.driver },
   )
   const events = out

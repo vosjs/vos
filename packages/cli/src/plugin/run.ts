@@ -167,7 +167,8 @@ import {
 import { urlSchemeProblem } from '@vosjs/render-core/record'
 import { cmdActions } from './agentBrowser'
 import { cmdIngest } from './ingest'
-import { cmdRecordApp, isDesktopRecord, scriptNamesApp } from './recordApp'
+import { cmdRecordApp, isDesktopRecord, scriptApps } from './recordApp'
+import { grantReach, scriptEnv, scriptedDesktopProblem } from './scriptReach'
 import { desktopProblems } from '@vosjs/render-core/record'
 import { driverSelectorProblem } from './desktopStage'
 import { cmdCheckVideo } from './checkVideo'
@@ -224,6 +225,8 @@ const BOOLEAN_FLAGS = new Set([
   'keep-frames',
   'dry-run',
   'allow-wall',
+  // A script's `js` checks run in the page only on this word (scriptReach.ts).
+  'allow-js',
   'hosted',
   'claimable',
   'share',
@@ -237,6 +240,9 @@ export const MULTI_FLAGS = new Set([
   'browser-arg',
   'header',
   'confirm',
+  // What a script may reach on this machine (scriptReach.ts).
+  'env',
+  'allow-state',
 ])
 
 export const HELP = `vos — record a browser flow, plan effects, render a product video; sync with vos.so
@@ -1194,11 +1200,22 @@ async function cmdRecord(argv: string[]): Promise<number> {
     throw new UsageError(
       'vos record --actions actions.json [--url <url>] [--out take]',
     )
-  // A script that names an app is a desktop take's, whatever the flags say.
-  if (!hasFlag(flags, 'url') && (await scriptNamesApp(actionsPath)))
-    return cmdRecordApp(argv)
+  // A script that names an app is a desktop take's, and a script never
+  // chooses the desktop: the person names the app (scriptReach.ts).
+  if (!hasFlag(flags, 'url')) {
+    const desktop = await scriptApps(actionsPath)
+    if (desktop) {
+      const problem = scriptedDesktopProblem(
+        desktop,
+        { apps: [], byWindow: false },
+        actionsPath,
+      )
+      if (problem) throw new UsageError(problem)
+    }
+  }
   const r = createReporter(flags.json === true)
   const actions = withReady(await loadActions(actionsPath), flags)
+  grantReach(actions, flags, multi, actionsPath)
   const url = strFlag(flags, 'url') ?? actions.url
   if (!url)
     throw new UsageError('no URL — set "url" in the actions file or pass --url')
@@ -1260,7 +1277,7 @@ async function cmdRecord(argv: string[]): Promise<number> {
       throw new UsageError(
         `recording on ${origin} needs a credential: vos login, or VOS_API_KEY (mint a key at ${mintAt(origin)})`,
       )
-    const { env, missing } = hostedEnv(actions, process.env)
+    const { env, missing } = hostedEnv(actions, scriptEnv())
     if (missing.length)
       throw new UsageError(
         `${envReaders(actions)} ${missing.map((n) => `{ "env": "${n}" }`).join(', ')} and this shell has no ${missing.length === 1 ? 'value for it' : 'values for them'}; export ${missing.join(', ')} and run again (the value rides the job, and is never stored)`,
@@ -1615,6 +1632,7 @@ async function cmdCreate(argv: string[]): Promise<number> {
   }
   const r = createReporter(flags.json === true)
   const actions = withReady(await loadActions(actionsPath), flags)
+  grantReach(actions, flags, multi, actionsPath)
   const url = strFlag(flags, 'url') ?? actions.url
   if (!url)
     throw new UsageError('no URL — set "url" in the actions file or pass --url')

@@ -321,7 +321,7 @@ export default async function (play, { window }) {
 
 | Verb     | Flags                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `record` | `--actions <file>` (or positional) `--url` `--out take` `--strict` `--dry-run` `--allow-wall` `--keep-frames` `--storage-state <file>` or `--session <name>` `--header name=value`... `--confirm <id>`... `--browser-arg=<switch>`... `--max-duration <s>` `--ready dom\|networkidle` `--background <slug\|url\|none>` `--hosted` (record on vos.so; with `--title` `--folder <id>`); `--app <name\|bundle id>` or `--window <id>` (a desktop app's window, with `--seconds <n>` `--out` `--max-duration` `--background`; with `--actions`, scripted: `--strict` `--confirm <id>`...), `--play <file.mjs>` (played by a program), `--pid <n>` (a process's window), `--windows` |
+| `record` | `--actions <file>` (or positional) `--url` `--out take` `--strict` `--dry-run` `--allow-wall` `--keep-frames` `--storage-state <file>` or `--session <name>` `--header name=value`... `--confirm <id>`... `--env <NAME>`... `--allow-js` `--allow-state <file>`... `--browser-arg=<switch>`... `--max-duration <s>` `--ready dom\|networkidle` `--background <slug\|url\|none>` `--hosted` (record on vos.so; with `--title` `--folder <id>`); `--app <name\|bundle id>` or `--window <id>` (a desktop app's window, with `--seconds <n>` `--out` `--max-duration` `--background`; with `--actions`, scripted: `--strict` `--confirm <id>`...), `--play <file.mjs>` (played by a program), `--pid <n>` (a process's window), `--windows` |
 | `create` | The `record` flags plus the render flags (`--width` `--height` `--fps` `--format` `--parallel` `--draft` `--frame` `--set`), no `--range`. With `--strict` an incomplete recording exits 2 before anything is rendered                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | `plan`   | `--fresh` (discard the current plan) `--reuse` `--from <doc.json>` (defaults to `<take>/doc.prev.json`) `--style <doc.json\|take\|vosId>` `--with <doc.json\|take\|vosId>[@end\|@start\|@step:<id>\|@<seconds>]` (a template, repeatable) `--background` `--motion` (re-propose the motion) `--headline` `--kicker` `--launch` `--brand` `--music` `--entrance` `--transitions slide\|fade\|scale\|none` `--end-card on\|none\|<ref>` `--captions` (bare: the step captions, anchored; `none`: no beat captions) `--clicks` `--release` `--zooms per-beat` (at most one zoom per captioned step)                                                                                |
 | `digest` | `--out <take>/digest` `--full 960` `--crop 640` (image long edges, the token budget) `--no-frames` `--transcript <file>` (Whisper-shaped segments merged as `said`) `--style <ref>` (report a reference document's style fields)                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -621,6 +621,26 @@ Three steps that are not gestures, and a guard:
 Verified the flow in agent-browser already? `vos actions from-agent-browser steps.jsonl [--out actions.json] [--url] [--viewport WxH]` writes the script from that walk (each command kept beside its `--json` result, the batch record shape; refs resolve through the last `snapshot -i`), and names every step the recorder cannot follow rather than dropping it.
 
 Not sure of a selector? `vos look <url>` (with the take's `--session` or `--storage-state`) prints every control on screen with one proposed selector, counted UNIQUE or AMBIGUOUS by the recorder's own engine, and `--click` walks it to the next screen; take a UNIQUE one into a step as it is, then rehearse with `--dry-run`.
+
+### What a script may reach
+
+An `actions.json` is a file, and files travel: a take is fetched, a script is shared, an agent is handed one. `vos record` runs it with your own hands, so a script describes a walk and never widens its own reach. Four things it may ask for, each granted by you, by name, on the command line:
+
+| A script that... | runs only with | Why |
+| --- | --- | --- |
+| names an `app` or `apps` | `--app "<name>"` (or `--window` / `--pid`) | A desktop take presses and types with your real pointer and keyboard. The file never chooses the app |
+| reads `{ "env": "NAME" }` | `--env NAME` | Only the names you pass are readable; every other shell variable is absent, whatever the script asks for. A name, never `NAME=value` |
+| has a `js` check | `--allow-js` | The expression runs in the page as whoever the browser is signed in as |
+| opens a peer from a `storageState` outside its own directory | `--allow-state <file>` | A saved sign-in is an account. One beside the script needs no flag |
+
+A refusal is the command that grants it:
+
+```
+actions.json reads this variable from your shell and types it into the page: DEMO_PASSWORD.
+A script reads only the names you pass. If that is what you mean: --env DEMO_PASSWORD
+```
+
+So a script you wrote costs one word, and one you were handed has just told you what it wanted.
 
 ## doc.json
 

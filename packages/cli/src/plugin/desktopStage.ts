@@ -10,6 +10,7 @@
  * brought forward and pressed exactly as a take presses it, and nothing of
  * it reaches the take.
  */
+import { scriptEnv } from './scriptReach'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -62,7 +63,7 @@ export async function driverSelectorProblem(
 export function desktopStageProblem(
   actions: ActionsFile,
   canMask: boolean,
-  env: Record<string, string | undefined> = process.env,
+  env: Record<string, string | undefined> = scriptEnv(),
 ): string | null {
   if (actions.mask?.length && !canMask)
     return 'the script has a mask, and the @vosjs/driver installed here does not cover one: it would record what the mask names. Install @vosjs/driver 0.4.0 or later (npm i -D @vosjs/cli@latest). Nothing was recorded.'
@@ -111,7 +112,7 @@ export async function offCamera(
       await take.ready
       log(`${phase}: ${steps.length} step(s), off camera…`)
       return await runDesktopSetup(take, steps, phase, log, {
-        env: process.env,
+        env: scriptEnv(),
         ...(actions.apps ? { apps: actions.apps } : {}),
       })
     } finally {
