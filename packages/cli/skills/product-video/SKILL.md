@@ -205,7 +205,8 @@ person before recording**; an answer that does neither was not an answer.
    with auth off) → MINT a session from the test auth the project already
    has (`playwright/.auth`, an `auth.setup.ts`, a seed script: look before
    you ask anyone anything) → sign in off camera with `setup` in
-   `actions.json` (the password from `{ "env": "NAME" }`, never a literal) →
+   `actions.json` (the password from `{ "env": "NAME" }` with `--env NAME`
+   on the command line, never a literal) →
    the human signs in once (`vos session open <url> --name <app>`, then
    `--session <app>` on record) → the human records with the extension from the shot list
    `vos actions script actions.json` prints, and you cut it. Every
@@ -307,7 +308,8 @@ person before recording**; an answer that does neither was not an answer.
    the product in the wrong state (loaded twice, a duplicate on screen),
    because the DOM says nothing about what a canvas app holds; with
    `equals` a miss says what the app had. Read state only, never change
-   it. A collaboration product wants a second person on the page: `peers`
+   it. A `js` check runs only with `--allow-js` on the command line (0.99
+   and later; it runs as whoever is signed in). A collaboration product wants a second person on the page: `peers`
    in `actions.json` (https://vos.so/llms-full.txt).
 
    Then REHEARSE it (`@vosjs/cli` 0.39 and later):

@@ -176,7 +176,10 @@ The script is the same `actions.json`, with `"app"` where a page has
 `"url"`. Always write `"app"`: it is what tells `vos validate` and the
 recorder that this is a desktop script (without it a `type` with no field
 is refused as a page's). `--pid` on the command line still decides WHICH
-window:
+window, and a script never reaches the desktop by its `"app"` alone
+(`@vosjs/cli` 0.99 and later): the command names what to drive with
+`--pid`, `--app` or `--window`, or the take is refused with the command
+that would run it:
 
 ```json
 {

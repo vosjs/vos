@@ -70,7 +70,20 @@ begins signed in. No state file, nothing to mint, nothing to delete.
 ```
 
 The password comes from the SHELL at run time (`{ "env": "NAME" }`) and is
-never logged or stored: the log names the field, never the value.
+never logged or stored: the log names the field, never the value. Name
+each variable the script reads on the command line (`@vosjs/cli` 0.99
+and later), on the rehearsal and the take alike:
+
+```bash
+vos record --actions actions.json --out take --env DEMO_PASSWORD --dry-run
+vos record --actions actions.json --out take --env DEMO_PASSWORD --strict --json
+```
+
+`--env` takes the NAME, never `NAME=value`. A script reads only the names
+passed: one it asks for and was not handed exits 2 with the flag that
+grants it, and every other variable in the shell is absent to it. That is
+what lets a script you were handed be run at all: it has just said what it
+wanted.
 `validate` refuses a literal typed into a password field, because
 `actions.json` is committed and pushed with the take. Export the variable
 in the shell that runs `vos record`; an unset one exits 2 in words. A
